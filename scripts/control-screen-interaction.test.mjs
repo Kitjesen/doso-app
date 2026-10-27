@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { BrainstemControlSession } from '../src/features/control/brainstemControlSession.ts';
 
 const require = createRequire(import.meta.url);
 const source = readFileSync(new URL('../src/screens/ControlScreen.tsx', import.meta.url), 'utf8');
@@ -638,16 +639,28 @@ test('landscape exposes actual robot policy IDs without guessing terrain names o
   screen.unmount();
 });
 
-test('slot buttons confirm and dispatch the advertised ID in portrait and landscape', async () => {
+test('real control session feeds slot buttons and dispatches the advertised ID in portrait and landscape', async () => {
   for (const landscape of [false, true]) {
     const calls = [];
+    const status = { fsmKind: 'standing', transition: 'none', motorOutputEnabled: true,
+      owner: 'none', criticalMotorFault: false, grpcLeaseActive: false, readyForWalk: false };
+    let profile = { current: 'w5_89999', currentDescription: 'flat: W5',
+      available: ['w5_89999', 'cts_v39_61128'], descriptions: ['flat: W5', 'stairs: CTS'] };
+    const reply = () => ({ status, profile, leaseActive: false, principalVerified: false });
+    const session = new BrainstemControlSession({
+      async open() { return { ...reply(), sessionId: 'screen-fixture', transport: 'grpc-mtls', mutualTlsVerified: true }; },
+      async action(_sessionId, action, id) {
+        assert.equal(action, 'switch-profile'); calls.push(id);
+        profile = { ...profile, current: id, currentDescription: profile.descriptions[profile.available.indexOf(id)] };
+        return reply();
+      },
+      async interrupt() { return reply(); }, async close() {},
+    }, () => true, () => 1000);
+    assert.equal(await session.connect({ host: 'robot.example', port: 13145, clientIdentityAlias: 'fixture' }, 'screen-fixture'), true);
     const screen = mount({ dev: false, dimensions: { width: landscape ? 800 : 430, height: landscape ? 480 : 900, fontScale: 1 },
-      runtimeState: { policyCatalogStatus: 'synced', terrainMode: { current: 'flat', catalogStatus: 'synced',
-        options: [{ id: 'flat', label: '平地模式' }, { id: 'stairs', label: '楼梯模式' }] },
-        currentPolicy: { id: 'w5_89999', label: 'W5' }, policyOptions: [
-          { id: 'w5_89999', label: 'flat: W5', terrainModeId: 'flat' },
-          { id: 'cts_v39_61128', label: 'stairs: CTS', terrainModeId: 'stairs' }] },
-      operationReadiness: { switchPolicy: { ready: true } }, operationCallbacks: { switchPolicy(id) { calls.push(id); } } });
+      runtimeState: session.runtimeState,
+      operationReadiness: session.operationReadiness,
+      operationCallbacks: { switchPolicy: id => session.action('switch-profile', id) } });
     if (landscape) { screen.find('control-open-policy').props.onPress(); screen.render(); }
     const prefix = landscape ? 'control-mode-' : 'control-terrain-mode-';
     assert.equal(screen.find(`${prefix}flat`).props.disabled, true);
@@ -659,6 +672,7 @@ test('slot buttons confirm and dispatch the advertised ID in portrait and landsc
     await screen.settle();
     assert.deepEqual(calls, ['cts_v39_61128']);
     screen.unmount();
+    session.dispose();
   }
 });
 

@@ -108,7 +108,7 @@ function jointStatesFromMotors(motors: readonly BrainstemGrpcMotorState[] | unde
   }));
 }
 
-function profileOptions(profile: BrainstemGrpcProfile): readonly ControlPolicyOption[] {
+export function profileOptions(profile: BrainstemGrpcProfile): readonly ControlPolicyOption[] {
   const descriptions = profile.descriptions;
   const seen = new Set<string>();
   return profile.available.map((id, index) => {
@@ -123,7 +123,7 @@ function profileOptions(profile: BrainstemGrpcProfile): readonly ControlPolicyOp
   });
 }
 
-function terrainModeFromProfile(profile: BrainstemGrpcProfile): { current: ControlTerrainModeId | null; options: readonly ControlTerrainModeOption[] } {
+export function terrainModeFromProfile(profile: BrainstemGrpcProfile): { current: ControlTerrainModeId | null; options: readonly ControlTerrainModeOption[] } {
   const policies = profileOptions(profile);
   const options = TERRAIN_MODE_OPTIONS.filter(option => policies.filter(item => item.terrainModeId === option.id).length === 1);
   const current = policies.find(item => item.id === profile.current)?.terrainModeId ?? null;

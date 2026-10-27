@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { BrainstemControlSession } from '../src/features/control/brainstemControlSession.ts';
+import { getControlTerrainPolicies, getControlTerrainModeOptions } from '../src/features/control/controlOperations.ts';
 
 const status = (patch = {}) => ({ fsmKind: 'grounded', transition: 'none', motorOutputEnabled: false,
   owner: 'none', criticalMotorFault: false, grpcLeaseActive: false, readyForWalk: false, ...patch });
-function fixture() {
+function fixture(profile = { current: 'flat', available: ['flat', 'stairs'], descriptions: [], currentDescription: '' }) {
   let at = 1000;
   let current = status();
   let lease = false;
@@ -13,7 +14,7 @@ function fixture() {
   const calls = [];
   const reply = extra => ({ status: { ...current }, leaseActive: lease, principalVerified: verified, ...extra });
   const transport = {
-    async open(endpoint, principal) { calls.push(['open', endpoint.host, principal]); return { ...reply(), sessionId: 's1', transport: 'grpc-mtls', mutualTlsVerified: true, profile: { current: 'flat', available: ['flat', 'stairs'], descriptions: [], currentDescription: '' } }; },
+    async open(endpoint, principal) { calls.push(['open', endpoint.host, principal]); return { ...reply(), sessionId: 's1', transport: 'grpc-mtls', mutualTlsVerified: true, profile }; },
     async read() { calls.push(['read']); return reply(); },
     async action(id, action, profile) {
       calls.push(['action', action, profile]); lease = false; verified = true;
@@ -34,6 +35,43 @@ function fixture() {
 }
 const endpoint = { host: '192.0.2.1', port: 13145, clientIdentityAlias: 'fixture' };
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+
+test('the live control session preserves advertised terrain slots and dispatches actual model IDs', async () => {
+  const f = fixture({ current: 'w5_89999', available: ['w5_89999', 'cts_v39_61128'],
+    descriptions: ['flat: W5', 'stairs: CTS'], currentDescription: 'flat: W5' });
+  try {
+    await f.session.connect(endpoint, 'doso-g20@robot');
+    const state = f.session.runtimeState;
+    assert.deepEqual(state.currentPolicy, { id: 'w5_89999', label: 'flat: W5' });
+    assert.deepEqual(state.policyOptions, [
+      { id: 'w5_89999', label: 'flat: W5', terrainModeId: 'flat' },
+      { id: 'cts_v39_61128', label: 'stairs: CTS', terrainModeId: 'stairs' },
+    ]);
+    assert.equal(state.terrainMode.current, 'flat');
+    assert.equal(state.terrainMode.source, 'device');
+    assert.deepEqual(getControlTerrainModeOptions(state).map(option => option.id), ['flat', 'stairs']);
+    assert.deepEqual(getControlTerrainPolicies(state).map(option => option.profileId), ['w5_89999', 'cts_v39_61128', null]);
+    await f.session.action('switch-profile', 'cts_v39_61128');
+    assert.deepEqual(f.calls.find(call => call[0] === 'action'), ['action', 'switch-profile', 'cts_v39_61128']);
+    f.advance(1500);
+    assert.equal(f.session.runtimeState.currentPolicy, null);
+    assert.deepEqual(f.session.runtimeState.policyOptions, []);
+    assert.equal(f.session.runtimeState.terrainMode, undefined);
+    assert.deepEqual(getControlTerrainModeOptions(f.session.runtimeState), []);
+  } finally { f.session.dispose(); }
+});
+
+test('the live control session does not select or offer an ambiguous terrain slot', async () => {
+  const f = fixture({ current: 'w5_89999', available: ['w5_89999', 'w5_other', 'cts_v39_61128'],
+    descriptions: ['flat: W5', 'flat: Other', 'stairs: CTS'], currentDescription: 'flat: W5' });
+  try {
+    await f.session.connect(endpoint, 'doso-g20@robot');
+    const state = f.session.runtimeState;
+    assert.equal(state.terrainMode.current, null);
+    assert.deepEqual(getControlTerrainModeOptions(state).map(option => option.id), ['stairs']);
+    assert.equal(getControlTerrainPolicies(state).find(option => option.id === 'flat').profileId, null);
+  } finally { f.session.dispose(); }
+});
 
 test('Walking needs an explicit stand after confirmed lease release; release and refresh never stand automatically', async () => {
   const f = fixture();

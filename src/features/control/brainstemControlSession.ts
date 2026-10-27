@@ -1,6 +1,8 @@
 import type { BrainstemControlAction, BrainstemControlReply, BrainstemControlTransport } from '../../services/brainstemControl';
 import type { BrainstemGrpcEndpoint, BrainstemGrpcProfile, BrainstemGrpcStatus } from '../../services/brainstemGrpc';
 import type { ControlActionReadiness, ControlOperation, ControlRuntimeState } from './controlOperations';
+// @ts-expect-error Node 24 type stripping requires explicit TypeScript extensions.
+import { profileOptions, terrainModeFromProfile } from '../../services/directRobotConnection.ts';
 
 export type BrainstemControlState = Readonly<{
   phase: 'disconnected' | 'connecting' | 'ready' | 'operating' | 'armed' | 'error';
@@ -348,6 +350,7 @@ export class BrainstemControlSession {
   get runtimeState(): ControlRuntimeState {
     const s = this.fresh() ? this.state.status : null;
     const profile = s ? this.state.profile : null;
+    const terrain = profile ? terrainModeFromProfile(profile) : null;
     // An in-flight native action can outlast telemetry freshness without losing its channel.
     const awaitingAction = this.state.connected && this.pendingAction !== null;
     return { controlLink: s || awaitingAction ? 'connected' : 'disconnected', controlAuthority: this.canUseManualControl ? 'held' : 'not-held',
@@ -356,8 +359,9 @@ export class BrainstemControlSession {
       // Walking is not confirmation that a fixed-pose StandUp has completed.
       posture: s?.fsmKind === 'standing' ? 'standing' : s?.fsmKind === 'grounded' ? 'sitting' : 'unknown',
       faultStatus: s ? s.criticalMotorFault ? 'active' : 'clear' : 'unknown',
-      currentPolicy: profile?.current ? { id: profile.current, label: profile.current } : null,
-      policyCatalogStatus: profile ? 'synced' : 'unknown', policyOptions: profile?.available.map(id => ({ id, label: id })) ?? [],
+      currentPolicy: profile?.current ? { id: profile.current, label: profile.currentDescription || profile.current } : null,
+      policyCatalogStatus: profile ? 'synced' : 'unknown', policyOptions: profile ? profileOptions(profile) : [],
+      ...(terrain ? { terrainMode: { ...terrain, catalogStatus: 'synced' as const, source: 'device' as const } } : {}),
       speed: { linearMps: null, lateralMps: null, yawRps: null, source: 'unknown' }, inputSource: 'touch' };
   }
 }
