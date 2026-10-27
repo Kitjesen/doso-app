@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
+import { BrainstemControlSession } from '../src/features/control/brainstemControlSession.ts';
 
 const require = createRequire(import.meta.url);
 const source = readFileSync(new URL('../src/screens/ControlScreen.tsx', import.meta.url), 'utf8');
@@ -636,6 +637,43 @@ test('landscape exposes actual robot policy IDs without guessing terrain names o
   assert.match(screen.copy, /确认.*候选策略/);
   assert.equal(called, 0);
   screen.unmount();
+});
+
+test('real control session feeds slot buttons and dispatches the advertised ID in portrait and landscape', async () => {
+  for (const landscape of [false, true]) {
+    const calls = [];
+    const status = { fsmKind: 'standing', transition: 'none', motorOutputEnabled: true,
+      owner: 'none', criticalMotorFault: false, grpcLeaseActive: false, readyForWalk: false };
+    let profile = { current: 'w5_89999', currentDescription: 'flat: W5',
+      available: ['w5_89999', 'cts_v39_61128'], descriptions: ['flat: W5', 'stairs: CTS'] };
+    const reply = () => ({ status, profile, leaseActive: false, principalVerified: false });
+    const session = new BrainstemControlSession({
+      async open() { return { ...reply(), sessionId: 'screen-fixture', transport: 'grpc-mtls', mutualTlsVerified: true }; },
+      async action(_sessionId, action, id) {
+        assert.equal(action, 'switch-profile'); calls.push(id);
+        profile = { ...profile, current: id, currentDescription: profile.descriptions[profile.available.indexOf(id)] };
+        return reply();
+      },
+      async interrupt() { return reply(); }, async close() {},
+    }, () => true, () => 1000);
+    assert.equal(await session.connect({ host: 'robot.example', port: 13145, clientIdentityAlias: 'fixture' }, 'screen-fixture'), true);
+    const screen = mount({ dev: false, dimensions: { width: landscape ? 800 : 430, height: landscape ? 480 : 900, fontScale: 1 },
+      runtimeState: session.runtimeState,
+      operationReadiness: session.operationReadiness,
+      operationCallbacks: { switchPolicy: id => session.action('switch-profile', id) } });
+    if (landscape) { screen.find('control-open-policy').props.onPress(); screen.render(); }
+    const prefix = landscape ? 'control-mode-' : 'control-terrain-mode-';
+    assert.equal(screen.find(`${prefix}flat`).props.disabled, true);
+    assert.equal(screen.find(`${prefix}platform`).props.disabled, true);
+    assert.equal(screen.find(`${prefix}stairs`).props.disabled, false);
+    screen.find(`${prefix}stairs`).props.onPress(); screen.render();
+    assert.equal(calls.length, 0);
+    screen.find(landscape ? 'control-immersive-confirm' : 'control-confirm-action').props.onPress();
+    await screen.settle();
+    assert.deepEqual(calls, ['cts_v39_61128']);
+    screen.unmount();
+    session.dispose();
+  }
 });
 
 test('landscape mode entry explains unavailable capability and never sends an action', () => {

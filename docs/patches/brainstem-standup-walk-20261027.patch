@@ -1,0 +1,46 @@
+diff --git a/han_dog/lib/src/server/unified_cms_server.dart b/han_dog/lib/src/server/unified_cms_server.dart
+--- a/han_dog/lib/src/server/unified_cms_server.dart
++++ b/han_dog/lib/src/server/unified_cms_server.dart
+@@ -871,6 +871,9 @@ class UnifiedCmsServer extends proto.RobotControlServiceBase {
+   @override
+   Future<proto.Empty> standUp(ServiceCall call, proto.Empty request) async {
+     _requireMotionPrincipal(call);
++    if (_disposed || call.isCanceled || call.isTimedOut) {
++      throw GrpcError.failedPrecondition('StandUp request is no longer active');
++    }
+     if (profileManager?.hasFault == true) {
+       throw GrpcError.failedPrecondition('Profile state is inconsistent');
+     }
+@@ -880,13 +883,31 @@ class UnifiedCmsServer extends proto.RobotControlServiceBase {
+     if (_criticalMotorFault) {
+       throw GrpcError.failedPrecondition('Critical motor fault');
+     }
++    if (mode == CmsMode.hardware &&
++        (_m.isHandlingEvent ||
++            _m.profileSwitchInProgress ||
++            _zeroing ||
++            motorEnablePending ||
++            externalMotorEnablePendingProvider?.call() == true)) {
++      throw GrpcError.failedPrecondition('Body control is busy');
++    }
+     if (_m.state is Transitioning) {
+       if (mode == CmsMode.simulation) return proto.Empty();
+       throw GrpcError.failedPrecondition('Body posture is transitioning');
+     }
+-    if (_m.state is Standing || _m.state is Walking) {
++    if (_m.state is Standing) {
+       return proto.Empty();
+     }
++    // Walking must run the existing posture transition, not acknowledge a no-op.
++    if (_m.state is Walking &&
++        (_grpcLease.active ||
++            _lastWalkX.abs() > _walkStopEpsilon ||
++            _lastWalkY.abs() > _walkStopEpsilon ||
++            _lastWalkZ.abs() > _walkStopEpsilon)) {
++      throw GrpcError.failedPrecondition(
++        'Stop and release locomotion control before StandUp',
++      );
++    }
+     if (!_dispatch(const A.standUp())) {
+       throw GrpcError.aborted('StandUp rejected by control arbiter');
+     }

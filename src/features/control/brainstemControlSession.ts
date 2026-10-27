@@ -1,6 +1,8 @@
 import type { BrainstemControlAction, BrainstemControlReply, BrainstemControlTransport } from '../../services/brainstemControl';
 import type { BrainstemGrpcEndpoint, BrainstemGrpcProfile, BrainstemGrpcStatus } from '../../services/brainstemGrpc';
 import type { ControlActionReadiness, ControlOperation, ControlRuntimeState } from './controlOperations';
+// @ts-expect-error Node 24 type stripping requires explicit TypeScript extensions.
+import { profileOptions, terrainModeFromProfile } from '../../services/directRobotConnection.ts';
 
 export type BrainstemControlState = Readonly<{
   phase: 'disconnected' | 'connecting' | 'ready' | 'operating' | 'armed' | 'error';
@@ -197,9 +199,10 @@ export class BrainstemControlSession {
       stop: result(this.state.connected && this.state.leaseActive, '尚未取得控制权'),
       enableMotor: result(!!safe && !status?.motorOutputEnabled, '请先连接机器狗并确认电机状态'),
       disableMotor: result(!!base && status?.motorOutputEnabled === true, '请先连接机器狗并确认电机状态'),
-      stand: result(!!safe && !!status?.motorOutputEnabled && (status.fsmKind === 'grounded' || status.fsmKind === 'zero'), '电机须已使能，且机器狗当前未站立或切换姿态'),
+      stand: result(!!safe && !!status?.motorOutputEnabled && (status.fsmKind === 'grounded' || status.fsmKind === 'zero'
+        || status.fsmKind === 'walking' && !status.grpcLeaseActive && !this.state.leaseActive), '电机须已使能，行走后请先停止并释放控制；站立或切换中不可起立'),
       sit: result(!!safe && !!status?.motorOutputEnabled && (status.fsmKind === 'standing' || status.fsmKind === 'walking'), '电机须已使能，且机器狗当前已站立'),
-      switchPolicy: result(!!safe && status?.fsmKind === 'grounded' && !status.motorOutputEnabled && !status.grpcLeaseActive && !!this.state.profile?.available.length, '请先坐下、失能电机并同步策略目录'),
+      switchPolicy: result(!!safe && (status?.fsmKind === 'grounded' || status?.fsmKind === 'standing') && !status.grpcLeaseActive && !!this.state.profile?.available.length, '请先站稳或趴地、释放控制并同步策略目录；行走中不可切换'),
     };
   }
 
@@ -347,15 +350,18 @@ export class BrainstemControlSession {
   get runtimeState(): ControlRuntimeState {
     const s = this.fresh() ? this.state.status : null;
     const profile = s ? this.state.profile : null;
+    const terrain = profile ? terrainModeFromProfile(profile) : null;
     // An in-flight native action can outlast telemetry freshness without losing its channel.
     const awaitingAction = this.state.connected && this.pendingAction !== null;
     return { controlLink: s || awaitingAction ? 'connected' : 'disconnected', controlAuthority: this.canUseManualControl ? 'held' : 'not-held',
       // A private CA/client principal is separate from cloud ownership/binding.
       deviceIdentity: 'unbound', motorState: s ? s.motorOutputEnabled ? 'enabled' : 'disabled' : 'unknown',
-      posture: s?.fsmKind === 'standing' || s?.fsmKind === 'walking' ? 'standing' : s?.fsmKind === 'grounded' ? 'sitting' : 'unknown',
+      // Walking is not confirmation that a fixed-pose StandUp has completed.
+      posture: s?.fsmKind === 'standing' ? 'standing' : s?.fsmKind === 'grounded' ? 'sitting' : 'unknown',
       faultStatus: s ? s.criticalMotorFault ? 'active' : 'clear' : 'unknown',
-      currentPolicy: profile?.current ? { id: profile.current, label: profile.current } : null,
-      policyCatalogStatus: profile ? 'synced' : 'unknown', policyOptions: profile?.available.map(id => ({ id, label: id })) ?? [],
+      currentPolicy: profile?.current ? { id: profile.current, label: profile.currentDescription || profile.current } : null,
+      policyCatalogStatus: profile ? 'synced' : 'unknown', policyOptions: profile ? profileOptions(profile) : [],
+      ...(terrain ? { terrainMode: { ...terrain, catalogStatus: 'synced' as const, source: 'device' as const } } : {}),
       speed: { linearMps: null, lateralMps: null, yawRps: null, source: 'unknown' }, inputSource: 'touch' };
   }
 }

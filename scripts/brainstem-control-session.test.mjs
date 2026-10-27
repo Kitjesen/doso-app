@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { BrainstemControlSession } from '../src/features/control/brainstemControlSession.ts';
+import { getControlTerrainPolicies, getControlTerrainModeOptions } from '../src/features/control/controlOperations.ts';
 
 const status = (patch = {}) => ({ fsmKind: 'grounded', transition: 'none', motorOutputEnabled: false,
   owner: 'none', criticalMotorFault: false, grpcLeaseActive: false, readyForWalk: false, ...patch });
-function fixture() {
+function fixture(profile = { current: 'flat', available: ['flat', 'stairs'], descriptions: [], currentDescription: '' }) {
   let at = 1000;
   let current = status();
   let lease = false;
@@ -13,7 +14,7 @@ function fixture() {
   const calls = [];
   const reply = extra => ({ status: { ...current }, leaseActive: lease, principalVerified: verified, ...extra });
   const transport = {
-    async open(endpoint, principal) { calls.push(['open', endpoint.host, principal]); return { ...reply(), sessionId: 's1', transport: 'grpc-mtls', mutualTlsVerified: true, profile: { current: 'flat', available: ['flat', 'stairs'], descriptions: [], currentDescription: '' } }; },
+    async open(endpoint, principal) { calls.push(['open', endpoint.host, principal]); return { ...reply(), sessionId: 's1', transport: 'grpc-mtls', mutualTlsVerified: true, profile }; },
     async read() { calls.push(['read']); return reply(); },
     async action(id, action, profile) {
       calls.push(['action', action, profile]); lease = false; verified = true;
@@ -34,6 +35,94 @@ function fixture() {
 }
 const endpoint = { host: '192.0.2.1', port: 13145, clientIdentityAlias: 'fixture' };
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+
+test('the live control session preserves advertised terrain slots and dispatches actual model IDs', async () => {
+  const f = fixture({ current: 'w5_89999', available: ['w5_89999', 'cts_v39_61128'],
+    descriptions: ['flat: W5', 'stairs: CTS'], currentDescription: 'flat: W5' });
+  try {
+    await f.session.connect(endpoint, 'doso-g20@robot');
+    const state = f.session.runtimeState;
+    assert.deepEqual(state.currentPolicy, { id: 'w5_89999', label: 'flat: W5' });
+    assert.deepEqual(state.policyOptions, [
+      { id: 'w5_89999', label: 'flat: W5', terrainModeId: 'flat' },
+      { id: 'cts_v39_61128', label: 'stairs: CTS', terrainModeId: 'stairs' },
+    ]);
+    assert.equal(state.terrainMode.current, 'flat');
+    assert.equal(state.terrainMode.source, 'device');
+    assert.deepEqual(getControlTerrainModeOptions(state).map(option => option.id), ['flat', 'stairs']);
+    assert.deepEqual(getControlTerrainPolicies(state).map(option => option.profileId), ['w5_89999', 'cts_v39_61128', null]);
+    await f.session.action('switch-profile', 'cts_v39_61128');
+    assert.deepEqual(f.calls.find(call => call[0] === 'action'), ['action', 'switch-profile', 'cts_v39_61128']);
+    f.advance(1500);
+    assert.equal(f.session.runtimeState.currentPolicy, null);
+    assert.deepEqual(f.session.runtimeState.policyOptions, []);
+    assert.equal(f.session.runtimeState.terrainMode, undefined);
+    assert.deepEqual(getControlTerrainModeOptions(f.session.runtimeState), []);
+  } finally { f.session.dispose(); }
+});
+
+test('the live control session does not select or offer an ambiguous terrain slot', async () => {
+  const f = fixture({ current: 'w5_89999', available: ['w5_89999', 'w5_other', 'cts_v39_61128'],
+    descriptions: ['flat: W5', 'flat: Other', 'stairs: CTS'], currentDescription: 'flat: W5' });
+  try {
+    await f.session.connect(endpoint, 'doso-g20@robot');
+    const state = f.session.runtimeState;
+    assert.equal(state.terrainMode.current, null);
+    assert.deepEqual(getControlTerrainModeOptions(state).map(option => option.id), ['stairs']);
+    assert.equal(getControlTerrainPolicies(state).find(option => option.id === 'flat').profileId, null);
+  } finally { f.session.dispose(); }
+});
+
+test('Walking needs an explicit stand after confirmed lease release; release and refresh never stand automatically', async () => {
+  const f = fixture();
+  f.set({ fsmKind: 'walking', motorOutputEnabled: true });
+  await f.session.connect(endpoint, 'doso-g20@robot');
+  assert.equal(f.session.runtimeState.posture, 'unknown', 'Walking must not complete a fixed-pose stand');
+  await f.session.acquire();
+  assert.equal(f.session.operationReadiness.stand.ready, false);
+  await assert.rejects(f.session.action('stand-up'), /不允许/);
+  await f.session.interrupt();
+  await f.session.refresh();
+  assert.equal(f.session.operationReadiness.stand.ready, true);
+  assert.equal(f.calls.some(call => call[0] === 'action'), false);
+  assert.equal(f.session.operationReadiness.switchPolicy.ready, false);
+  await f.session.action('stand-up');
+  assert.deepEqual(f.calls.filter(call => call[0] === 'action'), [['action', 'stand-up', undefined]]);
+  assert.equal(f.session.state.status.fsmKind, 'transitioning');
+  assert.equal(f.session.runtimeState.posture, 'unknown');
+  f.set({ fsmKind: 'walking' }); await f.session.refresh();
+  assert.equal(f.session.runtimeState.posture, 'unknown', 'a delayed Walking reply is not completion');
+  f.set({ fsmKind: 'standing' }); await f.session.refresh();
+  assert.equal(f.session.runtimeState.posture, 'standing');
+  f.session.dispose();
+});
+
+test('Walking stand retains motor, lease, local-owner, fault, freshness and busy gates', async () => {
+  for (const patch of [{ motorOutputEnabled: false }, { grpcLeaseActive: true }, { owner: 'yunzhuo' },
+    { criticalMotorFault: true }, { fsmKind: 'transitioning' }, { fsmKind: 'standing' }]) {
+    const f = fixture();
+    f.set({ fsmKind: 'walking', motorOutputEnabled: true, ...patch });
+    await f.session.connect(endpoint, 'doso-g20@robot');
+    assert.equal(f.session.operationReadiness.stand.ready, false, JSON.stringify(patch));
+    await assert.rejects(f.session.action('stand-up'), /不允许/);
+    assert.equal(f.calls.some(call => call[0] === 'action'), false);
+    f.session.dispose();
+  }
+  const f = fixture();
+  f.set({ fsmKind: 'walking', motorOutputEnabled: true });
+  await f.session.connect(endpoint, 'doso-g20@robot');
+  f.advance(1500);
+  assert.equal(f.session.operationReadiness.stand.ready, false);
+  await assert.rejects(f.session.action('stand-up'), /不允许/);
+  await f.session.refresh();
+  let finish;
+  f.transport.action = () => new Promise(resolve => { finish = resolve; });
+  const action = f.session.action('stand-up');
+  assert.equal(f.session.operationReadiness.stand.ready, false);
+  await assert.rejects(f.session.action('stand-up'), /上一项操作/);
+  finish(f.reply()); await action;
+  f.session.dispose();
+});
 
 test('an outstanding motor action keeps its channel while stale telemetry stays unknown and cannot authorize motion', async () => {
   const f = fixture();
@@ -457,12 +546,12 @@ test('unknown profile never dispatches and switch waits for a real catalogue and
   await f.session.disconnect();
 });
 
-test('profile switching requires grounded posture with disabled motors and no lease', async () => {
+test('profile switching allows standing or grounded with either enable state, but rejects walk, lease and faults', async () => {
   const f = fixture(); await f.session.connect(endpoint, 'doso-g20@robot');
   assert.equal(f.session.operationReadiness.switchPolicy.ready, true);
   for (const patch of [
-    { fsmKind: 'standing', motorOutputEnabled: false, grpcLeaseActive: false },
-    { fsmKind: 'grounded', motorOutputEnabled: true, grpcLeaseActive: false },
+    { fsmKind: 'walking', motorOutputEnabled: true, grpcLeaseActive: false },
+    { fsmKind: 'zero', motorOutputEnabled: false, grpcLeaseActive: false },
     { fsmKind: 'grounded', motorOutputEnabled: false, grpcLeaseActive: true },
   ]) {
     f.set(patch); await f.session.refresh();
@@ -470,9 +559,16 @@ test('profile switching requires grounded posture with disabled motors and no le
     await assert.rejects(f.session.action('switch-profile', 'stairs'));
   }
   assert.equal(f.calls.some(c => c[0] === 'action'), false);
-  f.set({ fsmKind: 'grounded', motorOutputEnabled: false, grpcLeaseActive: false }); await f.session.refresh();
-  await f.session.action('switch-profile', 'stairs');
-  assert.equal(f.calls.filter(c => c[0] === 'action').length, 1);
+  for (const fsmKind of ['grounded', 'standing']) for (const motorOutputEnabled of [true, false]) {
+    f.set({ fsmKind, motorOutputEnabled, grpcLeaseActive: false }); await f.session.refresh();
+    assert.equal(f.session.operationReadiness.switchPolicy.ready, true);
+    await f.session.action('switch-profile', 'stairs');
+  }
+  assert.equal(f.calls.filter(c => c[0] === 'action').length, 4);
+  for (const patch of [{ criticalMotorFault: true }, { criticalMotorFault: false, owner: 'yunzhuo' }]) {
+    f.set(patch); await f.session.refresh();
+    await assert.rejects(f.session.action('switch-profile', 'stairs'));
+  }
   await f.session.disconnect();
 });
 

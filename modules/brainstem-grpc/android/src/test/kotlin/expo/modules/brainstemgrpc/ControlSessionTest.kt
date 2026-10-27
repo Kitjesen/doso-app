@@ -21,6 +21,8 @@ private class FakeChannel(val expectedPrincipal: String = PRINCIPAL) : ManagedCh
   var lease = false
   var enabled = true
   var kind = 2
+  var profileCurrent = "flat"
+  var profileAvailable = listOf("flat")
   var owner = 0
   var sequence = 0L
   var wrongAck = false
@@ -71,8 +73,8 @@ private class FakeChannel(val expectedPrincipal: String = PRINCIPAL) : ManagedCh
         }
         val response = when (name) {
           "GetControlStatus" -> state()
-          "GetProfile" -> ControlWireTest.join(ControlWireTest.text(1, "flat"), ControlWireTest.text(2, "flat"))
-          "SwitchProfile" -> ControlWireTest.join(ControlWireTest.text(1, "flat"), ControlWireTest.text(2, "flat"))
+          "GetProfile", "SwitchProfile" -> ControlWireTest.join(ControlWireTest.text(1, profileCurrent),
+            *profileAvailable.map { ControlWireTest.text(2, it) }.toTypedArray())
           "AcquireControl" -> {
             lease = true; owner = 1; sequence = 0
             ControlWireTest.join(ControlWireTest.f(1, 1), ControlWireTest.text(2, "ephemeral-fixture"),
@@ -234,6 +236,26 @@ fun main() {
     expectFailure("precondition") { posture.acquire() }
   } finally { posture.close() }
 
+  val walkingChannel = FakeChannel().apply { kind = 3 }
+  val walkingSession = ControlSession(walkingChannel, PRINCIPAL) { it() }
+  try {
+    walkingSession.acquire()
+    walkingSession.interrupt()
+    walkingSession.status()
+    check(walkingChannel.requests.none { it.first == "StandUp" }) { "Release must not stand automatically" }
+    walkingSession.action("stand-up", null)
+    check(walkingChannel.requests.count { it.first == "StandUp" } == 1)
+    val methods = walkingChannel.requests.map { it.first }
+    check(methods.indexOf("ReleaseControl") < methods.indexOf("StandUp"))
+  } finally { walkingSession.close() }
+
+  val leasedWalking = FakeChannel().apply { kind = 3; lease = true; owner = 1 }
+  val unownedWalking = ControlSession(leasedWalking, PRINCIPAL) { it() }
+  try {
+    expectFailure("precondition") { unownedWalking.action("stand-up", null) }
+    check(leasedWalking.requests.none { it.first == "StandUp" })
+  } finally { unownedWalking.close() }
+
   // Capture as the bridge enqueues, cancel before the worker starts, then run
   // the old queued work. This window was absent from the in-flight RPC test.
   val queuedChannel = FakeChannel()
@@ -275,7 +297,7 @@ fun main() {
     expectFailure("stop_unconfirmed") { failedPrecondition.action("disable", null) }
     check(failedPreconditionChannel.requests.none { it.first == "Disable" }) { "Unconfirmed stop continued into an actuator write" }
   } finally { failedPrecondition.close() }
-  for ((kind, enabled) in listOf(2 to false, 2 to true, 1 to true)) {
+  for ((kind, enabled) in listOf(3 to false, 3 to true, 0 to false, 4 to true)) {
     val unsafe = FakeChannel().apply { this.kind = kind; this.enabled = enabled }
     val guarded = ControlSession(unsafe, PRINCIPAL) { it() }
     try {
@@ -283,13 +305,28 @@ fun main() {
       check(unsafe.requests.none { it.first == "SwitchProfile" || it.first == "GetProfile" })
     } finally { guarded.close() }
   }
-  val safe = FakeChannel().apply { kind = 1; enabled = false }
-  val profile = ControlSession(safe, PRINCIPAL) { it() }
+  for ((safeKind, safeEnabled) in listOf(1 to false, 1 to true, 2 to false, 2 to true)) {
+    val safe = FakeChannel().apply { kind = safeKind; enabled = safeEnabled }
+    val profile = ControlSession(safe, PRINCIPAL) { it() }
+    try {
+      profile.action("switch-profile", "flat")
+      check(safe.requests.count { it.first == "SwitchProfile" } == 1)
+      check(safe.requests.none { it.first in listOf("StandUp", "WalkChecked", "AcquireControl") })
+    } finally { profile.close() }
+  }
+  val slots = FakeChannel().apply {
+    kind = 2; enabled = true
+    profileCurrent = "cts_v39_61128"
+    profileAvailable = listOf("w5_89999", "cts_v39_61128")
+  }
+  val slotSession = ControlSession(slots, PRINCIPAL) { it() }
   try {
-    profile.action("switch-profile", "flat")
-    check(safe.requests.count { it.first == "SwitchProfile" } == 1)
-    check(safe.requests.none { it.first in listOf("StandUp", "WalkChecked", "AcquireControl") })
-  } finally { profile.close() }
+    expectFailure("precondition") { slotSession.action("switch-profile", "stairs") }
+    slotSession.action("switch-profile", "cts_v39_61128")
+    check(slots.requests.single { it.first == "SwitchProfile" }.second.contentEquals(ControlWire.stringRequest("cts_v39_61128")))
+    expectFailure("invalid_response") { slotSession.action("switch-profile", "w5_89999") }
+    check(slots.requests.none { it.first in listOf("Enable", "Disable", "StandUp", "SitDown", "WalkChecked", "AcquireControl") })
+  } finally { slotSession.close() }
   val lanPrincipal = "lan-" + "a".repeat(32) + "@dev"
   val lanChannel = FakeChannel(lanPrincipal)
   val lan = ControlSession(lanChannel, lanPrincipal, true) { it() }
