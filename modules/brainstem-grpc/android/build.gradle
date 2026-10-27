@@ -1,0 +1,22 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.brainstemgrpc'
+version = '1.0.0'
+
+android {
+  namespace 'expo.modules.brainstemgrpc'
+  defaultConfig {
+    minSdkVersion 24
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+dependencies {
+  // Official grpc-java Android transport, pinned together. No broad generated RPC stub.
+  implementation 'io.grpc:grpc-api:1.85.1'
+  implementation 'io.grpc:grpc-okhttp:1.85.1'
+}

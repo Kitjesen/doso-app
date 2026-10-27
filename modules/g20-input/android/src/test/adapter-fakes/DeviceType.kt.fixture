@@ -1,0 +1,2 @@
+package com.skydroid.rcsdk.common
+enum class DeviceType { G20, OTHER }

@@ -1,0 +1,3 @@
+package com.skydroid.rcsdk.common.callback
+import com.skydroid.rcsdk.common.error.SkyException
+interface CompletionCallbackWith<T> { fun onSuccess(value: T?); fun onFailure(e: SkyException) }

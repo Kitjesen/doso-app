@@ -1,0 +1,2 @@
+package com.skydroid.rcsdk.internal
+object InternalKey { @JvmField var onlyConnect = 7; const val ONLY_CONNECT_RC = 2 }

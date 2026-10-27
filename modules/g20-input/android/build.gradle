@@ -1,0 +1,32 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.g20input'
+version = '1.0.0'
+
+android {
+  namespace 'expo.modules.g20input'
+  defaultConfig {
+    minSdkVersion 24
+    versionCode 1
+    versionName '1.0.0'
+    consumerProguardFiles 'consumer-rules.pro'
+  }
+}
+
+def sdkMavenRepository = file('../vendor/maven')
+rootProject.allprojects {
+  repositories {
+    // Runtime dependencies are resolved by :app as well as this library.
+    maven {
+      url uri(sdkMavenRepository)
+      content { includeGroup 'com.skydroid' }
+    }
+  }
+}
+
+dependencies {
+  implementation 'com.skydroid:rcsdk:1.9.2'
+}

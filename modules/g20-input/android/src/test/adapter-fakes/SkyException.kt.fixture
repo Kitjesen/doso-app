@@ -1,0 +1,2 @@
+package com.skydroid.rcsdk.common.error
+class SkyException : Exception()

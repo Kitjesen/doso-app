@@ -1,0 +1,12 @@
+package android.os
+
+object Build { @JvmField var SUPPORTED_ABIS = arrayOf("arm64-v8a") }
+class Looper private constructor() { companion object { private val main = Looper(); @JvmStatic fun getMainLooper() = main } }
+class Handler(@Suppress("UNUSED_PARAMETER") looper: Looper) {
+  fun post(action: Runnable): Boolean { pending.add(this to action); return true }
+  fun removeCallbacksAndMessages(@Suppress("UNUSED_PARAMETER") token: Any?) { pending.removeAll { it.first === this } }
+  companion object {
+    private val pending = mutableListOf<Pair<Handler, Runnable>>()
+    fun drain() { while (pending.isNotEmpty()) pending.removeAt(0).second.run() }
+  }
+}

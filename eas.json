@@ -1,0 +1,39 @@
+{
+  "build": {
+    "ios-simulator": {
+      "distribution": "internal",
+      "environment": "preview",
+      "env": {
+        "EXPO_NO_DOTENV": "1"
+      },
+      "ios": {
+        "simulator": true,
+        "buildConfiguration": "Release"
+      }
+    },
+    "ios-browser-preview": {
+      "extends": "ios-simulator",
+      "env": {
+        "EXPO_NO_DOTENV": "1",
+        "ENTRY_FILE": "index.preview.ts"
+      }
+    },
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "qa": {
+      "distribution": "internal",
+      "android": {
+        "gradleCommand": ":app:assembleQa"
+      }
+    },
+    "production": {}
+  },
+  "submit": {
+    "production": {}
+  }
+}

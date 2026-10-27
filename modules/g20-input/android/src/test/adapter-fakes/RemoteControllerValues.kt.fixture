@@ -1,0 +1,4 @@
+package com.skydroid.rcsdk.common.remotecontroller
+class ChannelItem { var index = 1; var mapping = 1; var min = 1050; var middle = 1500; var max = 1950; var reverse = false }
+class ChannelSettings { val channels = Array(16) { ChannelItem().apply { index = it + 1; mapping = it + 1 } } }
+enum class ControlMode { USA, UNKNOWN }

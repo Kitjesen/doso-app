@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>DOSO 管理控制台</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./config.js"></script>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar" aria-label="主导航">
+        <div class="brand">
+          <div class="brand-mark">D</div>
+          <div><strong>DOSO</strong><span>ADMIN CONSOLE</span></div>
+        </div>
+        <nav id="nav" class="nav" hidden>
+          <button class="nav-item active" data-view="users"><span>01</span>账号管理</button>
+          <button class="nav-item" data-view="devices"><span>02</span>设备管理</button>
+          <button class="nav-item" data-view="audit"><span>03</span>审计日志</button>
+        </nav>
+        <div class="sidebar-foot">
+          <span class="status-dot"></span>
+          <div><strong>SECURE ACCESS</strong><small>仅管理员可访问</small></div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <section id="loginView" class="login-wrap">
+          <div class="login-card">
+            <div class="eyebrow">DOSO / OPERATIONS</div>
+            <h1>管理员登录</h1>
+            <p>使用已授予后台角色的 DOSO 账号登录。密钥与会话仅保留在当前浏览器标签页。</p>
+            <form id="loginForm" class="form-stack">
+              <label>Supabase URL<input id="supabaseUrl" type="url" required placeholder="https://project.supabase.co" autocomplete="url" /></label>
+              <label>Publishable key<input id="publishableKey" type="password" required placeholder="sb_publishable_..." autocomplete="off" /></label>
+              <div class="divider"></div>
+              <label>管理员邮箱<input id="email" type="email" required autocomplete="username" /></label>
+              <label>密码<input id="password" type="password" required autocomplete="current-password" /></label>
+              <div id="loginError" class="alert error" role="alert" hidden></div>
+              <button class="button primary full" type="submit">登录控制台</button>
+            </form>
+            <small class="security-note">禁止在此填写 service_role / secret key。生产环境必须启用 HTTPS 和管理员 MFA。</small>
+          </div>
+        </section>
+
+        <section id="mfaView" class="login-wrap" hidden>
+          <div class="login-card">
+            <div class="eyebrow">STEP-UP AUTHENTICATION / AAL2</div>
+            <h1>双重验证</h1>
+            <p id="mfaDescription">选择已注册的验证器，并输入当前 6 位动态验证码。完成前不会加载任何管理数据。</p>
+            <form id="mfaForm" class="form-stack">
+              <label id="mfaFactorLabel">TOTP 验证器<select id="mfaFactor" required></select></label>
+              <label id="mfaCodeLabel">6 位验证码<input id="mfaCode" type="text" required inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" placeholder="000000" /></label>
+              <div id="mfaError" class="alert error" role="alert" hidden></div>
+              <button id="mfaSubmit" class="button primary full" type="submit">验证并进入控制台</button>
+              <button id="mfaLogout" class="button ghost full" type="button">退出当前账号</button>
+            </form>
+            <div id="mfaBlocked" class="mfa-blocked" hidden>
+              <strong id="mfaBlockedTitle">此管理员账号尚未注册可用的 TOTP 因子</strong>
+              <p id="mfaBlockedText">为避免在管理终端暴露 MFA secret，本控制台不提供注册二维码或密钥。请先在受信任的账号安全流程中完成 TOTP 注册和首次验证，然后重新登录。</p>
+              <button id="mfaBlockedLogout" class="button ghost full" type="button">退出并返回登录</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="appView" hidden>
+          <header class="topbar">
+            <div><div class="eyebrow">DOSO / MANAGEMENT</div><h1 id="pageTitle">账号管理</h1></div>
+            <div class="operator"><div><strong id="operatorEmail">—</strong><span>当前管理员</span></div><button id="logoutButton" class="button ghost">退出</button></div>
+          </header>
+          <div id="globalAlert" class="alert" role="status" hidden></div>
+
+          <section id="usersPanel" class="panel-view">
+            <div class="toolbar">
+              <form id="userSearchForm" class="search"><input id="userSearch" type="search" placeholder="搜索用户邮箱" /><button class="button" type="submit">搜索</button></form>
+              <button id="refreshUsers" class="button ghost">刷新</button>
+            </div>
+            <div class="table-card">
+              <table><thead><tr><th>账号</th><th>角色</th><th>状态</th><th>注册时间</th><th>最近登录</th><th class="actions-col">操作</th></tr></thead><tbody id="usersBody"></tbody></table>
+              <div id="usersEmpty" class="empty" hidden>没有匹配的账号</div>
+              <div class="pager"><button id="usersPrev" class="button ghost">上一页</button><span id="usersPage">第 1 页</span><button id="usersNext" class="button ghost">下一页</button></div>
+            </div>
+          </section>
+
+          <section id="devicesPanel" class="panel-view" hidden>
+            <div class="toolbar"><div class="toolbar-copy"><strong>设备库存与绑定</strong><span>绑定码仅在生成或轮换后显示一次</span></div><div><button id="refreshDevices" class="button ghost">刷新</button><button id="addDevice" class="button primary">设备入库</button></div></div>
+            <div class="table-card">
+              <table><thead><tr><th>设备</th><th>序列号</th><th>所有者</th><th>连接</th><th>绑定状态</th><th>最后在线</th><th class="actions-col">操作</th></tr></thead><tbody id="devicesBody"></tbody></table>
+              <div id="devicesEmpty" class="empty" hidden>暂无设备</div>
+              <div class="pager"><button id="devicesPrev" class="button ghost">上一页</button><span id="devicesPage">第 1 页</span><button id="devicesNext" class="button ghost">下一页</button></div>
+            </div>
+          </section>
+
+          <section id="auditPanel" class="panel-view" hidden>
+            <div class="toolbar"><div class="toolbar-copy"><strong>管理员操作记录</strong><span>用于安全追溯，不应由客户端删除</span></div><button id="refreshAudit" class="button ghost">刷新</button></div>
+            <div class="table-card">
+              <table><thead><tr><th>时间</th><th>管理员</th><th>动作</th><th>目标</th><th>原因</th><th>结果</th></tr></thead><tbody id="auditBody"></tbody></table>
+              <div id="auditEmpty" class="empty" hidden>暂无审计记录</div>
+              <div class="pager"><button id="auditPrev" class="button ghost">上一页</button><span id="auditPage">第 1 页</span><button id="auditNext" class="button ghost">下一页</button></div>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <div id="loading" class="loading" hidden><div class="spinner"></div><span>正在处理…</span></div>
+
+    <dialog id="actionDialog">
+      <form id="actionForm" method="dialog" class="dialog-card">
+        <div class="eyebrow">CONFIRM ACTION</div><h2 id="actionTitle">确认操作</h2><p id="actionDescription"></p>
+        <label id="actionRoleLabel" hidden>目标角色<select id="actionRole"><option value="user">普通用户 / user</option><option value="support">客服支持 / support</option><option value="admin">管理员 / admin</option></select></label>
+        <label id="reasonLabel">操作原因<textarea id="actionReason" rows="3" maxlength="300" placeholder="请输入可审计的操作原因"></textarea></label>
+        <div id="actionError" class="alert error" hidden></div>
+        <div class="dialog-actions"><button id="actionCancel" class="button ghost" type="button">取消</button><button id="actionConfirm" class="button danger" type="submit">确认执行</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="deviceDialog">
+      <form id="deviceForm" method="dialog" class="dialog-card">
+        <div class="eyebrow">DEVICE INVENTORY</div><h2>设备入库</h2>
+        <label>设备型号<input id="deviceModel" required maxlength="80" placeholder="DOSO R1" /></label>
+        <label>显示名称<input id="deviceName" required maxlength="80" placeholder="一号工作机" /></label>
+        <label>序列号<input id="deviceSerial" required maxlength="120" placeholder="DOSO-R1-000001" /></label>
+        <label>设备类型<select id="deviceCategory"><option value="四足">四足</option><option value="轮式">轮式</option></select></label>
+        <label>使用环境<select id="deviceEnvironment"><option value="室外">室外</option><option value="室内">室内</option></select></label>
+        <div id="deviceError" class="alert error" hidden></div>
+        <div class="dialog-actions"><button id="deviceCancel" class="button ghost" type="button">取消</button><button class="button primary" type="submit">入库并生成绑定码</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="terminalsDialog" class="wide-dialog">
+      <div class="dialog-card">
+        <div class="eyebrow">ACCOUNT TERMINALS</div><h2>账号终端</h2>
+        <p id="terminalsUser">—</p>
+        <div class="dialog-table">
+          <table><thead><tr><th>终端</th><th>平台</th><th>状态</th><th>最后活动</th><th>登记时间</th><th>操作</th></tr></thead><tbody id="terminalsBody"></tbody></table>
+          <div id="terminalsEmpty" class="empty" hidden>此账号没有已登记终端</div>
+        </div>
+        <div class="dialog-actions"><button id="terminalsClose" class="button primary" type="button">关闭</button></div>
+      </div>
+    </dialog>
+
+    <dialog id="identitiesDialog" class="wide-dialog">
+      <div class="dialog-card">
+        <div class="eyebrow">SIGN-IN METHODS</div><h2>登录方式</h2>
+        <p id="identitiesUser">—</p>
+        <div class="dialog-table">
+          <table><thead><tr><th>方式</th><th>状态</th><th>邮箱验证</th><th>绑定时间</th><th>最近登录</th></tr></thead><tbody id="identitiesBody"></tbody></table>
+          <div id="identitiesEmpty" class="empty" hidden>此账号没有已记录的登录方式</div>
+        </div>
+        <p class="security-note">此处仅展示安全摘要，不提供绑定、解绑或原始身份标识。</p>
+        <div class="dialog-actions"><button id="identitiesClose" class="button primary" type="button">关闭</button></div>
+      </div>
+    </dialog>
+
+    <dialog id="codeDialog"><div class="dialog-card"><div class="eyebrow">ONE-TIME BINDING CODE</div><h2>设备绑定码</h2><p>请立即安全交付给设备绑定人员。关闭后后台不再展示此明文码。</p><output id="bindingCode" class="binding-code"></output><div class="dialog-actions"><button id="copyCode" class="button">复制</button><button id="closeCode" class="button primary">我已保存</button></div></div></dialog>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

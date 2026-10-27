@@ -1,0 +1,28 @@
+// A separately installed, offline UI preview; never changes qa/release entry points.
+android {
+    buildTypes {
+        preview {
+            initWith release
+            applicationIdSuffix ".preview"
+            versionNameSuffix "-preview"
+            signingConfig signingConfigs.debug
+            matchingFallbacks = ["release"]
+        }
+    }
+}
+
+// Configure after React Native has assigned its default entry to variant tasks.
+afterEvaluate {
+    tasks.named('createBundlePreviewJsAndAssets').configure { bundleTask ->
+        bundleTask.entryFile.set(file('../../index.preview.ts'))
+    }
+}
+
+gradle.taskGraph.whenReady { graph ->
+    graph.allTasks.findAll { it.project == project && it.name.startsWith('createBundle') && it.name.endsWith('JsAndAssets') }.each { bundleTask ->
+        def expectedEntry = bundleTask.name == 'createBundlePreviewJsAndAssets' ? 'index.preview.ts' : 'index.ts'
+        if (bundleTask.entryFile.get().asFile.name != expectedEntry) {
+            throw new GradleException("DOSO entry isolation failed for ${bundleTask.name}; expected ${expectedEntry}.")
+        }
+    }
+}

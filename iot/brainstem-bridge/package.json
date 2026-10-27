@@ -1,0 +1,20 @@
+{
+  "name": "@doso/brainstem-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fail-closed Brainstem diagnostics and attested local-simulation gateway.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test --test-concurrency=1",
+    "preflight:config": "node tools/preflight-config.js"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "1.14.6",
+    "@grpc/proto-loader": "0.8.1",
+    "ws": "8.22.0"
+  }
+}

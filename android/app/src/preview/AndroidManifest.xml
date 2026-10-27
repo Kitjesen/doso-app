@@ -1,0 +1,18 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+  <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+  <uses-permission android:name="android.permission.BLUETOOTH" tools:node="remove" />
+  <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" tools:node="remove" />
+  <uses-permission android:name="android.permission.BLUETOOTH_SCAN" tools:node="remove" />
+  <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" tools:node="remove" />
+  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="remove" />
+  <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" tools:node="remove" />
+  <application android:label="DOSO Preview" android:allowBackup="false" tools:replace="android:label,android:allowBackup">
+    <!-- Replace the main activity to omit production auth deep links. -->
+    <activity android:name="com.doso.robot.MainActivity" tools:node="replace" android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode|smallestScreenSize|assetsPaths" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" android:theme="@style/Theme.App.SplashScreen" android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.LAUNCHER" />
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>

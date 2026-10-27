@@ -1,0 +1,292 @@
+{
+  "downloadedAt": "2026-10-11T14:57:57.484Z",
+  "licenseUrl": "https://hyperos.mi.com/font-download/MiSans%E5%AD%97%E4%BD%93%E7%9F%A5%E8%AF%86%E4%BA%A7%E6%9D%83%E8%AE%B8%E5%8F%AF%E5%8D%8F%E8%AE%AE.pdf",
+  "licenseSha256": "4a93a27cd2bd81b3b5ecfd0a853144a876fa26938a93a68443c67d74172fcb86",
+  "modified": false,
+  "fonts": [
+    {
+      "file": "MiSans-Regular.otf",
+      "source": "https://hyperos.mi.com/font-download/MiSans.zip",
+      "entry": "MiSans/otf/MiSans-Regular.otf",
+      "bytes": 6569336,
+      "crc32": "ddf8ac06",
+      "sha256": "8e9caa6f34f27c6baad1ecf0058cc13e1801efff698bc23e6e0b095d9a9ed9cb",
+      "weight": 330,
+      "names": [
+        {
+          "id": 1,
+          "text": "MiSans"
+        },
+        {
+          "id": 2,
+          "text": "Regular"
+        },
+        {
+          "id": 4,
+          "text": "MiSans"
+        },
+        {
+          "id": 6,
+          "text": "MiSans-Regular"
+        },
+        {
+          "id": 1,
+          "text": "MiSans"
+        },
+        {
+          "id": 2,
+          "text": "Regular"
+        },
+        {
+          "id": 4,
+          "text": "MiSans"
+        },
+        {
+          "id": 0,
+          "text": "Copyright © 2020-2025 Beijing Xiaomi Mobile Software Co.,Ltd. All Rights Reserved."
+        },
+        {
+          "id": 1,
+          "text": "MiSans"
+        },
+        {
+          "id": 2,
+          "text": "Regular"
+        },
+        {
+          "id": 4,
+          "text": "MiSans"
+        },
+        {
+          "id": 6,
+          "text": "MiSans-Regular"
+        },
+        {
+          "id": 1,
+          "text": "MiSans"
+        },
+        {
+          "id": 2,
+          "text": "Regular"
+        },
+        {
+          "id": 4,
+          "text": "MiSans"
+        }
+      ]
+    },
+    {
+      "file": "MiSans-Medium.otf",
+      "source": "https://hyperos.mi.com/font-download/MiSans.zip",
+      "entry": "MiSans/otf/MiSans-Medium.otf",
+      "bytes": 6550784,
+      "crc32": "5c8ad6d9",
+      "sha256": "f9239c75fa0a661b788916250c6d4ad0d52d8a643f1ce2a9142f6588d4d2cb64",
+      "weight": 380,
+      "names": [
+        {
+          "id": 1,
+          "text": "MiSans"
+        },
+        {
+          "id": 2,
+          "text": "Medium"
+        },
+        {
+          "id": 4,
+          "text": "MiSans Medium"
+        },
+        {
+          "id": 6,
+          "text": "MiSans-Medium"
+        },
+        {
+          "id": 1,
+          "text": "MiSans"
+        },
+        {
+          "id": 2,
+          "text": "Medium"
+        },
+        {
+          "id": 4,
+          "text": "MiSans Medium"
+        },
+        {
+          "id": 0,
+          "text": "Copyright © 2020-2025 Beijing Xiaomi Mobile Software Co.,Ltd. All Rights Reserved."
+        },
+        {
+          "id": 1,
+          "text": "MiSans Medium"
+        },
+        {
+          "id": 2,
+          "text": "Regular"
+        },
+        {
+          "id": 4,
+          "text": "MiSans Medium"
+        },
+        {
+          "id": 6,
+          "text": "MiSans-Medium"
+        },
+        {
+          "id": 1,
+          "text": "MiSans Medium"
+        },
+        {
+          "id": 2,
+          "text": "Regular"
+        },
+        {
+          "id": 4,
+          "text": "MiSans Medium"
+        }
+      ]
+    },
+    {
+      "file": "MiSans-Demibold.otf",
+      "source": "https://hyperos.mi.com/font-download/MiSans.zip",
+      "entry": "MiSans/otf/MiSans-Demibold.otf",
+      "bytes": 6527920,
+      "crc32": "24c2b9f8",
+      "sha256": "63bfd7731ea4ab343023230fe4fa010734fad7af12c5f9eaad2146a5dd2628ea",
+      "weight": 450,
+      "names": [
+        {
+          "id": 1,
+          "text": "MiSans"
+        },
+        {
+          "id": 2,
+          "text": "Demibold"
+        },
+        {
+          "id": 4,
+          "text": "MiSans Demibold"
+        },
+        {
+          "id": 6,
+          "text": "MiSans-Demibold"
+        },
+        {
+          "id": 1,
+          "text": "MiSans"
+        },
+        {
+          "id": 2,
+          "text": "Demibold"
+        },
+        {
+          "id": 4,
+          "text": "MiSans Demibold"
+        },
+        {
+          "id": 0,
+          "text": "Copyright © 2020-2025 Beijing Xiaomi Mobile Software Co.,Ltd. All Rights Reserved."
+        },
+        {
+          "id": 1,
+          "text": "MiSans Demibold"
+        },
+        {
+          "id": 2,
+          "text": "Regular"
+        },
+        {
+          "id": 4,
+          "text": "MiSans Demibold"
+        },
+        {
+          "id": 6,
+          "text": "MiSans-Demibold"
+        },
+        {
+          "id": 1,
+          "text": "MiSans Demibold"
+        },
+        {
+          "id": 2,
+          "text": "Regular"
+        },
+        {
+          "id": 4,
+          "text": "MiSans Demibold"
+        }
+      ]
+    },
+    {
+      "file": "MiSans-Bold.otf",
+      "source": "https://hyperos.mi.com/font-download/MiSans.zip",
+      "entry": "MiSans/otf/MiSans-Bold.otf",
+      "bytes": 6643592,
+      "crc32": "1e4eb564",
+      "sha256": "575d0481f579785fab27754a337ad77118a17ba3353210ed84c8af4e96e86247",
+      "weight": 630,
+      "names": [
+        {
+          "id": 1,
+          "text": "MiSans"
+        },
+        {
+          "id": 2,
+          "text": "Bold"
+        },
+        {
+          "id": 4,
+          "text": "MiSans Bold"
+        },
+        {
+          "id": 6,
+          "text": "MiSans-Bold"
+        },
+        {
+          "id": 1,
+          "text": "MiSans"
+        },
+        {
+          "id": 2,
+          "text": "Bold"
+        },
+        {
+          "id": 4,
+          "text": "MiSans Bold"
+        },
+        {
+          "id": 0,
+          "text": "Copyright © 2020-2025 Beijing Xiaomi Mobile Software Co.,Ltd. All Rights Reserved."
+        },
+        {
+          "id": 1,
+          "text": "MiSans"
+        },
+        {
+          "id": 2,
+          "text": "Bold"
+        },
+        {
+          "id": 4,
+          "text": "MiSans Bold"
+        },
+        {
+          "id": 6,
+          "text": "MiSans-Bold"
+        },
+        {
+          "id": 1,
+          "text": "MiSans"
+        },
+        {
+          "id": 2,
+          "text": "Bold"
+        },
+        {
+          "id": 4,
+          "text": "MiSans Bold"
+        }
+      ]
+    }
+  ]
+}

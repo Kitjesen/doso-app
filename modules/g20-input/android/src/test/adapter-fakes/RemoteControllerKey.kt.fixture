@@ -1,0 +1,9 @@
+package com.skydroid.rcsdk.key
+import com.skydroid.rcsdk.common.remotecontroller.ChannelSettings
+import com.skydroid.rcsdk.common.remotecontroller.ControlMode
+class Key<T>
+object RemoteControllerKey {
+  val KeyChannelSettings = Key<ChannelSettings>()
+  val KeyControlMode = Key<ControlMode>()
+  val KeyChannels = Key<IntArray>()
+}

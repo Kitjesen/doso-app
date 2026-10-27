@@ -1,0 +1,3 @@
+package com.skydroid.rcsdk.utils
+import com.skydroid.rcsdk.common.DeviceType
+object RCSDKUtils { fun getDeviceType() = DeviceType.G20 }

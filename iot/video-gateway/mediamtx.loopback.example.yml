@@ -1,0 +1,36 @@
+# LOCAL PREPARATION ONLY. No autostart, camera hooks, secrets, or LAN listeners.
+# Fields checked against official MediaMTX v1.21.2 reference on 2026-10-25.
+logLevel: info
+logDestinations: [stdout]
+authMethod: internal
+authInternalUsers:
+  - user: any
+    ips: ['127.0.0.1/32', '::1/128']
+    permissions:
+      - action: publish
+        path: doso_camera
+      - action: read
+        path: doso_camera
+api: false
+metrics: false
+pprof: false
+playback: false
+rtsp: true
+rtspAddress: 127.0.0.1:8554
+rtspTransports: [tcp]
+rtmp: false
+hls: false
+srt: false
+moq: false
+webrtc: true
+webrtcAddress: 127.0.0.1:8889
+webrtcEncryption: false
+webrtcAllowOrigins: ['http://127.0.0.1:8889']
+webrtcLocalUDPAddress: 127.0.0.1:8189
+webrtcLocalTCPAddress: ''
+webrtcIPsFromInterfaces: false
+webrtcAdditionalHosts: ['127.0.0.1']
+webrtcICEServers2: []
+paths:
+  doso_camera:
+    source: publisher

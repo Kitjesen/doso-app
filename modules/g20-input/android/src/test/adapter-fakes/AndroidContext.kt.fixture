@@ -1,0 +1,5 @@
+package android.content
+
+open class Context(private val application: Context? = null) {
+  open val applicationContext: Context get() = application ?: this
+}

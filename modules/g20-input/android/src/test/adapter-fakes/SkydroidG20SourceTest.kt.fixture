@@ -1,0 +1,137 @@
+package expo.modules.g20input
+
+import android.content.Context
+import android.os.Handler
+import com.skydroid.rcsdk.KeyManager
+import com.skydroid.rcsdk.RCSDKManager
+import com.skydroid.rcsdk.common.error.SkyException
+import com.skydroid.rcsdk.common.remotecontroller.ChannelSettings
+import java.lang.reflect.Modifier
+import java.util.Collections
+import java.util.IdentityHashMap
+
+private class Owner(val id: String)
+
+/** Deterministic strong-reference oracle; avoids nondeterministic GC/RSS assertions. */
+private fun retains(root: Any?, target: Any): Boolean {
+  val queue = mutableListOf(root)
+  val seen = Collections.newSetFromMap(IdentityHashMap<Any, Boolean>())
+  var inspected = 0
+  while (queue.isNotEmpty()) {
+    val item = queue.removeAt(queue.lastIndex) ?: continue
+    if (item === target) return true
+    if (!seen.add(item)) continue
+    check(++inspected < 2000) { "Reference probe exceeded its bounded graph" }
+    when (item) {
+      is Array<*> -> { queue.addAll(item); continue }
+      is Iterable<*> -> { queue.addAll(item); continue }
+      is Map<*, *> -> { queue.addAll(item.keys); queue.addAll(item.values); continue }
+    }
+    var type: Class<*>? = item.javaClass
+    while (type != null && !type.name.startsWith("java.") && !type.name.startsWith("kotlin.")) {
+      for (field in type.declaredFields) {
+        if (!Modifier.isStatic(field.modifiers) && !field.type.isPrimitive) {
+          field.isAccessible = true
+          queue.add(field.get(item))
+        }
+      }
+      type = type.superclass
+    }
+  }
+  return false
+}
+
+private val failures = mutableListOf<String>()
+private var cases = 0
+private fun verify(name: String, body: () -> Unit) {
+  try { body(); cases++; println("PASS: $name") }
+  catch (error: Throwable) { failures.add("$name: ${error.message}"); println("FAIL: ${failures.last()}") }
+}
+
+fun main() {
+  verify("retained SDK callback releases stopped session delegates and React context") {
+    val application = Context()
+    val react = Context(application)
+    val events = mutableListOf<String>()
+    val owner = Owner("closed")
+    val source = SkydroidG20Source(react)
+    source.open({ events.add(owner.id) }, { events.add(owner.id) }, { events.add(owner.id) })
+    check(RCSDKManager.initializedContext === application)
+    check(retains(RCSDKManager.callback, owner)) { "Fixture must see a live callback retaining its session" }
+    source.close()
+    check(!retains(RCSDKManager.callback, owner)) { "SDK static callback still retains the stopped session owner" }
+    check(!retains(RCSDKManager.callback, react)) { "SDK static callback still retains React context" }
+  }
+  verify("retained callback does not retain React context even before close") {
+    val application = Context()
+    val react = Context(application)
+    val source = SkydroidG20Source(react)
+    source.open({}, {}, {})
+    try { check(!retains(RCSDKManager.callback, react)) { "Source retained React context instead of application context" } }
+    finally { source.close() }
+  }
+  verify("old connection callbacks cannot enter a reopened source") {
+    val source = SkydroidG20Source(Context())
+    val events = mutableListOf<String>()
+    source.open({ events.add("old-connected") }, { events.add("old-failed") }, { events.add("old-disconnected") })
+    val old = RCSDKManager.callback!!
+    source.close()
+    source.open({ events.add("new-connected") }, { events.add("new-failed") }, { events.add("new-disconnected") })
+    old.onRcConnected(); old.onRcConnectFail(SkyException()); old.onRcDisconnect(); Handler.drain()
+    check(events.isEmpty()) { "Old SDK callbacks crossed close/open: $events" }
+    RCSDKManager.callback!!.onRcConnected(); Handler.drain()
+    check(events == listOf("new-connected"))
+    source.close()
+  }
+  verify("pending GET callback releases its stopped session closure") {
+    val source = SkydroidG20Source(Context())
+    val owner = Owner("read")
+    source.open({}, {}, {})
+    source.readChannels { check(owner.id == "read") }
+    val read = KeyManager.pending.last()
+    check(retains(read, owner)) { "Fixture must see pending read ownership" }
+    source.close()
+    check(!retains(read, owner)) { "SDK pending GET still retains the stopped session owner" }
+  }
+  verify("old GET completion cannot enter a reopened source") {
+    val source = SkydroidG20Source(Context())
+    var oldCalls = 0
+    source.open({}, {}, {})
+    source.readChannels { oldCalls++ }
+    val read = KeyManager.pending.last()
+    source.close(); source.open({}, {}, {})
+    read.onSuccess(IntArray(16) { 1500 }); Handler.drain()
+    check(oldCalls == 0) { "Old read completion invoked a retired session" }
+    source.close()
+  }
+  verify("a late prior configuration reply cannot replace a new session reply") {
+    val source = SkydroidG20Source(Context())
+    var oldCalls = 0
+    val accepted = mutableListOf<List<Map<String, Any>>?>()
+    source.open({}, {}, {})
+    source.readSettings { oldCalls++ }
+    val old = KeyManager.pending.last()
+    source.close(); source.open({}, {}, {})
+    source.readSettings { accepted.add(it) }
+    val current = KeyManager.pending.last()
+    val fresh = ChannelSettings()
+    fresh.channels[0].middle = 1510
+    current.onSuccess(fresh); old.onSuccess(ChannelSettings()); current.onSuccess(fresh)
+    Handler.drain()
+    check(oldCalls == 0 && accepted.size == 1)
+    check(accepted.single()?.first()?.get("middle") == 1510)
+    source.close()
+  }
+  verify("queued callbacks are cancelled and repeated close does not disconnect twice") {
+    val source = SkydroidG20Source(Context())
+    var calls = 0
+    source.open({ calls++ }, { calls++ }, { calls++ })
+    RCSDKManager.callback!!.onRcConnected()
+    val before = RCSDKManager.disconnectCount
+    source.close(); source.close(); Handler.drain()
+    check(calls == 0)
+    check(RCSDKManager.disconnectCount == before + 1)
+  }
+  check(failures.isEmpty()) { failures.joinToString("; ") }
+  println("PASS: $cases actual G20 adapter callback ownership cases without vendor JNI")
+}

@@ -1,0 +1,107 @@
+{
+  "expo": {
+    "name": "DOSO",
+    "slug": "hongsen",
+    "scheme": "doso",
+    "version": "0.0.1",
+    "orientation": "default",
+    "icon": "./assets/brand/doso-lighthouse-app-icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.doso.robot",
+      "buildNumber": "5",
+      "usesAppleSignIn": true,
+      "associatedDomains": [
+        "applinks:links.dosorobotics.com"
+      ]
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/brand/doso-lighthouse-adaptive-foreground.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.doso.robot",
+      "versionCode": 24,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "links.dosorobotics.com",
+              "path": "/auth/callback"
+            },
+            {
+              "scheme": "https",
+              "host": "links.dosorobotics.com",
+              "path": "/auth/reset-password"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ],
+      "permissions": [
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "允许 DOSO 选择照片用作头像",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      "expo-secure-store",
+      "expo-apple-authentication",
+      "./plugins/withLocalSupabaseCleartext",
+      "expo-web-browser",
+      [
+        "react-native-ble-manager",
+        {
+          "neverForLocation": true,
+          "bluetoothAlwaysPermission": "允许 DOSO 扫描并连接附近蓝牙设备",
+          "companionDeviceEnabled": false,
+          "isBleRequired": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": false,
+          "locationAlwaysPermission": false,
+          "locationWhenInUsePermission": false,
+          "motionUsagePermission": false,
+          "isIosBackgroundLocationEnabled": false,
+          "isAndroidBackgroundLocationEnabled": false,
+          "isAndroidForegroundServiceEnabled": false,
+          "isAndroidMotionActivityEnabled": false
+        }
+      ],
+      "expo-splash-screen",
+      "./plugins/withLegacyBleLocationPermissions",
+      "./plugins/withOfflinePreview"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "090f78b1-5b6b-4ba8-9207-1e0c21c52f62"
+      }
+    },
+    "owner": "kitjesens-team"
+  }
+}

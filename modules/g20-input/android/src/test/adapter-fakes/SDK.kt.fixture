@@ -1,0 +1,22 @@
+package com.skydroid.rcsdk
+import android.content.Context
+import com.skydroid.rcsdk.common.callback.CompletionCallbackWith
+import com.skydroid.rcsdk.common.error.SkyException
+import com.skydroid.rcsdk.key.Key
+
+interface SDKManagerCallBack { fun onRcConnected(); fun onRcConnectFail(e: SkyException?); fun onRcDisconnect() }
+object RCSDKManager {
+  var callback: SDKManagerCallBack? = null
+  var initializedContext: Context? = null
+  var disconnectCount = 0
+  fun initSDK(context: Context, value: SDKManagerCallBack) { initializedContext = context; callback = value }
+  fun setLogEnable(@Suppress("UNUSED_PARAMETER") enabled: Boolean) {}
+  fun connectToRC() {}
+  // The pinned real SDK also keeps its static callback after disconnectRC.
+  fun disconnectRC() { disconnectCount++; callback?.onRcDisconnect() }
+}
+object KeyManager {
+  val pending = mutableListOf<CompletionCallbackWith<Any>>()
+  @Suppress("UNCHECKED_CAST", "UNUSED_PARAMETER")
+  fun <T> get(key: Key<T>, callback: CompletionCallbackWith<T>) { pending.add(callback as CompletionCallbackWith<Any>) }
+}
