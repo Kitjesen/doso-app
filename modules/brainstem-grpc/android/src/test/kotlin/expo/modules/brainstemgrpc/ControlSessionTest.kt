@@ -236,6 +236,26 @@ fun main() {
     expectFailure("precondition") { posture.acquire() }
   } finally { posture.close() }
 
+  val walkingChannel = FakeChannel().apply { kind = 3 }
+  val walkingSession = ControlSession(walkingChannel, PRINCIPAL) { it() }
+  try {
+    walkingSession.acquire()
+    walkingSession.interrupt()
+    walkingSession.status()
+    check(walkingChannel.requests.none { it.first == "StandUp" }) { "Release must not stand automatically" }
+    walkingSession.action("stand-up", null)
+    check(walkingChannel.requests.count { it.first == "StandUp" } == 1)
+    val methods = walkingChannel.requests.map { it.first }
+    check(methods.indexOf("ReleaseControl") < methods.indexOf("StandUp"))
+  } finally { walkingSession.close() }
+
+  val leasedWalking = FakeChannel().apply { kind = 3; lease = true; owner = 1 }
+  val unownedWalking = ControlSession(leasedWalking, PRINCIPAL) { it() }
+  try {
+    expectFailure("precondition") { unownedWalking.action("stand-up", null) }
+    check(leasedWalking.requests.none { it.first == "StandUp" })
+  } finally { unownedWalking.close() }
+
   // Capture as the bridge enqueues, cancel before the worker starts, then run
   // the old queued work. This window was absent from the in-flight RPC test.
   val queuedChannel = FakeChannel()

@@ -35,6 +35,57 @@ function fixture() {
 const endpoint = { host: '192.0.2.1', port: 13145, clientIdentityAlias: 'fixture' };
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 
+test('Walking needs an explicit stand after confirmed lease release; release and refresh never stand automatically', async () => {
+  const f = fixture();
+  f.set({ fsmKind: 'walking', motorOutputEnabled: true });
+  await f.session.connect(endpoint, 'doso-g20@robot');
+  assert.equal(f.session.runtimeState.posture, 'unknown', 'Walking must not complete a fixed-pose stand');
+  await f.session.acquire();
+  assert.equal(f.session.operationReadiness.stand.ready, false);
+  await assert.rejects(f.session.action('stand-up'), /不允许/);
+  await f.session.interrupt();
+  await f.session.refresh();
+  assert.equal(f.session.operationReadiness.stand.ready, true);
+  assert.equal(f.calls.some(call => call[0] === 'action'), false);
+  assert.equal(f.session.operationReadiness.switchPolicy.ready, false);
+  await f.session.action('stand-up');
+  assert.deepEqual(f.calls.filter(call => call[0] === 'action'), [['action', 'stand-up', undefined]]);
+  assert.equal(f.session.state.status.fsmKind, 'transitioning');
+  assert.equal(f.session.runtimeState.posture, 'unknown');
+  f.set({ fsmKind: 'walking' }); await f.session.refresh();
+  assert.equal(f.session.runtimeState.posture, 'unknown', 'a delayed Walking reply is not completion');
+  f.set({ fsmKind: 'standing' }); await f.session.refresh();
+  assert.equal(f.session.runtimeState.posture, 'standing');
+  f.session.dispose();
+});
+
+test('Walking stand retains motor, lease, local-owner, fault, freshness and busy gates', async () => {
+  for (const patch of [{ motorOutputEnabled: false }, { grpcLeaseActive: true }, { owner: 'yunzhuo' },
+    { criticalMotorFault: true }, { fsmKind: 'transitioning' }, { fsmKind: 'standing' }]) {
+    const f = fixture();
+    f.set({ fsmKind: 'walking', motorOutputEnabled: true, ...patch });
+    await f.session.connect(endpoint, 'doso-g20@robot');
+    assert.equal(f.session.operationReadiness.stand.ready, false, JSON.stringify(patch));
+    await assert.rejects(f.session.action('stand-up'), /不允许/);
+    assert.equal(f.calls.some(call => call[0] === 'action'), false);
+    f.session.dispose();
+  }
+  const f = fixture();
+  f.set({ fsmKind: 'walking', motorOutputEnabled: true });
+  await f.session.connect(endpoint, 'doso-g20@robot');
+  f.advance(1500);
+  assert.equal(f.session.operationReadiness.stand.ready, false);
+  await assert.rejects(f.session.action('stand-up'), /不允许/);
+  await f.session.refresh();
+  let finish;
+  f.transport.action = () => new Promise(resolve => { finish = resolve; });
+  const action = f.session.action('stand-up');
+  assert.equal(f.session.operationReadiness.stand.ready, false);
+  await assert.rejects(f.session.action('stand-up'), /上一项操作/);
+  finish(f.reply()); await action;
+  f.session.dispose();
+});
+
 test('an outstanding motor action keeps its channel while stale telemetry stays unknown and cannot authorize motion', async () => {
   const f = fixture();
   await f.session.connect(endpoint, 'doso-g20@robot');

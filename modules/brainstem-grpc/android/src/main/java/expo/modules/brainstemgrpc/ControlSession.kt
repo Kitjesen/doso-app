@@ -103,6 +103,8 @@ internal class ControlSession(
       if (action == "stand-up" || action == "sit-down") {
         if (!before.boolean("motorOutputEnabled")) throw Failure("precondition")
       }
+      if (action == "stand-up" && before["fsmKind"] == "walking"
+          && before.boolean("grpcLeaseActive")) throw Failure("precondition")
     }
     val request = if (action == "switch-profile") {
       if (before["fsmKind"] !in listOf("grounded", "standing")

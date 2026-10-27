@@ -197,7 +197,8 @@ export class BrainstemControlSession {
       stop: result(this.state.connected && this.state.leaseActive, '尚未取得控制权'),
       enableMotor: result(!!safe && !status?.motorOutputEnabled, '请先连接机器狗并确认电机状态'),
       disableMotor: result(!!base && status?.motorOutputEnabled === true, '请先连接机器狗并确认电机状态'),
-      stand: result(!!safe && !!status?.motorOutputEnabled && (status.fsmKind === 'grounded' || status.fsmKind === 'zero'), '电机须已使能，且机器狗当前未站立或切换姿态'),
+      stand: result(!!safe && !!status?.motorOutputEnabled && (status.fsmKind === 'grounded' || status.fsmKind === 'zero'
+        || status.fsmKind === 'walking' && !status.grpcLeaseActive && !this.state.leaseActive), '电机须已使能，行走后请先停止并释放控制；站立或切换中不可起立'),
       sit: result(!!safe && !!status?.motorOutputEnabled && (status.fsmKind === 'standing' || status.fsmKind === 'walking'), '电机须已使能，且机器狗当前已站立'),
       switchPolicy: result(!!safe && (status?.fsmKind === 'grounded' || status?.fsmKind === 'standing') && !status.grpcLeaseActive && !!this.state.profile?.available.length, '请先站稳或趴地、释放控制并同步策略目录；行走中不可切换'),
     };
@@ -352,7 +353,8 @@ export class BrainstemControlSession {
     return { controlLink: s || awaitingAction ? 'connected' : 'disconnected', controlAuthority: this.canUseManualControl ? 'held' : 'not-held',
       // A private CA/client principal is separate from cloud ownership/binding.
       deviceIdentity: 'unbound', motorState: s ? s.motorOutputEnabled ? 'enabled' : 'disabled' : 'unknown',
-      posture: s?.fsmKind === 'standing' || s?.fsmKind === 'walking' ? 'standing' : s?.fsmKind === 'grounded' ? 'sitting' : 'unknown',
+      // Walking is not confirmation that a fixed-pose StandUp has completed.
+      posture: s?.fsmKind === 'standing' ? 'standing' : s?.fsmKind === 'grounded' ? 'sitting' : 'unknown',
       faultStatus: s ? s.criticalMotorFault ? 'active' : 'clear' : 'unknown',
       currentPolicy: profile?.current ? { id: profile.current, label: profile.current } : null,
       policyCatalogStatus: profile ? 'synced' : 'unknown', policyOptions: profile?.available.map(id => ({ id, label: id })) ?? [],

@@ -44,13 +44,15 @@ App 已接通 Android 原生 gRPC 调用链，不经过网页服务，也不模�
 
 操作员：先释放 App 运动控制，确认设备实际处于 Standing 或 Grounded，再点平地/楼梯并确认。切换仅更换机器人预加载策略，不自动使能、起立、趴下或行走，不修改增益、限位或限速。不同策略的观测历史由机器人端各自管理，App 不拼装 ONNX 输入。
 
-**当前机器人端边界**：已核对的部署版本中，gRPC `StandUp` 在 Walking 下会直接返回，并未进入 Standing；仅松杆也不退出 Walking。因此 App 目前不能承诺“Walk → 点站立 → 站立热切换”。纯 App 可用流程是停止并释放租约 → `SitDown` → 等 Grounded → 切换 → `StandUp`。从静态 Standing 切换不受此问题影响；若要支持行走后直接回站立切换，需要另行修正机器人端，不能只放开 App 按钮。
+**Walking → Standing 需要配套机器人补丁**：App 在电机已使能、无活动 gRPC 租约、无云卓占用、无关键故障、状态新鲜且无操作在途时，允许从 Walking 显式调用 `StandUp`。机器人必须部署支持 Walking 下在零命令、无活动租约后派发既有 `A.standUp`、并拒绝忙碌/切换状态的版本；未修补版本不保证回到 Standing。流程为停止并释放租约 → 手动点站立 → 等设备实际回报 Standing → 再切换平地/楼梯。松杆、释放、刷新状态均不会自动起立或切换；Walking 和姿态切换期间仍不可切换策略。旧机器人应继续使用停止并释放 → `SitDown` → 等 Grounded → 切换 → `StandUp` 的流程。
 
-改动入口：`ControlScreen.tsx`（两种布局按钮与确认）、`directRobotConnection.ts` / `controlOperations.ts`（槽位到实际 ID）、`brainstemControlSession.ts` 和 `ControlSession.kt`（双层状态门禁及回执）。认证、故障、前后台、过期状态、取消与租约保护保持原样。
+机器人补丁部署记录：2026-10-27 21:12:14 +08 已部署至 `.64`，二进制 SHA-256 为 `447d5920ebe22328f38fb1c4bf18cb39ea94075a2f69dcc714e68169a038eab2`。21:12:49 的后检为 Grounded、电机失能、无控制者/租约/故障、16 电机在线且错误列表为空；ARM 测试 142 项通过。没有执行实际 `StandUp`、策略切换或电机使能，不构成 App APK 的物理端到端验收。源文件差异见 [配套补丁说明](patches/README.md)。
 
-本次为源码和离线测试更新；需重新构建安装含原生 Kotlin 修改的 Android 包。未连接实机、未发送使能/运动/切换命令，尚未完成手机—实机验收；iOS/Web 不因本文自动获得 Android 原生控制能力。
+改动入口：`ControlScreen.tsx`（两种布局按钮与确认）、`directRobotConnection.ts` / `controlOperations.ts`（槽位到实际 ID）、`brainstemControlSession.ts` 和 `ControlSession.kt`（双层状态门禁及回执）。Walking 不再映射为站立完成，只有实际 Standing 回报才能确认站立。认证、故障、前后台、过期状态、取消与租约保护保持原样。
 
-验证：7 个相关 JS/TS 测试文件共 189 项通过，`npm run typecheck` 通过；原生 `ControlSession` 及 fake-channel 用例使用本机缓存 Kotlin 2.2.20 / gRPC 1.69.1 编译运行通过。仓库原生全链路测试指定的 Kotlin 2.1.20 / gRPC 1.85.1 缓存及 Expo 编译产物未齐，未声称完成整包构建。另有未改动的旧 `control-operations-wiring.test.mjs` 仍断言不存在动作回调，与基线已有直连回调冲突，执行时报数组分配错误；未计入上述 189 项。
+App 端目前为源码和离线测试更新；需重新构建安装含原生 Kotlin 修改的 Android 包。未通过 App 发送使能/运动/切换命令，尚未完成手机—实机验收；iOS/Web 不因本文自动获得 Android 原生控制能力。
+
+Walking 起立改动离线验证：最终 7 个相关 JS/TS 测试文件共 191 项通过，`npm run typecheck` 通过；使用项目指定 Kotlin 2.1.20、gRPC 1.85.1 / Guava 33.6.0-android 独立编译运行 `ControlSessionTest.kt` 和 `ControlWireTest.java` 通过，覆盖释放后显式起立、不自动起立及活动租约拒绝。仓库原生全链路测试首次运行因依赖缓存缺失而受阻；独立测试不能替代 Expo bridge、整包及实机验收。APK 构建先遇到 Windows CMake/Ninja 路径长度问题，临时缩短构建路径后又因既有 `com.skydroid:rcsdk:1.9.2` 本地依赖缺失而失败；未交付 APK，未安装，已停止打包排查。
 
 ## 推荐联调顺序
 
