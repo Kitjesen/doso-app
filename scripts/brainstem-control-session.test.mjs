@@ -457,12 +457,12 @@ test('unknown profile never dispatches and switch waits for a real catalogue and
   await f.session.disconnect();
 });
 
-test('profile switching requires grounded posture with disabled motors and no lease', async () => {
+test('profile switching allows standing or grounded with either enable state, but rejects walk, lease and faults', async () => {
   const f = fixture(); await f.session.connect(endpoint, 'doso-g20@robot');
   assert.equal(f.session.operationReadiness.switchPolicy.ready, true);
   for (const patch of [
-    { fsmKind: 'standing', motorOutputEnabled: false, grpcLeaseActive: false },
-    { fsmKind: 'grounded', motorOutputEnabled: true, grpcLeaseActive: false },
+    { fsmKind: 'walking', motorOutputEnabled: true, grpcLeaseActive: false },
+    { fsmKind: 'zero', motorOutputEnabled: false, grpcLeaseActive: false },
     { fsmKind: 'grounded', motorOutputEnabled: false, grpcLeaseActive: true },
   ]) {
     f.set(patch); await f.session.refresh();
@@ -470,9 +470,16 @@ test('profile switching requires grounded posture with disabled motors and no le
     await assert.rejects(f.session.action('switch-profile', 'stairs'));
   }
   assert.equal(f.calls.some(c => c[0] === 'action'), false);
-  f.set({ fsmKind: 'grounded', motorOutputEnabled: false, grpcLeaseActive: false }); await f.session.refresh();
-  await f.session.action('switch-profile', 'stairs');
-  assert.equal(f.calls.filter(c => c[0] === 'action').length, 1);
+  for (const fsmKind of ['grounded', 'standing']) for (const motorOutputEnabled of [true, false]) {
+    f.set({ fsmKind, motorOutputEnabled, grpcLeaseActive: false }); await f.session.refresh();
+    assert.equal(f.session.operationReadiness.switchPolicy.ready, true);
+    await f.session.action('switch-profile', 'stairs');
+  }
+  assert.equal(f.calls.filter(c => c[0] === 'action').length, 4);
+  for (const patch of [{ criticalMotorFault: true }, { criticalMotorFault: false, owner: 'yunzhuo' }]) {
+    f.set(patch); await f.session.refresh();
+    await assert.rejects(f.session.action('switch-profile', 'stairs'));
+  }
   await f.session.disconnect();
 });
 

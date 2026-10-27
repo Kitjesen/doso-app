@@ -111,7 +111,12 @@ function jointStatesFromMotors(motors: readonly BrainstemGrpcMotorState[] | unde
 function profileOptions(profile: BrainstemGrpcProfile): readonly ControlPolicyOption[] {
   const descriptions = profile.descriptions;
   const seen = new Set<string>();
-  return profile.available.map((id, index) => ({ id, label: descriptions[index] || id })).filter(option => {
+  return profile.available.map((id, index) => {
+    // Slot-enabled Brainstem prefixes descriptions with the configured slot key.
+    const key = /^(flat|stairs|platform):/.exec(descriptions[index] ?? '')?.[1] ?? id;
+    const terrainModeId = TERRAIN_MODE_OPTIONS.find(option => option.id === key)?.id;
+    return { id, label: descriptions[index] || id, ...(terrainModeId ? { terrainModeId } : {}) };
+  }).filter(option => {
     if (!option.id || !option.label || seen.has(option.id)) return false;
     seen.add(option.id);
     return true;
@@ -119,12 +124,10 @@ function profileOptions(profile: BrainstemGrpcProfile): readonly ControlPolicyOp
 }
 
 function terrainModeFromProfile(profile: BrainstemGrpcProfile): { current: ControlTerrainModeId | null; options: readonly ControlTerrainModeOption[] } {
-  const map = (value: string): ControlTerrainModeId | null => {
-    if (value === 'flat' || value === 'stairs' || value === 'platform') return value;
-    return null;
-  };
-  const options = TERRAIN_MODE_OPTIONS.filter(option => profile.available.some(item => map(item) === option.id));
-  return { current: profile.available.includes(profile.current) ? map(profile.current) : null, options };
+  const policies = profileOptions(profile);
+  const options = TERRAIN_MODE_OPTIONS.filter(option => policies.filter(item => item.terrainModeId === option.id).length === 1);
+  const current = policies.find(item => item.id === profile.current)?.terrainModeId ?? null;
+  return { current: options.some(option => option.id === current) ? current : null, options };
 }
 
 function runtimeFromObservation(observation: BrainstemGrpcObservation, fresh: boolean): ControlRuntimeState {

@@ -199,7 +199,7 @@ export class BrainstemControlSession {
       disableMotor: result(!!base && status?.motorOutputEnabled === true, '请先连接机器狗并确认电机状态'),
       stand: result(!!safe && !!status?.motorOutputEnabled && (status.fsmKind === 'grounded' || status.fsmKind === 'zero'), '电机须已使能，且机器狗当前未站立或切换姿态'),
       sit: result(!!safe && !!status?.motorOutputEnabled && (status.fsmKind === 'standing' || status.fsmKind === 'walking'), '电机须已使能，且机器狗当前已站立'),
-      switchPolicy: result(!!safe && status?.fsmKind === 'grounded' && !status.motorOutputEnabled && !status.grpcLeaseActive && !!this.state.profile?.available.length, '请先坐下、失能电机并同步策略目录'),
+      switchPolicy: result(!!safe && (status?.fsmKind === 'grounded' || status?.fsmKind === 'standing') && !status.grpcLeaseActive && !!this.state.profile?.available.length, '请先站稳或趴地、释放控制并同步策略目录；行走中不可切换'),
     };
   }
 

@@ -68,6 +68,20 @@ test('a verified Brainstem profile populates policy and terrain-mode display onl
   });
 });
 
+test('slot-prefixed descriptions bind real model IDs without guessing from filenames or list order', () => {
+  const profile = { current: 'cts_v39_61128', available: ['cts_v39_61128', 'w5_89999', 'stairs_guess'],
+    descriptions: ['stairs: CTS', 'flat: W5', '楼梯候选'], currentDescription: 'stairs: CTS' };
+  const state = runtime({ profile });
+  assert.equal(state.terrainMode.current, 'stairs');
+  assert.deepEqual(state.terrainMode.options.map(x => x.id), ['flat', 'stairs']);
+  assert.equal(state.policyOptions[0].terrainModeId, 'stairs');
+  assert.equal(state.policyOptions[0].id, 'cts_v39_61128');
+  assert.equal(state.policyOptions[2].terrainModeId, undefined);
+  const ambiguous = runtime({ profile: { ...profile, descriptions: ['flat: CTS', 'flat: W5', '楼梯候选'] } });
+  assert.equal(ambiguous.terrainMode.current, null);
+  assert.deepEqual(ambiguous.terrainMode.options, []);
+});
+
 test('read-only voltage and motor diagnostics populate battery bus voltage and joint health', () => {
   const snapshot = api.createDirectRobotConnectionSnapshot(endpoint(), {
     ...observation(),

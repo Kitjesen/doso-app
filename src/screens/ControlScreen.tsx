@@ -169,8 +169,8 @@ export function ControlScreen({
   const operationContextRef = useRef({ operationReadiness, operationCallbacks, runtimeState, appActive, leaving });
   operationContextRef.current = { operationReadiness, operationCallbacks, runtimeState, appActive, leaving };
   const policyOptions = getControlPolicyOptions(runtimeState).map(option => ({ ...option,
-    label: CONTROL_TERRAIN_MODE_OPTIONS.find(mode => mode.id === option.id)?.label ?? option.label }));
-  const customPolicyCatalog = policyOptions.some(option => !CONTROL_TERRAIN_MODE_OPTIONS.some(mode => mode.id === option.id));
+    label: CONTROL_TERRAIN_MODE_OPTIONS.find(mode => mode.id === (option.terrainModeId ?? option.id))?.label ?? option.label }));
+  const customPolicyCatalog = policyOptions.some(option => !CONTROL_TERRAIN_MODE_OPTIONS.some(mode => mode.id === (option.terrainModeId ?? option.id)));
   const terrainPolicies = customPolicyCatalog
     ? policyOptions.map(option => ({ ...option, profileId: option.id, selected: runtimeState?.currentPolicy?.id === option.id }))
     : getControlTerrainPolicies(runtimeState);
@@ -577,7 +577,7 @@ export function ControlScreen({
         setPolicySelection(expectedGeneration);
         return;
       }
-      if (policySelectionRef.current !== expectedGeneration) return;
+      if (policySelectionRef.current !== null && policySelectionRef.current !== expectedGeneration) return;
       policySelectionRef.current = null;
       setPolicySelection(null);
     }
@@ -716,7 +716,7 @@ export function ControlScreen({
   const terrainModeLabel = CONTROL_TERRAIN_MODE_OPTIONS.find(option => option.id === terrainModeCurrent)?.label ?? '未同步';
   const terrainModeCatalogReady = terrainMode?.catalogStatus === 'synced';
   const terrainModeBlockedReason = terrainModeCatalogReady
-    ? '模式切换通道未接入，当前仅显示 Brainstem 策略映射。'
+    ? '站立或趴地时可切换；行走中不可切换。'
     : 'Brainstem 未同步可验证的运动模式策略。';
   const deviceIdentityLabel = runtimeState?.deviceIdentity === 'verified'
     ? '已验证' : runtimeState?.deviceIdentity === 'bound-unverified'
@@ -1239,8 +1239,9 @@ export function ControlScreen({
                   {CONTROL_TERRAIN_MODE_OPTIONS.map(option => {
                     const available = terrainModeOptions.some(candidate => candidate.id === option.id);
                     const selected = terrainModeCurrent === option.id;
-                    const unavailable = !available || !terrainModeCatalogReady;
-                    return <Pressable key={option.id} accessibilityRole="button" accessibilityLabel={`运动模式${option.label}`} accessibilityHint={unavailable ? terrainModeBlockedReason : '模式切换通道未接入，当前仅可查看。'} accessibilityState={{ disabled: true, selected }} disabled style={[styles.terrainModeOption, { backgroundColor: selected ? appearance.action : colors.surfaceStrong, borderColor: selected ? appearance.blueInk : appearance.border, opacity: unavailable ? 0.55 : 1 }]} testID={`control-terrain-mode-${option.id}`}>
+                    const profileId = getControlTerrainPolicies(runtimeState).find(mode => mode.id === option.id)?.profileId;
+                    const unavailable = !available || !terrainModeCatalogReady || !profileId || !modeReadiness.ready;
+                    return <Pressable key={option.id} accessibilityRole="button" accessibilityLabel={`运动模式${option.label}`} accessibilityHint={unavailable ? modeReadiness.blockedReason ?? terrainModeBlockedReason : undefined} accessibilityState={{ disabled: unavailable || selected, selected }} disabled={unavailable || selected} onPress={() => { if (profileId) runOperation('switchPolicy', renderGeneration, profileId); }} style={[styles.terrainModeOption, { backgroundColor: selected ? appearance.action : colors.surfaceStrong, borderColor: selected ? appearance.blueInk : appearance.border, opacity: unavailable ? 0.55 : 1 }]} testID={`control-terrain-mode-${option.id}`}>
                       <Text style={[styles.caption, { color: selected ? appearance.actionInk : colors.ink }]}>{option.label}</Text>
                     </Pressable>;
                   })}

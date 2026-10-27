@@ -24,6 +24,17 @@ test('action state follows submitted → accepted → executing → completed', 
   }
 });
 
+test('slot bindings keep the actual model ID and reject ambiguous bindings', () => {
+  const state = { policyCatalogStatus: 'synced', currentPolicy: { id: 'w5_89999', label: 'W5' }, policyOptions: [
+    { id: 'w5_89999', label: 'flat: W5', terrainModeId: 'flat' },
+    { id: 'cts_v39_61128', label: 'stairs: CTS', terrainModeId: 'stairs' },
+  ] };
+  assert.deepEqual(getControlTerrainPolicies(state).map(x => x.profileId), ['w5_89999', 'cts_v39_61128', null]);
+  assert.equal(getControlTerrainPolicies(state)[0].selected, true);
+  assert.equal(getControlTerrainPolicies({ ...state, policyOptions: [...state.policyOptions,
+    { id: 'other', label: 'flat: duplicate', terrainModeId: 'flat' }] })[0].profileId, null);
+});
+
 test('failed and timeout are terminal until a fresh submission, and invalid ACK order is ignored', () => {
   const submitted = transitionControlOperationState({ status: 'idle' }, 'submitted').state;
   const failed = transitionControlOperationState(submitted, 'failed').state;

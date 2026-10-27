@@ -105,7 +105,7 @@ internal class ControlSession(
       }
     }
     val request = if (action == "switch-profile") {
-      if (before["fsmKind"] != "grounded" || before.boolean("motorOutputEnabled")
+      if (before["fsmKind"] !in listOf("grounded", "standing")
           || before.boolean("grpcLeaseActive")) throw Failure("precondition")
       if (profileName.isNullOrBlank() || profileName.length > 256) throw Failure("config")
       val profile = ProfileInfoParser.parse(rpc("GetProfile", EMPTY, epoch = epoch))
@@ -116,7 +116,11 @@ internal class ControlSession(
     val response = rpc(method, request, epoch = epoch)
     principalVerified = !lanDev
     val result = status().toMutableMap()
-    if (action == "switch-profile") result["profile"] = ProfileInfoParser.parse(response)
+    if (action == "switch-profile") {
+      val profile = ProfileInfoParser.parse(response)
+      if (profile["current"] != profileName) throw Failure("invalid_response")
+      result["profile"] = profile
+    }
     return result
   }
 

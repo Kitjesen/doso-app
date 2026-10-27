@@ -1,6 +1,6 @@
 export type ControlOperation = 'stop' | 'stand' | 'sit' | 'enableMotor' | 'disableMotor' | 'switchPolicy';
 export type ControlActionReadiness = Readonly<{ ready: boolean; blockedReason?: string }>;
-export type ControlPolicyOption = Readonly<{ id: string; label: string }>;
+export type ControlPolicyOption = Readonly<{ id: string; label: string; terrainModeId?: ControlTerrainModeId }>;
 export type ControlTerrainModeId = 'flat' | 'stairs' | 'platform';
 export type ControlTerrainModeOption = Readonly<{ id: ControlTerrainModeId; label: string }>;
 export type ControlTerrainModeState = Readonly<{
@@ -94,12 +94,12 @@ export const CONTROL_TERRAIN_MODE_OPTIONS: readonly ControlTerrainModeOption[] =
   Object.freeze({ id: 'platform', label: '高台模式' }),
 ]);
 
-// These are the agreed Brainstem profile IDs, not model-filename guesses.
-// Register them in the device catalogue before offering an executable mode.
+// Keep the advertised model ID on the wire; a slot name is only a UI binding.
 export function getControlTerrainPolicies(state?: ControlRuntimeState) {
   const policies = getControlPolicyOptions(state);
   return CONTROL_TERRAIN_MODE_OPTIONS.map(mode => {
-    const policy = policies.find(candidate => candidate.id === mode.id);
+    const matches = policies.filter(candidate => (candidate.terrainModeId ?? candidate.id) === mode.id);
+    const policy = matches.length === 1 ? matches[0] : undefined;
     return { ...mode, profileId: policy?.id ?? null,
       selected: Boolean(policy && state?.currentPolicy?.id === policy.id) };
   });

@@ -638,6 +638,30 @@ test('landscape exposes actual robot policy IDs without guessing terrain names o
   screen.unmount();
 });
 
+test('slot buttons confirm and dispatch the advertised ID in portrait and landscape', async () => {
+  for (const landscape of [false, true]) {
+    const calls = [];
+    const screen = mount({ dev: false, dimensions: { width: landscape ? 800 : 430, height: landscape ? 480 : 900, fontScale: 1 },
+      runtimeState: { policyCatalogStatus: 'synced', terrainMode: { current: 'flat', catalogStatus: 'synced',
+        options: [{ id: 'flat', label: '平地模式' }, { id: 'stairs', label: '楼梯模式' }] },
+        currentPolicy: { id: 'w5_89999', label: 'W5' }, policyOptions: [
+          { id: 'w5_89999', label: 'flat: W5', terrainModeId: 'flat' },
+          { id: 'cts_v39_61128', label: 'stairs: CTS', terrainModeId: 'stairs' }] },
+      operationReadiness: { switchPolicy: { ready: true } }, operationCallbacks: { switchPolicy(id) { calls.push(id); } } });
+    if (landscape) { screen.find('control-open-policy').props.onPress(); screen.render(); }
+    const prefix = landscape ? 'control-mode-' : 'control-terrain-mode-';
+    assert.equal(screen.find(`${prefix}flat`).props.disabled, true);
+    assert.equal(screen.find(`${prefix}platform`).props.disabled, true);
+    assert.equal(screen.find(`${prefix}stairs`).props.disabled, false);
+    screen.find(`${prefix}stairs`).props.onPress(); screen.render();
+    assert.equal(calls.length, 0);
+    screen.find(landscape ? 'control-immersive-confirm' : 'control-confirm-action').props.onPress();
+    await screen.settle();
+    assert.deepEqual(calls, ['cts_v39_61128']);
+    screen.unmount();
+  }
+});
+
 test('landscape mode entry explains unavailable capability and never sends an action', () => {
   let called = 0;
   const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 },
