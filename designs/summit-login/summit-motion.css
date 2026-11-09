@@ -1,0 +1,61 @@
+.summit img {
+  animation: summit-drift 24s ease-in-out infinite alternate;
+}
+
+.summit-mist,
+.summit-light {
+  position: absolute;
+  pointer-events: none;
+}
+
+.summit-mist {
+  inset: auto -5% -4%;
+  height: 25%;
+  background: radial-gradient(ellipse at 30% 90%, #fff7, transparent 67%),
+    radial-gradient(ellipse at 80% 100%, #fff6, transparent 60%);
+  animation: summit-mist 22s ease-in-out infinite alternate;
+}
+
+.summit-light {
+  top: 4%;
+  right: -10%;
+  width: 65%;
+  height: 48%;
+  background: radial-gradient(ellipse at 85% 28%, #fff2dc52, transparent 70%);
+  animation: summit-light 18s ease-in-out infinite alternate;
+}
+
+@keyframes summit-drift {
+  from { transform: scale(1.008) translateX(-1px); }
+  to { transform: scale(1.03) translateX(3px); }
+}
+
+@keyframes summit-mist {
+  from { transform: translateX(-1%); opacity: .26; }
+  to { transform: translateX(2%); opacity: .4; }
+}
+
+@keyframes summit-light {
+  from { opacity: .15; }
+  to { opacity: .28; }
+}
+
+.paused .summit img,
+.paused .summit-mist,
+.paused .summit-light,
+.page-hidden .summit img,
+.page-hidden .summit-mist,
+.page-hidden .summit-light {
+  animation-play-state: paused !important;
+}
+
+.motion:disabled { cursor: default; opacity: .55; }
+
+@media (prefers-reduced-motion: reduce) {
+  .summit img,
+  .summit-mist,
+  .summit-light { animation: none !important; }
+  .summit img { transform: none; }
+  .summit-mist,
+  .summit-light { opacity: 0; }
+}

@@ -1,0 +1,4 @@
+assets/*.otf
+assets/*.ttf
+*.log
+*.err

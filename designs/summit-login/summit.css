@@ -1,0 +1,49 @@
+body[data-theme=summit]{background:#e5e9ed}
+[data-theme=summit] .screen{height:auto;min-height:932px;max-width:430px;margin:0 auto;background:#c6cbd2}
+[data-theme=summit] .art.summit{display:block}
+.summit img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 0;transform-origin:60% 38%}
+[data-theme=summit] .foreground{padding:68px 28px 18px}
+/* Reserve the summit view so larger brand text never pushes the form over the robot. */
+[data-theme=summit] .brand{margin-bottom:0;min-height:412px}
+[data-theme=summit] .brand img{max-width:344px;height:42px}
+[data-theme=summit] .brand h1{margin:22px -8px 0;font-size:clamp(25px,7vw,30px);line-height:40px;font-weight:500;letter-spacing:.6px;text-shadow:0 2px 18px #10213920}
+[data-theme=summit] .glass{margin-top:0;padding:20px 24px;background:#ffffff03;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);box-shadow:none}
+[data-theme=summit] .field{min-height:56px;background:#ffffff3d;border-radius:14px}
+[data-theme=summit] .field input{height:56px;font-size:17px}
+[data-theme=summit] .password-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;margin-bottom:6px}
+[data-theme=summit] .password-heading label{margin:0}
+[data-theme=summit] .password-heading .forgot{margin:0;font-size:17px;font-weight:400}
+[data-theme=summit] .submit{height:56px;border-radius:14px;font-size:18px;letter-spacing:1px}
+[data-theme=summit] .register{margin-top:16px}
+[data-theme=summit] .notice{font-size:11px;color:#3d4852}
+[data-theme=summit] .motion{bottom:12px;right:12px;background:#ffffff20}
+@media(min-width:700px){[data-theme=summit] .screen{margin:24px auto;border-radius:26px;box-shadow:0 24px 70px #1728341a}}
+@media(max-width:350px){[data-theme=summit] .foreground{padding-left:20px;padding-right:20px}[data-theme=summit] .glass{padding-left:18px;padding-right:18px}[data-theme=summit] .brand h1{letter-spacing:.3px}.summit img{object-position:68% 0}}
+@media(min-width:700px) and (orientation:landscape){
+  [data-theme=summit] .screen{max-width:none;min-height:100svh;margin:0;border-radius:0;box-shadow:none}
+  [data-theme=summit] .foreground{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(300px,.8fr);gap:clamp(28px,5vw,80px);align-items:start;max-width:1440px;min-height:100svh;padding:clamp(36px,6vh,64px) clamp(32px,6vw,88px)}
+  [data-theme=summit] .brand{min-height:0;text-align:left;padding-top:20px}
+  [data-theme=summit] .brand img{margin:0;max-width:360px}
+  [data-theme=summit] .brand h1{margin:26px 0 0;font-size:clamp(26px,2.5vw,34px);line-height:1.5;letter-spacing:1px}
+  [data-theme=summit] .account{align-self:center;justify-self:end;max-width:400px;width:100%;min-width:0}
+  [data-theme=summit] .glass{padding:26px;background:#ffffff0f;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+  [data-theme=summit] .register{margin-top:8px}
+  .summit img{object-position:28% 50%;transform-origin:28% 56%}
+}
+@media(min-width:700px) and (orientation:landscape) and (max-height:500px){
+  [data-theme=summit] .foreground{grid-template-columns:minmax(0,1fr) minmax(288px,.82fr);gap:24px;padding:16px 28px}
+  [data-theme=summit] .brand{padding-top:16px}
+  [data-theme=summit] .brand img{max-width:300px;height:36px}
+  [data-theme=summit] .brand h1{font-size:24px;line-height:34px;margin-top:18px;letter-spacing:.5px}
+  [data-theme=summit] .account{max-width:352px}
+  [data-theme=summit] .glass{padding:12px 18px}
+  [data-theme=summit] .glass label{line-height:26px;margin-bottom:6px}
+  [data-theme=summit] .field{min-height:44px;margin-bottom:12px}
+  [data-theme=summit] .field input{height:44px}
+  [data-theme=summit] .password-heading{margin-bottom:4px}
+  [data-theme=summit] .password-heading label{margin:0}
+  [data-theme=summit] .password-heading .forgot{font-size:16px}
+  [data-theme=summit] .submit{height:48px}
+  [data-theme=summit] .register{margin-top:2px}
+  [data-theme=summit] .notice{min-height:0;margin:0}
+}
