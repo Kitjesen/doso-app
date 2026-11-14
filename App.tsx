@@ -2234,6 +2234,7 @@ export default function App() {
           canUseTaskMode={controlTarget !== 'direct' && taskCommandAvailable}
           brainstemIntegration={brainstemIntegration}
           connected={controlTarget === 'direct' ? brainstemControl.state.connected : connected}
+          safetyLock={controlTarget === 'direct' ? null : safetyLock}
           diagnosticsDeviceClass={controlTarget === 'direct' ? 'physical' : lifecycleDemoEnabled ? 'demo' : 'physical'}
           diagnosticsGateway={robotDiagnosticsGateway}
           onBack={() => setStage('main')}

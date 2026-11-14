@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { transitionControlOperationState, getControlTerrainPolicies } from '../src/features/control/controlOperations.ts';
+import { transitionControlOperationState, getControlTerrainPolicies, controlTerrainMotionBlock, controlTerrainSwitchBlock } from '../src/features/control/controlOperations.ts';
 
 test('terrain modes bind exact advertised profile IDs, not similar filenames or descriptions', () => {
   const state = { policyCatalogStatus: 'synced', currentPolicy: { id: 'platform', label: 'device' }, policyOptions: [
@@ -12,6 +12,16 @@ test('terrain modes bind exact advertised profile IDs, not similar filenames or 
   assert.deepEqual(result.map(x => x.profileId), ['flat', null, 'platform']);
   assert.deepEqual(result.map(x => x.selected), [false, false, true]);
   assert.ok(getControlTerrainPolicies({ ...state, policyCatalogStatus: 'unknown' }).every(x => x.profileId === null && !x.selected));
+});
+
+test('terrain switching stays available while standing or prone and closes while walking', () => {
+  const standing = { posture: 'standing', speed: { linearMps: 0, lateralMps: 0, yawRps: 0, source: 'device' } };
+  const prone = { posture: 'sitting', speed: { linearMps: 0, lateralMps: 0, yawRps: 0, source: 'device' } };
+  assert.equal(controlTerrainSwitchBlock(standing), null);
+  assert.equal(controlTerrainSwitchBlock(prone), null);
+  assert.match(controlTerrainSwitchBlock({ posture: 'standing', speed: { linearMps: 0.4, lateralMps: 0, yawRps: 0, source: 'device' } }) ?? '', /行走中不可切换/);
+  assert.match(controlTerrainSwitchBlock({ posture: 'unknown', speed: { linearMps: null, lateralMps: null, yawRps: null, source: 'unknown' } }) ?? '', /站立或趴地/);
+  assert.equal(controlTerrainMotionBlock({ posture: 'unknown' }), null);
 });
 
 test('action state follows submitted → accepted → executing → completed', () => {

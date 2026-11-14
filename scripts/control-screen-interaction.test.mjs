@@ -31,6 +31,20 @@ const g20Module = { exports: {} };
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/features/control/g20InputModel.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, { module: g20Module, exports: g20Module.exports });
+const landscapeHudModule = { exports: {} };
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/controlLandscapeHud.tsx', import.meta.url), 'utf8'), {
+  compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText, {
+  module: landscapeHudModule,
+  exports: landscapeHudModule.exports,
+  require(name) {
+    if (name === 'react/jsx-runtime') return require('react/jsx-runtime');
+    if (name === 'react-native') return { Platform: { OS: 'ios' }, Pressable: 'Pressable', StyleSheet: { create: value => value, absoluteFillObject: { position: 'absolute' } }, View: 'View' };
+    if (name === '@expo/vector-icons') return { Ionicons: 'Ionicons' };
+    if (name === './AppText') return { Text: 'Text' };
+    throw new Error(`Unexpected landscape HUD dependency: ${name}`);
+  },
+});
 
 const colors = {
   authFocus: '#0066FF', authPrimary: '#0066FF', background: '#FFFFFF', ink: '#111827',
@@ -122,6 +136,7 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     '@expo/vector-icons': { Ionicons: 'Ionicons' },
     'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView' },
     '../components/ControlJoystick': { ControlJoystickPair },
+    '../components/controlLandscapeHud': landscapeHudModule.exports,
     '../components/ControlVideoSurface': { ControlVideoSurface },
     '../components/JoystickLayoutSettings': { JoystickLayoutSettings },
     '../features/control/joystickLayoutPreferences': { ...joystickLayoutModule.exports,
@@ -1450,5 +1465,71 @@ test('video HUD only displays measured speed and identified telemetry sources', 
   } });
   assert.match(screen.copy, /0\.2\s*m\/s/); assert.match(screen.copy, /71%/); assert.match(screen.copy, /48\.1\s*V/);
   assert.equal(screen.pair.disabled, true, 'receiving telemetry is not an actuator permission');
+  screen.unmount();
+});
+
+test('receiving landscape video paints the connected HUD and blocks terrain while walking', () => {
+  const terrainRuntime = {
+    controlLink: 'connected', controlAuthority: 'held', posture: 'standing', motorState: 'enabled',
+    deviceIdentity: 'bound-unverified', faultStatus: 'clear', inputSource: 'touch',
+    speed: { linearMps: 0, lateralMps: 0, yawRps: 0, source: 'device' },
+    signal: { qualityPercent: 72, source: 'device' },
+    currentPolicy: { id: 'flat', label: '平地模式', terrainModeId: 'flat' },
+    policyCatalogStatus: 'synced',
+    policyOptions: [
+      { id: 'flat', label: '平地模式', terrainModeId: 'flat' },
+      { id: 'stairs', label: '楼梯模式', terrainModeId: 'stairs' },
+      { id: 'platform', label: '高台模式', terrainModeId: 'platform' },
+    ],
+    terrainMode: {
+      current: 'flat', catalogStatus: 'synced', source: 'device',
+      options: [
+        { id: 'flat', label: '平地模式' },
+        { id: 'stairs', label: '楼梯模式' },
+        { id: 'platform', label: '高台模式' },
+      ],
+    },
+  };
+  const screen = mount({
+    dev: true, dimensions: { width: 844, height: 390, fontScale: 1 }, allowInteractionPreview: true,
+    connected: true, batteryPercent: 80, safetyLock: false,
+    video: { id: 'preview-camera', phase: 'receiving' }, videoSurface: 'plate',
+    runtimeState: terrainRuntime,
+    operationReadiness: { stand: { ready: true }, sit: { ready: true }, stop: { ready: true }, switchPolicy: { ready: true } },
+    operationCallbacks: { stand() {}, sit() {}, stop() {}, switchPolicy() {} },
+  });
+  assert.ok(screen.find('control-landscape-hud'));
+  assert.equal(screen.find('control-action-dock'), undefined);
+  assert.equal(screen.find('control-video-status'), undefined);
+  assert.equal(screen.pair.variant, 'glass');
+  assert.equal(screen.pair.right.axis, 'x');
+  assert.equal(screen.pair.left.axis, 'xy');
+  assert.match(screen.copy, /THUNDER-01 · 已连接/);
+  assert.match(screen.copy, /本设备控制/);
+  assert.match(screen.copy, /设备已解锁/);
+  assert.match(screen.copy, /电量 80%/);
+  assert.match(screen.copy, /信号 72%/);
+  assert.match(screen.copy, /速度 0\.00 m\/s/);
+  assert.match(screen.copy, /平地/);
+  assert.match(screen.copy, /楼梯/);
+  assert.match(screen.copy, /高台/);
+  assert.ok(screen.find('control-hud-posture-selected-stand'));
+  assert.match(screen.copy, /坐下/);
+  assert.match(screen.copy, /趴下/);
+  assert.match(screen.copy, /恢复/);
+  assert.match(screen.copy, /点云未接入/);
+  assert.match(screen.copy, /地图/);
+  assert.match(screen.copy, /设置/);
+  assert.doesNotMatch(screen.copy, /躺下|趺下|蹬下|趿下|无画面|机身高度|抬腿高度|机身温度|电机温度|握手|伸懒腰/);
+  assert.equal(screen.find('control-hud-posture-prone').props.accessibilityState.disabled, true);
+  assert.equal(screen.find('control-hud-posture-recover').props.accessibilityState.disabled, true);
+  assert.equal(screen.find('control-hud-terrain-capsule-stairs').props.disabled, false);
+  assert.equal(screen.find('control-hud-terrain-capsule-flat').props.disabled, false);
+  screen.render({ runtimeState: { ...terrainRuntime, speed: { linearMps: 0.4, lateralMps: 0, yawRps: 0, source: 'device' } } });
+  assert.equal(screen.find('control-hud-terrain-capsule-stairs').props.disabled, true);
+  assert.match(screen.find('control-hud-terrain-capsule-stairs').props.accessibilityHint, /行走中不可切换/);
+  screen.render({ safetyLock: true, runtimeState: { ...terrainRuntime, controlAuthority: 'not-held' } });
+  assert.equal(screen.find('control-hud-unlocked'), undefined);
+  assert.equal(screen.find('control-hud-local-control'), undefined);
   screen.unmount();
 });

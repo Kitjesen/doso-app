@@ -205,12 +205,17 @@ function JoystickVisual({
   const { colors, isDark } = useAppTheme();
   const appearance = getProductAppearance(isDark);
   const radius = Math.max(1, size / 2);
-  const knobSize = Math.max(42, Math.round(size * 0.34));
+  const glass = variant === 'glass';
+  const knobSize = glass ? Math.round(size * 0.42) : Math.max(42, Math.round(size * 0.34));
   const knobTravel = Math.max(0, radius - knobSize / 2 - 6);
   const trackColor = isDark ? appearance.raised : appearance.canvas;
   const trackBorderColor = appearance.blueInk;
   const knobColor = active ? appearance.action : appearance.surface;
-  const glass = variant === 'glass';
+  const chevron = Math.max(7, Math.round(size * 0.07));
+  const chevronInset = Math.max(12, Math.round(size * 0.14));
+  const chevronStroke = Math.max(1.5, size * 0.016);
+  const glassArrow = { borderColor: 'rgba(255,255,255,0.85)', width: chevron, height: chevron, borderTopWidth: chevronStroke, borderRightWidth: chevronStroke };
+  const glassBlur: ViewStyle = Platform.OS === 'web' ? ({ backdropFilter: 'blur(18px)' } as ViewStyle) : {};
   const floatingStyle: StyleProp<ViewStyle> = floating && anchor
     ? { left: anchor.x - radius, position: 'absolute', top: anchor.y - radius }
     : undefined;
@@ -240,9 +245,10 @@ function JoystickVisual({
             width: size,
             height: size,
             borderRadius: radius,
-            backgroundColor: glass ? 'rgba(211,224,236,0.36)' : variant === 'cross' ? 'transparent' : trackColor,
-            borderColor: glass ? 'rgba(255,255,255,0.9)' : variant === 'cross' ? 'transparent' : trackBorderColor,
-            borderWidth: glass ? 0.5 : variant === 'cross' ? 0 : StyleSheet.hairlineWidth,
+            backgroundColor: glass ? 'rgba(203,215,231,0.29)' : variant === 'cross' ? 'transparent' : trackColor,
+            borderColor: glass ? 'rgba(245,248,255,0.45)' : variant === 'cross' ? 'transparent' : trackBorderColor,
+            borderWidth: glass ? 1 : variant === 'cross' ? 0 : StyleSheet.hairlineWidth,
+            ...(glass ? glassBlur : null),
             opacity: disabled ? 0.8 : 1,
           },
         ]}
@@ -251,13 +257,13 @@ function JoystickVisual({
           <View style={[styles.crossArmVertical, { width: size * 0.38, height: size, backgroundColor: trackColor, borderColor: trackBorderColor }]} />
           <View style={[styles.crossArmHorizontal, { width: size, height: size * 0.38, backgroundColor: trackColor, borderColor: trackBorderColor }]} />
         </> : null}
-        <View style={[styles.travelRing, { width: size * 0.79, height: size * 0.79, borderRadius: size, borderColor: glass ? 'rgba(255,255,255,0.42)' : appearance.border, borderWidth: glass ? 0.5 : StyleSheet.hairlineWidth }]} />
+        {glass ? null : <View style={[styles.travelRing, { width: size * 0.79, height: size * 0.79, borderRadius: size, borderColor: appearance.border, borderWidth: StyleSheet.hairlineWidth }]} />}
         {glass ? <>
-          <View style={[styles.glassDirection, styles.directionLeft]} />
-          <View style={[styles.glassDirection, styles.directionRight]} />
+          <View style={[styles.glassDirection, styles.directionLeft, glassArrow, { left: chevronInset }]} />
+          <View style={[styles.glassDirection, styles.directionRight, glassArrow, { right: chevronInset }]} />
           {axis === 'xy' ? <>
-            <View style={[styles.glassDirection, styles.directionUp]} />
-            <View style={[styles.glassDirection, styles.directionDown]} />
+            <View style={[styles.glassDirection, styles.directionUp, glassArrow, { top: chevronInset }]} />
+            <View style={[styles.glassDirection, styles.directionDown, glassArrow, { bottom: chevronInset }]} />
           </> : null}
         </> : <>
           <View style={[styles.axisHorizontal, { backgroundColor: colors.line }]} />
@@ -271,8 +277,8 @@ function JoystickVisual({
               width: knobSize,
               height: knobSize,
               borderRadius: knobSize / 2,
-              backgroundColor: glass ? active ? appearance.action : '#FCFCFC' : knobColor,
-              borderColor: glass ? 'rgba(255,255,255,0.85)' : active ? appearance.blueInk : appearance.border,
+              backgroundColor: glass ? active ? 'rgba(126,169,232,0.55)' : 'rgba(213,224,239,0.47)' : knobColor,
+              borderColor: glass ? 'rgba(245,248,255,0.55)' : active ? appearance.blueInk : appearance.border,
               borderWidth: glass ? 0.5 : StyleSheet.hairlineWidth,
               transform: [
                 { translateX: value.x * knobTravel },
@@ -281,8 +287,10 @@ function JoystickVisual({
             },
           ]}
         >
-          {!glass ? <View style={[styles.thumbRing, { borderColor: active ? 'rgba(255,255,255,0.42)' : colors.line }]} /> : null}
-          <View style={[styles.thumbCenter, glass && styles.glassThumbCenter, { backgroundColor: glass ? appearance.blueInk : active ? '#FFFFFF' : appearance.blueInk }]} />
+          {glass ? null : <>
+            <View style={[styles.thumbRing, { borderColor: active ? 'rgba(255,255,255,0.42)' : colors.line }]} />
+            <View style={[styles.thumbCenter, { backgroundColor: active ? '#FFFFFF' : appearance.blueInk }]} />
+          </>}
         </View>
       </View>
       {showLabel ? <Text style={[styles.label, { color: disabled ? colors.muted : colors.ink }]}>{label}</Text> : null}

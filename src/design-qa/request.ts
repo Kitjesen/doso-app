@@ -33,7 +33,8 @@ export type DesignQaState =
   | 'permission-denied'
   | 'bluetooth-off'
   | 'scanning'
-  | 'empty';
+  | 'empty'
+  | 'connected';
 
 const allowedStates: Record<DesignQaStage, readonly DesignQaState[]> = {
   'auth-login': ['default', 'loading', 'error'],
@@ -50,7 +51,7 @@ const allowedStates: Record<DesignQaStage, readonly DesignQaState[]> = {
   'main-tasks': ['default'],
   'main-analysis': ['default', 'trusted-empty'],
   'main-profile': ['default'],
-  'robot-control': ['default'],
+  'robot-control': ['default', 'connected'],
   'device-bind': ['default', 'loading', 'error'],
   'device-ble-discovery': ['default', 'permission-denied', 'bluetooth-off', 'scanning', 'empty'],
   'device-provisioning': ['unavailable'],
