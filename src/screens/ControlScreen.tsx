@@ -969,11 +969,8 @@ export function ControlScreen({
     {renderImmersiveIntent()}
   </View>;
 
-  const cameraHud = layout.useColumns && video?.phase === 'receiving' && videoSurface != null && videoSurface !== false;
-  const hudStickSize = viewport.width > 0 && immersiveCanvasHeight > 0
-    ? Math.max(96, Math.min(156, Math.floor(Math.min(viewport.width * 0.17, immersiveCanvasHeight * 0.4))))
-    : 120;
-  const hudStickGap = Math.max(36, Math.floor((viewport.width || width) - hudStickSize * 2 - 20));
+  const videoJoined = video?.phase === 'receiving' && videoSurface != null && videoSurface !== false;
+  const cameraHud = layout.useColumns && (connected || videoJoined);
   const hudSpeedLabel = speed?.source === 'device' && typeof speed.linearMps === 'number' && Number.isFinite(speed.linearMps)
     ? `${speed.linearMps.toFixed(2)} m/s` : '—';
   const terrainSwitchBlock = controlTerrainSwitchBlock(runtimeState);
@@ -1005,7 +1002,7 @@ export function ControlScreen({
     ? { ready: false, blockedReason: '请先确认或取消当前操作。' }
     : getControlOperationReadiness({ action: 'stop', readiness: operationReadiness, callbacks: operationCallbacks, runtimeState, foreground: appActive, leaving, inFlight: operationInFlight !== null });
   const stopState = operationStateFor('stop', stopReadiness);
-  const renderCameraHud = () => <View style={[styles.immersiveSurface, { backgroundColor: '#101418', height: immersiveCanvasHeight }]} testID="control-immersive-surface">
+  const renderCameraHud = () => <View style={[styles.immersiveSurface, { backgroundColor: '#000000', height: immersiveCanvasHeight }]} testID="control-immersive-surface">
     {controlLandscapeHud({
       robotName: immersiveRobotName,
       connectionLabel: immersiveConnectionLabel,
@@ -1047,18 +1044,26 @@ export function ControlScreen({
           <Text style={styles.hudSettingsText}>遥控器输入</Text>
         </Pressable>
       </View> : null,
-      joystick: <ControlJoystickPair
+      joystick: configuredJoystickLayout.usable ? <ControlJoystickPair
         disabled={!controlsEnabled || selectedInputSource !== 'touch'}
-        gap={hudStickGap}
+        floating
+        gap={immersiveJoystickGap}
+        layout={configuredJoystickLayout}
         left={{ axis: 'xy', label: '移动', onActiveChange: setDriveActive, onChange: productionInput || developmentInput ? handleDrive : ignoreLocalInput, onSample: productionInput ? handleDrive : undefined, testID: 'control-drive-stick' }}
         onCancel={handleCancel}
         resetKey={resetKey}
         right={{ axis: 'x', label: '转向', onActiveChange: setTurnActive, onChange: productionInput || developmentInput ? handleTurn : ignoreLocalInput, onSample: productionInput ? handleTurn : undefined, testID: 'control-turn-stick' }}
         showLabels={false}
-        size={hudStickSize}
+        size={immersiveJoystickSize}
+        touchAreaHeight={configuredHeight}
+        touchAreaWidth={configuredWidth}
         variant="glass"
-      />,
-      video: <ControlVideoSurface presentation={video} surface={videoSurface} active={appActive && !leaving} onInterrupted={handleCancel} />,
+      /> : null,
+      stickFrameStyle: { top: immersiveTopInset, bottom: actionDockInset, left: 20, right: 20 },
+      dockCenterY: configuredJoystickLayout.usable ? configuredJoystickLayout.left.centerY : undefined,
+      onStickFrameLayout: handleStickArea,
+      videoJoined,
+      video: videoJoined ? <ControlVideoSurface presentation={video} surface={videoSurface} active={appActive && !leaving} onInterrupted={handleCancel} /> : null,
       feedback: operationFeedback,
       confirmation: renderImmersiveIntent(),
     })}

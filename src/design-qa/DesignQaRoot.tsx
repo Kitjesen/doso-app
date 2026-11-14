@@ -141,7 +141,7 @@ function MainPreviewShell({ active, children, onNavigate = noop, onEditProfile }
   );
 }
 
-function PreviewScreen({ stage, state, onNavigate = noop, browsing = false, onEditProfile, onControlBack }: { stage: DesignQaStage; state: DesignQaState; onNavigate?: NavigatePreview; browsing?: boolean; onEditProfile?: () => void; onControlBack?: () => void }) {
+function PreviewScreen({ stage, state, onNavigate = noop, browsing = false, onEditProfile, onControlBack, cameraPreview = false }: { stage: DesignQaStage; state: DesignQaState; onNavigate?: NavigatePreview; browsing?: boolean; onEditProfile?: () => void; onControlBack?: () => void; cameraPreview?: boolean }) {
   const loading = state === 'loading';
   const error = state === 'error' ? SAMPLE_ERROR : null;
 
@@ -306,8 +306,8 @@ function PreviewScreen({ stage, state, onNavigate = noop, browsing = false, onEd
             }}
             safetyLock={false}
             taskModeBlockedReason="生产任务执行器未接入"
-            video={{ id: 'design-qa-landscape-camera', phase: 'receiving' }}
-            videoSurface={<ControlPreviewCameraPlate />}
+            video={cameraPreview ? { id: 'design-qa-landscape-camera', phase: 'receiving' } : undefined}
+            videoSurface={cameraPreview ? <ControlPreviewCameraPlate /> : undefined}
           />
         );
       }
@@ -428,8 +428,8 @@ function DesignQaContent({ hideDisclosure, search, browsing, onToggleTheme }: { 
           onBack={closeProfileEditor}
           onBackRequestChange={registerProfileBack}
           onSave={async () => { throw new Error('这是界面预览，不会写入账户资料。请在正式登录后保存。'); }}
-        /> : extra ? <InvalidRequest issue="qa-extra 不受支持" /> : request.stage && request.state
-          ? <PreviewScreen key={request.stage} stage={request.stage} state={request.state} onNavigate={navigate} browsing={browsing} onEditProfile={browsing ? () => setEditingProfile(true) : undefined} onControlBack={() => navigate(controlOrigin)} />
+        /> : extra && extra !== 'camera' ? <InvalidRequest issue="qa-extra 不受支持" /> : request.stage && request.state
+          ? <PreviewScreen key={request.stage} cameraPreview={extra === 'camera'} stage={request.stage} state={request.state} onNavigate={navigate} browsing={browsing} onEditProfile={browsing ? () => setEditingProfile(true) : undefined} onControlBack={() => navigate(controlOrigin)} />
           : <InvalidRequest issue={request.issue ?? '未知参数错误'} />}
       </View>
     </View>

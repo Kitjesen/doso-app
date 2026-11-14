@@ -1,5 +1,5 @@
 import { type ReactNode } from 'react';
-import { Platform, Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
+import { Platform, Pressable, StyleSheet, View, type LayoutChangeEvent, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Text } from './AppText';
@@ -51,6 +51,12 @@ export type ControlLandscapeHudProps = Readonly<{
   onOpenSettings: () => void;
   settingsMenu?: ReactNode;
   joystick: ReactNode;
+  /** Same frame as the official landscape sticks. The map window must not change it. */
+  stickFrameStyle?: ViewStyle;
+  onStickFrameLayout?: (event: LayoutChangeEvent) => void;
+  /** Vertical center of the sticks inside that frame, so the docks stay aligned with them. */
+  dockCenterY?: number;
+  videoJoined: boolean;
   video: ReactNode;
   feedback?: string | null;
   confirmation?: ReactNode;
@@ -154,7 +160,7 @@ function Chip({ children, style, testID }: { children: ReactNode; style?: ViewSt
 export function controlLandscapeHud({
   robotName, connectionLabel, onBack, onOpenConnection, showLocalControl, showUnlocked,
   terrain, onSelectTerrain, batteryLabel, signalLabel, speedLabel, onStop, stopDisabled, stopHint,
-  postures, onOpenMap, mapContent, onOpenSettings, settingsMenu, joystick, video, feedback, confirmation,
+  postures, onOpenMap, mapContent, onOpenSettings, settingsMenu, joystick, stickFrameStyle, onStickFrameLayout, dockCenterY, videoJoined, video, feedback, confirmation,
 }: ControlLandscapeHudProps) {
   const selectedTerrain = terrain.find(option => option.selected) ?? null;
   const otherTerrain = terrain.filter(option => option !== selectedTerrain);
@@ -168,7 +174,8 @@ export function controlLandscapeHud({
 
   return (
     <View style={styles.root} testID="control-landscape-hud" pointerEvents="box-none">
-      <View pointerEvents="none" style={styles.media} testID="control-media-stage">{video}</View>
+      <View pointerEvents="none" style={styles.backdrop} testID="control-video-backdrop" />
+      {videoJoined ? <View pointerEvents="none" style={styles.media} testID="control-media-stage">{video}</View> : null}
       <View style={styles.top} pointerEvents="box-none">
         <View style={styles.sideCluster}>
         <View style={styles.identityColumn}>
@@ -243,9 +250,9 @@ export function controlLandscapeHud({
         </View>
         </View>
       </View>
-      <View pointerEvents="box-none" style={styles.stage}>
-        <View pointerEvents="box-none" style={styles.stickLayer}>{joystick}</View>
-        <View pointerEvents="box-none" style={styles.dockColumn}>
+      <View onLayout={onStickFrameLayout} pointerEvents="box-none" style={[styles.stickFrame, stickFrameStyle]} testID="control-immersive-sticks">
+        {joystick}
+        <View pointerEvents="box-none" style={[styles.dockColumn, dockCenterY != null && { top: dockCenterY }]}>
           <View style={styles.dock} testID="control-hud-terrain-dock">
             {selectedTerrain ? <View style={styles.leadTile} testID={`control-hud-terrain-selected-${selectedTerrain.id}`}>
               <TerrainMark color={SELECTED_INK} id={selectedTerrain.id} />
@@ -329,7 +336,8 @@ export function controlLandscapeHud({
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, overflow: 'hidden' },
+  root: { backgroundColor: '#000000', flex: 1, overflow: 'hidden' },
+  backdrop: { ...StyleSheet.absoluteFill, backgroundColor: '#000000' },
   media: { ...StyleSheet.absoluteFill },
   top: { alignItems: 'flex-start', flexDirection: 'row', left: 12, position: 'absolute', right: 12, top: 10, zIndex: 4 },
   sideCluster: { flex: 1, minWidth: 0 },
@@ -353,15 +361,14 @@ const styles = StyleSheet.create({
   metricText: { color: '#FFFFFF', fontSize: 12, fontWeight: '600', lineHeight: 16 },
   stop: { alignItems: 'center', backgroundColor: STOP, borderRadius: 21, height: 42, justifyContent: 'center', width: 42 },
   stopMark: { backgroundColor: '#FFFFFF', borderRadius: 2, height: 12, width: 12 },
-  stage: { alignItems: 'center', bottom: 128, justifyContent: 'center', left: 8, position: 'absolute', right: 8, top: 72 },
-  stickLayer: { alignItems: 'center', bottom: 0, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
-  dockColumn: { alignItems: 'center', gap: 8, justifyContent: 'center', zIndex: 3 },
+  stickFrame: { left: 20, position: 'absolute', right: 20, zIndex: 3 },
+  dockColumn: { alignItems: 'center', gap: 8, left: 0, marginTop: -50, position: 'absolute', right: 0, zIndex: 4 },
   dock: { alignItems: 'center', backgroundColor: 'rgba(22, 26, 34, 0.42)', borderColor: FROST_LINE, borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 2, minHeight: 46, paddingHorizontal: 4, paddingVertical: 4, ...webBlur },
   leadTile: { alignItems: 'center', backgroundColor: SELECTED, borderRadius: 16, height: 38, justifyContent: 'center', width: 38 },
   dockSegment: { alignItems: 'center', borderRadius: 14, flexDirection: 'row', gap: 4, justifyContent: 'center', minHeight: 36, paddingHorizontal: 8 },
   dockText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600', lineHeight: 18 },
   disabled: { opacity: 0.45 },
-  pip: { backgroundColor: 'rgba(8, 16, 18, 0.72)', borderColor: 'rgba(255,255,255,0.16)', borderRadius: 16, borderWidth: 1, bottom: 12, height: 118, left: 14, overflow: 'hidden', position: 'absolute', width: 168, zIndex: 4 },
+  pip: { backgroundColor: 'rgba(8, 16, 18, 0.72)', borderColor: 'rgba(255,255,255,0.16)', borderRadius: 16, borderWidth: 1, bottom: 12, height: 118, left: 14, overflow: 'hidden', position: 'absolute', width: 168, zIndex: 2 },
   pipBody: { flex: 1, overflow: 'hidden' },
   pointField: { ...StyleSheet.absoluteFill },
   point: { borderRadius: 2, height: 3, position: 'absolute', width: 3 },

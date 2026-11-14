@@ -1493,15 +1493,25 @@ test('receiving landscape video paints the connected HUD and blocks terrain whil
   const screen = mount({
     dev: true, dimensions: { width: 844, height: 390, fontScale: 1 }, allowInteractionPreview: true,
     connected: true, batteryPercent: 80, safetyLock: false,
-    video: { id: 'preview-camera', phase: 'receiving' }, videoSurface: 'plate',
     runtimeState: terrainRuntime,
     operationReadiness: { stand: { ready: true }, sit: { ready: true }, stop: { ready: true }, switchPolicy: { ready: true } },
     operationCallbacks: { stand() {}, sit() {}, stop() {}, switchPolicy() {} },
   });
+  const flat = style => Object.assign({}, ...(Array.isArray(style) ? style : [style]));
+  const officialSize = Math.min(170, Math.floor(Math.min(844 * 0.15, 390 * 0.32)));
   assert.ok(screen.find('control-landscape-hud'));
   assert.equal(screen.find('control-action-dock'), undefined);
-  assert.equal(screen.find('control-video-status'), undefined);
+  assert.equal(screen.videoStage, undefined);
+  assert.equal(flat(screen.find('control-video-backdrop').props.style).backgroundColor, '#000000');
   assert.equal(screen.pair.variant, 'glass');
+  assert.equal(screen.pair.floating, true);
+  assert.equal(screen.pair.size, officialSize);
+  assert.ok(screen.pair.layout);
+  const stickFrame = flat(screen.find('control-immersive-sticks').props.style);
+  assert.equal(stickFrame.top, 112);
+  assert.equal(stickFrame.bottom, 116);
+  assert.equal(stickFrame.left, 20);
+  assert.equal(stickFrame.right, 20);
   assert.equal(screen.pair.right.axis, 'x');
   assert.equal(screen.pair.left.axis, 'xy');
   assert.match(screen.copy, /THUNDER-01 · 已连接/);
@@ -1525,7 +1535,12 @@ test('receiving landscape video paints the connected HUD and blocks terrain whil
   assert.equal(screen.find('control-hud-posture-recover').props.accessibilityState.disabled, true);
   assert.equal(screen.find('control-hud-terrain-capsule-stairs').props.disabled, false);
   assert.equal(screen.find('control-hud-terrain-capsule-flat').props.disabled, false);
-  screen.render({ runtimeState: { ...terrainRuntime, speed: { linearMps: 0.4, lateralMps: 0, yawRps: 0, source: 'device' } } });
+  screen.render({ video: { id: 'preview-camera', phase: 'receiving' }, videoSurface: 'plate' });
+  assert.ok(screen.videoStage);
+  assert.equal(screen.videoStage.presentation.phase, 'receiving');
+  assert.equal(screen.pair.size, officialSize);
+  assert.equal(flat(screen.find('control-immersive-sticks').props.style).bottom, 116);
+  screen.render({ video: undefined, videoSurface: undefined, runtimeState: { ...terrainRuntime, speed: { linearMps: 0.4, lateralMps: 0, yawRps: 0, source: 'device' } } });
   assert.equal(screen.find('control-hud-terrain-capsule-stairs').props.disabled, true);
   assert.match(screen.find('control-hud-terrain-capsule-stairs').props.accessibilityHint, /行走中不可切换/);
   screen.render({ safetyLock: true, runtimeState: { ...terrainRuntime, controlAuthority: 'not-held' } });
