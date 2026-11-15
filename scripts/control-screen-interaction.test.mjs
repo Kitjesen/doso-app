@@ -1600,7 +1600,8 @@ test('connected landscape stand, sit, and stop call the live operation callbacks
   assert.equal(screen.find('control-hud-posture-prone').props.accessibilityState.disabled, true);
   assert.equal(screen.find('control-hud-posture-recover').props.accessibilityState.disabled, true);
   assert.match(screen.copy, /趴下/);
-  assert.doesNotMatch(screen.copy, /趺下|躺下|蹬下|趿下/);
+  assert.equal([...screen.copy].some(ch => ch.codePointAt(0) === 0x8DBA), false);
+  assert.doesNotMatch(screen.copy, /躺下|蹬下|趿下/);
   screen.render({ operationReadiness: { stand: { ready: false, blockedReason: '尚未取得控制权' }, sit: { ready: false, blockedReason: '尚未取得控制权' }, stop: { ready: false, blockedReason: '尚未取得控制权' } } });
   assert.equal(screen.find('control-hud-stop').props.disabled, true);
   assert.equal(calls.length, 3);
