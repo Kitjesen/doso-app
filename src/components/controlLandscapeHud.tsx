@@ -46,8 +46,6 @@ export type ControlLandscapeHudProps = Readonly<{
   stopDisabled: boolean;
   stopHint?: string;
   postures: readonly LandscapePostureOption[];
-  onOpenMap?: () => void;
-  mapContent?: ReactNode;
   onOpenSettings: () => void;
   settingsMenu?: ReactNode;
   joystick: ReactNode;
@@ -61,21 +59,6 @@ export type ControlLandscapeHudProps = Readonly<{
   feedback?: string | null;
   confirmation?: ReactNode;
 }>;
-
-const PREVIEW_POINTS = [
-  { left: '16%', top: '28%', color: '#8DFFC2' },
-  { left: '28%', top: '46%', color: '#5EE0A0' },
-  { left: '38%', top: '34%', color: '#D6FFE8' },
-  { left: '48%', top: '52%', color: '#3DDC97' },
-  { left: '57%', top: '30%', color: '#B8F7FF' },
-  { left: '66%', top: '44%', color: '#7CFFB2' },
-  { left: '74%', top: '58%', color: '#49C98A' },
-  { left: '22%', top: '62%', color: '#1FA8C9' },
-  { left: '44%', top: '68%', color: '#8DFFC2' },
-  { left: '62%', top: '66%', color: '#D6FFE8' },
-  { left: '33%', top: '22%', color: '#49C98A' },
-  { left: '80%', top: '36%', color: '#B8F7FF' },
-] as const;
 
 function TerrainMark({ id, color }: { id: ControlTerrainModeId; color: string }) {
   if (id === 'stairs') {
@@ -160,7 +143,7 @@ function Chip({ children, style, testID }: { children: ReactNode; style?: ViewSt
 export function controlLandscapeHud({
   robotName, connectionLabel, onBack, onOpenConnection, showLocalControl, showUnlocked,
   terrain, onSelectTerrain, batteryLabel, signalLabel, speedLabel, onStop, stopDisabled, stopHint,
-  postures, onOpenMap, mapContent, onOpenSettings, settingsMenu, joystick, stickFrameStyle, onStickFrameLayout, dockCenterY, videoJoined, video, feedback, confirmation,
+  postures, onOpenSettings, settingsMenu, joystick, stickFrameStyle, onStickFrameLayout, dockCenterY, videoJoined, video, feedback, confirmation,
 }: ControlLandscapeHudProps) {
   const selectedTerrain = terrain.find(option => option.selected) ?? null;
   const otherTerrain = terrain.filter(option => option !== selectedTerrain);
@@ -297,31 +280,6 @@ export function controlLandscapeHud({
           </View>
         </View>
       </View>
-      <View style={styles.pip} testID="control-hud-lidar">
-        <View style={styles.pipBody}>
-          {mapContent ?? <>
-            <View pointerEvents="none" style={styles.pointField}>
-              {PREVIEW_POINTS.map(point => <View key={`${point.left}-${point.top}`} style={[styles.point, { left: point.left, top: point.top, backgroundColor: point.color }]} />)}
-            </View>
-            <Text style={styles.pipEmpty}>点云未接入</Text>
-          </>}
-        </View>
-        <View style={styles.pipFooter}>
-          <Text style={styles.pipRange}>未同步</Text>
-          <Pressable
-            accessibilityLabel="打开地图"
-            accessibilityRole="button"
-            accessibilityState={{ disabled: !onOpenMap }}
-            disabled={!onOpenMap}
-            onPress={onOpenMap}
-            style={({ pressed }) => [styles.mapEntry, pressed && styles.pressed]}
-            testID="control-hud-map"
-          >
-            <Ionicons color="#FFFFFF" name="location-outline" size={12} />
-            <Text style={styles.mapText}>地图</Text>
-          </Pressable>
-        </View>
-      </View>
       <Pressable accessibilityLabel="设置" accessibilityRole="button" onPress={onOpenSettings} style={({ pressed }) => [styles.settings, pressed && styles.pressed]} testID="control-hud-settings">
         <Ionicons color="#FFFFFF" name="settings-outline" size={16} />
         <Text style={styles.settingsText}>设置</Text>
@@ -363,20 +321,11 @@ const styles = StyleSheet.create({
   stopMark: { backgroundColor: '#FFFFFF', borderRadius: 2, height: 12, width: 12 },
   stickFrame: { left: 20, position: 'absolute', right: 20, zIndex: 3 },
   dockColumn: { alignItems: 'center', gap: 8, left: 0, marginTop: -50, position: 'absolute', right: 0, zIndex: 4 },
-  dock: { alignItems: 'center', backgroundColor: 'rgba(22, 26, 34, 0.42)', borderColor: FROST_LINE, borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 2, minHeight: 46, paddingHorizontal: 4, paddingVertical: 4, ...webBlur },
+  dock: { alignItems: 'center', backgroundColor: 'rgba(22, 26, 34, 0.22)', borderColor: 'rgba(245,248,255,0.32)', borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 2, minHeight: 46, paddingHorizontal: 4, paddingVertical: 4, ...webBlur },
   leadTile: { alignItems: 'center', backgroundColor: SELECTED, borderRadius: 16, height: 38, justifyContent: 'center', width: 38 },
   dockSegment: { alignItems: 'center', borderRadius: 14, flexDirection: 'row', gap: 4, justifyContent: 'center', minHeight: 36, paddingHorizontal: 8 },
   dockText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600', lineHeight: 18 },
-  disabled: { opacity: 0.45 },
-  pip: { backgroundColor: 'rgba(8, 16, 18, 0.72)', borderColor: 'rgba(255,255,255,0.16)', borderRadius: 16, borderWidth: 1, bottom: 12, height: 118, left: 14, overflow: 'hidden', position: 'absolute', width: 168, zIndex: 2 },
-  pipBody: { flex: 1, overflow: 'hidden' },
-  pointField: { ...StyleSheet.absoluteFill },
-  point: { borderRadius: 2, height: 3, position: 'absolute', width: 3 },
-  pipEmpty: { color: 'rgba(255,255,255,0.72)', fontSize: 11, fontWeight: '500', left: 8, position: 'absolute', top: 6 },
-  pipFooter: { alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.45)', flexDirection: 'row', justifyContent: 'space-between', minHeight: 28, paddingHorizontal: 8 },
-  pipRange: { color: 'rgba(255,255,255,0.8)', fontSize: 11, fontWeight: '500' },
-  mapEntry: { alignItems: 'center', flexDirection: 'row', gap: 3, minHeight: 24, paddingHorizontal: 4 },
-  mapText: { color: '#FFFFFF', fontSize: 12, fontWeight: '600' },
+  disabled: { opacity: 0.62 },
   settings: { alignItems: 'center', backgroundColor: 'rgba(12, 16, 24, 0.78)', borderRadius: 22, bottom: 14, flexDirection: 'row', gap: 6, minHeight: 42, paddingHorizontal: 14, position: 'absolute', right: 14, zIndex: 4, ...webBlur },
   settingsText: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
   feedback: { alignItems: 'center', backgroundColor: 'rgba(12,16,24,0.72)', borderRadius: 12, bottom: 64, left: 196, paddingHorizontal: 12, paddingVertical: 6, position: 'absolute', right: 120, zIndex: 5 },

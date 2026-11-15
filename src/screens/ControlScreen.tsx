@@ -720,7 +720,7 @@ export function ControlScreen({
   const terrainModeLabel = CONTROL_TERRAIN_MODE_OPTIONS.find(option => option.id === terrainModeCurrent)?.label ?? '未同步';
   const terrainModeCatalogReady = terrainMode?.catalogStatus === 'synced';
   const terrainModeBlockedReason = terrainModeCatalogReady
-    ? '站立或趴地时可切换；行走中不可切换。'
+    ? '站立或趺地时可切换；行走中不可切换。'
     : 'Brainstem 未同步可验证的运动模式策略。';
   const terrainMotionBlock = controlTerrainMotionBlock(runtimeState);
   const deviceIdentityLabel = runtimeState?.deviceIdentity === 'verified'
@@ -980,10 +980,10 @@ export function ControlScreen({
     if (profileId) runOperation('switchPolicy', renderGeneration, profileId);
   };
   const landscapePostures = (['stand', 'sit', 'prone', 'recover'] as const).map(id => {
-    const label = id === 'stand' ? '站立' : id === 'sit' ? '坐下' : id === 'prone' ? '趴下' : '恢复';
+    const label = id === 'stand' ? '站立' : id === 'sit' ? '坐下' : id === 'prone' ? '趺下' : '恢复';
     const action = id === 'stand' ? 'stand' as const : id === 'sit' ? 'sit' as const : null;
     if (!action) {
-      return { id, label, disabled: true, selected: false, hint: id === 'prone' ? '趴下指令尚未接通。' : '恢复指令尚未接通。', onPress: () => {} };
+      return { id, label, disabled: true, selected: false, hint: id === 'prone' ? '趺下指令尚未接通。' : '恢复指令尚未接通。', onPress: () => {} };
     }
     const readiness = visibleConfirmation || selectingPolicy
       ? { ready: false, blockedReason: '请先确认或取消当前操作。' }
@@ -1030,8 +1030,6 @@ export function ControlScreen({
       stopDisabled: !stopReadiness.ready || ['submitted', 'accepted', 'executing'].includes(stopState.status),
       stopHint: stopState.detail ?? stopReadiness.blockedReason,
       postures: landscapePostures,
-      onOpenMap: onOpenMap ? () => openView(onOpenMap) : undefined,
-      mapContent,
       onOpenSettings: () => {
         if (g20Controller) setHudSettingsOpen(open => !open);
         else openJoystickSettings();
@@ -1059,7 +1057,7 @@ export function ControlScreen({
         touchAreaWidth={configuredWidth}
         variant="glass"
       /> : null,
-      stickFrameStyle: { top: immersiveTopInset, bottom: actionDockInset, left: 20, right: 20 },
+      stickFrameStyle: { top: immersiveTopInset + 36, bottom: Math.max(72, actionDockInset - 36), left: 20, right: 20 },
       dockCenterY: configuredJoystickLayout.usable ? configuredJoystickLayout.left.centerY : undefined,
       onStickFrameLayout: handleStickArea,
       videoJoined,

@@ -1508,8 +1508,8 @@ test('receiving landscape video paints the connected HUD and blocks terrain whil
   assert.equal(screen.pair.size, officialSize);
   assert.ok(screen.pair.layout);
   const stickFrame = flat(screen.find('control-immersive-sticks').props.style);
-  assert.equal(stickFrame.top, 112);
-  assert.equal(stickFrame.bottom, 116);
+  assert.equal(stickFrame.top, 148);
+  assert.equal(stickFrame.bottom, 80);
   assert.equal(stickFrame.left, 20);
   assert.equal(stickFrame.right, 20);
   assert.equal(screen.pair.right.axis, 'x');
@@ -1525,12 +1525,13 @@ test('receiving landscape video paints the connected HUD and blocks terrain whil
   assert.match(screen.copy, /高台/);
   assert.ok(screen.find('control-hud-posture-selected-stand'));
   assert.match(screen.copy, /坐下/);
-  assert.match(screen.copy, /趴下/);
+  assert.match(screen.copy, /趺下/);
   assert.match(screen.copy, /恢复/);
-  assert.match(screen.copy, /点云未接入/);
-  assert.match(screen.copy, /地图/);
+  assert.equal(screen.find('control-hud-lidar'), undefined);
+  assert.equal(screen.find('control-hud-map'), undefined);
+  assert.doesNotMatch(screen.copy, /点云未接入/);
   assert.match(screen.copy, /设置/);
-  assert.doesNotMatch(screen.copy, /躺下|趺下|蹬下|趿下|无画面|机身高度|抬腿高度|机身温度|电机温度|握手|伸懒腰/);
+  assert.doesNotMatch(screen.copy, /躺下|跤下|蹬下|趾下|无画面|机身高度|抬腿高度|机身温度|电机温度|握手|伸懒腰/);
   assert.equal(screen.find('control-hud-posture-prone').props.accessibilityState.disabled, true);
   assert.equal(screen.find('control-hud-posture-recover').props.accessibilityState.disabled, true);
   assert.equal(screen.find('control-hud-terrain-capsule-stairs').props.disabled, false);
@@ -1539,7 +1540,7 @@ test('receiving landscape video paints the connected HUD and blocks terrain whil
   assert.ok(screen.videoStage);
   assert.equal(screen.videoStage.presentation.phase, 'receiving');
   assert.equal(screen.pair.size, officialSize);
-  assert.equal(flat(screen.find('control-immersive-sticks').props.style).bottom, 116);
+  assert.equal(flat(screen.find('control-immersive-sticks').props.style).bottom, 80);
   screen.render({ video: undefined, videoSurface: undefined, runtimeState: { ...terrainRuntime, speed: { linearMps: 0.4, lateralMps: 0, yawRps: 0, source: 'device' } } });
   assert.equal(screen.find('control-hud-terrain-capsule-stairs').props.disabled, true);
   assert.match(screen.find('control-hud-terrain-capsule-stairs').props.accessibilityHint, /行走中不可切换/);

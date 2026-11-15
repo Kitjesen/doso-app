@@ -20,7 +20,7 @@ test('terrain switching stays available while standing or prone and closes while
   assert.equal(controlTerrainSwitchBlock(standing), null);
   assert.equal(controlTerrainSwitchBlock(prone), null);
   assert.match(controlTerrainSwitchBlock({ posture: 'standing', speed: { linearMps: 0.4, lateralMps: 0, yawRps: 0, source: 'device' } }) ?? '', /行走中不可切换/);
-  assert.match(controlTerrainSwitchBlock({ posture: 'unknown', speed: { linearMps: null, lateralMps: null, yawRps: null, source: 'unknown' } }) ?? '', /站立或趴地/);
+  assert.match(controlTerrainSwitchBlock({ posture: 'unknown', speed: { linearMps: null, lateralMps: null, yawRps: null, source: 'unknown' } }) ?? '', /站立或趺地/);
   assert.equal(controlTerrainMotionBlock({ posture: 'unknown' }), null);
 });
 

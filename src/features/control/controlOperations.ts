@@ -126,7 +126,7 @@ export function controlTerrainSwitchBlock(state?: ControlRuntimeState): string |
   const moving = controlTerrainMotionBlock(state);
   if (moving) return moving;
   if (state?.posture !== 'standing' && state?.posture !== 'sitting') {
-    return '站立或趴地时可切换；行走中不可切换。';
+    return '站立或趺地时可切换；行走中不可切换。';
   }
   return null;
 }
