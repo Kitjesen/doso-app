@@ -564,6 +564,16 @@ export function ControlScreen({
   }, [resetControls, setLocalOperationState]);
   const runOperation = useCallback((action: ControlOperation, expectedGeneration: number, policyId?: string, confirmedIntent?: OperationConfirmation) => {
     if (!mountedRef.current || expectedGeneration !== operationGeneration.current) return;
+    // Emergency stop preempts a pending confirmation or in-flight posture change.
+    // The native interrupt is allowed while another RPC is busy.
+    if (action === 'stop' && !confirmedIntent) {
+      confirmationRef.current = null;
+      policySelectionRef.current = null;
+      setConfirmation(null);
+      setPolicySelection(null);
+      for (const pending of [...pendingResultsRef.current.values()]) pending.cancel();
+      inFlightRef.current = null;
+    }
     if (confirmedIntent ? confirmationRef.current !== confirmedIntent : confirmationRef.current !== null) return;
     const current = operationContextRef.current;
     const readiness = getControlOperationReadiness({ action, readiness: current.operationReadiness, callbacks: current.operationCallbacks,
@@ -824,9 +834,9 @@ export function ControlScreen({
     <Pressable accessibilityRole="button" onPress={revokeOperationIntent} style={styles.operationButton}><Text style={[styles.label, { color: appearance.ink }]}>取消</Text></Pressable>
   </View>;
   const renderMinimalAction = (action: ControlOperation, label = controlOperationLabels[action]) => {
-    const readiness = visibleConfirmation || selectingPolicy
+    const readiness = action !== 'stop' && (visibleConfirmation || selectingPolicy)
       ? { ready: false, blockedReason: '请先确认或取消当前操作。' }
-      : getControlOperationReadiness({ action, readiness: operationReadiness, callbacks: operationCallbacks, runtimeState, foreground: appActive, leaving, inFlight: operationInFlight !== null });
+      : getControlOperationReadiness({ action, readiness: operationReadiness, callbacks: operationCallbacks, runtimeState, foreground: appActive, leaving, inFlight: action === 'stop' ? false : operationInFlight !== null });
     const state = operationStateFor(action, readiness);
     const statusBusy = ['submitted', 'accepted', 'executing'].includes(state.status);
     const disabled = !readiness.ready || statusBusy;
@@ -1001,9 +1011,7 @@ export function ControlScreen({
       onPress: () => runOperation(action, renderGeneration),
     };
   });
-  const stopReadiness = visibleConfirmation || selectingPolicy
-    ? { ready: false, blockedReason: '请先确认或取消当前操作。' }
-    : getControlOperationReadiness({ action: 'stop', readiness: operationReadiness, callbacks: operationCallbacks, runtimeState, foreground: appActive, leaving, inFlight: operationInFlight !== null });
+  const stopReadiness = getControlOperationReadiness({ action: 'stop', readiness: operationReadiness, callbacks: operationCallbacks, runtimeState, foreground: appActive, leaving, inFlight: false });
   const stopState = operationStateFor('stop', stopReadiness);
   const renderCameraHud = () => <View style={[styles.immersiveSurface, { backgroundColor: '#000000', height: immersiveCanvasHeight }]} testID="control-immersive-surface">
     {controlLandscapeHud({
@@ -1218,7 +1226,7 @@ export function ControlScreen({
               <Text accessibilityRole="header" style={[styles.label, { color: colors.ink }]}>{group.title}</Text>
               <View style={[styles.operationRows, layout.useColumns && styles.operationActionsRow]}>
               {group.actions.map(action => {
-                const readiness = visibleConfirmation || selectingPolicy ? { ready: false, blockedReason: '请先确认或取消当前操作。' } : getControlOperationReadiness({ action, readiness: operationReadiness, callbacks: operationCallbacks, runtimeState, foreground: appActive, leaving, inFlight: operationInFlight !== null, });
+                const readiness = action !== 'stop' && (visibleConfirmation || selectingPolicy) ? { ready: false, blockedReason: '请先确认或取消当前操作。' } : getControlOperationReadiness({ action, readiness: operationReadiness, callbacks: operationCallbacks, runtimeState, foreground: appActive, leaving, inFlight: action === 'stop' ? false : operationInFlight !== null, });
                 const state = operationStateFor(action, readiness);
                 const statusBusy = ['submitted', 'accepted', 'executing'].includes(state.status);
                 const disabled = !readiness.ready || statusBusy;

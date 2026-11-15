@@ -602,7 +602,7 @@ test('large text keeps its scrollable layout and a retired navigation reply cann
 
 test('landscape diagnostics retires held touch before navigation', () => {
   const order = []; let sent = 0;
-  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(),
+  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(), connected: false,
     productionInput: { ready: true, onDrive() { sent++; }, onTurn() {}, onInterrupt() { order.push('interrupt'); } },
     onOpenJointStatus() { order.push('diagnostics'); } });
   const oldInput = screen.pair.left.onSample;
@@ -617,7 +617,7 @@ test('landscape diagnostics retires held touch before navigation', () => {
 
 test('gesture library opens unavailable state and retires old touch without replay on return', () => {
   let sent = 0, interrupted = 0;
-  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(),
+  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(), connected: false,
     productionInput: { ready: true, onDrive() { sent++; }, onTurn() {}, onInterrupt() { interrupted++; } } });
   const oldInput = screen.pair.left.onSample;
   oldInput({ x: .2, y: .2 });
@@ -637,7 +637,7 @@ test('gesture library opens unavailable state and retires old touch without repl
 
 test('landscape exposes actual robot policy IDs without guessing terrain names or dispatching on open', () => {
   let called = 0;
-  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(),
+  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(), connected: false,
     runtimeState: { controlLink: 'connected', motorState: 'disabled', posture: 'sitting', policyCatalogStatus: 'synced',
       currentPolicy: { id: 'w5_current', label: 'W5' }, policyOptions: [{ id: 'w5_current', label: 'W5' }, { id: 'robot_candidate', label: '候选策略' }] },
     operationReadiness: { switchPolicy: { ready: true } },
@@ -706,7 +706,7 @@ test('landscape mode entry explains unavailable capability and never sends an ac
 
 test('landscape mode entry opens real policy selection without executing a policy', () => {
   let called = 0;
-  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(),
+  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(), connected: false,
     runtimeState: { policyCatalogStatus: 'synced', policyOptions: [{ id: 'flat', label: '标准行走' }] },
     operationReadiness: { switchPolicy: { ready: true } }, operationCallbacks: { switchPolicy() { called++; } } });
   screen.find('control-open-policy').props.onPress(); screen.render();
@@ -1172,7 +1172,7 @@ test('opening layout editing synchronously cancels input and rejects an old touc
 
 test('slider previews update the layout without storage or motion, then commit once on release', async () => {
   const saved = []; let sent = 0;
-  const screen = mount({ dev: false, ...capableProps(), dimensions: { width: 1100, height: 600, fontScale: 1 },
+  const screen = mount({ dev: false, ...capableProps(), connected: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
     productionInput: { ready: true, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() {} },
     layoutSave: async value => { saved.push(JSON.parse(JSON.stringify(value))); } });
   await screen.settle();
@@ -1421,7 +1421,7 @@ test('video HUD forwards the actual media surface without granting motion or inv
 test('video HUD loss retires the old touch context and recovery does not replay it', () => {
   let sent = 0;
   const screen = mount({ dev: false, dimensions: { width: 1250, height: 650, fontScale: 1 },
-    ...capableProps(), video: { phase: 'receiving', id: 'fixture-camera' },
+    ...capableProps(), connected: false, video: { phase: 'receiving', id: 'fixture-camera' },
     productionInput: { ready: true, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() {} } });
   const held = screen.pair.left.onSample;
   held({ x: .2, y: -.2 }); assert.equal(sent, 1);
@@ -1559,5 +1559,75 @@ test('receiving landscape video paints the connected HUD and blocks terrain whil
   screen.render({ safetyLock: true, runtimeState: { ...terrainRuntime, controlAuthority: 'not-held' } });
   assert.equal(screen.find('control-hud-unlocked'), undefined);
   assert.equal(screen.find('control-hud-local-control'), undefined);
+  screen.unmount();
+});
+
+test('connected landscape stand, sit, and stop call the live operation callbacks', async () => {
+  const calls = [];
+  const runtime = { controlLink: 'connected', controlAuthority: 'held', motorState: 'enabled', posture: 'sitting' };
+  const screen = mount({
+    dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, connected: true,
+    runtimeState: runtime,
+    operationReadiness: {
+      stand: { ready: true },
+      sit: { ready: false, blockedReason: '电机须已使能，且机器狗当前已站立' },
+      stop: { ready: true },
+    },
+    operationCallbacks: {
+      stand: async () => { calls.push('stand'); },
+      sit: async () => { calls.push('sit'); },
+      stop: async () => { calls.push('stop'); },
+    },
+  });
+  screen.find('control-hud-stop').props.onPress();
+  await screen.settle();
+  assert.deepEqual(calls, ['stop']);
+  assert.match(screen.copy, /请求已接受/);
+  screen.find('control-hud-posture-stand').props.onPress();
+  await screen.settle();
+  assert.deepEqual(calls, ['stop', 'stand']);
+  screen.render({
+    runtimeState: { ...runtime, posture: 'standing' },
+    operationReadiness: {
+      stand: { ready: false, blockedReason: '电机须已使能，行走后请先停止并释放控制；站立或切换中不可起立' },
+      sit: { ready: true },
+      stop: { ready: true },
+    },
+  });
+  screen.find('control-hud-posture-sit').props.onPress();
+  await screen.settle();
+  assert.deepEqual(calls, ['stop', 'stand', 'sit']);
+  assert.equal(screen.find('control-hud-posture-prone').props.accessibilityState.disabled, true);
+  assert.equal(screen.find('control-hud-posture-recover').props.accessibilityState.disabled, true);
+  assert.match(screen.copy, /趴下/);
+  assert.doesNotMatch(screen.copy, /趺下|躺下|蹬下|趿下/);
+  screen.render({ operationReadiness: { stand: { ready: false, blockedReason: '尚未取得控制权' }, sit: { ready: false, blockedReason: '尚未取得控制权' }, stop: { ready: false, blockedReason: '尚未取得控制权' } } });
+  assert.equal(screen.find('control-hud-stop').props.disabled, true);
+  assert.equal(calls.length, 3);
+  screen.unmount();
+});
+
+test('landscape emergency stop still sends while a posture command is in flight', async () => {
+  const calls = [];
+  let finishSit;
+  const screen = mount({
+    dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, connected: true,
+    runtimeState: { controlLink: 'connected', controlAuthority: 'held', motorState: 'enabled', posture: 'standing' },
+    operationReadiness: { sit: { ready: true }, stop: { ready: true } },
+    operationCallbacks: {
+      sit: () => { calls.push('sit'); return new Promise(resolve => { finishSit = resolve; }); },
+      stop: async () => { calls.push('stop'); },
+    },
+  });
+  screen.find('control-hud-posture-sit').props.onPress();
+  screen.render();
+  assert.deepEqual(calls, ['sit']);
+  assert.equal(screen.find('control-hud-stop').props.disabled, false);
+  screen.find('control-hud-stop').props.onPress();
+  await screen.settle();
+  assert.deepEqual(calls, ['sit', 'stop']);
+  finishSit();
+  await screen.settle();
+  assert.equal(calls.length, 2);
   screen.unmount();
 });
