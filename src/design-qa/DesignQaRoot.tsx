@@ -141,7 +141,7 @@ function MainPreviewShell({ active, children, onNavigate = noop, onEditProfile }
   );
 }
 
-function PreviewScreen({ stage, state, onNavigate = noop, browsing = false, onEditProfile, onControlBack, cameraPreview = false }: { stage: DesignQaStage; state: DesignQaState; onNavigate?: NavigatePreview; browsing?: boolean; onEditProfile?: () => void; onControlBack?: () => void; cameraPreview?: boolean }) {
+function PreviewScreen({ stage, state, onNavigate = noop, browsing = false, onEditProfile, onControlBack, cameraPreview = false, landscapeDocksExpanded = true }: { stage: DesignQaStage; state: DesignQaState; onNavigate?: NavigatePreview; browsing?: boolean; onEditProfile?: () => void; onControlBack?: () => void; cameraPreview?: boolean; landscapeDocksExpanded?: boolean }) {
   const loading = state === 'loading';
   const error = state === 'error' ? SAMPLE_ERROR : null;
 
@@ -306,6 +306,7 @@ function PreviewScreen({ stage, state, onNavigate = noop, browsing = false, onEd
             }}
             safetyLock={false}
             taskModeBlockedReason="生产任务执行器未接入"
+            landscapeDocksExpanded={landscapeDocksExpanded}
             video={cameraPreview ? { id: 'design-qa-landscape-camera', phase: 'receiving' } : undefined}
             videoSurface={cameraPreview ? <ControlPreviewCameraPlate /> : undefined}
           />
@@ -368,6 +369,8 @@ function DesignQaContent({ hideDisclosure, search, browsing, onToggleTheme }: { 
   // Static, local-only extras do not expand the formal 20-stage acceptance list.
   // Neither page mounts an account provider or calls a service automatically.
   const extra = new URLSearchParams(search).get('design-qa') === '1' ? new URLSearchParams(search).get('qa-extra') : null;
+  const extraTokens = extra ? extra.split(',').map(token => token.trim()).filter(Boolean) : [];
+  const hudExtraOnly = extraTokens.every(token => token === 'camera' || token === 'folded');
   const requested = parseDesignQaRequest(selectedStage ? `?qa-stage=${selectedStage}` : initialSearch);
   const request = requested.stage === 'robot-control' && controlScene ? { ...requested, state: controlScene, issue: null } : requested;
   const navigate: NavigatePreview = stage => {
@@ -428,8 +431,8 @@ function DesignQaContent({ hideDisclosure, search, browsing, onToggleTheme }: { 
           onBack={closeProfileEditor}
           onBackRequestChange={registerProfileBack}
           onSave={async () => { throw new Error('这是界面预览，不会写入账户资料。请在正式登录后保存。'); }}
-        /> : extra && extra !== 'camera' ? <InvalidRequest issue="qa-extra 不受支持" /> : request.stage && request.state
-          ? <PreviewScreen key={request.stage} cameraPreview={extra === 'camera'} stage={request.stage} state={request.state} onNavigate={navigate} browsing={browsing} onEditProfile={browsing ? () => setEditingProfile(true) : undefined} onControlBack={() => navigate(controlOrigin)} />
+        /> : extra && !hudExtraOnly ? <InvalidRequest issue="qa-extra 不受支持" /> : request.stage && request.state
+          ? <PreviewScreen key={request.stage} cameraPreview={extraTokens.includes('camera')} landscapeDocksExpanded={!extraTokens.includes('folded')} stage={request.stage} state={request.state} onNavigate={navigate} browsing={browsing} onEditProfile={browsing ? () => setEditingProfile(true) : undefined} onControlBack={() => navigate(controlOrigin)} />
           : <InvalidRequest issue={request.issue ?? '未知参数错误'} />}
       </View>
     </View>

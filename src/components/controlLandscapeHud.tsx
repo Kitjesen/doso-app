@@ -46,6 +46,8 @@ export type ControlLandscapeHudProps = Readonly<{
   stopDisabled: boolean;
   stopHint?: string;
   postures: readonly LandscapePostureOption[];
+  docksExpanded: boolean;
+  onToggleDocks: () => void;
   onOpenSettings: () => void;
   settingsMenu?: ReactNode;
   joystick: ReactNode;
@@ -143,7 +145,7 @@ function Chip({ children, style, testID }: { children: ReactNode; style?: ViewSt
 export function controlLandscapeHud({
   robotName, connectionLabel, onBack, onOpenConnection, showLocalControl, showUnlocked,
   terrain, onSelectTerrain, batteryLabel, signalLabel, speedLabel, onStop, stopDisabled, stopHint,
-  postures, onOpenSettings, settingsMenu, joystick, stickFrameStyle, onStickFrameLayout, dockCenterY, videoJoined, video, feedback, confirmation,
+  postures, docksExpanded, onToggleDocks, onOpenSettings, settingsMenu, joystick, stickFrameStyle, onStickFrameLayout, dockCenterY, videoJoined, video, feedback, confirmation,
 }: ControlLandscapeHudProps) {
   const selectedTerrain = terrain.find(option => option.selected) ?? null;
   const otherTerrain = terrain.filter(option => option !== selectedTerrain);
@@ -235,7 +237,8 @@ export function controlLandscapeHud({
       </View>
       <View onLayout={onStickFrameLayout} pointerEvents="box-none" style={[styles.stickFrame, stickFrameStyle]} testID="control-immersive-sticks">
         {joystick}
-        <View pointerEvents="box-none" style={[styles.dockColumn, dockCenterY != null && { top: dockCenterY }]}>
+        <View pointerEvents="box-none" style={[styles.dockColumn, dockCenterY != null && { top: dockCenterY, marginTop: docksExpanded ? -64 : -18 }]}>
+          {docksExpanded ? <>
           <View style={styles.dock} testID="control-hud-terrain-dock">
             {selectedTerrain ? <View style={styles.leadTile} testID={`control-hud-terrain-selected-${selectedTerrain.id}`}>
               <TerrainMark color={SELECTED_INK} id={selectedTerrain.id} />
@@ -278,6 +281,15 @@ export function controlLandscapeHud({
               </Pressable>
             ))}
           </View>
+          <Pressable accessibilityLabel="收起动作" accessibilityRole="button" accessibilityState={{ expanded: true }} onPress={onToggleDocks} style={({ pressed }) => [styles.dockToggle, pressed && styles.pressed]} testID="control-hud-docks-toggle">
+            <Ionicons color="rgba(255,255,255,0.92)" name="chevron-up" size={16} />
+          </Pressable>
+          </> : <Pressable accessibilityLabel={`展开动作，当前${selectedTerrain?.label ?? '地形未选'}，${selectedPosture?.label ?? '姿态未选'}`} accessibilityRole="button" accessibilityState={{ expanded: false }} onPress={onToggleDocks} style={({ pressed }) => [styles.dockSummary, pressed && styles.pressed]} testID="control-hud-docks-summary">
+            <Text style={styles.dockText}>{selectedTerrain?.label ?? '地形'}</Text>
+            <Text style={styles.summaryDot}>·</Text>
+            <Text style={styles.dockText}>{selectedPosture?.label ?? '姿态'}</Text>
+            <Ionicons color="rgba(255,255,255,0.92)" name="chevron-down" size={16} />
+          </Pressable>}
         </View>
       </View>
       <Pressable accessibilityLabel="设置" accessibilityRole="button" onPress={onOpenSettings} style={({ pressed }) => [styles.settings, pressed && styles.pressed]} testID="control-hud-settings">
@@ -320,7 +332,10 @@ const styles = StyleSheet.create({
   stop: { alignItems: 'center', backgroundColor: STOP, borderRadius: 21, height: 42, justifyContent: 'center', width: 42 },
   stopMark: { backgroundColor: '#FFFFFF', borderRadius: 2, height: 12, width: 12 },
   stickFrame: { left: 20, position: 'absolute', right: 20, zIndex: 3 },
-  dockColumn: { alignItems: 'center', gap: 8, left: 0, marginTop: -50, position: 'absolute', right: 0, zIndex: 4 },
+  dockColumn: { alignItems: 'center', gap: 8, left: 0, position: 'absolute', right: 0, zIndex: 4 },
+  dockToggle: { alignItems: 'center', backgroundColor: 'rgba(22, 26, 34, 0.22)', borderColor: 'rgba(245,248,255,0.32)', borderRadius: 14, borderWidth: 1, height: 28, justifyContent: 'center', width: 44, ...webBlur },
+  dockSummary: { alignItems: 'center', backgroundColor: 'rgba(22, 26, 34, 0.22)', borderColor: 'rgba(245,248,255,0.32)', borderRadius: 18, borderWidth: 1, flexDirection: 'row', gap: 6, minHeight: 36, paddingHorizontal: 12, ...webBlur },
+  summaryDot: { color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: '600' },
   dock: { alignItems: 'center', backgroundColor: 'rgba(22, 26, 34, 0.22)', borderColor: 'rgba(245,248,255,0.32)', borderRadius: 22, borderWidth: 1, flexDirection: 'row', gap: 2, minHeight: 46, paddingHorizontal: 4, paddingVertical: 4, ...webBlur },
   leadTile: { alignItems: 'center', backgroundColor: SELECTED, borderRadius: 16, height: 38, justifyContent: 'center', width: 38 },
   dockSegment: { alignItems: 'center', borderRadius: 14, flexDirection: 'row', gap: 4, justifyContent: 'center', minHeight: 36, paddingHorizontal: 8 },

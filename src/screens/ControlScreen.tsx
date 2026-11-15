@@ -69,6 +69,8 @@ type Props = {
   mapContent?: ReactNode;
   video?: ControlVideoPresentation;
   videoSurface?: ReactNode;
+  /** Connected landscape docks start expanded unless this is explicitly false. */
+  landscapeDocksExpanded?: boolean;
   canRecall?: boolean;
   recallBlockedReason?: string;
   onRecall?: () => void | Promise<void>;
@@ -95,7 +97,7 @@ export function ControlScreen({
   allowInteractionPreview = false, developmentInput, productionInput, controlSession, onBack,
   batteryPercent, connected, safetyLock, directConnection, robotName, robotType, canUseManualControl,
   canUseRouteMode, canUseTaskMode, manualControlBlockedReason,
-  routeModeBlockedReason, taskModeBlockedReason, mapContent, video, videoSurface,
+  routeModeBlockedReason, taskModeBlockedReason, mapContent, video, videoSurface, landscapeDocksExpanded,
   onOpenMap, onOpenTasks, onOpenRoutes, onOpenJointStatus, onOpenConnection, onOpenConnectionDiagnostics,
   canRecall, recallBlockedReason, onRecall,
   runtimeState, operationReadiness, operationCallbacks, operationStates, operationTargetKey, brainstemIntegration,
@@ -112,6 +114,7 @@ export function ControlScreen({
   const [leaving, setLeaving] = useState(false);
   const [joystickSettingsOpen, setJoystickSettingsOpen] = useState(false);
   const [hudSettingsOpen, setHudSettingsOpen] = useState(false);
+  const [docksExpanded, setDocksExpanded] = useState(landscapeDocksExpanded !== false);
   const [layoutEditorGeneration, setLayoutEditorGeneration] = useState(0);
   const layoutEditorGenerationRef = useRef(0);
   const layoutEditingRef = useRef(false);
@@ -1030,6 +1033,8 @@ export function ControlScreen({
       stopDisabled: !stopReadiness.ready || ['submitted', 'accepted', 'executing'].includes(stopState.status),
       stopHint: stopState.detail ?? stopReadiness.blockedReason,
       postures: landscapePostures,
+      docksExpanded,
+      onToggleDocks: () => setDocksExpanded(value => !value),
       onOpenSettings: () => {
         if (g20Controller) setHudSettingsOpen(open => !open);
         else openJoystickSettings();
@@ -1057,7 +1062,7 @@ export function ControlScreen({
         touchAreaWidth={configuredWidth}
         variant="glass"
       /> : null,
-      stickFrameStyle: { top: immersiveTopInset + 36, bottom: Math.max(72, actionDockInset - 36), left: 20, right: 20 },
+      stickFrameStyle: { top: immersiveTopInset + 60, bottom: Math.max(56, actionDockInset - 60), left: 20, right: 20 },
       dockCenterY: configuredJoystickLayout.usable ? configuredJoystickLayout.left.centerY : undefined,
       onStickFrameLayout: handleStickArea,
       videoJoined,
