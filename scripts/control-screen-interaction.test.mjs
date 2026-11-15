@@ -1525,7 +1525,7 @@ test('receiving landscape video paints the connected HUD and blocks terrain whil
   assert.match(screen.copy, /高台/);
   assert.ok(screen.find('control-hud-posture-selected-stand'));
   assert.match(screen.copy, /坐下/);
-  assert.match(screen.copy, /趺下/);
+  assert.match(screen.copy, /趴下/);
   assert.match(screen.copy, /恢复/);
   assert.equal(screen.find('control-hud-lidar'), undefined);
   assert.equal(screen.find('control-hud-map'), undefined);
