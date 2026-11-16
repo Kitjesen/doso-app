@@ -22,6 +22,16 @@ import { typography } from '../typography';
 import { getControlLayoutMetrics } from './controlLayout';
 import { getControlTerrainPolicies } from '../features/control/controlOperations';
 
+function formatAxis(vector: { x: number; y: number; z: number } | null | undefined) {
+  if (!vector) return '—';
+  return `${vector.x.toFixed(2)}  ${vector.y.toFixed(2)}  ${vector.z.toFixed(2)}`;
+}
+
+function formatQuaternion(vector: { w: number; x: number; y: number; z: number } | null | undefined) {
+  if (!vector) return '—';
+  return `${vector.w.toFixed(3)}  ${vector.x.toFixed(3)}  ${vector.y.toFixed(3)}  ${vector.z.toFixed(3)}`;
+}
+
 export type DevelopmentControlInput = Readonly<{
   ready: boolean;
   onDrive: (value: JoystickVector) => void;
@@ -740,11 +750,21 @@ export function ControlScreen({
     ? '已验证' : runtimeState?.deviceIdentity === 'bound-unverified'
       ? '待验证' : runtimeState?.deviceIdentity === 'unbound' ? '未绑定' : '未知';
   const faultLabel = runtimeState?.faultStatus === 'clear' ? '无故障' : runtimeState?.faultStatus === 'active' ? '有故障' : '未同步';
+  const imu = runtimeState?.imu?.source === 'device' ? runtimeState.imu : null;
   const statusItems = [
     { id: 'identity', label: '设备身份', value: deviceIdentityLabel },
     { id: 'connection', label: '连接状态', value: directConnection ? directConnection.fresh ? '只读已响应' : '需重新检查' : connected ? '已连接' : '未连接' },
     { id: 'authority', label: '控制权', value: runtimeState?.controlAuthority === 'held' ? '已取得' : runtimeState?.controlAuthority === 'not-held' ? '未取得' : '待核验' },
     { id: 'fault', label: '故障状态', value: faultLabel },
+    ...(runtimeState?.posture === 'standing' || runtimeState?.posture === 'sitting' ? [{ id: 'posture', label: '姿态', value: runtimeState.posture === 'standing' ? '站立' : '坐下' }] : []),
+    ...(runtimeState?.motorState === 'enabled' || runtimeState?.motorState === 'disabled' ? [{ id: 'motor', label: '电机', value: runtimeState.motorState === 'enabled' ? '已使能' : '已失能' }] : []),
+    ...(runtimeState?.controlOwner ? [{ id: 'owner', label: '控制所有者', value: runtimeState.controlOwner === 'none' ? '无' : runtimeState.controlOwner === 'grpc' ? 'gRPC' : '云卓' }] : []),
+    ...(typeof runtimeState?.battery?.voltageV === 'number' && Number.isFinite(runtimeState.battery.voltageV) ? [{ id: 'bus', label: '总线电压', value: `${runtimeState.battery.voltageV.toFixed(1)} V` }] : []),
+    ...(imu ? [
+      { id: 'gyro', label: '角速度', value: formatAxis(imu.gyroscope) },
+      { id: 'attitude', label: '姿态四元数', value: formatQuaternion(imu.quaternion) },
+      ...(imu.linearAcceleration ? [{ id: 'accel', label: '线加速度', value: formatAxis(imu.linearAcceleration) }] : []),
+    ] : []),
   ];
   const statusSummary = [
     runtimeState?.controlLink === 'connected' ? '控制链路已接通' : runtimeState?.controlLink === 'disconnected' ? '控制链路未接通' : '控制链路未核验',

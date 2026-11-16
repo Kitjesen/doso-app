@@ -101,3 +101,38 @@ test('native callback envelopes match the JS readers, including the unwrapped mo
   assert.ok(native.includes('mapOf("requestId" to read.id) + projected'));
   assert.doesNotMatch(native, /"status" to projected/, 'all payloads must not be placed in status');
 });
+
+test('ListenImu is the existing server stream and omits acceleration when the field is absent', async () => {
+  const proto = await readFile(new URL('contracts/brainstem_api/cms.proto', root), 'utf8');
+  const common = await readFile(new URL('contracts/brainstem_api/common.proto', root), 'utf8');
+  assert.match(proto, /rpc ListenImu\(google\.protobuf\.Empty\) returns \(stream Imu\)/);
+  assert.match(proto, /Vector3 gyroscope = 1;/);
+  assert.match(proto, /Quaternion quaternion = 2;/);
+  assert.match(proto, /google\.protobuf\.Duration timestamp = 3;/);
+  assert.match(proto, /Vector3 linear_acceleration = 4;/);
+  assert.match(common, /double x = 1;\s+double y = 2;\s+double z = 3;/);
+  assert.match(common, /double w = 1;\s+double x = 2;\s+double y = 3;\s+double z = 4;/);
+  const native = await read('android/src/main/java/expo/modules/brainstemgrpc/BrainstemGrpcModule.kt');
+  const session = await read('android/src/main/java/expo/modules/brainstemgrpc/ControlSession.kt');
+  assert.match(native, /Events\("onBrainstemImu"\)/);
+  assert.match(native, /AsyncFunction\("startListenImu"\)/);
+  assert.match(native, /AsyncFunction\("stopListenImu"\)/);
+  assert.match(session, /MethodType\.SERVER_STREAMING/);
+  assert.match(session, /brainstem\.api\.v1\.RobotControl\/ListenImu/);
+  assert.match(session, /fun startImu/);
+  assert.match(session, /fun stopImu/);
+  const { fileURLToPath } = await import('node:url');
+  const output = await mkdtemp(path.join(tmpdir(), 'doso-imu-parser-'));
+  try {
+    const compile = spawnSync('javac', ['-encoding', 'UTF-8', '-d', output,
+      fileURLToPath(new URL('ImuParser.java', javaRoot)),
+      fileURLToPath(new URL('android/src/test/java/expo/modules/brainstemgrpc/ImuParserTest.java', moduleRoot)),
+    ], { encoding: 'utf8' });
+    assert.equal(compile.status, 0, compile.stderr || compile.error?.message);
+    const run = spawnSync('java', ['-cp', output, 'expo.modules.brainstemgrpc.ImuParserTest'], { encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stderr || run.error?.message);
+    assert.match(run.stdout, /PASS: imu gyroscope quaternion optional acceleration and malformed fixtures/);
+  } finally {
+    await rm(output, { recursive: true, force: true });
+  }
+});

@@ -21,6 +21,8 @@ export interface BrainstemControlTransport {
   input(sessionId: string, forward: number, lateral: number, yaw: number, sampledAtMonotonicMs?: number): Promise<BrainstemControlReply>;
   interrupt(sessionId: string): Promise<BrainstemControlReply | null>;
   close(sessionId: string): Promise<void>;
+  /** Optional. Older runtimes keep control and simply never deliver IMU. */
+  listenImu?(sessionId: string, onSample: (sample: unknown) => void): () => void;
 }
 
 export class BrainstemControlError extends Error {
@@ -97,6 +99,9 @@ type NativeControl = {
   sendControlInputAt?(sessionId: string, forward: number, lateral: number, yaw: number, sampledAtMonotonicMs: number): Promise<unknown>;
   interruptControl(sessionId: string): Promise<unknown>;
   closeControl(sessionId: string): Promise<void>;
+  addListener?(event: string, listener: (payload: unknown) => void): { remove: () => void };
+  startListenImu?(sessionId: string): Promise<unknown>;
+  stopListenImu?(sessionId: string): Promise<void>;
 };
 let native: NativeControl | null = null;
 try { if (Platform.OS === 'android') native = requireOptionalNativeModule<NativeControl>('DosoBrainstemGrpc'); } catch { /* Old APK. */ }
@@ -158,4 +163,22 @@ export const brainstemControlTransport: BrainstemControlTransport = {
     } catch (error) { throw safeBrainstemControlError(error); }
   },
   async close(sessionId) { try { await client().closeControl(sessionId); } catch (error) { throw safeBrainstemControlError(error); } },
+  listenImu(sessionId, onSample) {
+    const bridge = native;
+    if (!bridge || typeof bridge.startListenImu !== 'function' || typeof bridge.stopListenImu !== 'function' || typeof bridge.addListener !== 'function') {
+      return () => {};
+    }
+    let stopped = false;
+    const subscription = bridge.addListener('onBrainstemImu', payload => {
+      if (stopped || !payload || typeof payload !== 'object') return;
+      if ((payload as { sessionId?: unknown }).sessionId !== sessionId) return;
+      onSample(payload);
+    });
+    void bridge.startListenImu(sessionId).catch(() => undefined);
+    return () => {
+      stopped = true;
+      subscription.remove();
+      void bridge.stopListenImu!(sessionId).catch(() => undefined);
+    };
+  },
 };

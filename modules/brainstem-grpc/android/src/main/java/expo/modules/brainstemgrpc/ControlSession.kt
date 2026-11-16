@@ -32,6 +32,8 @@ internal class ControlSession(
   private val dispatchLock = Any()
   private val watchdog = Executors.newSingleThreadScheduledExecutor()
   @Volatile private var call: ClientCall<ByteArray, ByteArray>? = null
+  @Volatile private var imuCall: ClientCall<ByteArray, ByteArray>? = null
+  private var imuGeneration = 0L
   @Volatile private var lastInputAt = 0L
   private var lastWireAt = 0L
   private var token = ""
@@ -254,7 +256,44 @@ internal class ControlSession(
       (projected?.let { mapOf("status" to it) } ?: emptyMap())
   }
 
+  fun startImu(onSample: (Map<String, Any>) -> Unit) {
+    val next = channel.newCall(LISTEN_IMU, CallOptions.DEFAULT)
+    synchronized(dispatchLock) {
+      checkOpen()
+      imuCall?.cancel("replaced", null)
+      val generation = ++imuGeneration
+      imuCall = next
+      next.start(object : ClientCall.Listener<ByteArray>() {
+        private var lastAt = 0L
+        override fun onMessage(message: ByteArray) {
+          next.request(1)
+          if (generation != imuGeneration) return
+          val now = SystemClock.elapsedRealtime()
+          if (now - lastAt < 100L) return
+          val parsed = runCatching { ImuParser.parse(message) }.getOrNull() ?: return
+          lastAt = now
+          onSample(parsed)
+        }
+        override fun onClose(status: Status, trailers: Metadata) {
+          if (generation == imuGeneration) imuCall = null
+        }
+      }, Metadata().apply { if (lanDev) put(DEV_CLIENT, principal) })
+      next.request(1)
+      next.sendMessage(EMPTY)
+      next.halfClose()
+    }
+  }
+
+  fun stopImu() {
+    synchronized(dispatchLock) {
+      imuGeneration++
+      imuCall?.cancel("stopped", null)
+      imuCall = null
+    }
+  }
+
   fun close() {
+    stopImu()
     haltImmediately()
     runCatching { interrupt() }
     closed.set(true)
@@ -322,6 +361,17 @@ internal class ControlSession(
     const val MOTION_DEADLINE_MS = 100L
     private val DEV_CLIENT = Metadata.Key.of("x-doso-dev-client", Metadata.ASCII_STRING_MARSHALLER)
     private val EMPTY = byteArrayOf()
+    private val LISTEN_IMU: MethodDescriptor<ByteArray, ByteArray> = MethodDescriptor.newBuilder<ByteArray, ByteArray>()
+      .setType(MethodDescriptor.MethodType.SERVER_STREAMING)
+      .setFullMethodName("brainstem.api.v1.RobotControl/ListenImu")
+      .setRequestMarshaller(object : MethodDescriptor.Marshaller<ByteArray> {
+        override fun stream(value: ByteArray): InputStream = ByteArrayInputStream(value)
+        override fun parse(stream: InputStream): ByteArray = throw UnsupportedOperationException()
+      })
+      .setResponseMarshaller(object : MethodDescriptor.Marshaller<ByteArray> {
+        override fun stream(value: ByteArray): InputStream = throw UnsupportedOperationException()
+        override fun parse(stream: InputStream): ByteArray = ImuParser.readBounded(stream)
+      }).build()
     private val allowedMethods = setOf("GetControlStatus", "GetProfile", "AcquireControl", "RenewControlLease",
       "ReleaseControl", "WalkChecked", "Enable", "Disable", "StandUp", "SitDown", "SwitchProfile")
     private fun method(name: String): MethodDescriptor<ByteArray, ByteArray> {

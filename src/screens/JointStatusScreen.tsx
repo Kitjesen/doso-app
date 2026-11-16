@@ -4,9 +4,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Text } from '../components/AppText';
 import { getProductAppearance } from '../appearance';
-import type { ControlJointState } from '../features/control/controlOperations';
+import type { ControlImuReading, ControlJointState } from '../features/control/controlOperations';
 import { useAppTheme } from '../theme';
 import { typography } from '../typography';
+
+type BodyStatus = {
+  posture?: 'unknown' | 'standing' | 'sitting';
+  motorState?: 'unknown' | 'enabled' | 'disabled';
+  controlAuthority?: 'unknown' | 'not-held' | 'held';
+  faultStatus?: 'unknown' | 'clear' | 'active';
+  controlOwner?: 'none' | 'grpc' | 'yunzhuo';
+  voltageV?: number | null;
+  leaseActive?: boolean | null;
+};
 
 type Props = {
   deviceName: string;
@@ -14,9 +24,22 @@ type Props = {
   observedAt?: string;
   refreshing?: boolean;
   error?: string | null;
+  body?: BodyStatus;
+  imu?: ControlImuReading | null;
+  showImu?: boolean;
   onRefresh?: () => void;
   onBack: () => void;
 };
+
+function axisLabel(vector: { x: number; y: number; z: number } | null | undefined) {
+  if (!vector) return '—';
+  return `${vector.x.toFixed(2)}  ${vector.y.toFixed(2)}  ${vector.z.toFixed(2)}`;
+}
+
+function quaternionLabel(vector: ControlImuReading['quaternion'] | null | undefined) {
+  if (!vector) return '—';
+  return `${vector.w.toFixed(3)}  ${vector.x.toFixed(3)}  ${vector.y.toFixed(3)}  ${vector.z.toFixed(3)}`;
+}
 
 function valueLabel(value: number | null | undefined, unit: string) {
   return typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(1)} ${unit}` : '—';
@@ -34,7 +57,7 @@ function motorHealthLabel(joint: ControlJointState) {
   return '未知';
 }
 
-export function JointStatusScreen({ deviceName, joints = [], observedAt, refreshing = false, error, onRefresh, onBack }: Props) {
+export function JointStatusScreen({ deviceName, joints = [], observedAt, refreshing = false, error, body, imu = null, showImu = false, onRefresh, onBack }: Props) {
   const { isDark } = useAppTheme();
   const appearance = getProductAppearance(isDark);
   const validJoints = joints.filter(joint => typeof joint?.id === 'string' && joint.id.length > 0 && typeof joint.label === 'string' && joint.label.length > 0);
@@ -64,6 +87,21 @@ export function JointStatusScreen({ deviceName, joints = [], observedAt, refresh
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {error ? <Text accessibilityLiveRegion="polite" style={[styles.subtitle, { color: appearance.secondary }]} testID="joint-status-error">{error}</Text> : null}
+        {body ? <View style={[styles.row, { backgroundColor: appearance.surface }]} testID="joint-status-body">
+          <View style={styles.metric}><Text style={[styles.metricLabel, { color: appearance.secondary }]}>姿态</Text><Text style={[styles.metricValue, { color: appearance.ink }]}>{body.posture === 'standing' ? '站立' : body.posture === 'sitting' ? '坐下' : '—'}</Text></View>
+          <View style={styles.metric}><Text style={[styles.metricLabel, { color: appearance.secondary }]}>电机</Text><Text style={[styles.metricValue, { color: appearance.ink }]}>{body.motorState === 'enabled' ? '已使能' : body.motorState === 'disabled' ? '已失能' : '—'}</Text></View>
+          <View style={styles.metric}><Text style={[styles.metricLabel, { color: appearance.secondary }]}>控制权</Text><Text style={[styles.metricValue, { color: appearance.ink }]}>{body.controlAuthority === 'held' ? '已取得' : body.controlAuthority === 'not-held' ? '未取得' : '—'}</Text></View>
+          <View style={styles.metric}><Text style={[styles.metricLabel, { color: appearance.secondary }]}>控制所有者</Text><Text style={[styles.metricValue, { color: appearance.ink }]}>{body.controlOwner === 'none' ? '无' : body.controlOwner === 'grpc' ? 'gRPC' : body.controlOwner === 'yunzhuo' ? '云卓' : '—'}</Text></View>
+          <View style={styles.metric}><Text style={[styles.metricLabel, { color: appearance.secondary }]}>租约</Text><Text style={[styles.metricValue, { color: appearance.ink }]}>{body.leaseActive === true ? '有效' : body.leaseActive === false ? '未持有' : '—'}</Text></View>
+          <View style={styles.metric}><Text style={[styles.metricLabel, { color: appearance.secondary }]}>故障</Text><Text style={[styles.metricValue, { color: appearance.ink }]}>{body.faultStatus === 'clear' ? '无故障' : body.faultStatus === 'active' ? '有故障' : '—'}</Text></View>
+          <View style={styles.metric}><Text style={[styles.metricLabel, { color: appearance.secondary }]}>总线电压</Text><Text style={[styles.metricValue, { color: appearance.ink }]}>{typeof body.voltageV === 'number' && Number.isFinite(body.voltageV) ? `${body.voltageV.toFixed(1)} V` : '—'}</Text></View>
+        </View> : null}
+        {showImu ? <View style={[styles.row, { backgroundColor: appearance.surface }]} testID="joint-status-imu">
+          <View style={styles.rowIdentity}><Text style={[styles.rowTitle, { color: appearance.ink }]}>惯性测量</Text><Text style={[styles.rowMeta, { color: appearance.secondary }]}>{imu?.source === 'device' ? '设备状态' : '未同步'}</Text></View>
+          <View style={styles.metric}><Text style={[styles.metricLabel, { color: appearance.secondary }]}>角速度</Text><Text style={[styles.metricValue, { color: appearance.ink }]}>{axisLabel(imu?.gyroscope)}</Text></View>
+          <View style={styles.metric}><Text style={[styles.metricLabel, { color: appearance.secondary }]}>姿态四元数</Text><Text style={[styles.metricValue, { color: appearance.ink }]}>{quaternionLabel(imu?.quaternion)}</Text></View>
+          {imu?.linearAcceleration ? <View style={styles.metric}><Text style={[styles.metricLabel, { color: appearance.secondary }]}>线加速度</Text><Text style={[styles.metricValue, { color: appearance.ink }]}>{axisLabel(imu.linearAcceleration)}</Text></View> : null}
+        </View> : null}
         {validJoints.length ? <View style={styles.list} testID="joint-status-list">
           {validJoints.map(joint => <View key={joint.id} style={[styles.row, { backgroundColor: appearance.surface }]} testID={`joint-status-${joint.id}`}>
             <View style={styles.rowIdentity}>

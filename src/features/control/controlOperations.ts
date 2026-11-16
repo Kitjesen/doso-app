@@ -33,6 +33,16 @@ export type ControlSignalState = Readonly<{
   source: 'device' | 'controller' | 'unknown';
   updatedAt?: string | null;
 }>;
+export type ControlVector3 = Readonly<{ x: number; y: number; z: number }>;
+export type ControlQuaternion = Readonly<{ w: number; x: number; y: number; z: number }>;
+/** ListenImu sample. linearAcceleration is null when the server omits field 4. */
+export type ControlImuReading = Readonly<{
+  gyroscope: ControlVector3;
+  quaternion: ControlQuaternion;
+  linearAcceleration: ControlVector3 | null;
+  timestampMs: number | null;
+  source: 'device';
+}>;
 export type ControlJointState = Readonly<{
   id: string;
   label: string;
@@ -60,6 +70,10 @@ export type ControlRuntimeState = Readonly<{
   battery?: ControlBatteryState;
   signal?: ControlSignalState;
   joints?: readonly ControlJointState[];
+  /** Present only while a fresh ListenImu sample is held. */
+  imu?: ControlImuReading;
+  /** ControlStatus.owner. Omitted until a fresh status read. */
+  controlOwner?: 'none' | 'grpc' | 'yunzhuo';
   inputSource?: ControlInputSource;
   currentPolicy?: ControlPolicyOption | null;
   policyCatalogStatus?: 'unknown' | 'unavailable' | 'synced';
