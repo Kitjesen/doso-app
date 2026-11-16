@@ -216,6 +216,15 @@ class BrainstemGrpcModule : Module() {
       // An interrupt is queued even when a normal RPC is in flight; authority is already retired.
       runControl(sessionId, promise, allowBusy = true) { session, _ -> session.interrupt() }
     }.runOnQueue(Queues.MAIN)
+    AsyncFunction("readRecoveryStatus") { sessionId: String, promise: Promise ->
+      runControl(sessionId, promise) { session, _ -> session.recovery("status") }
+    }.runOnQueue(Queues.MAIN)
+    AsyncFunction("recoveryCommand") { sessionId: String, command: String, promise: Promise ->
+      runControl(sessionId, promise) { session, _ -> session.recovery(command) }
+    }.runOnQueue(Queues.MAIN)
+    AsyncFunction("setRecoveryHeartbeat") { sessionId: String, enabled: Boolean ->
+      synchronized(lock) { control?.takeIf { it.id == sessionId }?.setRecoveryHeartbeat(enabled) }
+    }.runOnQueue(Queues.MAIN)
     AsyncFunction("startListenImu") { sessionId: String, promise: Promise ->
       val selected = synchronized(lock) {
         control?.takeIf { it.id == sessionId && !destroyed && !paused && isForeground() }

@@ -14,9 +14,11 @@ import { Text } from '../components/AppText';
 import { getProductAppearance } from '../appearance';
 import type { RobotDiagnosticsDeviceClass, RobotDiagnosticsGateway } from '../features/robot-lifecycle/robotDiagnosticsGateway';
 import { CONTROL_TERRAIN_MODE_OPTIONS, controlOperationLabels, controlOperationStatusLabels, controlTerrainMotionBlock, controlTerrainSwitchBlock, getControlOperationReadiness, getControlPolicyOptions, getControlTerrainModeOptions, transitionControlOperationState, type ControlActionReadiness, type ControlInputSource, type ControlOperation, type ControlOperationCallbacks, type ControlOperationState, type ControlRuntimeState, type ControlTerrainModeId } from '../features/control/controlOperations';
+import type { RobotRecoveryCommand, RobotRecoveryStatus } from '../features/control/robotRecovery';
 import { controlLandscapeHud } from '../components/controlLandscapeHud';
+import { RobotRecoveryControls } from '../components/RobotRecoveryControls';
 import { getBrainstemIntegrationReadiness, type BrainstemIntegrationReadiness } from '../services/brainstemIntegrationReadiness';
-import { setControlNavigationHidden } from '../services/brainstemGrpc';
+import { setControlNavigationHidden, type BrainstemGrpcProfile } from '../services/brainstemGrpc';
 import { useAppTheme } from '../theme';
 import { typography } from '../typography';
 import { getControlLayoutMetrics } from './controlLayout';
@@ -64,6 +66,11 @@ type Props = {
   physicalInputAvailable?: boolean;
   g20Controller?: G20InputController;
   connected: boolean;
+  recovery?: Readonly<{
+    status: RobotRecoveryStatus | null;
+    profile?: BrainstemGrpcProfile | null;
+    onCommand: (command: RobotRecoveryCommand) => Promise<unknown>;
+  }> | null;
   /** Cloud safety lock. False shows 设备已解锁. Null or true does not claim the device is unlocked. */
   safetyLock?: boolean | null;
   directConnection?: Readonly<{ endpointLabel: string; fresh: boolean; summary: string }>;
@@ -110,7 +117,7 @@ export function ControlScreen({
   routeModeBlockedReason, taskModeBlockedReason, mapContent, video, videoSurface, landscapeDocksExpanded,
   onOpenMap, onOpenTasks, onOpenRoutes, onOpenJointStatus, onOpenConnection, onOpenConnectionDiagnostics,
   canRecall, recallBlockedReason, onRecall,
-  runtimeState, operationReadiness, operationCallbacks, operationStates, operationTargetKey, brainstemIntegration,
+  runtimeState, operationReadiness, operationCallbacks, operationStates, operationTargetKey, brainstemIntegration, recovery,
   inputSource, physicalInputAvailable = false, g20Controller, onInputSourceChange, onNotifications,
 }: Props) {
   const { colors, isDark } = useAppTheme();
@@ -1033,6 +1040,7 @@ export function ControlScreen({
   });
   const stopReadiness = getControlOperationReadiness({ action: 'stop', readiness: operationReadiness, callbacks: operationCallbacks, runtimeState, foreground: appActive, leaving, inFlight: false });
   const stopState = operationStateFor('stop', stopReadiness);
+  const recoveryControls = recovery ? <RobotRecoveryControls onCommand={recovery.onCommand} profile={recovery.profile} runtimeState={runtimeState} status={recovery.status} variant={cameraHud ? 'landscape' : 'portrait'} /> : null;
   const renderCameraHud = () => <View style={[styles.immersiveSurface, { backgroundColor: '#000000', height: immersiveCanvasHeight }]} testID="control-immersive-surface">
     {controlLandscapeHud({
       robotName: immersiveRobotName,
@@ -1097,6 +1105,7 @@ export function ControlScreen({
       video: videoJoined ? <ControlVideoSurface presentation={video} surface={videoSurface} active={appActive && !leaving} onInterrupted={handleCancel} /> : null,
       feedback: operationFeedback,
       confirmation: renderImmersiveIntent(),
+      recovery: recoveryControls,
     })}
   </View>;
 
@@ -1181,6 +1190,7 @@ export function ControlScreen({
             </Pressable>
           </View>
 
+          {!layout.useColumns ? recoveryControls : null}
           {directConnection ? <View style={styles.statusSummary} testID="control-direct-connection">
             <Text style={[styles.label, { color: colors.ink }]}>{directConnection.endpointLabel}</Text>
             <Text accessibilityLiveRegion="polite" style={[styles.caption, { color: colors.muted }]}>{directConnection.summary}</Text>

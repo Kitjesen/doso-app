@@ -37,10 +37,12 @@ export function useBrainstemControl({ ownerKey, ready }: { ownerKey: string | nu
     mounted.current = true;
     const unsubscribe = session.subscribe(() => render(value => value + 1));
     const lifecycle = AppState.addEventListener('change', state => { if (state !== 'active') void session.disconnect(); });
-    const timer = setInterval(() => { void session.refresh(); }, 500);
+    void session.refreshRecovery();
+    const timer = setInterval(() => { void session.refresh(); void session.refreshRecovery(); }, 500);
     return () => { mounted.current = false; unsubscribe(); lifecycle.remove(); clearInterval(timer); void session.disconnect(); };
   }, [session]);
-  return { state: session.state, runtimeState: session.runtimeState, operationReadiness: session.operationReadiness,
+  return { state: session.state, runtimeState: session.runtimeState, recoveryStatus: session.recoveryStatus,
+    recoveryCommand: session.recoveryCommand.bind(session), operationReadiness: session.operationReadiness,
     canAcquire: session.canAcquire, canUseManualControl: session.canUseManualControl,
     canBeginManualControl: session.canBeginManualControl, manualPrepared: session.state.manualPrepared, ...callbacks };
 }

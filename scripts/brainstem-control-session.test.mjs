@@ -753,6 +753,26 @@ test('an unconfirmed native stop rejects the explicit action and retires local a
   } finally { await f.session.disconnect(); }
 });
 
+test('recovery commands stay on the open session and heartbeats follow selection', async () => {
+  const f = fixture();
+  const beats = [];
+  const base = { service: 'ready', modelConfigured: true, enableSequenceVerified: true, stableStand: false, locomotionAvailable: false, activeModeId: '', reason: 'none', detail: '', heartbeatFresh: false, heartbeatError: null };
+  f.transport.readRecovery = async () => ({ ...base, phase: 'absent', sessionSelected: false });
+  f.transport.recoveryCommand = async (_id, command) => ({ ...base, phase: command === 'enter' ? 'selected' : 'stable-stand', sessionSelected: command !== 'exit', heartbeatFresh: true });
+  f.transport.setRecoveryHeartbeat = (id, enabled) => { beats.push([id, enabled]); };
+  try {
+    await f.session.connect(endpoint, 'doso-g20@robot');
+    await f.session.refreshRecovery();
+    assert.equal(f.session.recoveryStatus.sessionSelected, false);
+    assert.deepEqual(beats, []);
+    await f.session.recoveryCommand('enter');
+    assert.equal(f.session.recoveryStatus.phase, 'selected');
+    assert.deepEqual(beats, [['s1', true]]);
+    await f.session.disconnect();
+    assert.deepEqual(beats.at(-1), ['s1', false]);
+  } finally { f.session.dispose(); }
+});
+
 test('ListenImu samples stay on the live session and drop when the stream or the clock goes stale', async () => {
   const f = fixture();
   let emit = null;

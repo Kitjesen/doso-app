@@ -137,6 +137,7 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView' },
     '../components/ControlJoystick': { ControlJoystickPair },
     '../components/controlLandscapeHud': landscapeHudModule.exports,
+    '../components/RobotRecoveryControls': { RobotRecoveryControls: () => null },
     '../components/ControlVideoSurface': { ControlVideoSurface },
     '../components/JoystickLayoutSettings': { JoystickLayoutSettings },
     '../features/control/joystickLayoutPreferences': { ...joystickLayoutModule.exports,

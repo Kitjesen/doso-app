@@ -1,0 +1,61 @@
+// brainstem_api/recovery.proto
+//
+// RobotRecovery — 摔倒恢复 / 摔倒起立。
+// 独立于 RobotControl 的运动服务，不是 SwitchProfile，也不是趴下姿态。
+//
+// 心跳：会话被选中后客户端每 100 ms 发送一次 Heartbeat，服务端 300 ms 未收到即失效。
+// 未选中会话时客户端不得发送心跳。
+// Enable 在机器人侧可能一直被 THUNDER_NORMAL_RECOVERY_ENABLE_SEQUENCE_VERIFIED 挡住。
+// 客户端只展示这个结果，不能绕过。
+
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+
+package brainstem.api.v1;
+
+service RobotRecovery {
+  rpc GetStatus(google.protobuf.Empty) returns (RecoveryStatus);
+  rpc Enter(google.protobuf.Empty) returns (RecoveryStatus);
+  rpc Enable(google.protobuf.Empty) returns (RecoveryStatus);
+  rpc Heartbeat(google.protobuf.Empty) returns (RecoveryStatus);
+  rpc Start(google.protobuf.Empty) returns (RecoveryStatus);
+  rpc Cancel(google.protobuf.Empty) returns (RecoveryStatus);
+  rpc Exit(google.protobuf.Empty) returns (RecoveryStatus);
+}
+
+enum RecoveryPhase {
+  RECOVERY_PHASE_UNSPECIFIED = 0;
+  RECOVERY_PHASE_ABSENT = 1;
+  RECOVERY_PHASE_SELECTED = 2;
+  RECOVERY_PHASE_ENABLED = 3;
+  RECOVERY_PHASE_GETTING_UP = 4;
+  RECOVERY_PHASE_STABLE_STAND = 5;
+  RECOVERY_PHASE_EXITING = 6;
+}
+
+enum RecoveryRejectReason {
+  RECOVERY_REJECT_NONE = 0;
+  RECOVERY_REJECT_UNAVAILABLE = 1;
+  RECOVERY_REJECT_MODEL_NOT_CONFIGURED = 2;
+  RECOVERY_REJECT_ENABLE_SEQUENCE_UNVERIFIED = 3;
+  RECOVERY_REJECT_WALKING = 4;
+  RECOVERY_REJECT_NOT_SELECTED = 5;
+  RECOVERY_REJECT_NOT_STABLE = 6;
+  RECOVERY_REJECT_HEARTBEAT_EXPIRED = 7;
+  RECOVERY_REJECT_PRECONDITION = 8;
+}
+
+message RecoveryStatus {
+  RecoveryPhase phase = 1;
+  bool session_selected = 2;
+  bool model_configured = 3;
+  // 对应机器人 THUNDER_NORMAL_RECOVERY_ENABLE_SEQUENCE_VERIFIED。false 时不得使能。
+  bool enable_sequence_verified = 4;
+  bool stable_stand = 5;
+  // 稳定站立后，Exit 可以把控制交回运动模式。
+  bool locomotion_available = 6;
+  string active_mode_id = 7;
+  RecoveryRejectReason reason = 8;
+  string detail = 9;
+}

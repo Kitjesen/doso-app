@@ -2,6 +2,8 @@ import type { BrainstemControlAction, BrainstemControlReply, BrainstemControlTra
 import type { ControlImuReading } from './controlOperations';
 // @ts-expect-error Node 24 type stripping requires explicit TypeScript extensions.
 import { projectBrainstemImu } from '../../services/brainstemImu.ts';
+// @ts-expect-error Node 24 type stripping requires explicit TypeScript extensions.
+import { emptyRecoveryStatus, type RobotRecoveryCommand, type RobotRecoveryStatus } from './robotRecovery.ts';
 import type { BrainstemGrpcEndpoint, BrainstemGrpcProfile, BrainstemGrpcStatus } from '../../services/brainstemGrpc';
 import type { ControlActionReadiness, ControlOperation, ControlRuntimeState } from './controlOperations';
 // @ts-expect-error Node 24 type stripping requires explicit TypeScript extensions.
@@ -71,6 +73,8 @@ export class BrainstemControlSession {
   private imu: ControlImuReading | null = null;
   private imuObservedAt = 0;
   private stopImu: (() => void) | null = null;
+  private recovery: RobotRecoveryStatus | null = null;
+  private recoveryHeartbeat = false;
 
   private readonly transport: BrainstemControlTransport;
   private readonly allowed: () => boolean;
@@ -80,6 +84,43 @@ export class BrainstemControlSession {
   }
 
   subscribe(listener: () => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
+  get recoveryStatus() { return this.recovery; }
+  private notify() { this.listeners.forEach(listener => listener()); }
+  private stopRecoveryHeartbeat() {
+    if (this.sessionId && this.recoveryHeartbeat) this.transport.setRecoveryHeartbeat?.(this.sessionId, false);
+    this.recoveryHeartbeat = false;
+    this.recovery = null;
+  }
+  private applyRecovery(status: RobotRecoveryStatus) {
+    this.recovery = status;
+    const selected = status.service === 'ready' && status.sessionSelected;
+    if (this.sessionId && selected !== this.recoveryHeartbeat) {
+      this.recoveryHeartbeat = selected;
+      this.transport.setRecoveryHeartbeat?.(this.sessionId, selected);
+    }
+    this.notify();
+  }
+  async refreshRecovery(): Promise<void> {
+    if (!this.sessionId || !this.transport.readRecovery || this.retired) return;
+    const epoch = this.epoch;
+    const id = this.sessionId;
+    try {
+      const status = await this.transport.readRecovery(id);
+      if (!this.valid(epoch) || this.sessionId !== id) return;
+      this.applyRecovery(status);
+    } catch (error) {
+      if (!this.valid(epoch) || this.sessionId !== id) return;
+      const code = error && typeof error === 'object' && 'code' in error ? String((error as { code: unknown }).code) : '';
+      this.applyRecovery(emptyRecoveryStatus(code === 'unimplemented' ? 'missing' : 'unavailable'));
+    }
+  }
+  async recoveryCommand(command: RobotRecoveryCommand): Promise<RobotRecoveryStatus> {
+    if (!this.sessionId || !this.transport.recoveryCommand) throw new Error('当前安装包尚未包含摔倒恢复。');
+    const id = this.sessionId;
+    const status = await this.transport.recoveryCommand(id, command);
+    if (this.sessionId === id) this.applyRecovery(status);
+    return status;
+  }
   private publish(patch: Partial<BrainstemControlState>) {
     this.state = { ...this.state, ...patch };
     this.listeners.forEach(listener => listener());
@@ -142,6 +183,7 @@ export class BrainstemControlSession {
     if (error && typeof error === 'object' && 'code' in error && error.code === 'stop_unconfirmed') this.stopUnconfirmed = true;
     const id = this.sessionId;
     const connection = this.verifiedConnection;
+    this.stopRecoveryHeartbeat();
     this.sessionId = null; this.epoch += 1; this.busy = false; this.pendingAction = null; this.reading = false; this.inputBusy = false; this.acquiring = false;
     this.releaseImu();
     this.resetInput();
@@ -158,6 +200,7 @@ export class BrainstemControlSession {
     if (this.retired || !this.allowed() || this.busy) return false;
     const previousId = this.sessionId;
     const previousConnection = this.verifiedConnection;
+    this.stopRecoveryHeartbeat();
     this.releaseImu();
     this.sessionId = null; this.resetInput();
     const epoch = ++this.epoch;
@@ -367,7 +410,9 @@ export class BrainstemControlSession {
   }
 
   async disconnect(): Promise<void> {
-    const id = this.sessionId; const connection = this.verifiedConnection; this.sessionId = null; this.epoch++;
+    const id = this.sessionId; const connection = this.verifiedConnection;
+    this.stopRecoveryHeartbeat();
+    this.sessionId = null; this.epoch++;
     this.releaseImu();
     this.busy = false; this.pendingAction = null; this.reading = false; this.inputBusy = false; this.acquiring = false; this.resetInput();
     this.publish({ ...initial(), ...(this.stopUnconfirmed ? { phase: 'error' as const, error: STOP_UNCONFIRMED_MESSAGE } : {}) });

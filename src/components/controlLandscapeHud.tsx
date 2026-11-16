@@ -60,6 +60,7 @@ export type ControlLandscapeHudProps = Readonly<{
   video: ReactNode;
   feedback?: string | null;
   confirmation?: ReactNode;
+  recovery?: ReactNode;
 }>;
 
 function TerrainMark({ id, color }: { id: ControlTerrainModeId; color: string }) {
@@ -145,7 +146,7 @@ function Chip({ children, style, testID }: { children: ReactNode; style?: ViewSt
 export function controlLandscapeHud({
   robotName, connectionLabel, onBack, onOpenConnection, showLocalControl, showUnlocked,
   terrain, onSelectTerrain, batteryLabel, signalLabel, speedLabel, onStop, stopDisabled, stopHint,
-  postures, docksExpanded, onToggleDocks, onOpenSettings, settingsMenu, joystick, stickFrameStyle, onStickFrameLayout, dockCenterY, videoJoined, video, feedback, confirmation,
+  postures, docksExpanded, onToggleDocks, onOpenSettings, settingsMenu, joystick, stickFrameStyle, onStickFrameLayout, dockCenterY, videoJoined, video, feedback, confirmation, recovery,
 }: ControlLandscapeHudProps) {
   const selectedTerrain = terrain.find(option => option.selected) ?? null;
   const otherTerrain = terrain.filter(option => option !== selectedTerrain);
@@ -181,6 +182,7 @@ export function controlLandscapeHud({
               <Ionicons color="rgba(255,255,255,0.85)" name="chevron-forward" size={14} />
             </Pressable>
           </View>
+          {recovery}
           {showLocalControl || showUnlocked ? <View style={styles.authRow}>
             {showLocalControl ? <Chip testID="control-hud-local-control">
               <Ionicons color="rgba(255,255,255,0.9)" name="person-outline" size={12} />

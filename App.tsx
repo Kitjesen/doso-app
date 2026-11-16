@@ -2224,6 +2224,11 @@ export default function App() {
             controlTarget === 'direct' ? [directEndpoint?.host, directEndpoint?.port, directEndpoint?.transport, controlEndpoint?.clientIdentityAlias] : device?.id])}
           allowInteractionPreview={controlTarget !== 'direct' && __DEV__}
           batteryPercent={controlTarget === 'direct' ? null : displayBatteryPercent}
+          recovery={controlTarget === 'direct' ? {
+            status: brainstemControl.recoveryStatus,
+            profile: brainstemControl.state.profile,
+            onCommand: brainstemControl.recoveryCommand,
+          } : undefined}
           canUseManualControl={controlTarget === 'direct' ? brainstemControl.canBeginManualControl : manualCommandAvailable}
           productionInput={controlTarget === 'direct' && controlEndpoint ? {
             ready: brainstemControl.canBeginManualControl,

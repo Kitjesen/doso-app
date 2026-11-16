@@ -33,11 +33,21 @@ export type BrainstemGrpcStatus = {
   grpcLeaseActive: boolean;
   readyForWalk: boolean;
 };
+export type RobotModeKind = 'unspecified' | 'locomotion' | 'recovery-action';
+export type RobotModeCapability = Readonly<{
+  id: string;
+  kind: RobotModeKind;
+  label: string;
+  available: boolean;
+  unavailableReason: string;
+}>;
 export type BrainstemGrpcProfile = Readonly<{
   current: string;
   available: readonly string[];
   descriptions: readonly string[];
   currentDescription: string;
+  modeCapabilities?: readonly RobotModeCapability[];
+  activeModeId?: string | null;
 }>;
 export type BrainstemGrpcVoltage = Readonly<{ values: readonly number[] }>;
 export type BrainstemGrpcMotorState = Readonly<{
@@ -401,12 +411,39 @@ function projectedProfile(value: unknown, requestId: string): BrainstemGrpcProfi
   }
   const available = p.available.map(item => safeProfileString(item, 128));
   const descriptions = p.descriptions.map(item => safeProfileString(item, 512));
-  return Object.freeze({
+  const base = {
     current: safeProfileString(p.current, 128),
     available: Object.freeze(available),
     descriptions: Object.freeze(descriptions),
     currentDescription: safeProfileString(p.currentDescription, 512),
+  };
+  const capabilities = projectModeCapabilities(p.modeCapabilities);
+  return Object.freeze({
+    ...base,
+    ...(capabilities ? { modeCapabilities: Object.freeze(capabilities) } : {}),
+    ...(typeof p.activeModeId === 'string' ? { activeModeId: safeProfileString(p.activeModeId, 64) } : {}),
   });
+}
+
+function projectModeCapabilities(value: unknown): RobotModeCapability[] | null {
+  if (value === undefined) return null;
+  if (!Array.isArray(value) || value.length > 16) return null;
+  const kinds = ['unspecified', 'locomotion', 'recovery-action'];
+  const capabilities: RobotModeCapability[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') return null;
+    const capability = item as Record<string, unknown>;
+    if (typeof capability.id !== 'string' || capability.id.length > 64 || capability.id.includes('\0')) return null;
+    if (typeof capability.kind !== 'string' || !kinds.includes(capability.kind)) return null;
+    if (typeof capability.label !== 'string' || capability.label.length > 64 || capability.label.includes('\0')) return null;
+    if (typeof capability.available !== 'boolean') return null;
+    if (typeof capability.unavailableReason !== 'string' || capability.unavailableReason.length > 200 || capability.unavailableReason.includes('\0')) return null;
+    capabilities.push({
+      id: capability.id, kind: capability.kind as RobotModeKind, label: capability.label,
+      available: capability.available, unavailableReason: capability.unavailableReason,
+    });
+  }
+  return capabilities;
 }
 
 function finiteNumber(value: unknown, min = -Infinity, max = Infinity): number {

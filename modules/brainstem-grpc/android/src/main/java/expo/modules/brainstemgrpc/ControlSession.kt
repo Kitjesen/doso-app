@@ -12,6 +12,7 @@ import java.io.InputStream
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -34,6 +35,10 @@ internal class ControlSession(
   @Volatile private var call: ClientCall<ByteArray, ByteArray>? = null
   @Volatile private var imuCall: ClientCall<ByteArray, ByteArray>? = null
   private var imuGeneration = 0L
+  private var recoveryHeartbeat: ScheduledFuture<*>? = null
+  private val recoveryHeartbeatBusy = AtomicBoolean(false)
+  @Volatile private var lastRecoveryHeartbeatAt = 0L
+  @Volatile private var recoveryHeartbeatError: String? = null
   @Volatile private var lastInputAt = 0L
   private var lastWireAt = 0L
   private var token = ""
@@ -292,7 +297,50 @@ internal class ControlSession(
     }
   }
 
+  fun recovery(action: String): Map<String, Any> {
+    val name = when (action) {
+      "status" -> "GetStatus"
+      "enter" -> "Enter"
+      "enable" -> "Enable"
+      "start" -> "Start"
+      "cancel" -> "Cancel"
+      "exit" -> "Exit"
+      else -> throw Failure("config")
+    }
+    @Suppress("UNCHECKED_CAST")
+    val parsed = RecoveryStatusParser.parse(recoveryRpc(name, 3000)) as Map<String, Any>
+    return recoveryEnvelope(parsed)
+  }
+
+  fun setRecoveryHeartbeat(enabled: Boolean) {
+    synchronized(dispatchLock) {
+      recoveryHeartbeat?.cancel(false)
+      recoveryHeartbeat = null
+      recoveryHeartbeatBusy.set(false)
+      if (!enabled || closed.get()) {
+        lastRecoveryHeartbeatAt = 0L
+        recoveryHeartbeatError = null
+        return
+      }
+      recoveryHeartbeat = watchdog.scheduleAtFixedRate({
+        if (closed.get() || !recoveryHeartbeatBusy.compareAndSet(false, true)) return@scheduleAtFixedRate
+        try {
+          recoveryRpc("Heartbeat", 150)
+          lastRecoveryHeartbeatAt = SystemClock.elapsedRealtime()
+          recoveryHeartbeatError = null
+        } catch (error: Exception) {
+          val code = (error as? Failure)?.code ?: "unavailable"
+          recoveryHeartbeatError = code
+          if (code == "unimplemented") setRecoveryHeartbeat(false)
+        } finally {
+          recoveryHeartbeatBusy.set(false)
+        }
+      }, 0, 100, TimeUnit.MILLISECONDS)
+    }
+  }
+
   fun close() {
+    setRecoveryHeartbeat(false)
     stopImu()
     haltImmediately()
     runCatching { interrupt() }
@@ -308,6 +356,45 @@ internal class ControlSession(
     "leaseOwnerMatched" to leaseOwnerMatched,
     "transport" to if (lanDev) "grpc-lan" else "grpc-mtls"
   )
+
+  private fun recoveryEnvelope(parsed: Map<String, Any>): Map<String, Any> {
+    val fresh = lastRecoveryHeartbeatAt > 0L && SystemClock.elapsedRealtime() - lastRecoveryHeartbeatAt < 300L
+    val value = linkedMapOf<String, Any>()
+    value.putAll(parsed)
+    value["heartbeatFresh"] = fresh
+    recoveryHeartbeatError?.let { value["heartbeatError"] = it }
+    return value
+  }
+
+  private fun recoveryRpc(name: String, deadline: Long): ByteArray {
+    checkOpen()
+    val latch = CountDownLatch(1)
+    var body: ByteArray? = null
+    var result = Status.UNKNOWN
+    var duplicate = false
+    val next = channel.newCall(recoveryMethod(name), CallOptions.DEFAULT.withDeadlineAfter(deadline, TimeUnit.MILLISECONDS))
+    try {
+      if (closed.get()) throw Failure("cancelled")
+      next.start(object : ClientCall.Listener<ByteArray>() {
+        override fun onMessage(message: ByteArray) { if (body != null) duplicate = true else body = message }
+        override fun onClose(status: Status, trailers: Metadata) { result = status; latch.countDown() }
+      }, Metadata().apply { if (lanDev) put(DEV_CLIENT, principal) })
+      next.request(2)
+      next.sendMessage(EMPTY)
+      next.halfClose()
+      if (!latch.await(deadline + 40, TimeUnit.MILLISECONDS)) throw Failure("timeout")
+      if (!result.isOk) throw Failure(when (result.code) {
+        Status.Code.UNAUTHENTICATED, Status.Code.PERMISSION_DENIED -> "unauthorized"
+        Status.Code.FAILED_PRECONDITION, Status.Code.ABORTED -> "precondition"
+        Status.Code.DEADLINE_EXCEEDED -> "timeout"
+        Status.Code.CANCELLED -> "cancelled"
+        Status.Code.UNIMPLEMENTED, Status.Code.NOT_FOUND -> "unimplemented"
+        else -> "unavailable"
+      })
+      if (duplicate) throw Failure("invalid_response")
+      return body ?: throw Failure("invalid_response")
+    } finally { next.cancel("Recovery RPC finished", null) }
+  }
 
   private fun checkOpen() { if (closed.get() || channel.isShutdown) throw Failure("cancelled") }
   private fun Map<String, Any>.boolean(key: String) = this[key] == true
@@ -374,6 +461,20 @@ internal class ControlSession(
       }).build()
     private val allowedMethods = setOf("GetControlStatus", "GetProfile", "AcquireControl", "RenewControlLease",
       "ReleaseControl", "WalkChecked", "Enable", "Disable", "StandUp", "SitDown", "SwitchProfile")
+    private fun recoveryMethod(name: String): MethodDescriptor<ByteArray, ByteArray> {
+      if (name !in setOf("GetStatus", "Enter", "Enable", "Heartbeat", "Start", "Cancel", "Exit")) throw Failure("config")
+      return MethodDescriptor.newBuilder<ByteArray, ByteArray>()
+        .setType(MethodDescriptor.MethodType.UNARY)
+        .setFullMethodName("brainstem.api.v1.RobotRecovery/$name")
+        .setRequestMarshaller(object : MethodDescriptor.Marshaller<ByteArray> {
+          override fun stream(value: ByteArray): InputStream = ByteArrayInputStream(value)
+          override fun parse(stream: InputStream): ByteArray = throw UnsupportedOperationException()
+        })
+        .setResponseMarshaller(object : MethodDescriptor.Marshaller<ByteArray> {
+          override fun stream(value: ByteArray): InputStream = throw UnsupportedOperationException()
+          override fun parse(stream: InputStream): ByteArray = RecoveryStatusParser.readBounded(stream)
+        }).build()
+    }
     private fun method(name: String): MethodDescriptor<ByteArray, ByteArray> {
       if (name !in allowedMethods) throw Failure("config")
       return MethodDescriptor.newBuilder<ByteArray, ByteArray>()

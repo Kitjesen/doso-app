@@ -126,12 +126,23 @@ test('ListenImu is the existing server stream and omits acceleration when the fi
   try {
     const compile = spawnSync('javac', ['-encoding', 'UTF-8', '-d', output,
       fileURLToPath(new URL('ImuParser.java', javaRoot)),
+      fileURLToPath(new URL('ProfileInfoParser.java', javaRoot)),
+      fileURLToPath(new URL('RecoveryStatusParser.java', javaRoot)),
       fileURLToPath(new URL('android/src/test/java/expo/modules/brainstemgrpc/ImuParserTest.java', moduleRoot)),
+      fileURLToPath(new URL('android/src/test/java/expo/modules/brainstemgrpc/RecoveryStatusParserTest.java', moduleRoot)),
     ], { encoding: 'utf8' });
     assert.equal(compile.status, 0, compile.stderr || compile.error?.message);
     const run = spawnSync('java', ['-cp', output, 'expo.modules.brainstemgrpc.ImuParserTest'], { encoding: 'utf8' });
     assert.equal(run.status, 0, run.stderr || run.error?.message);
     assert.match(run.stdout, /PASS: imu gyroscope quaternion optional acceleration and malformed fixtures/);
+    const recoveryRun = spawnSync('java', ['-cp', output, 'expo.modules.brainstemgrpc.RecoveryStatusParserTest'], { encoding: 'utf8' });
+    assert.equal(recoveryRun.status, 0, recoveryRun.stderr || recoveryRun.error?.message);
+    assert.match(recoveryRun.stdout, /PASS: recovery status and profile mode capabilities/);
+    assert.match(session, /brainstem\.api\.v1\.RobotRecovery\/\$name/);
+    assert.match(session, /scheduleAtFixedRate/);
+    assert.match(native, /readRecoveryStatus/);
+    assert.match(native, /setRecoveryHeartbeat/);
+    assert.doesNotMatch(native, /RobotRecovery\/Enable/);
   } finally {
     await rm(output, { recursive: true, force: true });
   }
