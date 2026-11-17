@@ -34,6 +34,17 @@ function formatQuaternion(vector: { w: number; x: number; y: number; z: number }
   return `${vector.w.toFixed(3)}  ${vector.x.toFixed(3)}  ${vector.y.toFixed(3)}  ${vector.z.toFixed(3)}`;
 }
 
+const DEVICE_BUS_VOLTAGE_FRESH_MS = 15_000;
+
+/** GetVoltage bus volts. Zeros, out-of-range values, and readings older than the telemetry window stay unknown. */
+function formatLandscapeBusVoltage(battery: ControlRuntimeState['battery'], now = Date.now()) {
+  const voltage = battery?.voltageV;
+  const age = typeof battery?.updatedAt === 'string' ? now - Date.parse(battery.updatedAt) : Number.NaN;
+  if (battery?.source !== 'device' || typeof voltage !== 'number' || !Number.isFinite(voltage) || voltage <= 0 || voltage > 1000
+    || !Number.isFinite(age) || age < 0 || age >= DEVICE_BUS_VOLTAGE_FRESH_MS) return '—';
+  return `${voltage.toFixed(1)} V`;
+}
+
 export type DevelopmentControlInput = Readonly<{
   ready: boolean;
   onDrive: (value: JoystickVector) => void;
@@ -771,6 +782,7 @@ export function ControlScreen({
     typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(2)} ${unit}` : '未知';
   const immersiveSpeedLabel = speed?.source === 'device' && typeof speed.linearMps === 'number' && Number.isFinite(speed.linearMps)
     ? `${speed.linearMps.toFixed(1)} m/s` : '—';
+  const landscapeBusVoltageLabel = formatLandscapeBusVoltage(runtimeState?.battery);
   const signalKnown = runtimeState?.signal?.source === 'device' || runtimeState?.signal?.source === 'controller';
   const immersiveSignalLabel = signalKnown && typeof runtimeState?.signal?.qualityPercent === 'number' && Number.isFinite(runtimeState.signal.qualityPercent)
     && runtimeState.signal.qualityPercent >= 0 && runtimeState.signal.qualityPercent <= 100
@@ -1134,7 +1146,7 @@ export function ControlScreen({
         };
       }),
       onSelectTerrain: selectTerrain,
-      batteryLabel: immersiveBatteryKnown ? `${Math.round(batteryPercent as number)}%` : '—',
+      busVoltageLabel: landscapeBusVoltageLabel,
       signalLabel: immersiveSignalLabel,
       speedLabel: hudSpeedLabel,
       onStop: () => runOperation('stop', renderGeneration),
