@@ -67,6 +67,7 @@ function mount({ available = true, controlAvailable = false, lanAvailable = fals
       readOnlyLabel: '只读状态未就绪', controlLabel: '真实控制保持锁定',
       controlBlockedReason: '测试夹具：控制门禁保持锁定。',
     }) },
+    './WifiDiscoveryPanel': { WifiDiscoveryPanel: 'WifiDiscoveryPanel' },
   };
   const module = { exports: {} };
   vm.runInNewContext(code, { module, exports: module.exports, require: name => {
@@ -315,7 +316,7 @@ test('default surface exposes only address, one connection action and status; ad
     : !!node && typeof node === 'object' && (node.props?.testID === id || contains(node.props?.children, id));
   const scroll = host.element('robot-connection-scroll');
   assert.equal(scroll.type, 'ScrollView');
-  for (const id of ['robot-grpc-host', 'robot-connect', 'robot-grpc-result', 'connection-details-toggle']) assert.ok(contains(scroll, id));
+  for (const id of ['robot-grpc-host', 'robot-connect', 'robot-grpc-result', 'connection-details-toggle', 'connection-wifi-discovery']) assert.ok(contains(scroll, id));
   for (const id of ['device-connection-summary', 'connection-transport-tabs', 'robot-grpc-port', 'robot-grpc-certificate', 'robot-grpc-read', 'brainstem-integration-readiness']) assert.equal(host.element(id), undefined, id);
   assert.doesNotMatch(host.copy, /设备身份|最后同步|控制权|配对身份|配对证书/);
   host.advanced();
