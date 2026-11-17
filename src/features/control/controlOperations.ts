@@ -33,6 +33,16 @@ export type ControlSignalState = Readonly<{
   source: 'device' | 'controller' | 'unknown';
   updatedAt?: string | null;
 }>;
+export type ControlVector3 = Readonly<{ x: number; y: number; z: number }>;
+export type ControlQuaternion = Readonly<{ w: number; x: number; y: number; z: number }>;
+/** ListenImu sample. linearAcceleration is null when the server omits field 4. */
+export type ControlImuReading = Readonly<{
+  gyroscope: ControlVector3;
+  quaternion: ControlQuaternion;
+  linearAcceleration: ControlVector3 | null;
+  timestampMs: number | null;
+  source: 'device';
+}>;
 export type ControlJointState = Readonly<{
   id: string;
   label: string;
@@ -60,6 +70,10 @@ export type ControlRuntimeState = Readonly<{
   battery?: ControlBatteryState;
   signal?: ControlSignalState;
   joints?: readonly ControlJointState[];
+  /** Present only while a fresh ListenImu sample is held. */
+  imu?: ControlImuReading;
+  /** ControlStatus.owner. Omitted until a fresh status read. */
+  controlOwner?: 'none' | 'grpc' | 'yunzhuo';
   inputSource?: ControlInputSource;
   currentPolicy?: ControlPolicyOption | null;
   policyCatalogStatus?: 'unknown' | 'unavailable' | 'synced';
@@ -103,6 +117,32 @@ export function getControlTerrainPolicies(state?: ControlRuntimeState) {
     return { ...mode, profileId: policy?.id ?? null,
       selected: Boolean(policy && state?.currentPolicy?.id === policy.id) };
   });
+}
+
+const TERRAIN_MOTION_MPS = 0.05;
+
+/** Device-reported speed above the deadband counts as walking. Unknown speed does not invent motion. */
+export function controlTerrainMotionBlock(state?: ControlRuntimeState): string | null {
+  const speed = state?.speed;
+  if (speed?.source === 'device') {
+    const moving = [speed.linearMps, speed.lateralMps, speed.yawRps].some(value =>
+      typeof value === 'number' && Number.isFinite(value) && Math.abs(value) > TERRAIN_MOTION_MPS);
+    if (moving) return '行走中不可切换运动模式。';
+  }
+  return null;
+}
+
+/**
+ * Landscape terrain controls: standing or prone (runtime `sitting` is grounded),
+ * and not while a device speed says the robot is walking.
+ */
+export function controlTerrainSwitchBlock(state?: ControlRuntimeState): string | null {
+  const moving = controlTerrainMotionBlock(state);
+  if (moving) return moving;
+  if (state?.posture !== 'standing' && state?.posture !== 'sitting') {
+    return '站立或趴地时可切换；行走中不可切换。';
+  }
+  return null;
 }
 
 export function getControlTerrainModeOptions(state?: ControlRuntimeState): readonly ControlTerrainModeOption[] {

@@ -95,6 +95,7 @@ class BrainstemGrpcModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("DosoBrainstemGrpc")
+    Events("onBrainstemImu")
     Constants { mapOf("lanDevAvailable" to (appContext.reactContext?.packageName == "com.doso.robot.qa")) }
 
     AsyncFunction("setControlNavigationHidden") { hidden: Boolean ->
@@ -214,6 +215,33 @@ class BrainstemGrpcModule : Module() {
       selected?.haltImmediately()
       // An interrupt is queued even when a normal RPC is in flight; authority is already retired.
       runControl(sessionId, promise, allowBusy = true) { session, _ -> session.interrupt() }
+    }.runOnQueue(Queues.MAIN)
+    AsyncFunction("readRecoveryStatus") { sessionId: String, promise: Promise ->
+      runControl(sessionId, promise) { session, _ -> session.recovery("status") }
+    }.runOnQueue(Queues.MAIN)
+    AsyncFunction("recoveryCommand") { sessionId: String, command: String, promise: Promise ->
+      runControl(sessionId, promise) { session, _ -> session.recovery(command) }
+    }.runOnQueue(Queues.MAIN)
+    AsyncFunction("setRecoveryHeartbeat") { sessionId: String, enabled: Boolean ->
+      synchronized(lock) { control?.takeIf { it.id == sessionId }?.setRecoveryHeartbeat(enabled) }
+    }.runOnQueue(Queues.MAIN)
+    AsyncFunction("startListenImu") { sessionId: String, promise: Promise ->
+      val selected = synchronized(lock) {
+        control?.takeIf { it.id == sessionId && !destroyed && !paused && isForeground() }
+      }
+      if (selected == null) { reject(promise, "cancelled"); return@AsyncFunction }
+      try {
+        selected.startImu { sample ->
+          if (synchronized(lock) { destroyed || control !== selected }) return@startImu
+          imuEvent(sessionId, sample)?.let { sendEvent("onBrainstemImu", it) }
+        }
+        promise.resolve(null)
+      } catch (error: Exception) {
+        reject(promise, (error as? ControlSession.Failure)?.code ?: "unavailable")
+      }
+    }.runOnQueue(Queues.MAIN)
+    AsyncFunction("stopListenImu") { sessionId: String ->
+      synchronized(lock) { control?.takeIf { it.id == sessionId }?.stopImu() }
     }.runOnQueue(Queues.MAIN)
     AsyncFunction("closeControl") { sessionId: String ->
       synchronized(lock) {
@@ -676,6 +704,35 @@ class BrainstemGrpcModule : Module() {
     override fun getPrivateKey(requested: String?): PrivateKey? = if (requested == alias) key else null
     override fun getServerAliases(keyType: String?, issuers: Array<out Principal>?): Array<String>? = null
     override fun chooseServerAlias(keyType: String?, issuers: Array<out Principal>?, socket: Socket?): String? = null
+  }
+
+  private fun imuEvent(sessionId: String, sample: Map<String, Any>): Map<String, Any>? {
+    val gyro = sample["gyroscope"] as? Map<*, *> ?: return null
+    val quat = sample["quaternion"] as? Map<*, *> ?: return null
+    val gyroX = gyro["x"] ?: return null
+    val gyroY = gyro["y"] ?: return null
+    val gyroZ = gyro["z"] ?: return null
+    val quatW = quat["w"] ?: return null
+    val quatX = quat["x"] ?: return null
+    val quatY = quat["y"] ?: return null
+    val quatZ = quat["z"] ?: return null
+    val event = linkedMapOf<String, Any>(
+      "sessionId" to sessionId,
+      "gyroX" to gyroX, "gyroY" to gyroY, "gyroZ" to gyroZ,
+      "quatW" to quatW, "quatX" to quatX, "quatY" to quatY, "quatZ" to quatZ,
+    )
+    val accel = sample["linearAcceleration"] as? Map<*, *>
+    if (accel != null) {
+      val accelX = accel["x"] ?: return null
+      val accelY = accel["y"] ?: return null
+      val accelZ = accel["z"] ?: return null
+      event["accelX"] = accelX
+      event["accelY"] = accelY
+      event["accelZ"] = accelZ
+    }
+    val timestamp = sample["timestampMs"]
+    if (timestamp is Number) event["timestampMs"] = timestamp.toLong()
+    return event
   }
 
   companion object {

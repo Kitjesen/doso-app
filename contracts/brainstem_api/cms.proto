@@ -244,6 +244,22 @@ message ProfileRequest {
   string name = 1;
 }
 
+// 机器人模式种类。摔倒恢复不是运动策略切换，也不是趴下姿态。
+enum RobotModeKind {
+  ROBOT_MODE_KIND_UNSPECIFIED = 0;
+  ROBOT_MODE_KIND_LOCOMOTION = 1;
+  ROBOT_MODE_KIND_RECOVERY_ACTION = 2;
+}
+
+// GetProfile 声明的一种模式能力。id `recovery` 且 kind 为 RECOVERY_ACTION 才是摔倒恢复。
+message RobotModeCapability {
+  string id = 1;
+  RobotModeKind kind = 2;
+  string label = 3;
+  bool available = 4;
+  string unavailable_reason = 5;
+}
+
 // 策略信息（当前策略名称 + 可用策略列表 + 说明）。
 message ProfileInfo {
   // 当前激活的策略名称。
@@ -254,6 +270,10 @@ message ProfileInfo {
   repeated string descriptions = 3;
   // 当前策略的说明。
   string current_description = 4;
+  // 当前服务声明的模式能力。旧服务端不发送该字段。
+  repeated RobotModeCapability mode_capabilities = 5;
+  // 当前激活的模式 id。空表示服务端没有声明。
+  string active_mode_id = 6;
 }
 
 // 运动指令。

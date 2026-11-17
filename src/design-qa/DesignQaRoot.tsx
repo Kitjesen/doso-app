@@ -13,6 +13,7 @@ import { BottomNav } from '../components/BottomNav';
 import { createRobotDiagnosticsGateway } from '../features/robot-lifecycle/robotDiagnosticsGateway';
 import { AnalysisScreen } from '../screens/AnalysisScreen';
 import { BindDeviceScreen } from '../screens/BindDeviceScreen';
+import { ControlPreviewCameraPlate } from '../components/ControlPreviewCameraPlate';
 import { ControlScreen } from '../screens/ControlScreen';
 import { DeviceUnavailableScreen } from '../screens/DeviceUnavailableScreen';
 import { DisplayNameConfirmationScreen } from '../screens/DisplayNameConfirmationScreen';
@@ -140,7 +141,7 @@ function MainPreviewShell({ active, children, onNavigate = noop, onEditProfile }
   );
 }
 
-function PreviewScreen({ stage, state, onNavigate = noop, browsing = false, onEditProfile, onControlBack }: { stage: DesignQaStage; state: DesignQaState; onNavigate?: NavigatePreview; browsing?: boolean; onEditProfile?: () => void; onControlBack?: () => void }) {
+function PreviewScreen({ stage, state, onNavigate = noop, browsing = false, onEditProfile, onControlBack, cameraPreview = false, landscapeDocksExpanded = true }: { stage: DesignQaStage; state: DesignQaState; onNavigate?: NavigatePreview; browsing?: boolean; onEditProfile?: () => void; onControlBack?: () => void; cameraPreview?: boolean; landscapeDocksExpanded?: boolean }) {
   const loading = state === 'loading';
   const error = state === 'error' ? SAMPLE_ERROR : null;
 
@@ -256,6 +257,61 @@ function PreviewScreen({ stage, state, onNavigate = noop, browsing = false, onEd
         </MainPreviewShell>
       );
     case 'robot-control':
+      if (state === 'connected') {
+        const terrainOptions = [
+          { id: 'flat' as const, label: '平地模式' },
+          { id: 'stairs' as const, label: '楼梯模式' },
+          { id: 'platform' as const, label: '高台模式' },
+        ];
+        return (
+          <ControlScreen
+            allowInteractionPreview
+            batteryPercent={80}
+            canUseManualControl={false}
+            canUseRouteMode={false}
+            canUseTaskMode={false}
+            connected
+            diagnosticsDeviceClass="physical"
+            diagnosticsGateway={physicalDiagnosticsGateway}
+            manualControlBlockedReason="设计验收只预览已连接画面，不发送控制指令"
+            onBack={onControlBack ?? (() => onNavigate('main-home'))}
+            onOpenJointStatus={noop}
+            onOpenMap={() => onNavigate('main-routes')}
+            onNotifications={noop}
+            operationCallbacks={{ stand: noop, sit: noop, stop: noop, switchPolicy: noop }}
+            operationReadiness={{
+              stand: { ready: true },
+              sit: { ready: true },
+              stop: { ready: true },
+              switchPolicy: { ready: true },
+            }}
+            robotImage={images.thunderHero}
+            robotName="THUNDER 01"
+            robotType="室外四足机器人"
+            routeModeBlockedReason="生产路线执行器未接入"
+            runtimeState={{
+              controlLink: 'connected',
+              controlAuthority: 'held',
+              posture: 'standing',
+              motorState: 'enabled',
+              deviceIdentity: 'bound-unverified',
+              faultStatus: 'clear',
+              speed: { linearMps: 0, lateralMps: 0, yawRps: 0, source: 'device' },
+              signal: { qualityPercent: 72, source: 'device' },
+              inputSource: 'touch',
+              currentPolicy: { id: 'flat', label: '平地模式', terrainModeId: 'flat' },
+              policyCatalogStatus: 'synced',
+              policyOptions: terrainOptions.map(option => ({ ...option, terrainModeId: option.id })),
+              terrainMode: { current: 'flat', options: terrainOptions, catalogStatus: 'synced', source: 'device' },
+            }}
+            safetyLock={false}
+            taskModeBlockedReason="生产任务执行器未接入"
+            landscapeDocksExpanded={landscapeDocksExpanded}
+            video={cameraPreview ? { id: 'design-qa-landscape-camera', phase: 'receiving' } : undefined}
+            videoSurface={cameraPreview ? <ControlPreviewCameraPlate /> : undefined}
+          />
+        );
+      }
       return (
         <ControlScreen
           allowInteractionPreview
@@ -306,13 +362,17 @@ function DesignQaContent({ hideDisclosure, search, browsing, onToggleTheme }: { 
   const [showPages, setShowPages] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
   const [controlOrigin, setControlOrigin] = useState<DesignQaStage>('main-home');
+  const [controlScene, setControlScene] = useState<DesignQaState | null>(null);
   const profileBackRef = useRef<() => void>(noop);
   const registerProfileBack = useCallback((handler: (() => void) | null) => { profileBackRef.current = handler ?? noop; }, []);
   const initialSearch = browsing && !new URLSearchParams(search).has('qa-stage') ? '?qa-stage=main-home' : search;
   // Static, local-only extras do not expand the formal 20-stage acceptance list.
   // Neither page mounts an account provider or calls a service automatically.
   const extra = new URLSearchParams(search).get('design-qa') === '1' ? new URLSearchParams(search).get('qa-extra') : null;
-  const request = parseDesignQaRequest(selectedStage ? `?qa-stage=${selectedStage}` : initialSearch);
+  const extraTokens = extra ? extra.split(',').map(token => token.trim()).filter(Boolean) : [];
+  const hudExtraOnly = extraTokens.every(token => token === 'camera' || token === 'folded');
+  const requested = parseDesignQaRequest(selectedStage ? `?qa-stage=${selectedStage}` : initialSearch);
+  const request = requested.stage === 'robot-control' && controlScene ? { ...requested, state: controlScene, issue: null } : requested;
   const navigate: NavigatePreview = stage => {
     if (!browsing) return;
     if (editingProfile) { profileBackRef.current(); return; }
@@ -343,6 +403,7 @@ function DesignQaContent({ hideDisclosure, search, browsing, onToggleTheme }: { 
           <View style={styles.browseBar}>
             <Pressable accessibilityRole="button" accessibilityLabel="测试首页" onPress={() => navigate('main-home')} style={styles.browseButton}><Text style={{ color: colors.ink }}>首页</Text></Pressable>
             <Text style={[styles.browseTitle, { color: colors.muted }]}>{request.stage ? stageLabels[request.stage] : '界面测试'}（只读预览）</Text>
+            {request.stage === 'robot-control' ? <Pressable accessibilityRole="button" accessibilityLabel={request.state === 'connected' ? '查看未连接控制' : '查看已连接控制'} onPress={() => setControlScene(request.state === 'connected' ? 'default' : 'connected')} style={styles.browseButton}><Text style={{ color: colors.authFocus }}>{request.state === 'connected' ? '未连接' : '已连接'}</Text></Pressable> : null}
             <Pressable accessibilityRole="button" accessibilityLabel="切换测试页面" accessibilityState={{ expanded: showPages }} onPress={() => setShowPages(value => !value)} style={styles.browseButton}><Text style={{ color: colors.authFocus }}>页面</Text></Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel={isDark ? '切换浅色' : '切换深色'} onPress={onToggleTheme} style={styles.browseButton}><Text style={{ color: colors.ink }}>{isDark ? '浅色' : '深色'}</Text></Pressable>
           </View>
@@ -370,8 +431,8 @@ function DesignQaContent({ hideDisclosure, search, browsing, onToggleTheme }: { 
           onBack={closeProfileEditor}
           onBackRequestChange={registerProfileBack}
           onSave={async () => { throw new Error('这是界面预览，不会写入账户资料。请在正式登录后保存。'); }}
-        /> : extra ? <InvalidRequest issue="qa-extra 不受支持" /> : request.stage && request.state
-          ? <PreviewScreen key={request.stage} stage={request.stage} state={request.state} onNavigate={navigate} browsing={browsing} onEditProfile={browsing ? () => setEditingProfile(true) : undefined} onControlBack={() => navigate(controlOrigin)} />
+        /> : extra && !hudExtraOnly ? <InvalidRequest issue="qa-extra 不受支持" /> : request.stage && request.state
+          ? <PreviewScreen key={request.stage} cameraPreview={extraTokens.includes('camera')} landscapeDocksExpanded={!extraTokens.includes('folded')} stage={request.stage} state={request.state} onNavigate={navigate} browsing={browsing} onEditProfile={browsing ? () => setEditingProfile(true) : undefined} onControlBack={() => navigate(controlOrigin)} />
           : <InvalidRequest issue={request.issue ?? '未知参数错误'} />}
       </View>
     </View>

@@ -31,6 +31,20 @@ const g20Module = { exports: {} };
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/features/control/g20InputModel.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, { module: g20Module, exports: g20Module.exports });
+const landscapeHudModule = { exports: {} };
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/controlLandscapeHud.tsx', import.meta.url), 'utf8'), {
+  compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText, {
+  module: landscapeHudModule,
+  exports: landscapeHudModule.exports,
+  require(name) {
+    if (name === 'react/jsx-runtime') return require('react/jsx-runtime');
+    if (name === 'react-native') return { Platform: { OS: 'ios' }, Pressable: 'Pressable', StyleSheet: { create: value => value, absoluteFillObject: { position: 'absolute' } }, View: 'View' };
+    if (name === '@expo/vector-icons') return { Ionicons: 'Ionicons' };
+    if (name === './AppText') return { Text: 'Text' };
+    throw new Error(`Unexpected landscape HUD dependency: ${name}`);
+  },
+});
 
 const colors = {
   authFocus: '#0066FF', authPrimary: '#0066FF', background: '#FFFFFF', ink: '#111827',
@@ -122,6 +136,8 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     '@expo/vector-icons': { Ionicons: 'Ionicons' },
     'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView' },
     '../components/ControlJoystick': { ControlJoystickPair },
+    '../components/controlLandscapeHud': landscapeHudModule.exports,
+    '../components/RobotRecoveryControls': { RobotRecoveryControls: () => null },
     '../components/ControlVideoSurface': { ControlVideoSurface },
     '../components/JoystickLayoutSettings': { JoystickLayoutSettings },
     '../features/control/joystickLayoutPreferences': { ...joystickLayoutModule.exports,
@@ -587,7 +603,7 @@ test('large text keeps its scrollable layout and a retired navigation reply cann
 
 test('landscape diagnostics retires held touch before navigation', () => {
   const order = []; let sent = 0;
-  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(),
+  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(), connected: false,
     productionInput: { ready: true, onDrive() { sent++; }, onTurn() {}, onInterrupt() { order.push('interrupt'); } },
     onOpenJointStatus() { order.push('diagnostics'); } });
   const oldInput = screen.pair.left.onSample;
@@ -602,7 +618,7 @@ test('landscape diagnostics retires held touch before navigation', () => {
 
 test('gesture library opens unavailable state and retires old touch without replay on return', () => {
   let sent = 0, interrupted = 0;
-  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(),
+  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(), connected: false,
     productionInput: { ready: true, onDrive() { sent++; }, onTurn() {}, onInterrupt() { interrupted++; } } });
   const oldInput = screen.pair.left.onSample;
   oldInput({ x: .2, y: .2 });
@@ -622,7 +638,7 @@ test('gesture library opens unavailable state and retires old touch without repl
 
 test('landscape exposes actual robot policy IDs without guessing terrain names or dispatching on open', () => {
   let called = 0;
-  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(),
+  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(), connected: false,
     runtimeState: { controlLink: 'connected', motorState: 'disabled', posture: 'sitting', policyCatalogStatus: 'synced',
       currentPolicy: { id: 'w5_current', label: 'W5' }, policyOptions: [{ id: 'w5_current', label: 'W5' }, { id: 'robot_candidate', label: '候选策略' }] },
     operationReadiness: { switchPolicy: { ready: true } },
@@ -691,7 +707,7 @@ test('landscape mode entry explains unavailable capability and never sends an ac
 
 test('landscape mode entry opens real policy selection without executing a policy', () => {
   let called = 0;
-  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(),
+  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(), connected: false,
     runtimeState: { policyCatalogStatus: 'synced', policyOptions: [{ id: 'flat', label: '标准行走' }] },
     operationReadiness: { switchPolicy: { ready: true } }, operationCallbacks: { switchPolicy() { called++; } } });
   screen.find('control-open-policy').props.onPress(); screen.render();
@@ -1157,7 +1173,7 @@ test('opening layout editing synchronously cancels input and rejects an old touc
 
 test('slider previews update the layout without storage or motion, then commit once on release', async () => {
   const saved = []; let sent = 0;
-  const screen = mount({ dev: false, ...capableProps(), dimensions: { width: 1100, height: 600, fontScale: 1 },
+  const screen = mount({ dev: false, ...capableProps(), connected: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
     productionInput: { ready: true, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() {} },
     layoutSave: async value => { saved.push(JSON.parse(JSON.stringify(value))); } });
   await screen.settle();
@@ -1406,7 +1422,7 @@ test('video HUD forwards the actual media surface without granting motion or inv
 test('video HUD loss retires the old touch context and recovery does not replay it', () => {
   let sent = 0;
   const screen = mount({ dev: false, dimensions: { width: 1250, height: 650, fontScale: 1 },
-    ...capableProps(), video: { phase: 'receiving', id: 'fixture-camera' },
+    ...capableProps(), connected: false, video: { phase: 'receiving', id: 'fixture-camera' },
     productionInput: { ready: true, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() {} } });
   const held = screen.pair.left.onSample;
   held({ x: .2, y: -.2 }); assert.equal(sent, 1);
@@ -1450,5 +1466,170 @@ test('video HUD only displays measured speed and identified telemetry sources', 
   } });
   assert.match(screen.copy, /0\.2\s*m\/s/); assert.match(screen.copy, /71%/); assert.match(screen.copy, /48\.1\s*V/);
   assert.equal(screen.pair.disabled, true, 'receiving telemetry is not an actuator permission');
+  screen.unmount();
+});
+
+test('receiving landscape video paints the connected HUD and blocks terrain while walking', () => {
+  const terrainRuntime = {
+    controlLink: 'connected', controlAuthority: 'held', posture: 'standing', motorState: 'enabled',
+    deviceIdentity: 'bound-unverified', faultStatus: 'clear', inputSource: 'touch',
+    speed: { linearMps: 0, lateralMps: 0, yawRps: 0, source: 'device' },
+    signal: { qualityPercent: 72, source: 'device' },
+    currentPolicy: { id: 'flat', label: '平地模式', terrainModeId: 'flat' },
+    policyCatalogStatus: 'synced',
+    policyOptions: [
+      { id: 'flat', label: '平地模式', terrainModeId: 'flat' },
+      { id: 'stairs', label: '楼梯模式', terrainModeId: 'stairs' },
+      { id: 'platform', label: '高台模式', terrainModeId: 'platform' },
+    ],
+    terrainMode: {
+      current: 'flat', catalogStatus: 'synced', source: 'device',
+      options: [
+        { id: 'flat', label: '平地模式' },
+        { id: 'stairs', label: '楼梯模式' },
+        { id: 'platform', label: '高台模式' },
+      ],
+    },
+  };
+  const screen = mount({
+    dev: true, dimensions: { width: 844, height: 390, fontScale: 1 }, allowInteractionPreview: true,
+    connected: true, batteryPercent: 80, safetyLock: false,
+    runtimeState: terrainRuntime,
+    operationReadiness: { stand: { ready: true }, sit: { ready: true }, stop: { ready: true }, switchPolicy: { ready: true } },
+    operationCallbacks: { stand() {}, sit() {}, stop() {}, switchPolicy() {} },
+  });
+  const flat = style => Object.assign({}, ...(Array.isArray(style) ? style : [style]));
+  const officialSize = Math.min(170, Math.floor(Math.min(844 * 0.15, 390 * 0.32)));
+  assert.ok(screen.find('control-landscape-hud'));
+  assert.equal(screen.find('control-action-dock'), undefined);
+  assert.equal(screen.videoStage, undefined);
+  assert.equal(flat(screen.find('control-video-backdrop').props.style).backgroundColor, '#000000');
+  assert.equal(screen.pair.variant, 'glass');
+  assert.equal(screen.pair.floating, true);
+  assert.equal(screen.pair.size, officialSize);
+  assert.ok(screen.pair.layout);
+  const stickFrame = flat(screen.find('control-immersive-sticks').props.style);
+  assert.equal(stickFrame.top, 172);
+  assert.equal(stickFrame.bottom, 56);
+  assert.equal(stickFrame.left, 20);
+  assert.equal(stickFrame.right, 20);
+  assert.equal(screen.pair.right.axis, 'x');
+  assert.equal(screen.pair.left.axis, 'xy');
+  assert.match(screen.copy, /THUNDER-01 · 已连接/);
+  assert.match(screen.copy, /本设备控制/);
+  assert.match(screen.copy, /设备已解锁/);
+  assert.match(screen.copy, /电量 80%/);
+  assert.match(screen.copy, /信号 72%/);
+  assert.match(screen.copy, /速度 0\.00 m\/s/);
+  assert.match(screen.copy, /平地/);
+  assert.match(screen.copy, /楼梯/);
+  assert.match(screen.copy, /高台/);
+  assert.ok(screen.find('control-hud-posture-selected-stand'));
+  assert.match(screen.copy, /坐下/);
+  assert.match(screen.copy, /趴下/);
+  assert.match(screen.copy, /恢复/);
+  assert.equal(screen.find('control-hud-lidar'), undefined);
+  assert.equal(screen.find('control-hud-map'), undefined);
+  assert.doesNotMatch(screen.copy, /点云未接入/);
+  assert.match(screen.copy, /设置/);
+  assert.doesNotMatch(screen.copy, /躺下|跤下|蹬下|趾下|无画面|机身高度|抬腿高度|机身温度|电机温度|握手|伸懒腰/);
+  assert.equal(screen.find('control-hud-posture-prone').props.accessibilityState.disabled, true);
+  assert.equal(screen.find('control-hud-posture-recover').props.accessibilityState.disabled, true);
+  assert.equal(screen.find('control-hud-terrain-capsule-stairs').props.disabled, false);
+  assert.equal(screen.find('control-hud-terrain-capsule-flat').props.disabled, false);
+  screen.render({ video: { id: 'preview-camera', phase: 'receiving' }, videoSurface: 'plate' });
+  assert.ok(screen.videoStage);
+  assert.equal(screen.videoStage.presentation.phase, 'receiving');
+  assert.equal(screen.pair.size, officialSize);
+  assert.equal(flat(screen.find('control-immersive-sticks').props.style).bottom, 56);
+  const beforeFold = flat(screen.find('control-immersive-sticks').props.style);
+  screen.find('control-hud-docks-toggle').props.onPress();
+  screen.render();
+  assert.equal(screen.find('control-hud-terrain-dock'), undefined);
+  assert.equal(screen.find('control-hud-posture-dock'), undefined);
+  assert.match(screen.find('control-hud-docks-summary').props.accessibilityLabel, /平地/);
+  assert.match(screen.find('control-hud-docks-summary').props.accessibilityLabel, /站立/);
+  assert.equal(screen.pair.size, officialSize);
+  assert.deepEqual(flat(screen.find('control-immersive-sticks').props.style), beforeFold);
+  screen.find('control-hud-docks-summary').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-hud-posture-prone'));
+  screen.render({ video: undefined, videoSurface: undefined, runtimeState: { ...terrainRuntime, speed: { linearMps: 0.4, lateralMps: 0, yawRps: 0, source: 'device' } } });
+  assert.equal(screen.find('control-hud-terrain-capsule-stairs').props.disabled, true);
+  assert.match(screen.find('control-hud-terrain-capsule-stairs').props.accessibilityHint, /行走中不可切换/);
+  screen.render({ safetyLock: true, runtimeState: { ...terrainRuntime, controlAuthority: 'not-held' } });
+  assert.equal(screen.find('control-hud-unlocked'), undefined);
+  assert.equal(screen.find('control-hud-local-control'), undefined);
+  screen.unmount();
+});
+
+test('connected landscape stand, sit, and stop call the live operation callbacks', async () => {
+  const calls = [];
+  const runtime = { controlLink: 'connected', controlAuthority: 'held', motorState: 'enabled', posture: 'sitting' };
+  const screen = mount({
+    dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, connected: true,
+    runtimeState: runtime,
+    operationReadiness: {
+      stand: { ready: true },
+      sit: { ready: false, blockedReason: '电机须已使能，且机器狗当前已站立' },
+      stop: { ready: true },
+    },
+    operationCallbacks: {
+      stand: async () => { calls.push('stand'); },
+      sit: async () => { calls.push('sit'); },
+      stop: async () => { calls.push('stop'); },
+    },
+  });
+  screen.find('control-hud-stop').props.onPress();
+  await screen.settle();
+  assert.deepEqual(calls, ['stop']);
+  assert.match(screen.copy, /请求已接受/);
+  screen.find('control-hud-posture-stand').props.onPress();
+  await screen.settle();
+  assert.deepEqual(calls, ['stop', 'stand']);
+  screen.render({
+    runtimeState: { ...runtime, posture: 'standing' },
+    operationReadiness: {
+      stand: { ready: false, blockedReason: '电机须已使能，行走后请先停止并释放控制；站立或切换中不可起立' },
+      sit: { ready: true },
+      stop: { ready: true },
+    },
+  });
+  screen.find('control-hud-posture-sit').props.onPress();
+  await screen.settle();
+  assert.deepEqual(calls, ['stop', 'stand', 'sit']);
+  assert.equal(screen.find('control-hud-posture-prone').props.accessibilityState.disabled, true);
+  assert.equal(screen.find('control-hud-posture-recover').props.accessibilityState.disabled, true);
+  assert.match(screen.copy, /趴下/);
+  assert.equal([...screen.copy].some(ch => ch.codePointAt(0) === 0x8DBA), false);
+  assert.doesNotMatch(screen.copy, /躺下|蹬下|趿下/);
+  screen.render({ operationReadiness: { stand: { ready: false, blockedReason: '尚未取得控制权' }, sit: { ready: false, blockedReason: '尚未取得控制权' }, stop: { ready: false, blockedReason: '尚未取得控制权' } } });
+  assert.equal(screen.find('control-hud-stop').props.disabled, true);
+  assert.equal(calls.length, 3);
+  screen.unmount();
+});
+
+test('landscape emergency stop still sends while a posture command is in flight', async () => {
+  const calls = [];
+  let finishSit;
+  const screen = mount({
+    dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, connected: true,
+    runtimeState: { controlLink: 'connected', controlAuthority: 'held', motorState: 'enabled', posture: 'standing' },
+    operationReadiness: { sit: { ready: true }, stop: { ready: true } },
+    operationCallbacks: {
+      sit: () => { calls.push('sit'); return new Promise(resolve => { finishSit = resolve; }); },
+      stop: async () => { calls.push('stop'); },
+    },
+  });
+  screen.find('control-hud-posture-sit').props.onPress();
+  screen.render();
+  assert.deepEqual(calls, ['sit']);
+  assert.equal(screen.find('control-hud-stop').props.disabled, false);
+  screen.find('control-hud-stop').props.onPress();
+  await screen.settle();
+  assert.deepEqual(calls, ['sit', 'stop']);
+  finishSit();
+  await screen.settle();
+  assert.equal(calls.length, 2);
   screen.unmount();
 });

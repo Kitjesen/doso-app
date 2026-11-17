@@ -37,6 +37,9 @@ public final class ProfileInfoParser {
     String currentDescription = "";
     List<String> available = new ArrayList<>();
     List<String> descriptions = new ArrayList<>();
+    List<Map<String, Object>> capabilities = null;
+    String activeModeId = null;
+    boolean activeSeen = false;
     int seen = 0;
     while (r.hasNext()) {
       int tag = r.tag();
@@ -55,14 +58,65 @@ public final class ProfileInfoParser {
         if (descriptions.size() >= 64) throw invalid();
         descriptions.add(r.string(wire));
       } else if (field == 4) currentDescription = r.string(wire);
-      else r.skip(wire);
+      else if (field == 5) {
+        if (wire != 2) throw invalid();
+        if (capabilities == null) capabilities = new ArrayList<>();
+        if (capabilities.size() >= 16) throw invalid();
+        capabilities.add(capability(r.bytes(r.length())));
+      } else if (field == 6) {
+        if (activeSeen) throw invalid();
+        activeSeen = true;
+        activeModeId = r.string(wire);
+        if (activeModeId.length() > 64) throw invalid();
+      } else r.skip(wire);
     }
     Map<String, Object> result = new LinkedHashMap<>();
     result.put("current", current);
     result.put("available", available);
     result.put("descriptions", descriptions);
     result.put("currentDescription", currentDescription);
+    if (capabilities != null) result.put("modeCapabilities", capabilities);
+    if (activeSeen) result.put("activeModeId", activeModeId);
     return result;
+  }
+
+  private static Map<String, Object> capability(byte[] bytes) throws IOException {
+    Reader reader = new Reader(bytes, 0, bytes.length);
+    String id = "";
+    String label = "";
+    String unavailableReason = "";
+    int kind = 0;
+    boolean available = false;
+    int seen = 0;
+    while (reader.hasNext()) {
+      int tag = reader.tag();
+      int field = tag >>> 3;
+      int wire = tag & 7;
+      if (field == 1) id = reader.string(wire);
+      else if (field == 2) {
+        if (wire != 0 || (seen & 2) != 0) throw invalid();
+        seen |= 2;
+        long value = reader.uint32();
+        if (value > 2) throw invalid();
+        kind = (int) value;
+      } else if (field == 3) label = reader.string(wire);
+      else if (field == 4) {
+        if (wire != 0 || (seen & 8) != 0) throw invalid();
+        seen |= 8;
+        long value = reader.uint32();
+        if (value > 1) throw invalid();
+        available = value == 1;
+      } else if (field == 5) unavailableReason = reader.string(wire);
+      else reader.skip(wire);
+    }
+    if (id.length() > 64 || label.length() > 64 || unavailableReason.length() > 200) throw invalid();
+    Map<String, Object> value = new LinkedHashMap<>();
+    value.put("id", id);
+    value.put("kind", kind == 1 ? "locomotion" : kind == 2 ? "recovery-action" : "unspecified");
+    value.put("label", label);
+    value.put("available", available);
+    value.put("unavailableReason", unavailableReason);
+    return value;
   }
 
   private static IOException invalid() { return new IOException("Invalid profile response"); }
@@ -98,6 +152,13 @@ public final class ProfileInfoParser {
       long size = uint32();
       if (size > end - pos) throw invalid();
       return (int) size;
+    }
+    byte[] bytes(int count) throws IOException {
+      if (count < 0 || count > end - pos) throw invalid();
+      byte[] value = new byte[count];
+      System.arraycopy(bytes, pos, value, 0, count);
+      pos += count;
+      return value;
     }
     String string(int wire) throws IOException {
       if (wire != 2) throw invalid();

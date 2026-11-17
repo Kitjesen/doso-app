@@ -752,3 +752,52 @@ test('an unconfirmed native stop rejects the explicit action and retires local a
     assert.doesNotMatch(JSON.stringify(f.session.state), /private native detail/);
   } finally { await f.session.disconnect(); }
 });
+
+test('recovery commands stay on the open session and heartbeats follow selection', async () => {
+  const f = fixture();
+  const beats = [];
+  const base = { service: 'ready', modelConfigured: true, enableSequenceVerified: true, stableStand: false, locomotionAvailable: false, activeModeId: '', reason: 'none', detail: '', heartbeatFresh: false, heartbeatError: null };
+  f.transport.readRecovery = async () => ({ ...base, phase: 'absent', sessionSelected: false });
+  f.transport.recoveryCommand = async (_id, command) => ({ ...base, phase: command === 'enter' ? 'selected' : 'stable-stand', sessionSelected: command !== 'exit', heartbeatFresh: true });
+  f.transport.setRecoveryHeartbeat = (id, enabled) => { beats.push([id, enabled]); };
+  try {
+    await f.session.connect(endpoint, 'doso-g20@robot');
+    await f.session.refreshRecovery();
+    assert.equal(f.session.recoveryStatus.sessionSelected, false);
+    assert.deepEqual(beats, []);
+    await f.session.recoveryCommand('enter');
+    assert.equal(f.session.recoveryStatus.phase, 'selected');
+    assert.deepEqual(beats, [['s1', true]]);
+    await f.session.disconnect();
+    assert.deepEqual(beats.at(-1), ['s1', false]);
+  } finally { f.session.dispose(); }
+});
+
+test('ListenImu samples stay on the live session and drop when the stream or the clock goes stale', async () => {
+  const f = fixture();
+  let emit = null;
+  let stopped = 0;
+  f.transport.listenImu = (_id, onSample) => {
+    emit = onSample;
+    return () => { stopped += 1; emit = null; };
+  };
+  try {
+    await f.session.connect(endpoint, 'doso-g20@robot');
+    assert.equal(f.session.runtimeState.imu, undefined);
+    assert.equal(f.session.runtimeState.controlOwner, 'none');
+    emit({ gyroX: 0.2, gyroY: -0.1, gyroZ: 0.3, quatW: 1, quatX: 0, quatY: 0, quatZ: 0, timestampMs: 40 });
+    assert.equal(f.session.runtimeState.imu.linearAcceleration, null);
+    assert.equal(f.session.runtimeState.imu.gyroscope.x, 0.2);
+    assert.equal(f.session.runtimeState.imu.quaternion.w, 1);
+    emit({ gyroX: 0, gyroY: 0, gyroZ: 0, quatW: 1, quatX: 0, quatY: 0, quatZ: 0, accelX: 0, accelY: 0, accelZ: 9.8 });
+    assert.equal(f.session.runtimeState.imu.linearAcceleration.z, 9.8);
+    emit({ gyroX: 0, gyroY: 0, gyroZ: 0, quatW: 1, quatX: 0, quatY: 0, quatZ: 0, accelX: 1 });
+    assert.equal(f.session.runtimeState.imu.linearAcceleration.z, 9.8, 'a partial acceleration sample must not replace a real one');
+    f.advance(1000);
+    assert.equal(f.session.runtimeState.imu, undefined);
+    assert.equal(f.session.runtimeState.speed.source, 'unknown');
+    await f.session.disconnect();
+    assert.equal(stopped, 1);
+    assert.equal(emit, null);
+  } finally { f.session.dispose(); }
+});

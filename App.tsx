@@ -2202,6 +2202,17 @@ export default function App() {
           refreshing={controlTarget === 'direct' && directTelemetry.refreshing}
           error={controlTarget === 'direct' ? directTelemetry.error : undefined}
           onRefresh={controlTarget === 'direct' && controlEndpoint ? () => { void directTelemetry.refresh(); } : undefined}
+          showImu={controlTarget === 'direct'}
+          imu={controlTarget === 'direct' && controlEndpoint && brainstemControl.state.connected ? brainstemControl.runtimeState.imu ?? null : null}
+          body={controlTarget === 'direct' ? {
+            posture: controlEndpoint && brainstemControl.state.connected ? brainstemControl.runtimeState.posture : controlEndpoint ? directTelemetry.presentation?.runtimeState?.posture : directConnection.presentation?.runtimeState?.posture,
+            motorState: controlEndpoint && brainstemControl.state.connected ? brainstemControl.runtimeState.motorState : controlEndpoint ? directTelemetry.presentation?.runtimeState?.motorState : directConnection.presentation?.runtimeState?.motorState,
+            controlAuthority: controlEndpoint && brainstemControl.state.connected ? brainstemControl.runtimeState.controlAuthority : controlEndpoint ? directTelemetry.presentation?.runtimeState?.controlAuthority : directConnection.presentation?.runtimeState?.controlAuthority,
+            faultStatus: controlEndpoint && brainstemControl.state.connected ? brainstemControl.runtimeState.faultStatus : controlEndpoint ? (directTelemetry.presentation?.fresh ? (directTelemetry.snapshot?.observation?.status?.criticalMotorFault ? 'active' : directTelemetry.snapshot?.observation?.status ? 'clear' : undefined) : undefined) : (directConnection?.presentation?.fresh ? (directConnection.snapshot?.observation?.status?.criticalMotorFault ? 'active' : directConnection.snapshot?.observation?.status ? 'clear' : undefined) : undefined),
+            controlOwner: controlEndpoint && brainstemControl.state.connected ? brainstemControl.runtimeState.controlOwner : controlEndpoint ? (directTelemetry.presentation?.fresh ? directTelemetry.snapshot?.observation?.status?.owner : undefined) : (directConnection?.presentation?.fresh ? directConnection.snapshot?.observation?.status?.owner : undefined),
+            voltageV: (controlEndpoint ? directTelemetry.presentation?.runtimeState?.battery?.voltageV : directConnection?.presentation?.runtimeState?.battery?.voltageV) ?? null,
+            leaseActive: controlEndpoint && brainstemControl.state.connected ? brainstemControl.state.leaseActive : controlEndpoint ? (directTelemetry.presentation?.fresh ? directTelemetry.snapshot?.observation?.status?.grpcLeaseActive ?? null : null) : (directConnection?.presentation?.fresh ? directConnection.snapshot?.observation?.status?.grpcLeaseActive ?? null : null),
+          } : undefined}
           onBack={() => { setStage('control'); if (controlTarget === 'direct' && controlEndpoint) setRobotConnectionVisible(true); }}
         />
       ) : null}
@@ -2213,6 +2224,11 @@ export default function App() {
             controlTarget === 'direct' ? [directEndpoint?.host, directEndpoint?.port, directEndpoint?.transport, controlEndpoint?.clientIdentityAlias] : device?.id])}
           allowInteractionPreview={controlTarget !== 'direct' && __DEV__}
           batteryPercent={controlTarget === 'direct' ? null : displayBatteryPercent}
+          recovery={controlTarget === 'direct' ? {
+            status: brainstemControl.recoveryStatus,
+            profile: brainstemControl.state.profile,
+            onCommand: brainstemControl.recoveryCommand,
+          } : undefined}
           canUseManualControl={controlTarget === 'direct' ? brainstemControl.canBeginManualControl : manualCommandAvailable}
           productionInput={controlTarget === 'direct' && controlEndpoint ? {
             ready: brainstemControl.canBeginManualControl,
@@ -2234,6 +2250,7 @@ export default function App() {
           canUseTaskMode={controlTarget !== 'direct' && taskCommandAvailable}
           brainstemIntegration={brainstemIntegration}
           connected={controlTarget === 'direct' ? brainstemControl.state.connected : connected}
+          safetyLock={controlTarget === 'direct' ? null : safetyLock}
           diagnosticsDeviceClass={controlTarget === 'direct' ? 'physical' : lifecycleDemoEnabled ? 'demo' : 'physical'}
           diagnosticsGateway={robotDiagnosticsGateway}
           onBack={() => setStage('main')}

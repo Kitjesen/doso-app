@@ -12,6 +12,7 @@ import java.io.InputStream
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -32,6 +33,12 @@ internal class ControlSession(
   private val dispatchLock = Any()
   private val watchdog = Executors.newSingleThreadScheduledExecutor()
   @Volatile private var call: ClientCall<ByteArray, ByteArray>? = null
+  @Volatile private var imuCall: ClientCall<ByteArray, ByteArray>? = null
+  private var imuGeneration = 0L
+  private var recoveryHeartbeat: ScheduledFuture<*>? = null
+  private val recoveryHeartbeatBusy = AtomicBoolean(false)
+  @Volatile private var lastRecoveryHeartbeatAt = 0L
+  @Volatile private var recoveryHeartbeatError: String? = null
   @Volatile private var lastInputAt = 0L
   private var lastWireAt = 0L
   private var token = ""
@@ -254,7 +261,87 @@ internal class ControlSession(
       (projected?.let { mapOf("status" to it) } ?: emptyMap())
   }
 
+  fun startImu(onSample: (Map<String, Any>) -> Unit) {
+    val next = channel.newCall(LISTEN_IMU, CallOptions.DEFAULT)
+    synchronized(dispatchLock) {
+      checkOpen()
+      imuCall?.cancel("replaced", null)
+      val generation = ++imuGeneration
+      imuCall = next
+      next.start(object : ClientCall.Listener<ByteArray>() {
+        private var lastAt = 0L
+        override fun onMessage(message: ByteArray) {
+          next.request(1)
+          if (generation != imuGeneration) return
+          val now = SystemClock.elapsedRealtime()
+          if (now - lastAt < 100L) return
+          val parsed = runCatching { ImuParser.parse(message) }.getOrNull() ?: return
+          lastAt = now
+          onSample(parsed)
+        }
+        override fun onClose(status: Status, trailers: Metadata) {
+          if (generation == imuGeneration) imuCall = null
+        }
+      }, Metadata().apply { if (lanDev) put(DEV_CLIENT, principal) })
+      next.request(1)
+      next.sendMessage(EMPTY)
+      next.halfClose()
+    }
+  }
+
+  fun stopImu() {
+    synchronized(dispatchLock) {
+      imuGeneration++
+      imuCall?.cancel("stopped", null)
+      imuCall = null
+    }
+  }
+
+  fun recovery(action: String): Map<String, Any> {
+    val name = when (action) {
+      "status" -> "GetStatus"
+      "enter" -> "Enter"
+      "enable" -> "Enable"
+      "start" -> "Start"
+      "cancel" -> "Cancel"
+      "exit" -> "Exit"
+      else -> throw Failure("config")
+    }
+    @Suppress("UNCHECKED_CAST")
+    val parsed = RecoveryStatusParser.parse(recoveryRpc(name, 3000)) as Map<String, Any>
+    return recoveryEnvelope(parsed)
+  }
+
+  fun setRecoveryHeartbeat(enabled: Boolean) {
+    synchronized(dispatchLock) {
+      recoveryHeartbeat?.cancel(false)
+      recoveryHeartbeat = null
+      recoveryHeartbeatBusy.set(false)
+      if (!enabled || closed.get()) {
+        lastRecoveryHeartbeatAt = 0L
+        recoveryHeartbeatError = null
+        return
+      }
+      recoveryHeartbeat = watchdog.scheduleAtFixedRate({
+        if (closed.get() || !recoveryHeartbeatBusy.compareAndSet(false, true)) return@scheduleAtFixedRate
+        try {
+          recoveryRpc("Heartbeat", 150)
+          lastRecoveryHeartbeatAt = SystemClock.elapsedRealtime()
+          recoveryHeartbeatError = null
+        } catch (error: Exception) {
+          val code = (error as? Failure)?.code ?: "unavailable"
+          recoveryHeartbeatError = code
+          if (code == "unimplemented") setRecoveryHeartbeat(false)
+        } finally {
+          recoveryHeartbeatBusy.set(false)
+        }
+      }, 0, 100, TimeUnit.MILLISECONDS)
+    }
+  }
+
   fun close() {
+    setRecoveryHeartbeat(false)
+    stopImu()
     haltImmediately()
     runCatching { interrupt() }
     closed.set(true)
@@ -269,6 +356,45 @@ internal class ControlSession(
     "leaseOwnerMatched" to leaseOwnerMatched,
     "transport" to if (lanDev) "grpc-lan" else "grpc-mtls"
   )
+
+  private fun recoveryEnvelope(parsed: Map<String, Any>): Map<String, Any> {
+    val fresh = lastRecoveryHeartbeatAt > 0L && SystemClock.elapsedRealtime() - lastRecoveryHeartbeatAt < 300L
+    val value = linkedMapOf<String, Any>()
+    value.putAll(parsed)
+    value["heartbeatFresh"] = fresh
+    recoveryHeartbeatError?.let { value["heartbeatError"] = it }
+    return value
+  }
+
+  private fun recoveryRpc(name: String, deadline: Long): ByteArray {
+    checkOpen()
+    val latch = CountDownLatch(1)
+    var body: ByteArray? = null
+    var result = Status.UNKNOWN
+    var duplicate = false
+    val next = channel.newCall(recoveryMethod(name), CallOptions.DEFAULT.withDeadlineAfter(deadline, TimeUnit.MILLISECONDS))
+    try {
+      if (closed.get()) throw Failure("cancelled")
+      next.start(object : ClientCall.Listener<ByteArray>() {
+        override fun onMessage(message: ByteArray) { if (body != null) duplicate = true else body = message }
+        override fun onClose(status: Status, trailers: Metadata) { result = status; latch.countDown() }
+      }, Metadata().apply { if (lanDev) put(DEV_CLIENT, principal) })
+      next.request(2)
+      next.sendMessage(EMPTY)
+      next.halfClose()
+      if (!latch.await(deadline + 40, TimeUnit.MILLISECONDS)) throw Failure("timeout")
+      if (!result.isOk) throw Failure(when (result.code) {
+        Status.Code.UNAUTHENTICATED, Status.Code.PERMISSION_DENIED -> "unauthorized"
+        Status.Code.FAILED_PRECONDITION, Status.Code.ABORTED -> "precondition"
+        Status.Code.DEADLINE_EXCEEDED -> "timeout"
+        Status.Code.CANCELLED -> "cancelled"
+        Status.Code.UNIMPLEMENTED, Status.Code.NOT_FOUND -> "unimplemented"
+        else -> "unavailable"
+      })
+      if (duplicate) throw Failure("invalid_response")
+      return body ?: throw Failure("invalid_response")
+    } finally { next.cancel("Recovery RPC finished", null) }
+  }
 
   private fun checkOpen() { if (closed.get() || channel.isShutdown) throw Failure("cancelled") }
   private fun Map<String, Any>.boolean(key: String) = this[key] == true
@@ -322,8 +448,33 @@ internal class ControlSession(
     const val MOTION_DEADLINE_MS = 100L
     private val DEV_CLIENT = Metadata.Key.of("x-doso-dev-client", Metadata.ASCII_STRING_MARSHALLER)
     private val EMPTY = byteArrayOf()
+    private val LISTEN_IMU: MethodDescriptor<ByteArray, ByteArray> = MethodDescriptor.newBuilder<ByteArray, ByteArray>()
+      .setType(MethodDescriptor.MethodType.SERVER_STREAMING)
+      .setFullMethodName("brainstem.api.v1.RobotControl/ListenImu")
+      .setRequestMarshaller(object : MethodDescriptor.Marshaller<ByteArray> {
+        override fun stream(value: ByteArray): InputStream = ByteArrayInputStream(value)
+        override fun parse(stream: InputStream): ByteArray = throw UnsupportedOperationException()
+      })
+      .setResponseMarshaller(object : MethodDescriptor.Marshaller<ByteArray> {
+        override fun stream(value: ByteArray): InputStream = throw UnsupportedOperationException()
+        override fun parse(stream: InputStream): ByteArray = ImuParser.readBounded(stream)
+      }).build()
     private val allowedMethods = setOf("GetControlStatus", "GetProfile", "AcquireControl", "RenewControlLease",
       "ReleaseControl", "WalkChecked", "Enable", "Disable", "StandUp", "SitDown", "SwitchProfile")
+    private fun recoveryMethod(name: String): MethodDescriptor<ByteArray, ByteArray> {
+      if (name !in setOf("GetStatus", "Enter", "Enable", "Heartbeat", "Start", "Cancel", "Exit")) throw Failure("config")
+      return MethodDescriptor.newBuilder<ByteArray, ByteArray>()
+        .setType(MethodDescriptor.MethodType.UNARY)
+        .setFullMethodName("brainstem.api.v1.RobotRecovery/$name")
+        .setRequestMarshaller(object : MethodDescriptor.Marshaller<ByteArray> {
+          override fun stream(value: ByteArray): InputStream = ByteArrayInputStream(value)
+          override fun parse(stream: InputStream): ByteArray = throw UnsupportedOperationException()
+        })
+        .setResponseMarshaller(object : MethodDescriptor.Marshaller<ByteArray> {
+          override fun stream(value: ByteArray): InputStream = throw UnsupportedOperationException()
+          override fun parse(stream: InputStream): ByteArray = RecoveryStatusParser.readBounded(stream)
+        }).build()
+    }
     private fun method(name: String): MethodDescriptor<ByteArray, ByteArray> {
       if (name !in allowedMethods) throw Failure("config")
       return MethodDescriptor.newBuilder<ByteArray, ByteArray>()

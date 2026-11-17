@@ -1,6 +1,7 @@
 import { requireOptionalNativeModule } from 'expo';
 import { Platform } from 'react-native';
 import { validateBrainstemEndpoint, type BrainstemGrpcEndpoint, type BrainstemGrpcStatus, type BrainstemGrpcProfile } from './brainstemGrpc';
+import { projectRobotRecoveryStatus, type RobotRecoveryCommand, type RobotRecoveryStatus } from '../features/control/robotRecovery';
 
 export type BrainstemControlAction = 'enable' | 'disable' | 'stand-up' | 'sit-down' | 'switch-profile';
 export type BrainstemControlReply = Readonly<{
@@ -21,6 +22,11 @@ export interface BrainstemControlTransport {
   input(sessionId: string, forward: number, lateral: number, yaw: number, sampledAtMonotonicMs?: number): Promise<BrainstemControlReply>;
   interrupt(sessionId: string): Promise<BrainstemControlReply | null>;
   close(sessionId: string): Promise<void>;
+  /** Optional. Older runtimes keep control and simply never deliver IMU. */
+  listenImu?(sessionId: string, onSample: (sample: unknown) => void): () => void;
+  readRecovery?(sessionId: string): Promise<RobotRecoveryStatus>;
+  recoveryCommand?(sessionId: string, command: RobotRecoveryCommand): Promise<RobotRecoveryStatus>;
+  setRecoveryHeartbeat?(sessionId: string, enabled: boolean): void;
 }
 
 export class BrainstemControlError extends Error {
@@ -38,6 +44,7 @@ const errorMessages: Record<string, string> = {
   stop_unconfirmed: '停止请求未确认，请检查机器狗状态并使用硬件急停。',
   cancelled: '控制已中断，请重新申请控制权。',
   unavailable: '无法连接机器狗，请检查局域网、服务地址及配对证书。',
+  unimplemented: '机器人尚未提供摔倒恢复服务',
 };
 export function safeBrainstemControlError(error: unknown): BrainstemControlError {
   if (error instanceof BrainstemControlError) return error;
@@ -46,6 +53,29 @@ export function safeBrainstemControlError(error: unknown): BrainstemControlError
   return new BrainstemControlError(code, errorMessages[code]);
 }
 function invalid(): never { throw new BrainstemControlError('invalid_response', errorMessages.invalid_response); }
+function copyModeCapabilities(value: unknown): BrainstemGrpcProfile['modeCapabilities'] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 16) return undefined;
+  const kinds = new Set(['unspecified', 'locomotion', 'recovery-action']);
+  const items: NonNullable<BrainstemGrpcProfile['modeCapabilities']>[number][] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') return undefined;
+    const capability = item as Record<string, unknown>;
+    if (typeof capability.id !== 'string' || capability.id.length > 64 || !kinds.has(String(capability.kind))
+      || typeof capability.label !== 'string' || typeof capability.available !== 'boolean'
+      || typeof capability.unavailableReason !== 'string' || capability.unavailableReason.length > 200) return undefined;
+    items.push({
+      id: capability.id, kind: capability.kind as 'unspecified' | 'locomotion' | 'recovery-action', label: capability.label,
+      available: capability.available, unavailableReason: capability.unavailableReason,
+    });
+  }
+  return items;
+}
+function projectRecovery(value: unknown): RobotRecoveryStatus {
+  const projected = projectRobotRecoveryStatus(value);
+  if (!projected) throw new BrainstemControlError('invalid_response', errorMessages.invalid_response);
+  return projected;
+}
 export function projectBrainstemControlReply(value: unknown): BrainstemControlReply {
   if (!value || typeof value !== 'object') invalid();
   const v = value as Record<string, unknown>;
@@ -71,8 +101,11 @@ export function projectBrainstemControlReply(value: unknown): BrainstemControlRe
       || !Array.isArray(p.available) || !Array.isArray(p.descriptions)
       || p.available.length > 64 || p.descriptions.length > 64
       || !p.available.every(x => text(x, 128)) || !p.descriptions.every(x => text(x, 512))) invalid();
+    const modeCapabilities = copyModeCapabilities(p.modeCapabilities);
     profile = { current: p.current, currentDescription: p.currentDescription,
-      available: [...p.available], descriptions: [...p.descriptions] };
+      available: [...p.available], descriptions: [...p.descriptions],
+      ...(modeCapabilities ? { modeCapabilities } : {}),
+      ...(typeof p.activeModeId === 'string' && p.activeModeId.length <= 64 ? { activeModeId: p.activeModeId } : {}) };
   }
   return {
     status: {
@@ -97,6 +130,12 @@ type NativeControl = {
   sendControlInputAt?(sessionId: string, forward: number, lateral: number, yaw: number, sampledAtMonotonicMs: number): Promise<unknown>;
   interruptControl(sessionId: string): Promise<unknown>;
   closeControl(sessionId: string): Promise<void>;
+  readRecoveryStatus?(sessionId: string): Promise<unknown>;
+  recoveryCommand?(sessionId: string, command: string): Promise<unknown>;
+  setRecoveryHeartbeat?(sessionId: string, enabled: boolean): Promise<void> | void;
+  addListener?(event: string, listener: (payload: unknown) => void): { remove: () => void };
+  startListenImu?(sessionId: string): Promise<unknown>;
+  stopListenImu?(sessionId: string): Promise<void>;
 };
 let native: NativeControl | null = null;
 try { if (Platform.OS === 'android') native = requireOptionalNativeModule<NativeControl>('DosoBrainstemGrpc'); } catch { /* Old APK. */ }
@@ -158,4 +197,41 @@ export const brainstemControlTransport: BrainstemControlTransport = {
     } catch (error) { throw safeBrainstemControlError(error); }
   },
   async close(sessionId) { try { await client().closeControl(sessionId); } catch (error) { throw safeBrainstemControlError(error); } },
+  async readRecovery(sessionId) {
+    try {
+      const bridge = client();
+      if (typeof bridge.readRecoveryStatus !== 'function') throw new BrainstemControlError('unimplemented', errorMessages.unimplemented);
+      return projectRecovery(await bridge.readRecoveryStatus(sessionId));
+    } catch (error) { throw safeBrainstemControlError(error); }
+  },
+  async recoveryCommand(sessionId, command) {
+    try {
+      const bridge = client();
+      if (typeof bridge.recoveryCommand !== 'function') throw new BrainstemControlError('unimplemented', errorMessages.unimplemented);
+      return projectRecovery(await bridge.recoveryCommand(sessionId, command));
+    } catch (error) { throw safeBrainstemControlError(error); }
+  },
+  setRecoveryHeartbeat(sessionId, enabled) {
+    const bridge = native;
+    if (!bridge || typeof bridge.setRecoveryHeartbeat !== 'function') return;
+    void Promise.resolve(bridge.setRecoveryHeartbeat(sessionId, enabled)).catch(() => undefined);
+  },
+  listenImu(sessionId, onSample) {
+    const bridge = native;
+    if (!bridge || typeof bridge.startListenImu !== 'function' || typeof bridge.stopListenImu !== 'function' || typeof bridge.addListener !== 'function') {
+      return () => {};
+    }
+    let stopped = false;
+    const subscription = bridge.addListener('onBrainstemImu', payload => {
+      if (stopped || !payload || typeof payload !== 'object') return;
+      if ((payload as { sessionId?: unknown }).sessionId !== sessionId) return;
+      onSample(payload);
+    });
+    void bridge.startListenImu(sessionId).catch(() => undefined);
+    return () => {
+      stopped = true;
+      subscription.remove();
+      void bridge.stopListenImu!(sessionId).catch(() => undefined);
+    };
+  },
 };

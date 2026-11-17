@@ -13,13 +13,26 @@ import type { G20InputController } from '../features/control/useG20Input';
 import { Text } from '../components/AppText';
 import { getProductAppearance } from '../appearance';
 import type { RobotDiagnosticsDeviceClass, RobotDiagnosticsGateway } from '../features/robot-lifecycle/robotDiagnosticsGateway';
-import { CONTROL_TERRAIN_MODE_OPTIONS, controlOperationLabels, controlOperationStatusLabels, getControlOperationReadiness, getControlPolicyOptions, getControlTerrainModeOptions, transitionControlOperationState, type ControlActionReadiness, type ControlInputSource, type ControlOperation, type ControlOperationCallbacks, type ControlOperationState, type ControlRuntimeState, type ControlTerrainModeId } from '../features/control/controlOperations';
+import { CONTROL_TERRAIN_MODE_OPTIONS, controlOperationLabels, controlOperationStatusLabels, controlTerrainMotionBlock, controlTerrainSwitchBlock, getControlOperationReadiness, getControlPolicyOptions, getControlTerrainModeOptions, transitionControlOperationState, type ControlActionReadiness, type ControlInputSource, type ControlOperation, type ControlOperationCallbacks, type ControlOperationState, type ControlRuntimeState, type ControlTerrainModeId } from '../features/control/controlOperations';
+import type { RobotRecoveryCommand, RobotRecoveryStatus } from '../features/control/robotRecovery';
+import { controlLandscapeHud } from '../components/controlLandscapeHud';
+import { RobotRecoveryControls } from '../components/RobotRecoveryControls';
 import { getBrainstemIntegrationReadiness, type BrainstemIntegrationReadiness } from '../services/brainstemIntegrationReadiness';
-import { setControlNavigationHidden } from '../services/brainstemGrpc';
+import { setControlNavigationHidden, type BrainstemGrpcProfile } from '../services/brainstemGrpc';
 import { useAppTheme } from '../theme';
 import { typography } from '../typography';
 import { getControlLayoutMetrics } from './controlLayout';
 import { getControlTerrainPolicies } from '../features/control/controlOperations';
+
+function formatAxis(vector: { x: number; y: number; z: number } | null | undefined) {
+  if (!vector) return '—';
+  return `${vector.x.toFixed(2)}  ${vector.y.toFixed(2)}  ${vector.z.toFixed(2)}`;
+}
+
+function formatQuaternion(vector: { w: number; x: number; y: number; z: number } | null | undefined) {
+  if (!vector) return '—';
+  return `${vector.w.toFixed(3)}  ${vector.x.toFixed(3)}  ${vector.y.toFixed(3)}  ${vector.z.toFixed(3)}`;
+}
 
 export type DevelopmentControlInput = Readonly<{
   ready: boolean;
@@ -53,6 +66,13 @@ type Props = {
   physicalInputAvailable?: boolean;
   g20Controller?: G20InputController;
   connected: boolean;
+  recovery?: Readonly<{
+    status: RobotRecoveryStatus | null;
+    profile?: BrainstemGrpcProfile | null;
+    onCommand: (command: RobotRecoveryCommand) => Promise<unknown>;
+  }> | null;
+  /** Cloud safety lock. False shows 设备已解锁. Null or true does not claim the device is unlocked. */
+  safetyLock?: boolean | null;
   directConnection?: Readonly<{ endpointLabel: string; fresh: boolean; summary: string }>;
   diagnosticsDeviceClass: RobotDiagnosticsDeviceClass;
   diagnosticsGateway: RobotDiagnosticsGateway;
@@ -66,6 +86,8 @@ type Props = {
   mapContent?: ReactNode;
   video?: ControlVideoPresentation;
   videoSurface?: ReactNode;
+  /** Connected landscape docks start expanded unless this is explicitly false. */
+  landscapeDocksExpanded?: boolean;
   canRecall?: boolean;
   recallBlockedReason?: string;
   onRecall?: () => void | Promise<void>;
@@ -90,12 +112,12 @@ type OperationConfirmation = Readonly<{ action: ControlOperation; policyId?: str
 
 export function ControlScreen({
   allowInteractionPreview = false, developmentInput, productionInput, controlSession, onBack,
-  batteryPercent, connected, directConnection, robotName, robotType, canUseManualControl,
+  batteryPercent, connected, safetyLock, directConnection, robotName, robotType, canUseManualControl,
   canUseRouteMode, canUseTaskMode, manualControlBlockedReason,
-  routeModeBlockedReason, taskModeBlockedReason, mapContent, video, videoSurface,
+  routeModeBlockedReason, taskModeBlockedReason, mapContent, video, videoSurface, landscapeDocksExpanded,
   onOpenMap, onOpenTasks, onOpenRoutes, onOpenJointStatus, onOpenConnection, onOpenConnectionDiagnostics,
   canRecall, recallBlockedReason, onRecall,
-  runtimeState, operationReadiness, operationCallbacks, operationStates, operationTargetKey, brainstemIntegration,
+  runtimeState, operationReadiness, operationCallbacks, operationStates, operationTargetKey, brainstemIntegration, recovery,
   inputSource, physicalInputAvailable = false, g20Controller, onInputSourceChange, onNotifications,
 }: Props) {
   const { colors, isDark } = useAppTheme();
@@ -108,6 +130,8 @@ export function ControlScreen({
   const [navigationBottomInset, setNavigationBottomInset] = useState(0);
   const [leaving, setLeaving] = useState(false);
   const [joystickSettingsOpen, setJoystickSettingsOpen] = useState(false);
+  const [hudSettingsOpen, setHudSettingsOpen] = useState(false);
+  const [docksExpanded, setDocksExpanded] = useState(landscapeDocksExpanded !== false);
   const [layoutEditorGeneration, setLayoutEditorGeneration] = useState(0);
   const layoutEditorGenerationRef = useRef(0);
   const layoutEditingRef = useRef(false);
@@ -557,6 +581,16 @@ export function ControlScreen({
   }, [resetControls, setLocalOperationState]);
   const runOperation = useCallback((action: ControlOperation, expectedGeneration: number, policyId?: string, confirmedIntent?: OperationConfirmation) => {
     if (!mountedRef.current || expectedGeneration !== operationGeneration.current) return;
+    // Emergency stop preempts a pending confirmation or in-flight posture change.
+    // The native interrupt is allowed while another RPC is busy.
+    if (action === 'stop' && !confirmedIntent) {
+      confirmationRef.current = null;
+      policySelectionRef.current = null;
+      setConfirmation(null);
+      setPolicySelection(null);
+      for (const pending of [...pendingResultsRef.current.values()]) pending.cancel();
+      inFlightRef.current = null;
+    }
     if (confirmedIntent ? confirmationRef.current !== confirmedIntent : confirmationRef.current !== null) return;
     const current = operationContextRef.current;
     const readiness = getControlOperationReadiness({ action, readiness: current.operationReadiness, callbacks: current.operationCallbacks,
@@ -718,15 +752,26 @@ export function ControlScreen({
   const terrainModeBlockedReason = terrainModeCatalogReady
     ? '站立或趴地时可切换；行走中不可切换。'
     : 'Brainstem 未同步可验证的运动模式策略。';
+  const terrainMotionBlock = controlTerrainMotionBlock(runtimeState);
   const deviceIdentityLabel = runtimeState?.deviceIdentity === 'verified'
     ? '已验证' : runtimeState?.deviceIdentity === 'bound-unverified'
       ? '待验证' : runtimeState?.deviceIdentity === 'unbound' ? '未绑定' : '未知';
   const faultLabel = runtimeState?.faultStatus === 'clear' ? '无故障' : runtimeState?.faultStatus === 'active' ? '有故障' : '未同步';
+  const imu = runtimeState?.imu?.source === 'device' ? runtimeState.imu : null;
   const statusItems = [
     { id: 'identity', label: '设备身份', value: deviceIdentityLabel },
     { id: 'connection', label: '连接状态', value: directConnection ? directConnection.fresh ? '只读已响应' : '需重新检查' : connected ? '已连接' : '未连接' },
     { id: 'authority', label: '控制权', value: runtimeState?.controlAuthority === 'held' ? '已取得' : runtimeState?.controlAuthority === 'not-held' ? '未取得' : '待核验' },
     { id: 'fault', label: '故障状态', value: faultLabel },
+    ...(runtimeState?.posture === 'standing' || runtimeState?.posture === 'sitting' ? [{ id: 'posture', label: '姿态', value: runtimeState.posture === 'standing' ? '站立' : '坐下' }] : []),
+    ...(runtimeState?.motorState === 'enabled' || runtimeState?.motorState === 'disabled' ? [{ id: 'motor', label: '电机', value: runtimeState.motorState === 'enabled' ? '已使能' : '已失能' }] : []),
+    ...(runtimeState?.controlOwner ? [{ id: 'owner', label: '控制所有者', value: runtimeState.controlOwner === 'none' ? '无' : runtimeState.controlOwner === 'grpc' ? 'gRPC' : '云卓' }] : []),
+    ...(typeof runtimeState?.battery?.voltageV === 'number' && Number.isFinite(runtimeState.battery.voltageV) ? [{ id: 'bus', label: '总线电压', value: `${runtimeState.battery.voltageV.toFixed(1)} V` }] : []),
+    ...(imu ? [
+      { id: 'gyro', label: '角速度', value: formatAxis(imu.gyroscope) },
+      { id: 'attitude', label: '姿态四元数', value: formatQuaternion(imu.quaternion) },
+      ...(imu.linearAcceleration ? [{ id: 'accel', label: '线加速度', value: formatAxis(imu.linearAcceleration) }] : []),
+    ] : []),
   ];
   const statusSummary = [
     runtimeState?.controlLink === 'connected' ? '控制链路已接通' : runtimeState?.controlLink === 'disconnected' ? '控制链路未接通' : '控制链路未核验',
@@ -796,9 +841,9 @@ export function ControlScreen({
         contentContainerStyle={{ flexDirection: customPolicyCatalog ? 'column' : 'row' }}>
       {terrainPolicies.map(option => <Pressable
         key={option.id} testID={`control-mode-${option.id}`} accessibilityRole="button"
-        accessibilityHint={!modeReadiness.ready ? modeReadiness.blockedReason : !option.profileId ? '机器人未提供此模式' : undefined}
-        disabled={!modeReadiness.ready || !option.profileId || option.selected}
-        accessibilityState={{ disabled: !modeReadiness.ready || !option.profileId || option.selected, selected: option.selected }}
+        accessibilityHint={!modeReadiness.ready ? modeReadiness.blockedReason : terrainMotionBlock ?? (!option.profileId ? '机器人未提供此模式' : undefined)}
+        disabled={!modeReadiness.ready || !option.profileId || option.selected || terrainMotionBlock !== null}
+        accessibilityState={{ disabled: !modeReadiness.ready || !option.profileId || option.selected || terrainMotionBlock !== null, selected: option.selected }}
         onPress={() => { if (option.profileId) runOperation('switchPolicy', renderGeneration, option.profileId); }}
         style={[styles.modeMenuOption, { backgroundColor: option.selected ? appearance.action : 'transparent' }]}>
         <Text style={[styles.label, { color: option.selected ? appearance.actionInk : option.profileId ? appearance.ink : appearance.secondary }]}>{option.label.replace(/模式$/, '')}</Text>
@@ -816,9 +861,9 @@ export function ControlScreen({
     <Pressable accessibilityRole="button" onPress={revokeOperationIntent} style={styles.operationButton}><Text style={[styles.label, { color: appearance.ink }]}>取消</Text></Pressable>
   </View>;
   const renderMinimalAction = (action: ControlOperation, label = controlOperationLabels[action]) => {
-    const readiness = visibleConfirmation || selectingPolicy
+    const readiness = action !== 'stop' && (visibleConfirmation || selectingPolicy)
       ? { ready: false, blockedReason: '请先确认或取消当前操作。' }
-      : getControlOperationReadiness({ action, readiness: operationReadiness, callbacks: operationCallbacks, runtimeState, foreground: appActive, leaving, inFlight: operationInFlight !== null });
+      : getControlOperationReadiness({ action, readiness: operationReadiness, callbacks: operationCallbacks, runtimeState, foreground: appActive, leaving, inFlight: action === 'stop' ? false : operationInFlight !== null });
     const state = operationStateFor(action, readiness);
     const statusBusy = ['submitted', 'accepted', 'executing'].includes(state.status);
     const disabled = !readiness.ready || statusBusy;
@@ -964,6 +1009,106 @@ export function ControlScreen({
     {renderImmersiveIntent()}
   </View>;
 
+  const videoJoined = video?.phase === 'receiving' && videoSurface != null && videoSurface !== false;
+  const cameraHud = layout.useColumns && (connected || videoJoined);
+  const hudSpeedLabel = speed?.source === 'device' && typeof speed.linearMps === 'number' && Number.isFinite(speed.linearMps)
+    ? `${speed.linearMps.toFixed(2)} m/s` : '—';
+  const terrainSwitchBlock = controlTerrainSwitchBlock(runtimeState);
+  const selectTerrain = (id: ControlTerrainModeId) => {
+    if (id === terrainModeCurrent || terrainSwitchBlock) return;
+    const profileId = getControlTerrainPolicies(runtimeState).find(mode => mode.id === id)?.profileId;
+    if (profileId) runOperation('switchPolicy', renderGeneration, profileId);
+  };
+  const landscapePostures = (['stand', 'sit', 'prone', 'recover'] as const).map(id => {
+    const label = id === 'stand' ? '站立' : id === 'sit' ? '坐下' : id === 'prone' ? '趴下' : '恢复';
+    const action = id === 'stand' ? 'stand' as const : id === 'sit' ? 'sit' as const : null;
+    if (!action) {
+      return { id, label, disabled: true, selected: false, hint: id === 'prone' ? '趴下指令尚未接通。' : '恢复指令尚未接通。', onPress: () => {} };
+    }
+    const readiness = visibleConfirmation || selectingPolicy
+      ? { ready: false, blockedReason: '请先确认或取消当前操作。' }
+      : getControlOperationReadiness({ action, readiness: operationReadiness, callbacks: operationCallbacks, runtimeState, foreground: appActive, leaving, inFlight: operationInFlight !== null });
+    const state = operationStateFor(action, readiness);
+    const statusBusy = ['submitted', 'accepted', 'executing'].includes(state.status);
+    return {
+      id, label,
+      disabled: !readiness.ready || statusBusy,
+      selected: id === 'stand' ? runtimeState?.posture === 'standing' : runtimeState?.posture === 'sitting',
+      hint: state.detail ?? readiness.blockedReason,
+      onPress: () => runOperation(action, renderGeneration),
+    };
+  });
+  const stopReadiness = getControlOperationReadiness({ action: 'stop', readiness: operationReadiness, callbacks: operationCallbacks, runtimeState, foreground: appActive, leaving, inFlight: false });
+  const stopState = operationStateFor('stop', stopReadiness);
+  const recoveryControls = recovery ? <RobotRecoveryControls onCommand={recovery.onCommand} profile={recovery.profile} runtimeState={runtimeState} status={recovery.status} variant={cameraHud ? 'landscape' : 'portrait'} /> : null;
+  const renderCameraHud = () => <View style={[styles.immersiveSurface, { backgroundColor: '#000000', height: immersiveCanvasHeight }]} testID="control-immersive-surface">
+    {controlLandscapeHud({
+      robotName: immersiveRobotName,
+      connectionLabel: immersiveConnectionLabel,
+      onBack: handleBack,
+      onOpenConnection: onOpenConnection || onOpenConnectionDiagnostics ? () => openView(onOpenConnection || onOpenConnectionDiagnostics) : undefined,
+      showLocalControl: runtimeState?.controlAuthority === 'held',
+      showUnlocked: safetyLock === false,
+      terrain: CONTROL_TERRAIN_MODE_OPTIONS.map(option => {
+        const available = terrainModeOptions.some(candidate => candidate.id === option.id);
+        const profileId = getControlTerrainPolicies(runtimeState).find(mode => mode.id === option.id)?.profileId;
+        const blocked = terrainSwitchBlock !== null || !available || !terrainModeCatalogReady || !profileId || !modeReadiness.ready;
+        return {
+          id: option.id,
+          label: option.label.replace(/模式$/, ''),
+          disabled: blocked,
+          selected: terrainModeCurrent === option.id,
+          hint: blocked ? terrainSwitchBlock ?? modeReadiness.blockedReason ?? terrainModeBlockedReason : undefined,
+        };
+      }),
+      onSelectTerrain: selectTerrain,
+      batteryLabel: immersiveBatteryKnown ? `${Math.round(batteryPercent as number)}%` : '—',
+      signalLabel: immersiveSignalLabel,
+      speedLabel: hudSpeedLabel,
+      onStop: () => runOperation('stop', renderGeneration),
+      stopDisabled: !stopReadiness.ready || ['submitted', 'accepted', 'executing'].includes(stopState.status),
+      stopHint: stopState.detail ?? stopReadiness.blockedReason,
+      postures: landscapePostures,
+      docksExpanded,
+      onToggleDocks: () => setDocksExpanded(value => !value),
+      onOpenSettings: () => {
+        if (g20Controller) setHudSettingsOpen(open => !open);
+        else openJoystickSettings();
+      },
+      settingsMenu: hudSettingsOpen && g20Controller ? <View style={styles.hudSettingsMenu} testID="control-hud-settings-menu">
+        <Pressable accessibilityLabel="摇杆布局设置" accessibilityRole="button" onPress={() => { setHudSettingsOpen(false); openJoystickSettings(); }} style={styles.hudSettingsItem} testID="control-open-joystick-layout">
+          <Text style={styles.hudSettingsText}>摇杆布局</Text>
+        </Pressable>
+        <Pressable accessibilityLabel="遥控器输入设置" accessibilityRole="button" onPress={() => { setHudSettingsOpen(false); openInputSettings(); }} style={styles.hudSettingsItem} testID="control-open-input">
+          <Text style={styles.hudSettingsText}>遥控器输入</Text>
+        </Pressable>
+      </View> : null,
+      joystick: configuredJoystickLayout.usable ? <ControlJoystickPair
+        disabled={!controlsEnabled || selectedInputSource !== 'touch'}
+        floating
+        gap={immersiveJoystickGap}
+        layout={configuredJoystickLayout}
+        left={{ axis: 'xy', label: '移动', onActiveChange: setDriveActive, onChange: productionInput || developmentInput ? handleDrive : ignoreLocalInput, onSample: productionInput ? handleDrive : undefined, testID: 'control-drive-stick' }}
+        onCancel={handleCancel}
+        resetKey={resetKey}
+        right={{ axis: 'x', label: '转向', onActiveChange: setTurnActive, onChange: productionInput || developmentInput ? handleTurn : ignoreLocalInput, onSample: productionInput ? handleTurn : undefined, testID: 'control-turn-stick' }}
+        showLabels={false}
+        size={immersiveJoystickSize}
+        touchAreaHeight={configuredHeight}
+        touchAreaWidth={configuredWidth}
+        variant="glass"
+      /> : null,
+      stickFrameStyle: { top: immersiveTopInset + 60, bottom: Math.max(56, actionDockInset - 60), left: 20, right: 20 },
+      dockCenterY: configuredJoystickLayout.usable ? configuredJoystickLayout.left.centerY : undefined,
+      onStickFrameLayout: handleStickArea,
+      videoJoined,
+      video: videoJoined ? <ControlVideoSurface presentation={video} surface={videoSurface} active={appActive && !leaving} onInterrupted={handleCancel} /> : null,
+      feedback: operationFeedback,
+      confirmation: renderImmersiveIntent(),
+      recovery: recoveryControls,
+    })}
+  </View>;
+
   if (gestureLibraryOpen) return <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={[styles.safe, { backgroundColor: appearance.canvas }]} testID="control-gesture-library">
     <View style={styles.gestureHeader}>
       <Pressable testID="control-close-gestures" accessibilityRole="button" accessibilityLabel="返回控制页"
@@ -1012,7 +1157,7 @@ export function ControlScreen({
   return (
     <SafeAreaView edges={__DEV__ && developmentInput ? ['left', 'right'] : ['top', 'left', 'right', 'bottom']} style={[styles.safe, { backgroundColor: layout.useColumns ? colors.surfaceStrong : colors.background }]}>
       <View onLayout={handleLayout} onTouchCancel={handleCancel} style={styles.viewport} testID="control-surface">
-        {layout.useColumns ? renderImmersiveSurface() : <ScrollView
+        {cameraHud ? renderCameraHud() : layout.useColumns ? renderImmersiveSurface() : <ScrollView
           contentContainerStyle={[styles.content, { paddingHorizontal: layout.horizontalPadding }]}
           contentInsetAdjustmentBehavior="automatic"
           scrollEnabled={!anyJoystickActive}
@@ -1045,6 +1190,7 @@ export function ControlScreen({
             </Pressable>
           </View>
 
+          {!layout.useColumns ? recoveryControls : null}
           {directConnection ? <View style={styles.statusSummary} testID="control-direct-connection">
             <Text style={[styles.label, { color: colors.ink }]}>{directConnection.endpointLabel}</Text>
             <Text accessibilityLiveRegion="polite" style={[styles.caption, { color: colors.muted }]}>{directConnection.summary}</Text>
@@ -1110,7 +1256,7 @@ export function ControlScreen({
               <Text accessibilityRole="header" style={[styles.label, { color: colors.ink }]}>{group.title}</Text>
               <View style={[styles.operationRows, layout.useColumns && styles.operationActionsRow]}>
               {group.actions.map(action => {
-                const readiness = visibleConfirmation || selectingPolicy ? { ready: false, blockedReason: '请先确认或取消当前操作。' } : getControlOperationReadiness({ action, readiness: operationReadiness, callbacks: operationCallbacks, runtimeState, foreground: appActive, leaving, inFlight: operationInFlight !== null, });
+                const readiness = action !== 'stop' && (visibleConfirmation || selectingPolicy) ? { ready: false, blockedReason: '请先确认或取消当前操作。' } : getControlOperationReadiness({ action, readiness: operationReadiness, callbacks: operationCallbacks, runtimeState, foreground: appActive, leaving, inFlight: action === 'stop' ? false : operationInFlight !== null, });
                 const state = operationStateFor(action, readiness);
                 const statusBusy = ['submitted', 'accepted', 'executing'].includes(state.status);
                 const disabled = !readiness.ready || statusBusy;
@@ -1240,8 +1386,8 @@ export function ControlScreen({
                     const available = terrainModeOptions.some(candidate => candidate.id === option.id);
                     const selected = terrainModeCurrent === option.id;
                     const profileId = getControlTerrainPolicies(runtimeState).find(mode => mode.id === option.id)?.profileId;
-                    const unavailable = !available || !terrainModeCatalogReady || !profileId || !modeReadiness.ready;
-                    return <Pressable key={option.id} accessibilityRole="button" accessibilityLabel={`运动模式${option.label}`} accessibilityHint={unavailable ? modeReadiness.blockedReason ?? terrainModeBlockedReason : undefined} accessibilityState={{ disabled: unavailable || selected, selected }} disabled={unavailable || selected} onPress={() => { if (profileId) runOperation('switchPolicy', renderGeneration, profileId); }} style={[styles.terrainModeOption, { backgroundColor: selected ? appearance.action : colors.surfaceStrong, borderColor: selected ? appearance.blueInk : appearance.border, opacity: unavailable ? 0.55 : 1 }]} testID={`control-terrain-mode-${option.id}`}>
+                    const unavailable = !available || !terrainModeCatalogReady || !profileId || !modeReadiness.ready || terrainMotionBlock !== null;
+                    return <Pressable key={option.id} accessibilityRole="button" accessibilityLabel={`运动模式${option.label}`} accessibilityHint={unavailable ? terrainMotionBlock ?? modeReadiness.blockedReason ?? terrainModeBlockedReason : undefined} accessibilityState={{ disabled: unavailable || selected, selected }} disabled={unavailable || selected} onPress={() => { if (profileId) runOperation('switchPolicy', renderGeneration, profileId); }} style={[styles.terrainModeOption, { backgroundColor: selected ? appearance.action : colors.surfaceStrong, borderColor: selected ? appearance.blueInk : appearance.border, opacity: unavailable ? 0.55 : 1 }]} testID={`control-terrain-mode-${option.id}`}>
                       <Text style={[styles.caption, { color: selected ? appearance.actionInk : colors.ink }]}>{option.label}</Text>
                     </Pressable>;
                   })}
@@ -1449,5 +1595,8 @@ const styles = StyleSheet.create({
   immersiveActionLabel: { fontSize: 14, fontWeight: '500', lineHeight: 22 },
   immersiveSideEntry: { position: 'absolute', bottom: 28, minWidth: 64, minHeight: 56, alignItems: 'center', justifyContent: 'center', gap: 6, borderRadius: 20, zIndex: 4 },
   immersiveFeedback: { alignItems: 'center', borderRadius: 14, borderWidth: 0.5, justifyContent: 'center', left: 24, right: 24, minHeight: 36, paddingHorizontal: 14, paddingVertical: 6, position: 'absolute', zIndex: 5 },
+  hudSettingsMenu: { backgroundColor: 'rgba(12,16,24,0.92)', borderRadius: 16, bottom: 64, gap: 4, padding: 6, position: 'absolute', right: 14, zIndex: 6 },
+  hudSettingsItem: { borderRadius: 12, minHeight: 40, justifyContent: 'center', paddingHorizontal: 12 },
+  hudSettingsText: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
   pressed: { opacity: 0.55 },
 });
