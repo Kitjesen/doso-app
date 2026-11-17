@@ -57,16 +57,39 @@ function copyModeCapabilities(value: unknown): BrainstemGrpcProfile['modeCapabil
   if (value === undefined) return undefined;
   if (!Array.isArray(value) || value.length > 16) return undefined;
   const kinds = new Set(['unspecified', 'locomotion', 'recovery-action']);
+  const availabilities = new Set(['unknown', 'unavailable', 'available']);
   const items: NonNullable<BrainstemGrpcProfile['modeCapabilities']>[number][] = [];
   for (const item of value) {
     if (!item || typeof item !== 'object') return undefined;
     const capability = item as Record<string, unknown>;
-    if (typeof capability.id !== 'string' || capability.id.length > 64 || !kinds.has(String(capability.kind))
-      || typeof capability.label !== 'string' || typeof capability.available !== 'boolean'
-      || typeof capability.unavailableReason !== 'string' || capability.unavailableReason.length > 200) return undefined;
+    if (typeof capability.id !== 'string' || capability.id.length > 64 || capability.id.includes('\0') || !kinds.has(String(capability.kind))) return undefined;
+    if (typeof capability.unavailableReason !== 'string' || capability.unavailableReason.length > 200 || capability.unavailableReason.includes('\0')) return undefined;
+    let availability: 'unknown' | 'unavailable' | 'available' | undefined;
+    if (capability.availability !== undefined) {
+      if (typeof capability.availability !== 'string' || !availabilities.has(capability.availability)) return undefined;
+      availability = capability.availability as typeof availability;
+    }
+    let available: boolean;
+    if (typeof capability.available === 'boolean') {
+      if (availability !== undefined && (availability === 'available') !== capability.available) return undefined;
+      available = capability.available;
+    } else if (availability !== undefined) available = availability === 'available';
+    else return undefined;
+    let label = '';
+    if (capability.label !== undefined) {
+      if (typeof capability.label !== 'string' || capability.label.length > 64 || capability.label.includes('\0')) return undefined;
+      label = capability.label;
+    }
+    let profileId: string | undefined;
+    if (capability.profileId !== undefined) {
+      if (typeof capability.profileId !== 'string' || capability.profileId.length > 128 || capability.profileId.includes('\0')) return undefined;
+      profileId = capability.profileId;
+    }
     items.push({
-      id: capability.id, kind: capability.kind as 'unspecified' | 'locomotion' | 'recovery-action', label: capability.label,
-      available: capability.available, unavailableReason: capability.unavailableReason,
+      id: capability.id, kind: capability.kind as 'unspecified' | 'locomotion' | 'recovery-action', label,
+      available, unavailableReason: capability.unavailableReason,
+      ...(availability ? { availability } : {}),
+      ...(profileId !== undefined ? { profileId } : {}),
     });
   }
   return items;

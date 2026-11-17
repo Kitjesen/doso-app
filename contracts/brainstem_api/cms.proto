@@ -244,19 +244,28 @@ message ProfileRequest {
   string name = 1;
 }
 
-// 机器人模式种类。摔倒恢复不是运动策略切换，也不是趴下姿态。
+// 机器人模式种类。字段编号与 brainstem_api recovery.proto 一致。
+// 摔倒恢复不是运动策略切换，也不是趴下姿态。
 enum RobotModeKind {
-  ROBOT_MODE_KIND_UNSPECIFIED = 0;
-  ROBOT_MODE_KIND_LOCOMOTION = 1;
+  ROBOT_MODE_KIND_UNKNOWN = 0;
+  ROBOT_MODE_KIND_LOCOMOTION_PROFILE = 1;
   ROBOT_MODE_KIND_RECOVERY_ACTION = 2;
+}
+
+// mode_capabilities 的可用性。这是枚举，不是布尔值。
+enum RobotModeAvailability {
+  ROBOT_MODE_AVAILABILITY_UNKNOWN = 0;
+  ROBOT_MODE_AVAILABILITY_UNAVAILABLE = 1;
+  ROBOT_MODE_AVAILABILITY_AVAILABLE = 2;
 }
 
 // GetProfile 声明的一种模式能力。id `recovery` 且 kind 为 RECOVERY_ACTION 才是摔倒恢复。
 message RobotModeCapability {
   string id = 1;
   RobotModeKind kind = 2;
-  string label = 3;
-  bool available = 4;
+  RobotModeAvailability availability = 3;
+  // 运动策略的实际 profile 名称。摔倒恢复留空。
+  string profile_id = 4;
   string unavailable_reason = 5;
 }
 

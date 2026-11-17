@@ -5,6 +5,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { BrainstemControlSession } from '../src/features/control/brainstemControlSession.ts';
+import { beginRobotRecovery, presentRobotRecovery } from '../src/features/control/robotRecovery.ts';
 
 const require = createRequire(import.meta.url);
 const source = readFileSync(new URL('../src/screens/ControlScreen.tsx', import.meta.url), 'utf8');
@@ -43,6 +44,20 @@ vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/co
     if (name === '@expo/vector-icons') return { Ionicons: 'Ionicons' };
     if (name === './AppText') return { Text: 'Text' };
     throw new Error(`Unexpected landscape HUD dependency: ${name}`);
+  },
+});
+
+const recoveryPanelModule = { exports: {} };
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/RobotRecoveryControls.tsx', import.meta.url), 'utf8'), {
+  compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText, {
+  module: recoveryPanelModule,
+  exports: recoveryPanelModule.exports,
+  require(name) {
+    if (name === 'react/jsx-runtime') return require('react/jsx-runtime');
+    if (name === 'react-native') return { Pressable: 'Pressable', StyleSheet: { create: value => value }, View: 'View' };
+    if (name === './AppText') return { Text: 'Text' };
+    throw new Error(`Unexpected recovery panel dependency: ${name}`);
   },
 });
 
@@ -137,7 +152,8 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView' },
     '../components/ControlJoystick': { ControlJoystickPair },
     '../components/controlLandscapeHud': landscapeHudModule.exports,
-    '../components/RobotRecoveryControls': { RobotRecoveryControls: () => null },
+    '../components/RobotRecoveryControls': recoveryPanelModule.exports,
+    '../features/control/robotRecovery': { beginRobotRecovery, presentRobotRecovery },
     '../components/ControlVideoSurface': { ControlVideoSurface },
     '../components/JoystickLayoutSettings': { JoystickLayoutSettings },
     '../features/control/joystickLayoutPreferences': { ...joystickLayoutModule.exports,
@@ -1632,4 +1648,100 @@ test('landscape emergency stop still sends while a posture command is in flight'
   await screen.settle();
   assert.equal(calls.length, 2);
   screen.unmount();
+});
+
+const recoveryProfile = {
+  current: 'flat', available: ['flat'], descriptions: [''], currentDescription: '',
+  modeCapabilities: [{ id: 'recovery', kind: 'recovery-action', label: '摔倒恢复', available: true, unavailableReason: '' }],
+};
+function recoveryStatus(patch = {}) {
+  return {
+    service: 'ready', phase: 'absent', sessionSelected: false, modelConfigured: true, enableSequenceVerified: true,
+    stableStand: false, locomotionAvailable: false, activeModeId: null, reason: 'none', detail: '',
+    heartbeatFresh: null, heartbeatError: null, ...patch,
+  };
+}
+
+test('one confirmed press enters recovery and a stable stand returns through Exit', async () => {
+  const commands = [];
+  const policies = [];
+  const standing = { controlLink: 'connected', controlAuthority: 'held', posture: 'standing', motorState: 'enabled', speed: { linearMps: 0, lateralMps: 0, yawRps: 0, source: 'device' } };
+  const onCommand = async command => {
+    commands.push(command);
+    if (command === 'enter') return recoveryStatus({ phase: 'selected', sessionSelected: true, heartbeatFresh: true });
+    if (command === 'enable') return recoveryStatus({ phase: 'enabled', sessionSelected: true, heartbeatFresh: true });
+    if (command === 'start') return recoveryStatus({ phase: 'getting-up', sessionSelected: true, heartbeatFresh: true });
+    if (command === 'cancel') return recoveryStatus();
+    if (command === 'exit') return recoveryStatus({ stableStand: true, locomotionAvailable: true });
+    throw new Error(command);
+  };
+  const recovery = { status: recoveryStatus(), profile: recoveryProfile, onCommand };
+  const screen = mount({
+    dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, connected: true,
+    runtimeState: standing,
+    operationCallbacks: { stand() {}, sit() {}, stop() {}, switchPolicy(id) { policies.push(id); } },
+    recovery,
+  });
+  assert.deepEqual(commands, [], 'opening the control screen must not enter recovery');
+  const dock = () => screen.find('control-hud-posture-recover');
+  assert.equal(dock().props.disabled, false);
+  assert.equal(dock().props.accessibilityLabel, '摔倒恢复');
+  assert.equal(screen.find('control-recovery-begin'), undefined);
+  assert.doesNotMatch(screen.copy, /进入恢复|使能恢复|摔倒起立|退出并回到运动/);
+  dock().props.onPress();
+  screen.render();
+  assert.deepEqual(commands, []);
+  assert.match(screen.copy, /摔倒恢复会让机器狗从倒地姿态起身/);
+  assert.ok(screen.find('control-recovery-confirm-submit'));
+  assert.equal(screen.copy.includes('确认') && screen.copy.includes('返回'), true);
+  screen.find('control-recovery-confirm-dismiss').props.onPress();
+  screen.render();
+  assert.deepEqual(commands, []);
+  dock().props.onPress();
+  screen.render();
+  screen.find('control-recovery-confirm-submit').props.onPress();
+  await screen.settle();
+  assert.deepEqual(commands, ['enter', 'enable', 'start']);
+  assert.deepEqual(policies, []);
+  screen.render({ recovery: { ...recovery, status: recoveryStatus({ phase: 'getting-up', sessionSelected: true, heartbeatFresh: true }) } });
+  assert.equal(dock().props.accessibilityLabel, '取消恢复');
+  assert.equal(dock().props.disabled, false);
+  dock().props.onPress();
+  await screen.settle();
+  assert.deepEqual(commands, ['enter', 'enable', 'start', 'cancel']);
+  screen.render({ recovery: { ...recovery, status: recoveryStatus({ phase: 'stable-stand', sessionSelected: true, stableStand: true, locomotionAvailable: true, heartbeatFresh: true }) } });
+  assert.equal(dock().props.accessibilityLabel, '运动模式');
+  dock().props.onPress();
+  await screen.settle();
+  assert.deepEqual(commands.at(-1), 'exit');
+  assert.deepEqual(policies, []);
+  screen.render({ recovery: { ...recovery, status: recoveryStatus({ modelConfigured: false }) }, runtimeState: standing });
+  assert.equal(dock().props.disabled, true);
+  assert.match(dock().props.accessibilityHint, /模型尚未配置/);
+  assert.match(screen.copy, /模型尚未配置/);
+  screen.render({ recovery: { ...recovery, status: recoveryStatus() }, runtimeState: { ...standing, speed: { linearMps: 0.4, lateralMps: 0, yawRps: 0, source: 'device' } } });
+  assert.equal(dock().props.disabled, true);
+  assert.match(screen.copy, /行走中不可切换/);
+  screen.render({ recovery: { ...recovery, status: recoveryStatus({ enableSequenceVerified: false }) }, runtimeState: standing });
+  assert.equal(dock().props.disabled, true);
+  assert.match(screen.copy, /使能顺序尚未核验/);
+  assert.equal([...screen.copy].some(char => char.codePointAt(0) === 0x8DBA), false);
+  screen.unmount();
+});
+
+test('portrait recovery offers one button and does not open when the channel is absent', () => {
+  const standing = { controlLink: 'connected', controlAuthority: 'held', posture: 'sitting', motorState: 'disabled', speed: { linearMps: 0, lateralMps: 0, yawRps: 0, source: 'device' } };
+  const screen = mount({
+    dev: false, connected: true, runtimeState: standing,
+    recovery: { status: recoveryStatus(), profile: recoveryProfile, onCommand: async () => { throw new Error('未确认，不应调用'); } },
+  });
+  assert.equal(screen.find('control-recovery-begin').props.accessibilityState.disabled, false);
+  assert.match(screen.copy, /摔倒恢复/);
+  assert.equal(screen.find('control-hud-posture-recover'), undefined);
+  assert.doesNotMatch(screen.copy, /进入恢复|使能恢复|摔倒起立|退出并回到运动/);
+  screen.unmount();
+  const closed = mount({ dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, connected: true, runtimeState: standing });
+  assert.equal(closed.find('control-hud-posture-recover').props.accessibilityState.disabled, true);
+  assert.match(closed.find('control-hud-posture-recover').props.accessibilityHint, /恢复指令尚未接通/);
+  closed.unmount();
 });
