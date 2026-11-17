@@ -113,13 +113,22 @@ internal class ControlSession(
       if (action == "stand-up" && before["fsmKind"] == "walking"
           && before.boolean("grpcLeaseActive")) throw Failure("precondition")
     }
+    var motionSlotRequest = false
     val request = if (action == "switch-profile") {
       if (before["fsmKind"] !in listOf("grounded", "standing")
           || before.boolean("grpcLeaseActive")) throw Failure("precondition")
       if (profileName.isNullOrBlank() || profileName.length > 256) throw Failure("config")
       val profile = ProfileInfoParser.parse(rpc("GetProfile", EMPTY, epoch = epoch))
-      val available = profile["available"] as? List<*> ?: throw Failure("invalid_response")
-      if (!available.contains(profileName)) throw Failure("precondition")
+      val capabilities = (profile["modeCapabilities"] as? List<*>)?.filterIsInstance<Map<*, *>>() ?: emptyList()
+      motionSlotRequest = capabilities.any { it["kind"] == "locomotion" }
+      if (motionSlotRequest) {
+        val capability = capabilities.filter { it["id"] == profileName }.singleOrNull()
+        if (capability == null || capability["kind"] != "locomotion"
+            || capability["available"] != true || capability["availability"] != "available") throw Failure("precondition")
+      } else {
+        val available = profile["available"] as? List<*> ?: throw Failure("invalid_response")
+        if (!available.contains(profileName)) throw Failure("precondition")
+      }
       ControlWire.stringRequest(profileName)
     } else EMPTY
     val response = rpc(method, request, epoch = epoch)
@@ -127,7 +136,9 @@ internal class ControlSession(
     val result = status().toMutableMap()
     if (action == "switch-profile") {
       val profile = ProfileInfoParser.parse(response)
-      if (profile["current"] != profileName) throw Failure("invalid_response")
+      if (motionSlotRequest) {
+        if (profile["activeModeId"] != profileName) throw Failure("action_failed")
+      } else if (profile["current"] != profileName) throw Failure("invalid_response")
       result["profile"] = profile
     }
     return result

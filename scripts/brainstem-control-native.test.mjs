@@ -42,7 +42,8 @@ test('native control session compiles and obeys the lease/ACK/deadman lifecycle 
     ].join('\n'));
     run('javac', ['-encoding', 'UTF-8', '-d', classes, clock, source('ControlStatusParser.java'),
       source('ProfileInfoParser.java'), source('VoltageParser.java'), source('MotorStatusParser.java'),
-      source('ControlWire.java'), fixture('java/expo/modules/brainstemgrpc/ControlWireTest.java')]);
+      source('ControlWire.java'), source('ImuParser.java'), source('RecoveryStatusParser.java'),
+      fixture('java/expo/modules/brainstemgrpc/ControlWireTest.java')]);
     assert.match(run('java', ['-cp', classes, 'expo.modules.brainstemgrpc.ControlWireTest']), /PASS: control wire/);
     const compiler = await Promise.all([
       jar('org.jetbrains.kotlin', 'kotlin-compiler-embeddable', '2.1.20'),
@@ -105,7 +106,7 @@ test('real Expo bridge admits only same-peer telemetry and keeps its executor se
     await writeFile(clock, 'package android.os; public final class SystemClock { public static long elapsedRealtime() { return System.nanoTime()/1000000L; } }');
     run('javac', ['-encoding', 'UTF-8', '-d', classes, clock,
       fixture('bridge-stubs/Base64.java'),
-      ...['ControlStatusParser.java', 'ProfileInfoParser.java', 'VoltageParser.java', 'MotorStatusParser.java', 'ControlWire.java', 'LocalIdentityCrypto.java'].map(source)]);
+      ...['ControlStatusParser.java', 'ProfileInfoParser.java', 'VoltageParser.java', 'MotorStatusParser.java', 'ControlWire.java', 'ImuParser.java', 'RecoveryStatusParser.java', 'LocalIdentityCrypto.java'].map(source)]);
     const compiler = await Promise.all([
       jar('org.jetbrains.kotlin', 'kotlin-compiler-embeddable', '2.1.20'), jar('org.jetbrains.kotlin', 'kotlin-stdlib', '2.1.20'),
       jar('org.jetbrains.kotlin', 'kotlin-script-runtime', '2.1.20'), jar('org.jetbrains.kotlin', 'kotlin-reflect', '1.6.10'),

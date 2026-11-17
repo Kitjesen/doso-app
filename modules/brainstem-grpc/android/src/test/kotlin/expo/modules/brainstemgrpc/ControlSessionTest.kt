@@ -14,6 +14,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.lang.reflect.InvocationTargetException
 
 private const val PRINCIPAL = "doso-g20@robot"
+private fun capability(id: String, profile: String = "", kind: Long = 1, availability: Long = 2) =
+  ControlWireTest.join(ControlWireTest.text(1, id), ControlWireTest.f(2, kind),
+    ControlWireTest.f(3, availability), ControlWireTest.text(4, profile))
+
 private class FakeChannel(val expectedPrincipal: String = PRINCIPAL) : ManagedChannel() {
   val requests = ConcurrentLinkedQueue<Pair<String, ByteArray>>()
   val devHeaders = ConcurrentLinkedQueue<String>()
@@ -23,6 +27,9 @@ private class FakeChannel(val expectedPrincipal: String = PRINCIPAL) : ManagedCh
   var kind = 2
   var profileCurrent = "flat"
   var profileAvailable = listOf("flat")
+  var profileCapabilities = emptyList<ByteArray>()
+  var profileActiveModeId: String? = null
+  var onProfileSwitch: ((ByteArray) -> Unit)? = null
   var owner = 0
   var sequence = 0L
   var wrongAck = false
@@ -73,8 +80,13 @@ private class FakeChannel(val expectedPrincipal: String = PRINCIPAL) : ManagedCh
         }
         val response = when (name) {
           "GetControlStatus" -> state()
-          "GetProfile", "SwitchProfile" -> ControlWireTest.join(ControlWireTest.text(1, profileCurrent),
-            *profileAvailable.map { ControlWireTest.text(2, it) }.toTypedArray())
+          "GetProfile", "SwitchProfile" -> {
+            if (name == "SwitchProfile") onProfileSwitch?.invoke(request)
+            ControlWireTest.join(ControlWireTest.text(1, profileCurrent),
+              *profileAvailable.map { ControlWireTest.text(2, it) }.toTypedArray(),
+              *profileCapabilities.map { ControlWireTest.b(5, it) }.toTypedArray(),
+              profileActiveModeId?.let { ControlWireTest.text(6, it) } ?: byteArrayOf())
+          }
           "AcquireControl" -> {
             lease = true; owner = 1; sequence = 0
             ControlWireTest.join(ControlWireTest.f(1, 1), ControlWireTest.text(2, "ephemeral-fixture"),
@@ -318,6 +330,7 @@ fun main() {
     kind = 2; enabled = true
     profileCurrent = "cts_v39_61128"
     profileAvailable = listOf("w5_89999", "cts_v39_61128")
+    profileCapabilities = listOf(capability("recovery", kind = 2))
   }
   val slotSession = ControlSession(slots, PRINCIPAL) { it() }
   try {
@@ -327,6 +340,65 @@ fun main() {
     expectFailure("invalid_response") { slotSession.action("switch-profile", "w5_89999") }
     check(slots.requests.none { it.first in listOf("Enable", "Disable", "StandUp", "SitDown", "WalkChecked", "AcquireControl") })
   } finally { slotSession.close() }
+  for ((flatModel, stairsModel) in listOf("w5_89999" to "cts_v39_61128", "replacement_flat" to "replacement_stairs")) {
+    val modern = FakeChannel().apply {
+      profileCurrent = flatModel
+      profileAvailable = listOf(flatModel, stairsModel, "platform_model")
+      profileCapabilities = listOf(capability("flat", flatModel), capability("stairs", stairsModel),
+        capability("high_platform", "platform_model"), capability("recovery", kind = 2))
+      profileActiveModeId = "flat"
+    }
+    val modernSession = ControlSession(modern, PRINCIPAL) { it() }
+    try {
+      expectFailure("precondition") { modernSession.action("switch-profile", stairsModel) }
+      for ((slot, model) in listOf("stairs" to stairsModel, "high_platform" to "platform_model", "flat" to flatModel)) {
+        modern.onProfileSwitch = { request ->
+          check(request.contentEquals(ControlWire.stringRequest(slot))) { "Slot was translated to a model name" }
+          modern.profileCurrent = model
+          modern.profileActiveModeId = slot
+        }
+        val result = modernSession.action("switch-profile", slot)
+        @Suppress("UNCHECKED_CAST") val selected = result["profile"] as Map<String, Any>
+        check(selected["activeModeId"] == slot && selected["current"] == model)
+      }
+      check(modern.requests.count { it.first == "SwitchProfile" } == 3)
+      check(modern.requests.none { it.first in listOf("Enable", "Disable", "StandUp", "SitDown", "WalkChecked", "AcquireControl") })
+    } finally { modernSession.close() }
+  }
+  val invalidSlotCapabilities = listOf(
+    listOf(capability("flat", "w5"), capability("stairs", "cts", availability = 1)),
+    listOf(capability("flat", "w5"), capability("stairs", "cts", availability = 0)),
+    listOf(capability("flat", "w5"), capability("stairs", kind = 2)),
+    listOf(capability("flat", "w5"), capability("stairs", kind = 0)),
+    listOf(capability("flat", "w5")),
+    listOf(capability("flat", "w5"), capability("stairs", "cts"), capability("stairs", "other")),
+    listOf(capability("flat", "w5"), capability("stairs", "cts"), capability("stairs", kind = 2)),
+  )
+  for (capabilities in invalidSlotCapabilities) {
+    val invalid = FakeChannel().apply {
+      profileAvailable = listOf("stairs") // A modern catalog cannot bypass capability checks through this legacy field.
+      profileCapabilities = capabilities
+    }
+    val invalidSession = ControlSession(invalid, PRINCIPAL) { it() }
+    try {
+      expectFailure("precondition") { invalidSession.action("switch-profile", "stairs") }
+      check(invalid.requests.none { it.first == "SwitchProfile" })
+    } finally { invalidSession.close() }
+  }
+  for (wrongActive in listOf(null, "flat", "recovery")) {
+    val unconfirmed = FakeChannel().apply {
+      profileCurrent = "cts_model"
+      profileAvailable = listOf("cts_model")
+      profileCapabilities = listOf(capability("stairs", "cts_model"))
+      profileActiveModeId = wrongActive
+    }
+    val unconfirmedSession = ControlSession(unconfirmed, PRINCIPAL) { it() }
+    try {
+      expectFailure("action_failed") { unconfirmedSession.action("switch-profile", "stairs") }
+      check(unconfirmed.requests.count { it.first == "SwitchProfile" } == 1)
+      check(unconfirmed.requests.none { it.first in listOf("Enable", "Disable", "StandUp", "SitDown", "WalkChecked", "AcquireControl") })
+    } finally { unconfirmedSession.close() }
+  }
   val lanPrincipal = "lan-" + "a".repeat(32) + "@dev"
   val lanChannel = FakeChannel(lanPrincipal)
   val lan = ControlSession(lanChannel, lanPrincipal, true) { it() }

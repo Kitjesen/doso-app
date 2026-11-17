@@ -27,17 +27,18 @@
 7. **连接与授权**：开发局域网模式仅用于明确隔离的联调。正式连接需要服务身份、客户端授权和证书校验；账户登录、设备绑定、机器人控制权是不同环节。不要将私钥或设备凭据提交到仓库，也不要以关闭证书验证解决连接问题。
 8. **首次配网与后续实时传输**：BLE 首次配网需要机器人端提供身份校验、受保护凭据写入、失败恢复和 Wi-Fi 连接结果；后续状态和控制走 Wi-Fi/IP。未来目标是在 App 与机器人之间用 WebRTC 承载视频、音频、点云、状态和控制，机器人内部继续对接 Brainstem gRPC。信令、认证、传输配置、回执和失联策略尚需实现与验收，不能把目标架构当成现有能力。
 
-## 平地 / 楼梯槽位切换（2026-10-27）
+## 平地 / 楼梯槽位切换（2026-11-17更新）
 
 App 已接通 Android 原生 gRPC 调用链，不经过网页服务，也不模拟云卓 R2 按键：
 
-`运动模式按钮 → switchPolicy(实际 profile ID) → action("switch-profile", ID) → RobotControl.SwitchProfile`
+`运动模式按钮 → switchPolicy(槽位 ID) → action("switch-profile", ID) → RobotControl.SwitchProfile`
 
 | 接口 / 状态 | 调用与规则 |
 | --- | --- |
-| `GetProfile({})` | 返回 `current`、`available[]`、同索引的 `descriptions[]`、`current_description`；ID 是实际配置名，不是固定模型文件名 |
-| 槽位映射 | 槽位版机器人在说明中使用 `flat: ...` / `stairs: ...` 前缀；App 据此前缀绑定目录中的实际 ID，也兼容目录直接使用 `flat` / `stairs`。不按列表顺序、W5/CTS 文件名或中文描述猜测；重复绑定不开放模式按钮 |
-| `SwitchProfile({"name":"<available 中所选实际 ID>"})` | 请求字段 `name=1`；返回 `ProfileInfo`。原生层核对返回 `current` 等于目标 ID，界面仅以设备回执/后续状态确认，不乐观假定成功 |
+| `GetProfile({})` | 现代目录另含 `mode_capabilities` 和 `active_mode_id`；旧 `current`／`available`仍是模型名 |
+| 现代槽位 | 只接受唯一、显式可用的locomotion能力ID，使用机端绑定，不解析说明或模型名；`profile_id`仅作诊断 |
+| `SwitchProfile({"name":"flat"})`／`"stairs"` | 请求字段`name=1`；TS和原生层核对返回`active_mode_id`等于所选槽位，不乐观假定成功 |
+| 旧目录兼容 | 没有locomotion能力时沿用完整profile ID及`current`确认；旧说明的`flat:`／`stairs:`／`platform:`绑定只用于此兼容路径 |
 | Standing / Grounded | 允许切换；使能或失能均可。需无活动 gRPC 租约、无关键电机故障、无云卓占用，状态新鲜且无操作在途 |
 | Walking / Zero / Transitioning | 禁止；即使 Walk 速度为零也不能切换。不自动排队或重试 |
 | 高台为空 | 显示不可用，不发送请求，不拿平地模型冒充高台 |
@@ -55,6 +56,15 @@ App 端目前为源码和离线测试更新；需重新构建安装含原生 Kot
 Walking 起立改动离线验证：最终 7 个相关 JS/TS 测试文件共 191 项通过，`npm run typecheck` 通过；使用项目指定 Kotlin 2.1.20、gRPC 1.85.1 / Guava 33.6.0-android 独立编译运行 `ControlSessionTest.kt` 和 `ControlWireTest.java` 通过，覆盖释放后显式起立、不自动起立及活动租约拒绝。仓库原生全链路测试首次运行因依赖缓存缺失而受阻；独立测试不能替代 Expo bridge、整包及实机验收。APK 构建先遇到 Windows CMake/Ninja 路径长度问题，临时缩短构建路径后又因既有 `com.skydroid:rcsdk:1.9.2` 本地依赖缺失而失败；未交付 APK，未安装，已停止打包排查。
 
 ## 推荐联调顺序
+
+### 运动槽位对接（2026-11-17更新）
+
+- 机器人负责`flat`／`stairs`到实际模型的绑定。App读取`GetProfile.mode_capabilities`中唯一、可用的运动槽位，直接发送`SwitchProfile({name: "flat"})`或`"stairs"`；换模型只更新机器人配置。
+- 使用`active_mode_id`显示和确认当前模式；`current`、`available`、能力中的`profile_id`是诊断模型名，不是槽位请求参数。
+- App已同时调整TS会话、Android原生请求校验、目录投影与当前选择。只读连接快照保留并冻结能力目录，避免读取后丢失槽位元数据。
+- 已有界面“平地／楼梯”入口继续复用原确认流程；不新增自动动力／姿态操作，不改变站稳或Grounded、无活动运动租约等现有条件。`high_platform`只在机端已配置时才可发现，不代表实验室高台已经验收。
+- 没有运动能力目录的旧服务仍按原完整profile ID协议工作；只要存在运动能力声明，未知／不可用／重复ID不允许借旧模型列表通过校验。
+- 机器人能力返回依赖[Brainstem PR #4](https://github.com/Kitjesen/brainstem/pull/4)。应先核对机器人部署版本，再分别验证状态读取、双向切换回执和现场低速测试。本次App PR不安装APK、不操作实机，也不修改`RobotRecovery`。
 
 1. 先在离线 fixture / 仿真中核对 proto 编解码、状态字段、拒绝原因和动作 ACK。
 2. 在真实机器人上先做只读状态与设备身份检查；逐项记录源码版本、协议哈希、App 安装包哈希、测量时间和结果。
