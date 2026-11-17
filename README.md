@@ -1,8 +1,22 @@
 # DOSO App
 
-DOSO 是用于管理和控制机器人的 React Native / Expo 应用。本仓库是 Android App、原生连接模块和相关后端的开发源码快照；请先阅读 [Brainstem 与 App 的对接清单](docs/BRAINSTEM_APP_INTEGRATION.md)。
+DOSO 是用于管理和控制机器人的 React Native / Expo Android 应用。本仓库包含该应用、原生连接模块和相关后端。实机控制使用 Android 原生 Brainstem gRPC 模块 [`modules/brainstem-grpc`](modules/brainstem-grpc)。网页预览不能代替这条实机控制链路。对接背景见 [Brainstem 与 App 的对接清单](docs/BRAINSTEM_APP_INTEGRATION.md)。
+
+对外合同是独立仓库 <https://github.com/Kitjesen/brainstem_api>，包名 `brainstem.api.v1`。`RobotControl.GetProfile` 与 `RobotControl.SwitchProfile` 定义在该仓库的 [`brainstem_api/cms.proto`](https://github.com/Kitjesen/brainstem_api/blob/main/brainstem_api/cms.proto)。本仓库在 [`contracts/brainstem_api`](contracts/brainstem_api) 保留一份副本。
 
 当前源码包含机器人 gRPC 连接、状态读取、控制会话以及 G20 本地输入适配。机器人侧服务、设备绑定、物理动作和所有机型尚未完成全面验收。实时图传、音频、点云和控制未来计划迁移到 WebRTC，当前不能视为已经接通。
+
+## 运动模式
+
+地形 / 运动模式切换使用已有的标准 RPC：`RobotControl.GetProfile` 与 `RobotControl.SwitchProfile`。请求为 `ProfileRequest`，字段 `name` 是目标 profile id。这两个 RPC 属于现有 `RobotControl` 服务。摔倒恢复是单独的 `RobotRecovery` 服务，见本仓库副本 [`contracts/brainstem_api/recovery.proto`](contracts/brainstem_api/recovery.proto)，与 `SwitchProfile` 分开。
+
+界面只在 `GetProfile` 目录条目的说明以前缀 `flat:`、`stairs:` 或 `platform:` 开头时，把该条目绑到平地、楼梯或高台。线上 profile id 使用真实模型名。说明没有此前缀、且 id 本身正好是 `flat`、`stairs` 或 `platform` 时，也会绑到对应按钮。同一个前缀对应多条目录时，该按钮不开放。
+
+切换只在机器狗站立或趴地（Grounded）时允许。行走中不可切换。摔倒恢复处于选中状态时也不可切换。活动 gRPC 控制租约、姿态切换中、云卓占用或关键电机故障时，App 也不会发出 `SwitchProfile`。
+
+2026-11-17，对实验室机器人 `192.168.66.64:13145` 做了只读的 `GetProfile`、`GetControlStatus` 与 `GetCmsState`。当时机器狗为 Grounded（趴地）；当前 profile 为 `flat_w5_model89999_kp80_policy_zero_20260929`（说明以 `flat:` 开头）；另一条可用 profile 为 `cts_v39_model61128_inherited_pd_20261023`（说明以 `stairs:` 开头）。目录中没有 platform / 高台 profile。目录和上述接口已经就位。实机尚未执行 `SwitchProfile`，平地与楼梯的切换还没有端到端验证。
+
+高台暂不开放。请勿切换到高台模式。
 
 ## 运行前准备
 
@@ -36,6 +50,6 @@ node --test scripts/g20-input-hook.test.mjs scripts/g20-input-native.test.mjs
 
 ## 版本与源码边界
 
-此快照来自 2026-10-27 的本地工作区，包含已安装 code24 之后的 G20 输入超时回调修复；该修复尚未打入已安装的 code24 包。版本号相同不代表二进制或源码相同，交付 APK 时应记录其 SHA-256。`docs/design` 中的设计文档按原日期保留，作为设计背景，当前对接状态以本仓库的 Brainstem 清单和实测为准。
+本仓库保存 DOSO Android App 的开发源码。版本号相同不代表二进制或源码相同，交付 APK 时应记录其 SHA-256。`docs/design` 中的设计文档按原日期保留，作为设计背景。运动模式的当前说明以上文为准：2026-11-17 的实验室结果只覆盖只读目录和状态。平地 / 楼梯切换与高台仍须按实测验收，不能凭源码或网页预览视为已在真机通过。
 
 本仓库未声明整个 DOSO 项目的开源许可证；各第三方依赖、字体和 SDK 适用各自许可。这里不包含账号数据、密钥、真实设备运行记录、签名文件或历史安装包。
