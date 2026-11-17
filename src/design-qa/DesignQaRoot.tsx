@@ -307,6 +307,20 @@ function PreviewScreen({ stage, state, onNavigate = noop, browsing = false, onEd
             safetyLock={false}
             taskModeBlockedReason="生产任务执行器未接入"
             landscapeDocksExpanded={landscapeDocksExpanded}
+            recovery={{
+              status: {
+                service: 'ready', phase: 'absent', sessionSelected: false, modelConfigured: true, enableSequenceVerified: true,
+                stableStand: false, locomotionAvailable: false, activeModeId: null, reason: 'none', detail: '',
+                heartbeatFresh: null, heartbeatError: null,
+              },
+              profile: {
+                current: 'flat', available: ['flat'], descriptions: [''], currentDescription: '',
+                modeCapabilities: [{ id: 'recovery', kind: 'recovery-action', label: '摔倒恢复', available: true, unavailableReason: '' }],
+              },
+              onCommand: async () => {
+                throw new Error('设计验收不连接机器人，不会进入倒地恢复。');
+              },
+            }}
             video={cameraPreview ? { id: 'design-qa-landscape-camera', phase: 'receiving' } : undefined}
             videoSurface={cameraPreview ? <ControlPreviewCameraPlate /> : undefined}
           />

@@ -34,12 +34,15 @@ export type BrainstemGrpcStatus = {
   readyForWalk: boolean;
 };
 export type RobotModeKind = 'unspecified' | 'locomotion' | 'recovery-action';
+export type RobotModeAvailability = 'unknown' | 'unavailable' | 'available';
 export type RobotModeCapability = Readonly<{
   id: string;
   kind: RobotModeKind;
   label: string;
   available: boolean;
   unavailableReason: string;
+  availability?: RobotModeAvailability;
+  profileId?: string;
 }>;
 export type BrainstemGrpcProfile = Readonly<{
   current: string;
@@ -429,21 +432,48 @@ function projectModeCapabilities(value: unknown): RobotModeCapability[] | null {
   if (value === undefined) return null;
   if (!Array.isArray(value) || value.length > 16) return null;
   const kinds = ['unspecified', 'locomotion', 'recovery-action'];
+  const availabilities = ['unknown', 'unavailable', 'available'];
   const capabilities: RobotModeCapability[] = [];
   for (const item of value) {
-    if (!item || typeof item !== 'object') return null;
-    const capability = item as Record<string, unknown>;
-    if (typeof capability.id !== 'string' || capability.id.length > 64 || capability.id.includes('\0')) return null;
-    if (typeof capability.kind !== 'string' || !kinds.includes(capability.kind)) return null;
-    if (typeof capability.label !== 'string' || capability.label.length > 64 || capability.label.includes('\0')) return null;
-    if (typeof capability.available !== 'boolean') return null;
-    if (typeof capability.unavailableReason !== 'string' || capability.unavailableReason.length > 200 || capability.unavailableReason.includes('\0')) return null;
-    capabilities.push({
-      id: capability.id, kind: capability.kind as RobotModeKind, label: capability.label,
-      available: capability.available, unavailableReason: capability.unavailableReason,
-    });
+    const capability = projectModeCapability(item, kinds, availabilities);
+    if (!capability) return null;
+    capabilities.push(capability);
   }
   return capabilities;
+}
+
+function projectModeCapability(item: unknown, kinds: readonly string[], availabilities: readonly string[]): RobotModeCapability | null {
+  if (!item || typeof item !== 'object') return null;
+  const capability = item as Record<string, unknown>;
+  if (typeof capability.id !== 'string' || capability.id.length > 64 || capability.id.includes('\0')) return null;
+  if (typeof capability.kind !== 'string' || !kinds.includes(capability.kind)) return null;
+  if (typeof capability.unavailableReason !== 'string' || capability.unavailableReason.length > 200 || capability.unavailableReason.includes('\0')) return null;
+  let availability: RobotModeAvailability | undefined;
+  if (capability.availability !== undefined) {
+    if (typeof capability.availability !== 'string' || !availabilities.includes(capability.availability)) return null;
+    availability = capability.availability as RobotModeAvailability;
+  }
+  let available: boolean;
+  if (typeof capability.available === 'boolean') {
+    if (availability !== undefined && (availability === 'available') !== capability.available) return null;
+    available = capability.available;
+  } else if (availability !== undefined) available = availability === 'available';
+  else return null;
+  let label = '';
+  if (capability.label !== undefined) {
+    if (typeof capability.label !== 'string' || capability.label.length > 64 || capability.label.includes('\0')) return null;
+    label = capability.label;
+  }
+  let profileId: string | undefined;
+  if (capability.profileId !== undefined) {
+    if (typeof capability.profileId !== 'string' || capability.profileId.length > 128 || capability.profileId.includes('\0')) return null;
+    profileId = capability.profileId;
+  }
+  return {
+    id: capability.id, kind: capability.kind as RobotModeKind, label, available, unavailableReason: capability.unavailableReason,
+    ...(availability ? { availability } : {}),
+    ...(profileId !== undefined ? { profileId } : {}),
+  };
 }
 
 function finiteNumber(value: unknown, min = -Infinity, max = Infinity): number {

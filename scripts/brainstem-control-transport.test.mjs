@@ -11,8 +11,10 @@ async function load(native = {}, platform = 'android') {
   const expo = moduleUrl(`export const requireOptionalNativeModule = () => globalThis.__controlNative; //${++sequence}`);
   const rn = moduleUrl(`export const Platform = globalThis.__controlPlatform; //${sequence}`);
   const endpoint = moduleUrl(`export const validateBrainstemEndpoint = (host,port) => { if(!host || !Number.isInteger(port)) throw new Error('bad'); return {host,port}; }; //${sequence}`);
+  const recovery = moduleUrl(`export const projectRobotRecoveryStatus = () => null; //${sequence}`);
   const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText
-    .replace("from 'expo'", `from '${expo}'`).replace("from 'react-native'", `from '${rn}'`).replace("from './brainstemGrpc'", `from '${endpoint}'`);
+    .replace("from 'expo'", `from '${expo}'`).replace("from 'react-native'", `from '${rn}'`).replace("from './brainstemGrpc'", `from '${endpoint}'`)
+    .replace("from '../features/control/robotRecovery'", `from '${recovery}'`);
   return import(moduleUrl(`${compiled}\n//${sequence}`));
 }
 const status = () => ({ fsmKind: 'standing', transition: 'none', owner: 'none', motorOutputEnabled: true,
@@ -64,6 +66,27 @@ test('open requires selected identity and actual mutual TLS evidence, not just c
     await assert.rejects(api.brainstemControlTransport.open(endpoint, 'doso-g20@robot'), error => error.code === 'invalid_response');
     assert.deepEqual(closed, ['fixture']);
   }
+});
+
+test('control replies keep live profile capabilities addressed by availability and profile id', async () => {
+  const api = await load();
+  const reply = api.projectBrainstemControlReply({ ...opened(), profile: {
+    current: 'flat', available: ['flat'], descriptions: ['平地'], currentDescription: '平地', activeModeId: 'recovery',
+    modeCapabilities: [
+      { id: 'recovery', kind: 'recovery-action', availability: 'available', profileId: '', unavailableReason: '' },
+      { id: 'flat', kind: 'locomotion', label: '平地', available: false, unavailableReason: 'kept' },
+    ],
+  } });
+  assert.deepEqual(reply.profile.modeCapabilities, [
+    { id: 'recovery', kind: 'recovery-action', label: '', available: true, unavailableReason: '', availability: 'available', profileId: '' },
+    { id: 'flat', kind: 'locomotion', label: '平地', available: false, unavailableReason: 'kept' },
+  ]);
+  const rejected = api.projectBrainstemControlReply({ ...opened(), profile: {
+    current: 'flat', available: [], descriptions: [], currentDescription: '',
+    modeCapabilities: [{ id: 'x'.repeat(65), kind: 'recovery-action', availability: 'available', unavailableReason: '' }],
+  } });
+  assert.equal(rejected.profile.current, 'flat');
+  assert.equal(rejected.profile.modeCapabilities, undefined);
 });
 
 test('open projects only safe public status and same-channel profile, no control authority or secrets', async () => {

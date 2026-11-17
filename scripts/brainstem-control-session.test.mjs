@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { BrainstemControlSession } from '../src/features/control/brainstemControlSession.ts';
+import { beginRobotRecovery } from '../src/features/control/robotRecovery.ts';
 import { getControlTerrainPolicies, getControlTerrainModeOptions } from '../src/features/control/controlOperations.ts';
 
 const status = (patch = {}) => ({ fsmKind: 'grounded', transition: 'none', motorOutputEnabled: false,
@@ -770,6 +771,37 @@ test('recovery commands stay on the open session and heartbeats follow selection
     assert.deepEqual(beats, [['s1', true]]);
     await f.session.disconnect();
     assert.deepEqual(beats.at(-1), ['s1', false]);
+  } finally { f.session.dispose(); }
+});
+
+test('one tap enters, starts the heartbeat, then enables and starts without leaving through a profile switch', async () => {
+  const f = fixture();
+  const beats = [];
+  const commands = [];
+  const base = { service: 'ready', modelConfigured: true, enableSequenceVerified: true, stableStand: false, locomotionAvailable: false, activeModeId: '', reason: 'none', detail: '', heartbeatFresh: true, heartbeatError: null };
+  f.transport.recoveryCommand = async (_id, command) => {
+    commands.push(command);
+    if (command === 'enter') return { ...base, phase: 'selected', sessionSelected: true };
+    if (command === 'enable') return { ...base, phase: 'enabled', sessionSelected: true };
+    if (command === 'start') return { ...base, phase: 'getting-up', sessionSelected: true };
+    if (command === 'exit') return { ...base, phase: 'absent', sessionSelected: false, stableStand: true, locomotionAvailable: true };
+    throw new Error(command);
+  };
+  f.transport.setRecoveryHeartbeat = (id, enabled) => { beats.push([id, enabled, commands.slice()]); };
+  try {
+    await f.session.connect(endpoint, 'doso-g20@robot');
+    assert.deepEqual(commands, []);
+    await beginRobotRecovery(command => f.session.recoveryCommand(command));
+    assert.deepEqual(commands, ['enter', 'enable', 'start']);
+    assert.deepEqual(beats[0], ['s1', true, ['enter']]);
+    assert.equal(f.calls.some(call => call[0] === 'action' && call[1] === 'switch-profile'), false);
+    const direct = [];
+    f.transport.recoveryCommand = async (_id, command) => {
+      direct.push(command);
+      return { ...base, phase: 'enabled', sessionSelected: true };
+    };
+    await beginRobotRecovery(command => f.session.recoveryCommand(command));
+    assert.deepEqual(direct, ['enter', 'start']);
   } finally { f.session.dispose(); }
 });
 
