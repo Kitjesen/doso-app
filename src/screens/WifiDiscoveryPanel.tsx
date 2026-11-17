@@ -73,14 +73,16 @@ export function WifiDiscoveryPanel({
     mountedRef.current = true;
     if (releaseRef) releaseRef.current = () => releaseNetworkRef.current();
     const subscription = AppState.addEventListener('change', next => {
-      // inactive is the system confirmation sheet (permission, location, or
-      // hotspot join). Keep that attempt. A real background still stops it.
-      if (!shouldInterruptWifiDiscoveryForAppState(next) || stateRef.current.phase !== 'loading') return;
-      const joining = stateRef.current.action === 'join';
+      if (stateRef.current.phase !== 'loading') return;
+      // Android reports the WifiNetworkSpecifier sheet as background, the same
+      // way the certificate picker pauses the activity. Keep the join until
+      // that native call settles. Search and the current-network check still
+      // stop when the app actually leaves the foreground.
+      if (stateRef.current.action === 'join') return;
+      if (!shouldInterruptWifiDiscoveryForAppState(next)) return;
       requestRef.current += 1;
       pendingRef.current = false;
       setState(current => reduceWifiPanel(current, { type: 'interrupt' }));
-      if (joining) void adapter.releaseJoinedNetwork();
     });
     return () => {
       mountedRef.current = false;

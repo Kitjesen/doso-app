@@ -240,7 +240,7 @@ test('a system confirmation sheet stays inactive and does not cancel the search 
   assert.deepEqual(view.applied.at(-1), ['192.168.50.1', 13145]);
 });
 
-test('leaving the app in the background still stops a search and releases an in-flight join', async () => {
+test('leaving the app in the background still stops a search', async () => {
   const scan = deferred();
   const scanReleases = [];
   const scanning = mount({ adapter: {
@@ -260,26 +260,33 @@ test('leaving the app in the background still stops a search and releases an in-
   scanning.render();
   assert.deepEqual(scanning.applied, []);
   assert.deepEqual(scanReleases, []);
+});
 
+test('Android background during the system join sheet does not release the network or drop the result', async () => {
   const join = deferred();
-  const joinReleases = [];
-  const joiningView = mount({ adapter: {
-    platform: 'ios-current', canJoinKnownHotspot: true,
-    async scan() { throw new Error('scan'); },
+  const releases = [];
+  const view = mount({ adapter: {
+    platform: 'android-scan', canJoinKnownHotspot: true,
+    async scan() { return { ssids: ['DOSOrobotics'], throttled: false }; },
     async currentSsid() { return null; },
     joinKnownHotspot: () => join.promise,
-    async releaseJoinedNetwork() { joinReleases.push('release'); },
+    async releaseJoinedNetwork() { releases.push('release'); },
   } });
-  const joinResult = joiningView.element('wifi-discovery-join-DOSOrobotics').props.onPress();
-  joiningView.render();
-  joiningView.setAppState('background');
-  joiningView.render();
-  assert.match(joiningView.copy, /应用进入后台，这次搜索已停止/);
-  assert.deepEqual(joinReleases, ['release']);
+  await view.element('wifi-discovery-scan').props.onPress();
+  view.render();
+  const joining = view.element('wifi-discovery-join-DOSOrobotics').props.onPress();
+  view.render();
+  view.setAppState('background');
+  view.render();
+  assert.match(view.copy, /正在请求加入机器狗热点/);
+  assert.doesNotMatch(view.copy, /应用进入后台/);
+  assert.deepEqual(releases, []);
   join.resolve('joined');
-  await joinResult;
-  joiningView.render();
-  assert.deepEqual(joiningView.applied, []);
+  await joining;
+  view.render();
+  assert.deepEqual(releases, []);
+  assert.deepEqual(view.applied.at(-1), ['192.168.50.1', 13145]);
+  assert.match(view.copy, /已加入 DOSOrobotics/);
 });
 
 function deferred() {
