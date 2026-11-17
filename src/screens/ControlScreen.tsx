@@ -14,7 +14,7 @@ import { Text } from '../components/AppText';
 import { getProductAppearance } from '../appearance';
 import type { RobotDiagnosticsDeviceClass, RobotDiagnosticsGateway } from '../features/robot-lifecycle/robotDiagnosticsGateway';
 import { CONTROL_TERRAIN_MODE_OPTIONS, controlOperationLabels, controlOperationStatusLabels, controlTerrainMotionBlock, controlTerrainSwitchBlock, getControlOperationReadiness, getControlPolicyOptions, getControlTerrainModeOptions, transitionControlOperationState, type ControlActionReadiness, type ControlInputSource, type ControlOperation, type ControlOperationCallbacks, type ControlOperationState, type ControlRuntimeState, type ControlTerrainModeId } from '../features/control/controlOperations';
-import type { RobotRecoveryCommand, RobotRecoveryStatus } from '../features/control/robotRecovery';
+import { beginRobotRecovery, presentRobotRecovery, type RobotRecoveryCommand, type RobotRecoveryOperatorAction, type RobotRecoveryStatus } from '../features/control/robotRecovery';
 import { controlLandscapeHud } from '../components/controlLandscapeHud';
 import { RobotRecoveryControls } from '../components/RobotRecoveryControls';
 import { getBrainstemIntegrationReadiness, type BrainstemIntegrationReadiness } from '../services/brainstemIntegrationReadiness';
@@ -69,7 +69,7 @@ type Props = {
   recovery?: Readonly<{
     status: RobotRecoveryStatus | null;
     profile?: BrainstemGrpcProfile | null;
-    onCommand: (command: RobotRecoveryCommand) => Promise<unknown>;
+    onCommand: (command: RobotRecoveryCommand) => Promise<RobotRecoveryStatus>;
   }> | null;
   /** Cloud safety lock. False shows 设备已解锁. Null or true does not claim the device is unlocked. */
   safetyLock?: boolean | null;
@@ -109,6 +109,47 @@ type Props = {
 // simulation entry injects local input; production never invokes those callbacks.
 const ignoreLocalInput = (_value: JoystickVector) => {};
 type OperationConfirmation = Readonly<{ action: ControlOperation; policyId?: string; generation: number }>;
+type RecoveryProp = NonNullable<Props['recovery']> | null | undefined;
+
+function useRecoveryOperator(recovery: RecoveryProp, runtimeState: ControlRuntimeState | undefined, blockedReason: string | null) {
+  const [confirming, setConfirming] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const view = presentRobotRecovery({ status: recovery?.status ?? null, profile: recovery?.profile, runtimeState });
+  const beginEnabled = Boolean(recovery) && view.actions.begin.enabled && !blockedReason && !pending && !confirming;
+  const displayReason = !recovery ? null
+    : view.sessionActive ? view.reason
+    : blockedReason && view.actions.begin.enabled ? blockedReason
+    : view.reason;
+  const requestBegin = () => {
+    if (!beginEnabled) return;
+    setError(null);
+    setConfirming(true);
+  };
+  const dismiss = () => { if (!pending) setConfirming(false); };
+  const confirm = () => {
+    if (!recovery || pending || !view.actions.begin.enabled || blockedReason) return;
+    setPending(true);
+    setError(null);
+    void beginRobotRecovery(command => recovery.onCommand(command)).then(() => {
+      setConfirming(false);
+    }).catch(caught => {
+      setError(caught instanceof Error && caught.message ? caught.message : '未能进入倒地恢复');
+      setConfirming(false);
+    }).finally(() => { setPending(false); });
+  };
+  const followUp = (action: Extract<RobotRecoveryOperatorAction, 'cancel' | 'exit'>) => {
+    // Stable stand uses RobotRecovery.Exit. Terrain changes stay on SwitchProfile.
+    if (!recovery || pending || !view.actions[action].enabled) return;
+    setPending(true);
+    setError(null);
+    setConfirming(false);
+    void Promise.resolve(recovery.onCommand(action)).catch(caught => {
+      setError(caught instanceof Error && caught.message ? caught.message : '未能确认摔倒恢复操作');
+    }).finally(() => { setPending(false); });
+  };
+  return { view, confirming: Boolean(recovery) && confirming, pending, error, beginEnabled, displayReason, requestBegin, dismiss, confirm, followUp };
+}
 
 export function ControlScreen({
   allowInteractionPreview = false, developmentInput, productionInput, controlSession, onBack,
@@ -1011,6 +1052,7 @@ export function ControlScreen({
 
   const videoJoined = video?.phase === 'receiving' && videoSurface != null && videoSurface !== false;
   const cameraHud = layout.useColumns && (connected || videoJoined);
+  const recoveryOperator = useRecoveryOperator(recovery, runtimeState, visibleConfirmation || selectingPolicy ? '请先确认或取消当前操作。' : null);
   const hudSpeedLabel = speed?.source === 'device' && typeof speed.linearMps === 'number' && Number.isFinite(speed.linearMps)
     ? `${speed.linearMps.toFixed(2)} m/s` : '—';
   const terrainSwitchBlock = controlTerrainSwitchBlock(runtimeState);
@@ -1022,8 +1064,21 @@ export function ControlScreen({
   const landscapePostures = (['stand', 'sit', 'prone', 'recover'] as const).map(id => {
     const label = id === 'stand' ? '站立' : id === 'sit' ? '坐下' : id === 'prone' ? '趴下' : '恢复';
     const action = id === 'stand' ? 'stand' as const : id === 'sit' ? 'sit' as const : null;
+    if (id === 'recover') {
+      if (!recovery) return { id, label, disabled: true, selected: false, hint: '恢复指令尚未接通。', onPress: () => {} };
+      const followUp = recoveryOperator.view.actions.exit.enabled ? 'exit' as const : recoveryOperator.view.actions.cancel.enabled ? 'cancel' as const : null;
+      if (followUp) return {
+        id, label: recoveryOperator.view.actions[followUp].label, disabled: recoveryOperator.pending, selected: false,
+        hint: recoveryOperator.view.phaseLabel, onPress: () => recoveryOperator.followUp(followUp),
+      };
+      return {
+        id, label: recoveryOperator.view.actions.begin.label, disabled: !recoveryOperator.beginEnabled, selected: false,
+        hint: recoveryOperator.displayReason ?? recoveryOperator.view.actions.begin.reason ?? undefined,
+        onPress: recoveryOperator.requestBegin,
+      };
+    }
     if (!action) {
-      return { id, label, disabled: true, selected: false, hint: id === 'prone' ? '趴下指令尚未接通。' : '恢复指令尚未接通。', onPress: () => {} };
+      return { id, label, disabled: true, selected: false, hint: '趴下指令尚未接通。', onPress: () => {} };
     }
     const readiness = visibleConfirmation || selectingPolicy
       ? { ready: false, blockedReason: '请先确认或取消当前操作。' }
@@ -1040,7 +1095,24 @@ export function ControlScreen({
   });
   const stopReadiness = getControlOperationReadiness({ action: 'stop', readiness: operationReadiness, callbacks: operationCallbacks, runtimeState, foreground: appActive, leaving, inFlight: false });
   const stopState = operationStateFor('stop', stopReadiness);
-  const recoveryControls = recovery ? <RobotRecoveryControls onCommand={recovery.onCommand} profile={recovery.profile} runtimeState={runtimeState} status={recovery.status} variant={cameraHud ? 'landscape' : 'portrait'} /> : null;
+  const recoveryPanel = recovery ? RobotRecoveryControls({
+    view: recoveryOperator.view,
+    displayReason: recoveryOperator.displayReason,
+    confirming: recoveryOperator.confirming,
+    pending: recoveryOperator.pending,
+    error: recoveryOperator.error,
+    showActions: !cameraHud,
+    variant: cameraHud ? 'landscape' : 'portrait',
+    ink: cameraHud ? '#FFFFFF' : appearance.ink,
+    muted: cameraHud ? 'rgba(255,255,255,0.78)' : appearance.secondary,
+    surface: cameraHud ? 'rgba(18, 22, 30, 0.88)' : appearance.surface,
+    line: cameraHud ? 'rgba(245,248,255,0.22)' : 'transparent',
+    onRequestBegin: recoveryOperator.requestBegin,
+    onConfirm: recoveryOperator.confirm,
+    onDismiss: recoveryOperator.dismiss,
+    onFollowUp: recoveryOperator.followUp,
+  }) : null;
+  const showLandscapeRecovery = Boolean(cameraHud && recovery && (recoveryOperator.confirming || recoveryOperator.error || recoveryOperator.view.sessionActive || (recoveryOperator.displayReason && !recoveryOperator.view.actions.begin.enabled)));
   const renderCameraHud = () => <View style={[styles.immersiveSurface, { backgroundColor: '#000000', height: immersiveCanvasHeight }]} testID="control-immersive-surface">
     {controlLandscapeHud({
       robotName: immersiveRobotName,
@@ -1105,7 +1177,7 @@ export function ControlScreen({
       video: videoJoined ? <ControlVideoSurface presentation={video} surface={videoSurface} active={appActive && !leaving} onInterrupted={handleCancel} /> : null,
       feedback: operationFeedback,
       confirmation: renderImmersiveIntent(),
-      recovery: recoveryControls,
+      recovery: showLandscapeRecovery ? recoveryPanel : undefined,
     })}
   </View>;
 
@@ -1190,7 +1262,7 @@ export function ControlScreen({
             </Pressable>
           </View>
 
-          {!layout.useColumns ? recoveryControls : null}
+          {!layout.useColumns ? recoveryPanel : null}
           {directConnection ? <View style={styles.statusSummary} testID="control-direct-connection">
             <Text style={[styles.label, { color: colors.ink }]}>{directConnection.endpointLabel}</Text>
             <Text accessibilityLiveRegion="polite" style={[styles.caption, { color: colors.muted }]}>{directConnection.summary}</Text>

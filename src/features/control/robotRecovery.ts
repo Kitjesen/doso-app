@@ -6,7 +6,9 @@ export type RobotRecoveryPhase = 'unspecified' | 'absent' | 'selected' | 'enable
 export type RobotRecoveryReason =
   | 'none' | 'unavailable' | 'model-not-configured' | 'enable-sequence-unverified' | 'walking'
   | 'not-selected' | 'not-stable' | 'heartbeat-expired' | 'precondition';
+/** Wire commands. Enable stays inside the one-tap sequence and is not an operator step. */
 export type RobotRecoveryCommand = 'enter' | 'enable' | 'start' | 'cancel' | 'exit';
+export type RobotRecoveryOperatorAction = 'begin' | 'cancel' | 'exit';
 
 export type RobotRecoveryStatus = Readonly<{
   service: 'ready' | 'missing' | 'unavailable' | 'unread';
@@ -23,14 +25,15 @@ export type RobotRecoveryStatus = Readonly<{
   heartbeatError: string | null;
 }>;
 
-export type RobotRecoveryActionState = Readonly<{ enabled: boolean; reason: string | null }>;
+export type RobotRecoveryActionState = Readonly<{ enabled: boolean; reason: string | null; label: string }>;
 export type RobotRecoveryPresentation = Readonly<{
   title: '摔倒恢复';
   phaseLabel: string;
   reason: string | null;
   heartbeatLabel: string | null;
-  actions: Readonly<Record<RobotRecoveryCommand, RobotRecoveryActionState>>;
-  confirms: Readonly<{ enable: string; start: string }>;
+  sessionActive: boolean;
+  actions: Readonly<Record<RobotRecoveryOperatorAction, RobotRecoveryActionState>>;
+  confirmation: string;
 }>;
 
 const PHASES: readonly RobotRecoveryPhase[] = ['unspecified', 'absent', 'selected', 'enabled', 'getting-up', 'stable-stand', 'exiting'];
@@ -39,8 +42,8 @@ const REASONS: readonly RobotRecoveryReason[] = ['none', 'unavailable', 'model-n
 const PHASE_LABELS: Record<RobotRecoveryPhase, string> = {
   unspecified: '状态未知',
   absent: '未进入',
-  selected: '已进入，等待使能',
-  enabled: '已使能，等待起立',
+  selected: '已进入倒地恢复',
+  enabled: '已进入倒地恢复',
   'getting-up': '正在起立',
   'stable-stand': '已稳定站立',
   exiting: '正在退出',
@@ -49,18 +52,15 @@ const PHASE_LABELS: Record<RobotRecoveryPhase, string> = {
 const REASON_TEXT: Record<Exclude<RobotRecoveryReason, 'none'>, string> = {
   unavailable: '摔倒恢复当前不可用',
   'model-not-configured': '摔倒恢复模型尚未配置',
-  'enable-sequence-unverified': '使能顺序尚未核验，暂时不能使能',
+  'enable-sequence-unverified': '使能顺序尚未核验，暂时不能开始摔倒恢复',
   walking: '站立或趴地时可进入摔倒恢复；行走中不可切换。',
   'not-selected': '尚未进入摔倒恢复',
-  'not-stable': '尚未稳定站立，还不能交回运动',
+  'not-stable': '尚未稳定站立，还不能回到运动模式',
   'heartbeat-expired': '恢复心跳已超时',
   precondition: '机器人拒绝了这次摔倒恢复操作',
 };
 
-export const ROBOT_RECOVERY_CONFIRMATION = Object.freeze({
-  enable: '使能恢复会让机器狗开始动作。请确认周围安全，急停可用。',
-  start: '摔倒起立会让机器狗从倒地姿态起身。请确认周围安全，急停可用。',
-});
+export const ROBOT_RECOVERY_CONFIRMATION = '摔倒恢复会让机器狗从倒地姿态起身。请确认周围安全，急停可用。';
 
 export function emptyRecoveryStatus(service: RobotRecoveryStatus['service'] = 'unread'): RobotRecoveryStatus {
   return {
@@ -108,12 +108,37 @@ function recoveryCapability(profile: BrainstemGrpcProfile | null | undefined) {
   return profile?.modeCapabilities?.find(item => item.id === 'recovery' && item.kind === 'recovery-action') ?? null;
 }
 
-function blocked(reason: string): RobotRecoveryActionState {
-  return { enabled: false, reason };
+function blocked(label: string, reason: string): RobotRecoveryActionState {
+  return { enabled: false, reason, label };
 }
 
-function open(): RobotRecoveryActionState {
-  return { enabled: true, reason: null };
+function open(label: string): RobotRecoveryActionState {
+  return { enabled: true, reason: null, label };
+}
+
+/** The robot is still waiting in the selected phase, so output still needs the Enable RPC. */
+export function recoveryNeedsEnable(status: RobotRecoveryStatus): boolean {
+  return status.sessionSelected && status.phase === 'selected';
+}
+
+/**
+ * One operator press. Enter first. The open session starts the 100 ms heartbeat
+ * when that selection sticks, before this function continues. Enable runs only
+ * while the robot remains in the selected phase and still accepts that sequence.
+ * Start follows once the phase is enabled. Connecting never calls this.
+ */
+export async function beginRobotRecovery(
+  command: (command: RobotRecoveryCommand) => Promise<RobotRecoveryStatus>,
+): Promise<RobotRecoveryStatus> {
+  const entered = await command('enter');
+  if (!entered?.sessionSelected) return entered;
+  let current = entered;
+  if (recoveryNeedsEnable(current)) {
+    if (current.enableSequenceVerified !== true) return current;
+    current = await command('enable');
+  }
+  if (!current?.sessionSelected || current.phase !== 'enabled') return current;
+  return command('start');
 }
 
 export function presentRobotRecovery(input: {
@@ -137,28 +162,27 @@ export function presentRobotRecovery(input: {
   else if (status.sessionSelected && (status.reason === 'heartbeat-expired' || status.heartbeatError === 'timeout' || status.heartbeatError === 'unavailable')) reason = REASON_TEXT['heartbeat-expired'];
   else if (status.reason !== 'none') reason = status.detail || REASON_TEXT[status.reason];
 
-  const serviceBlocked = status.service !== 'ready' || !capability?.available || status.modelConfigured === false;
-  const canEnter = !serviceBlocked && !walking && !status.sessionSelected;
-  const canEnable = status.service === 'ready' && status.sessionSelected && status.modelConfigured === true && status.enableSequenceVerified === true
-    && (status.phase === 'selected' || status.phase === 'enabled');
-  const canStart = status.service === 'ready' && status.phase === 'enabled' && status.modelConfigured === true && status.enableSequenceVerified === true;
+  const sessionActive = status.service === 'ready' && status.sessionSelected;
+  const idle = !sessionActive && (status.phase === 'absent' || status.phase === 'unspecified');
+  const serviceReady = Boolean(input.status) && status.service === 'ready' && Boolean(capability?.available) && status.modelConfigured === true;
+  if (!reason && idle && serviceReady && status.enableSequenceVerified === false) reason = REASON_TEXT['enable-sequence-unverified'];
+  const canBegin = serviceReady && status.enableSequenceVerified === true && !walking && idle;
   const stable = status.phase === 'stable-stand' || status.stableStand || status.locomotionAvailable;
-  const canExit = status.service === 'ready' && status.sessionSelected && stable;
-  const canCancel = status.service === 'ready' && status.sessionSelected && !stable;
-  const enableReason = status.enableSequenceVerified === false ? REASON_TEXT['enable-sequence-unverified'] : reason;
+  const canExit = sessionActive && stable;
+  const canCancel = sessionActive && !stable;
 
   return {
     title: '摔倒恢复',
     phaseLabel: status.service === 'ready' ? PHASE_LABELS[status.phase] : '未同步',
     reason,
-    heartbeatLabel: status.sessionSelected ? (status.heartbeatFresh ? '心跳正常' : '心跳未确认') : null,
+    heartbeatLabel: sessionActive ? (status.heartbeatFresh ? '心跳正常' : '心跳未确认') : null,
+    sessionActive,
     actions: {
-      enter: canEnter ? open() : blocked(reason ?? '当前不能进入摔倒恢复'),
-      enable: canEnable ? open() : blocked(enableReason ?? '当前不能使能恢复'),
-      start: canStart ? open() : blocked(reason ?? '当前不能开始摔倒起立'),
-      cancel: canCancel ? open() : blocked(stable ? '已稳定站立，请交回运动' : '尚未进入摔倒恢复'),
-      exit: canExit ? open() : blocked(REASON_TEXT['not-stable']),
+      begin: canBegin ? open('摔倒恢复') : blocked('摔倒恢复', reason ?? '当前不能进入摔倒恢复'),
+      cancel: canCancel ? open('取消恢复') : blocked('取消恢复', stable ? '已稳定站立，请回到运动模式' : '尚未进入摔倒恢复'),
+      // Exit hands the stable stand back to locomotion. It is not SwitchProfile.
+      exit: canExit ? open('运动模式') : blocked('运动模式', REASON_TEXT['not-stable']),
     },
-    confirms: ROBOT_RECOVERY_CONFIRMATION,
+    confirmation: ROBOT_RECOVERY_CONFIRMATION,
   };
 }
