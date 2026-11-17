@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Local, secret-free gate. The full `npm run test:release-gate` also runs
+  # Supabase, Deno, and PowerShell checks, so it is not a required job.
+  unit:
+    name: Typecheck and local tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # Expo SDK 57 requires Node >= 22.13. Node 24 is the current LTS.
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Recovery and control tests
+        run: node --experimental-strip-types --test scripts/robot-recovery.test.mjs scripts/brainstem-control-session.test.mjs scripts/control-screen-interaction.test.mjs
+
+      - name: Local Node tests
+        run: |
+          set -eu
+          for script in \
+            test:release-gate-core \
+            test:control-state \
+            test:brainstem-readiness \
+            test:device-enrollment \
+            test:connection \
+            test:auth-errors \
+            test:auth-request-fetch \
+            test:home-appearance \
+            test:ui-details \
+            test:profile-editing \
+            test:profile-upgrade-preflight \
+            test:offline-preview \
+            test:map-graph \
+            test:design-qa-comparison \
+            test:design-qa-android-capture \
+            test:design-qa-harness \
+            test:email-otp \
+            test:db-hosted-public-probe \
+            auth-links:test \
+            email:send-previews:test
+          do
+            npm run "$script"
+          done
+          node --experimental-strip-types --test \
+            scripts/brainstem-imu.test.mjs \
+            scripts/joystick-input.test.mjs
+          node --test \
+            scripts/control-joystick.test.mjs \
+            scripts/control-slider.test.mjs \
+            scripts/control-video-surface.test.mjs \
+            scripts/control-operations-wiring.test.mjs \
+            scripts/bounded-command.test.mjs \
+            tools/ble-provisioning-sim/protocol.test.mjs
