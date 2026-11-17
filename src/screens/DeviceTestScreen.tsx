@@ -133,5 +133,6 @@ export function DeviceTestScreen({ onExit }: { onExit: () => void }) {
     directConnection={telemetry.presentation ?? { ...describeDirectRobotConnection(null), endpointLabel: label }}
     operationCallbacks={control.operationCallbacks} operationReadiness={control.operationReadiness}
     manualControlBlockedReason={control.state.error ?? '请先连接机器狗并确认电机与姿态。'}
+    videoProbeHost={endpoint?.host ?? null}
   />;
 }

@@ -27,7 +27,8 @@
     "react-native-ble-manager": "12.5.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-url-polyfill": "^4.0.0",
-    "react-native-web": "^0.21.2"
+    "react-native-web": "^0.21.2",
+    "react-native-webrtc": "155.0.1"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
@@ -131,7 +132,7 @@
     "test:map-graph": "node --experimental-strip-types --test scripts/map-graph.test.mjs",
     "test:tasks-ui": "node scripts/verify-tasks-ui.mjs && node --experimental-strip-types --test scripts/verify-task-start-policy.mts && node --test scripts/task-screen-interaction.test.mjs",
     "test:profile-ui": "node scripts/verify-profile-ui.mjs && node --experimental-strip-types --test scripts/verify-profile-layout.mts && node scripts/verify-figma-profile-align.mjs",
-    "test:control-ui": "node scripts/verify-control-ui.mjs && node --experimental-strip-types --test scripts/verify-control-layout.mts && node --test scripts/joystick-input.test.mjs scripts/control-joystick.test.mjs scripts/control-screen-interaction.test.mjs",
+    "test:control-ui": "node scripts/verify-control-ui.mjs && node --experimental-strip-types --test scripts/verify-control-layout.mts && node --test scripts/joystick-input.test.mjs scripts/control-joystick.test.mjs scripts/control-screen-interaction.test.mjs && node --experimental-strip-types --test scripts/video-probe-whep.test.mjs",
     "test:figma-control-script": "node scripts/verify-figma-control-align.mjs",
     "test:model-select-ui": "node scripts/verify-model-select-ui.mjs && node --experimental-strip-types --test scripts/verify-model-select-layout.mjs",
     "test:release-gate": "node scripts/verify-release-gate.mjs",

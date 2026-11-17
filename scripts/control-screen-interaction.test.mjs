@@ -155,6 +155,7 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     '../components/RobotRecoveryControls': recoveryPanelModule.exports,
     '../features/control/robotRecovery': { beginRobotRecovery, presentRobotRecovery },
     '../components/ControlVideoSurface': { ControlVideoSurface },
+    '../features/control/useControlRobotVideo': { useControlRobotVideo: () => ({}) },
     '../components/JoystickLayoutSettings': { JoystickLayoutSettings },
     '../features/control/joystickLayoutPreferences': { ...joystickLayoutModule.exports,
       loadJoystickLayoutPreferences: layoutLoad, saveJoystickLayoutPreferences: layoutSave },
@@ -1482,6 +1483,21 @@ test('video HUD only displays measured speed and identified telemetry sources', 
   } });
   assert.match(screen.copy, /0\.2\s*m\/s/); assert.match(screen.copy, /71%/); assert.match(screen.copy, /48\.1\s*V/);
   assert.equal(screen.pair.disabled, true, 'receiving telemetry is not an actuator permission');
+  screen.unmount();
+});
+
+test('connected landscape keeps a connecting or failed video visible without treating it as live', () => {
+  const screen = mount({
+    dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, connected: true,
+    video: { id: 'probe-connecting', phase: 'connecting' },
+    videoSurface: { type: 'FixtureVideo', props: {} },
+  });
+  assert.equal(screen.videoStage.presentation.phase, 'connecting');
+  assert.equal(screen.videoStage.surface.type, 'FixtureVideo');
+  assert.doesNotMatch(screen.copy, /图传已连接|直播中/);
+  screen.render({ video: { id: 'probe-failed', phase: 'error' }, videoSurface: undefined });
+  assert.equal(screen.videoStage.presentation.phase, 'error');
+  assert.equal(screen.find('control-landscape-hud') != null, true);
   screen.unmount();
 });
 
