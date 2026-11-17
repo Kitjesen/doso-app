@@ -1534,7 +1534,8 @@ test('receiving landscape video paints the connected HUD and blocks terrain whil
   assert.match(screen.copy, /THUNDER-01 · 已连接/);
   assert.match(screen.copy, /本设备控制/);
   assert.match(screen.copy, /设备已解锁/);
-  assert.match(screen.copy, /电量 80%/);
+  assert.match(screen.copy, /总线电压 —/);
+  assert.doesNotMatch(screen.copy, /电量|80%/);
   assert.match(screen.copy, /信号 72%/);
   assert.match(screen.copy, /速度 0\.00 m\/s/);
   assert.match(screen.copy, /平地/);
@@ -1577,6 +1578,46 @@ test('receiving landscape video paints the connected HUD and blocks terrain whil
   assert.equal(screen.find('control-hud-unlocked'), undefined);
   assert.equal(screen.find('control-hud-local-control'), undefined);
   screen.unmount();
+});
+
+test('landscape camera HUD shows a fresh device bus voltage and an honest dash otherwise', () => {
+  const dimensions = { width: 844, height: 390, fontScale: 1 };
+  const runtime = {
+    controlLink: 'connected', controlAuthority: 'held', posture: 'standing', motorState: 'enabled',
+    speed: { linearMps: 0.2, lateralMps: 0, yawRps: 0, source: 'device' },
+  };
+  const fresh = mount({
+    dev: false, dimensions, connected: true, batteryPercent: 80,
+    runtimeState: {
+      ...runtime,
+      battery: { percent: 80, voltageV: 48.2, source: 'device', updatedAt: new Date().toISOString() },
+      signal: { qualityPercent: 90, rssiDbm: -40, source: 'unknown' },
+    },
+  });
+  assert.ok(fresh.find('control-landscape-hud'));
+  assert.ok(fresh.find('control-telemetry-bus'));
+  assert.match(fresh.copy, /总线电压 48\.2 V/);
+  assert.match(fresh.copy, /信号 —/);
+  assert.match(fresh.copy, /速度 0\.20 m\/s/);
+  assert.doesNotMatch(fresh.copy, /电量|80%|90%|-40/);
+  fresh.unmount();
+
+  const cases = [
+    { battery: { percent: null, voltageV: 48.2, source: 'device', updatedAt: new Date(Date.now() - 15_000).toISOString() } },
+    { battery: { percent: null, voltageV: 48.2, source: 'device', updatedAt: new Date(Date.now() + 1_000).toISOString() } },
+    { battery: { percent: null, voltageV: 48.2, source: 'unknown', updatedAt: new Date().toISOString() } },
+    { battery: { percent: null, voltageV: 0, source: 'device', updatedAt: new Date().toISOString() } },
+    { battery: { percent: null, voltageV: 1001, source: 'device', updatedAt: new Date().toISOString() } },
+    { battery: { percent: null, voltageV: 48.2, source: 'device' } },
+    {},
+  ];
+  for (const patch of cases) {
+    const screen = mount({ dev: false, dimensions, connected: true, batteryPercent: 80, runtimeState: { ...runtime, ...patch } });
+    assert.match(screen.copy, /总线电压 —/);
+    assert.match(screen.copy, /信号 —/);
+    assert.doesNotMatch(screen.copy, /48\.2|0\.0 V|1001|电量|80%/);
+    screen.unmount();
+  }
 });
 
 test('connected landscape stand, sit, and stop call the live operation callbacks', async () => {

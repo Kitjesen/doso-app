@@ -39,7 +39,8 @@ export type ControlLandscapeHudProps = Readonly<{
   showUnlocked: boolean;
   terrain: readonly LandscapeTerrainOption[];
   onSelectTerrain: (id: ControlTerrainModeId) => void;
-  batteryLabel: string;
+  /** Fresh device motor-bus voltage, or — when that reading is unknown. */
+  busVoltageLabel: string;
   signalLabel: string;
   speedLabel: string;
   onStop: () => void;
@@ -145,7 +146,7 @@ function Chip({ children, style, testID }: { children: ReactNode; style?: ViewSt
 
 export function controlLandscapeHud({
   robotName, connectionLabel, onBack, onOpenConnection, showLocalControl, showUnlocked,
-  terrain, onSelectTerrain, batteryLabel, signalLabel, speedLabel, onStop, stopDisabled, stopHint,
+  terrain, onSelectTerrain, busVoltageLabel, signalLabel, speedLabel, onStop, stopDisabled, stopHint,
   postures, docksExpanded, onToggleDocks, onOpenSettings, settingsMenu, joystick, stickFrameStyle, onStickFrameLayout, dockCenterY, videoJoined, video, feedback, confirmation, recovery,
 }: ControlLandscapeHudProps) {
   const selectedTerrain = terrain.find(option => option.selected) ?? null;
@@ -153,7 +154,7 @@ export function controlLandscapeHud({
   const selectedPosture = postures.find(option => option.selected) ?? null;
   const otherPostures = postures.filter(option => option !== selectedPosture);
   const metrics = [
-    { id: 'battery', icon: 'battery-half-outline' as const, label: '电量', value: batteryLabel },
+    { id: 'bus', icon: 'flash-outline' as const, label: '总线电压', value: busVoltageLabel },
     { id: 'signal', icon: 'cellular-outline' as const, label: '信号', value: signalLabel },
     { id: 'speed', icon: 'speedometer-outline' as const, label: '速度', value: speedLabel },
   ];
