@@ -93,6 +93,15 @@ export function interpretCurrentNetwork(currentSsid: string | null): HotspotSigh
   return sightingFrom(rule ? [rule] : [], current, 0);
 }
 
+/**
+ * Permission sheets and the system hotspot confirmation report `inactive`.
+ * Those must not cancel the attempt that opened them. Leaving the app
+ * (`background`, and any other non-visible state) still stops it.
+ */
+export function shouldInterruptWifiDiscoveryForAppState(state: string): boolean {
+  return state !== 'active' && state !== 'inactive';
+}
+
 export function isWifiJoinResult(value: unknown): value is WifiJoinResult {
   return value === 'joined' || value === 'already' || value === 'cancelled';
 }

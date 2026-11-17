@@ -50,6 +50,13 @@ test('Android scan results surface only hotspot rules and do not treat the lab r
   assert.equal(empty.unrelatedCurrent, false);
 });
 
+test('inactive system sheets do not count as leaving the app', () => {
+  assert.equal(session.shouldInterruptWifiDiscoveryForAppState('active'), false);
+  assert.equal(session.shouldInterruptWifiDiscoveryForAppState('inactive'), false);
+  assert.equal(session.shouldInterruptWifiDiscoveryForAppState('background'), true);
+  assert.equal(session.shouldInterruptWifiDiscoveryForAppState('unknown'), true);
+});
+
 test('iOS current-network interpretation never invents a nearby list', () => {
   assert.equal(session.interpretCurrentNetwork('DOSOrobotics').apply?.port, 13145);
   const router = session.interpretCurrentNetwork('TopSpeed5GCPE-5525');

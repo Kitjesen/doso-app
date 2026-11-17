@@ -31,6 +31,10 @@ function mount({ adapter, host = '', port = '13145' } = {}) {
   const slots = [], cleanups = [];
   let cursor = 0, unmounted = false;
   const listeners = new Set();
+  const appState = {
+    currentState: 'active',
+    addEventListener(_event, callback) { listeners.add(callback); return { remove: () => listeners.delete(callback) }; },
+  };
   const applied = [];
   const releaseRef = { current() {} };
   const react = {
@@ -45,7 +49,7 @@ function mount({ adapter, host = '', port = '13145' } = {}) {
     react,
     'react/jsx-runtime': require('react/jsx-runtime'),
     'react-native': {
-      AppState: { currentState: 'active', addEventListener: (_event, callback) => { listeners.add(callback); return { remove: () => listeners.delete(callback) }; } },
+      AppState: appState,
       Linking: { openSettings: async () => { applied.push('settings'); } },
       Pressable: 'Pressable', View: 'View', StyleSheet: { create: value => value },
     },
@@ -76,6 +80,7 @@ function mount({ adapter, host = '', port = '13145' } = {}) {
   render();
   return {
     applied, releaseRef, render, listeners,
+    setAppState(next) { appState.currentState = next; for (const callback of listeners) callback(next); },
     get copy() { return nodes.filter(node => node.type === 'copy').map(node => node.value).join(' '); },
     element: id => nodes.find(node => node.props?.testID === id),
   };
@@ -165,7 +170,9 @@ test('iOS checks the current network, explains that it cannot list nearby SSIDs,
   assert.equal(view.element('wifi-discovery-scan'), undefined);
   assert.match(view.copy, /不能列出附近的全部 Wi-Fi/);
   assert.match(view.copy, /蓝牙配网尚未接入/);
-  assert.ok(view.element('wifi-discovery-match-DOSOrobotics'));
+  assert.equal(view.element('wifi-discovery-title-DOSOrobotics').props.children, '已知热点');
+  assert.equal(view.element('wifi-discovery-planned-DOSOrobotics').props.children, '这是预设的机器狗热点，不是本次检查结果。');
+  assert.doesNotMatch(view.copy, /已填入此地址|已填入 192\.168\.50\.1/);
   await view.element('wifi-discovery-current').props.onPress();
   view.render();
   assert.deepEqual(calls, ['current']);
@@ -192,8 +199,94 @@ test('iOS fills the address when the phone is already on the robot hotspot and d
   assert.deepEqual(calls, ['current']);
   assert.deepEqual(view.applied, [['192.168.50.1', 13145]]);
   assert.equal(view.element('wifi-discovery-join-DOSOrobotics'), undefined);
+  assert.equal(view.element('wifi-discovery-planned-DOSOrobotics'), undefined);
+  assert.equal(view.element('wifi-discovery-title-DOSOrobotics').props.children, '机器狗热点');
   assert.match(view.copy, /手机已连上这个热点/);
 });
+
+test('a system confirmation sheet stays inactive and does not cancel the search or release a join', async () => {
+  const scan = deferred();
+  const join = deferred();
+  const releases = [];
+  const view = mount({ adapter: {
+    platform: 'android-scan', canJoinKnownHotspot: true,
+    scan: () => scan.promise,
+    async currentSsid() { return null; },
+    joinKnownHotspot: () => join.promise,
+    async releaseJoinedNetwork() { releases.push('release'); },
+  } });
+  const searching = view.element('wifi-discovery-scan').props.onPress();
+  view.render();
+  view.setAppState('inactive');
+  view.render();
+  assert.match(view.copy, /正在搜索机器狗热点/);
+  assert.doesNotMatch(view.copy, /应用进入后台/);
+  assert.deepEqual(releases, []);
+  scan.resolve({ ssids: ['DOSOrobotics'], throttled: false });
+  await searching;
+  view.render();
+  assert.deepEqual(view.applied, [['192.168.50.1', 13145]]);
+  view.setAppState('active');
+  const joining = view.element('wifi-discovery-join-DOSOrobotics').props.onPress();
+  view.render();
+  view.setAppState('inactive');
+  view.render();
+  assert.match(view.copy, /正在请求加入机器狗热点/);
+  assert.deepEqual(releases, []);
+  join.resolve('joined');
+  await joining;
+  view.render();
+  assert.equal(releases.length, 0);
+  assert.deepEqual(view.applied.at(-1), ['192.168.50.1', 13145]);
+});
+
+test('leaving the app in the background still stops a search and releases an in-flight join', async () => {
+  const scan = deferred();
+  const scanReleases = [];
+  const scanning = mount({ adapter: {
+    platform: 'android-scan', canJoinKnownHotspot: true,
+    scan: () => scan.promise,
+    async currentSsid() { return null; },
+    async joinKnownHotspot() { return 'joined'; },
+    async releaseJoinedNetwork() { scanReleases.push('release'); },
+  } });
+  const scanResult = scanning.element('wifi-discovery-scan').props.onPress();
+  scanning.render();
+  scanning.setAppState('background');
+  scanning.render();
+  assert.match(scanning.copy, /应用进入后台，这次搜索已停止/);
+  scan.resolve({ ssids: ['DOSOrobotics'], throttled: false });
+  await scanResult;
+  scanning.render();
+  assert.deepEqual(scanning.applied, []);
+  assert.deepEqual(scanReleases, []);
+
+  const join = deferred();
+  const joinReleases = [];
+  const joiningView = mount({ adapter: {
+    platform: 'ios-current', canJoinKnownHotspot: true,
+    async scan() { throw new Error('scan'); },
+    async currentSsid() { return null; },
+    joinKnownHotspot: () => join.promise,
+    async releaseJoinedNetwork() { joinReleases.push('release'); },
+  } });
+  const joinResult = joiningView.element('wifi-discovery-join-DOSOrobotics').props.onPress();
+  joiningView.render();
+  joiningView.setAppState('background');
+  joiningView.render();
+  assert.match(joiningView.copy, /应用进入后台，这次搜索已停止/);
+  assert.deepEqual(joinReleases, ['release']);
+  join.resolve('joined');
+  await joinResult;
+  joiningView.render();
+  assert.deepEqual(joiningView.applied, []);
+});
+
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
 
 test('web and other unsupported environments do not pretend to scan', () => {
   const view = mount({ adapter: {

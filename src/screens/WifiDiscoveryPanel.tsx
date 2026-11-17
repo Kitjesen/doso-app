@@ -9,6 +9,7 @@ import {
   reduceWifiPanel,
   wifiDiscoveryHint,
   wifiJoinOffer,
+  wifiPlannedHotspotNote,
   wifiSettingsAction,
   wifiStatusText,
   type WifiPanelState,
@@ -18,6 +19,7 @@ import { wifiDiscoveryAdapter } from '../features/robot-lifecycle/wifiDiscoveryA
 import {
   interpretAndroidScan,
   interpretCurrentNetwork,
+  shouldInterruptWifiDiscoveryForAppState,
   wifiErrorFromUnknown,
   type WifiDiscoveryAdapter,
 } from '../features/robot-lifecycle/wifiDiscoverySession';
@@ -71,7 +73,9 @@ export function WifiDiscoveryPanel({
     mountedRef.current = true;
     if (releaseRef) releaseRef.current = () => releaseNetworkRef.current();
     const subscription = AppState.addEventListener('change', next => {
-      if (next === 'active' || stateRef.current.phase !== 'loading') return;
+      // inactive is the system confirmation sheet (permission, location, or
+      // hotspot join). Keep that attempt. A real background still stops it.
+      if (!shouldInterruptWifiDiscoveryForAppState(next) || stateRef.current.phase !== 'loading') return;
       const joining = stateRef.current.action === 'join';
       requestRef.current += 1;
       pendingRef.current = false;
@@ -164,9 +168,11 @@ export function WifiDiscoveryPanel({
   const card = (rule: RobotHotspotRule) => {
     const onNetwork = normalizeSsid(state.sighting?.currentSsid) === rule.ssid || (state.holding && state.joinResult === 'joined');
     const discovered = state.sighting?.matches.some(match => match.ssid === rule.ssid) === true;
+    const planned = adapter.platform === 'ios-current' && !discovered;
     const needsConfirm = discovered && currentHost.trim().length > 0 && currentHost.trim().toLowerCase() !== rule.host;
     return <View key={rule.ssid} style={[styles.match, { backgroundColor: colors.background }]} testID={`wifi-discovery-match-${rule.ssid}`}>
-      <Text style={[typography.label, { color: appearance.ink }]}>{rule.label}</Text>
+      <Text style={[typography.label, { color: appearance.ink }]} testID={`wifi-discovery-title-${rule.ssid}`}>{planned ? '已知热点' : rule.label}</Text>
+      {planned ? <Text style={[typography.supporting, { color: appearance.secondary }]} testID={`wifi-discovery-planned-${rule.ssid}`}>{wifiPlannedHotspotNote}</Text> : null}
       <Text style={[typography.supporting, { color: appearance.secondary }]}>{rule.ssid}</Text>
       <Text style={[typography.supporting, { color: appearance.ink }]} testID={`wifi-discovery-address-${rule.ssid}`}>{rule.host}:{rule.port}</Text>
       {onNetwork ? <Text style={[typography.supporting, { color: appearance.secondary }]}>手机已连上这个热点。</Text> : null}

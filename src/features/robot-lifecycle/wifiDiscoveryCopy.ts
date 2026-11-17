@@ -162,3 +162,4 @@ export function wifiStatusText(state: WifiPanelState, platform: WifiPlatformKind
 }
 
 export const wifiJoinOffer = '加入后，这个应用会改走机器狗热点，当前局域网里的地址会暂时连不上。可以随时恢复原网络。机器狗本身的网络不会被修改。';
+export const wifiPlannedHotspotNote = '这是预设的机器狗热点，不是本次检查结果。';
