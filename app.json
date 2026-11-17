@@ -58,6 +58,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "./plugins/withRobotWifiPermissions",
       "expo-font",
       [
         "expo-image-picker",

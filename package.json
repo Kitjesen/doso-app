@@ -62,6 +62,7 @@
     "test:network": "node scripts/verify-network-backend.mjs",
     "network:check": "node --env-file-if-exists=.env.local scripts/check-backend-connectivity.mjs",
     "test:connection": "node --test scripts/check-backend-connectivity.test.mjs scripts/brainstem-readonly.test.mjs scripts/connection-diagnostics-screen.test.mjs scripts/ble-discovery-ios.test.mjs",
+    "test:wifi-discovery": "node --test scripts/robot-hotspot-rules.test.mjs scripts/wifi-discovery-session.test.mjs scripts/wifi-discovery-panel.test.mjs scripts/robot-wifi-native.test.mjs scripts/robot-wifi-permissions.test.mjs scripts/robot-connection-screen.test.mjs",
     "test:brainstem-readiness": "node --test scripts/brainstem-integration-readiness.test.mjs",
     "test:control-state": "node --test scripts/control-action-state.test.mjs",
     "test:brainstem-bridge": "npm --prefix iot/brainstem-bridge test",

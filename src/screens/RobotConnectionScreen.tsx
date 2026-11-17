@@ -17,6 +17,7 @@ import {
 } from '../services/brainstemGrpc';
 import { isBrainstemControlAvailable } from '../services/brainstemControl';
 import { getBrainstemIntegrationReadiness } from '../services/brainstemIntegrationReadiness';
+import { WifiDiscoveryPanel } from './WifiDiscoveryPanel';
 
 type Props = {
   onBack: () => void;
@@ -58,6 +59,7 @@ export function RobotConnectionScreen({ onBack, onOpenBleDiscovery, onBindDevice
   const [observation, setObservation] = useState<BrainstemGrpcObservation | null>(null);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [diagnosticIssues, setDiagnosticIssues] = useState<Partial<Record<'profile' | 'voltage' | 'motors', string>>>({});
+  const releaseWifi = useRef<() => void>(() => {});
   const request = useRef<AbortController | null>(null);
   const operation = useRef(0);
   const busyRef = useRef(false);
@@ -119,6 +121,7 @@ export function RobotConnectionScreen({ onBack, onOpenBleDiscovery, onBindDevice
   });
   const changeEndpoint = (kind: 'host' | 'port', value: string) => {
     if (busyRef.current) return;
+    releaseWifi.current();
     operation.current++; clearExpiry(); cancelLocalIdentity(); setObservation(null); setMessage(null); setIdentityAlias(null); setLocalIdentity(null); setIdentityReadsVerified(false);
     if (kind === 'host') setHost(value); else setPort(value);
   };
@@ -274,7 +277,12 @@ export function RobotConnectionScreen({ onBack, onOpenBleDiscovery, onBindDevice
     }
     await openControl();
   };
-  const leave = (navigate: () => void) => { interrupt(); setIdentityAlias(null); setObservation(null); setIdentityReadsVerified(false); navigate(); };
+  const leave = (navigate: () => void) => { interrupt(); releaseWifi.current(); setIdentityAlias(null); setObservation(null); setIdentityReadsVerified(false); navigate(); };
+  const applyDiscoveredAddress = (nextHost: string, nextPort: number) => {
+    if (busyRef.current) return;
+    operation.current++; clearExpiry(); cancelLocalIdentity(); setObservation(null); setMessage(null); setIdentityAlias(null); setLocalIdentity(null); setIdentityReadsVerified(false);
+    setHost(nextHost); setPort(String(nextPort));
+  };
   const cancel = () => { interrupt(); setBusy(null); setObservation(null); setIdentityReadsVerified(false); setMessage('本次连接检查已取消。'); };
   const button = (label: string, id: string, press: () => void | Promise<void>, disabled = false, primary = false) => (
     <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={press}
@@ -330,6 +338,7 @@ export function RobotConnectionScreen({ onBack, onOpenBleDiscovery, onBindDevice
           <Text style={[typography.label, { color: p.ink }]}>机器狗地址</Text>
           {wireTransport === 'lan-dev' ? <Text style={[typography.supporting, { color: p.secondary }]} testID="robot-lan-mode">局域网连接</Text> : null}
           <TextInput accessibilityLabel="机器狗地址" autoCapitalize="none" autoCorrect={false} editable={!busy} keyboardType="url" onChangeText={value => changeEndpoint('host', value)} placeholder="输入 IP 或主机名" placeholderTextColor={p.secondary} style={[styles.input, { backgroundColor: colors.background, color: p.ink }]} testID="robot-grpc-host" value={host} />
+          <WifiDiscoveryPanel currentHost={host} currentPort={port} disabled={busy !== null} onApplyAddress={applyDiscoveredAddress} releaseRef={releaseWifi} testID="connection-wifi-discovery" />
           {button(busy ? '取消连接' : '连接机器狗', busy ? 'robot-grpc-cancel' : 'robot-connect', busy ? cancel : connect, !busy && (!available || (!!onOpenControl && !controlAvailable)), true)}
           <Text accessibilityLiveRegion="polite" style={[typography.supporting, { color: p.secondary }]} testID="robot-grpc-result">{message ?? (!available || (onOpenControl && !controlAvailable) ? '请升级安装包以连接机器狗。' : '未连接')}</Text>
         </View>

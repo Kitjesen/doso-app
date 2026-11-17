@@ -39,6 +39,7 @@ const RELEASE_GATE_STEPS = Object.freeze([
   'test:provisioning-ui',
   'test:firmware-update-ui',
   'test:ble-discovery',
+  'test:wifi-discovery',
   'test:robot-lifecycle-ui',
   'test:trusted-device-data-ui',
   designAudit ? 'test:design-evidence:audit' : 'test:design-evidence',

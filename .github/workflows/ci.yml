@@ -49,6 +49,7 @@ jobs:
             test:brainstem-readiness \
             test:device-enrollment \
             test:connection \
+            test:wifi-discovery \
             test:auth-errors \
             test:auth-request-fetch \
             test:home-appearance \

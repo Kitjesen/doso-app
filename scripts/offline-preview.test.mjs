@@ -23,7 +23,7 @@ test('only the isolated preview build may select the preview entry', () => {
 test('preview manifest removes networking, BLE and production callback links', () => {
   const manifest = read('plugins/android-preview-manifest.xml');
   assert.equal(read('android/app/src/preview/AndroidManifest.xml').trim(), manifest.trim());
-  for (const permission of ['INTERNET', 'BLUETOOTH_SCAN', 'BLUETOOTH_CONNECT', 'ACCESS_FINE_LOCATION']) {
+  for (const permission of ['INTERNET', 'BLUETOOTH_SCAN', 'BLUETOOTH_CONNECT', 'ACCESS_FINE_LOCATION', 'NEARBY_WIFI_DEVICES', 'ACCESS_WIFI_STATE', 'CHANGE_WIFI_STATE']) {
     assert.ok(manifest.includes(`android.permission.${permission}" tools:node="remove"`));
   }
   assert.match(manifest, /android:label="DOSO Preview"/);

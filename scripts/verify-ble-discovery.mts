@@ -273,6 +273,7 @@ await check('native wiring requests permission, scans, cleans up, and never writ
   assert.equal(locationPlugin[1].locationWhenInUsePermission, false);
   assert.equal(locationPlugin[1].motionUsagePermission, false);
   assert.ok(config.expo.plugins.includes('./plugins/withLegacyBleLocationPermissions'));
+  assert.ok(config.expo.plugins.includes('./plugins/withRobotWifiPermissions'));
 
   const eas = JSON.parse(easConfig);
   assert.equal(eas.build.development.developmentClient, true);
