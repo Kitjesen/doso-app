@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ControlJoystickPair, type JoystickVector } from '../components/ControlJoystick';
 import { ControlVideoSurface, type ControlVideoPresentation } from '../components/ControlVideoSurface';
+import { useControlRobotVideo } from '../features/control/useControlRobotVideo';
 import { JoystickLayoutSettings } from '../components/JoystickLayoutSettings';
 import { createDefaultJoystickLayoutPreferences, loadJoystickLayoutPreferences, resetJoystickLayout, resolveJoystickLayout, saveJoystickLayoutPreferences, updateJoystickPlacement, type JoystickPlacement, type JoystickSide } from '../features/control/joystickLayoutPreferences';
 import { G20InputPanel } from '../components/G20InputPanel';
@@ -86,6 +87,8 @@ type Props = {
   mapContent?: ReactNode;
   video?: ControlVideoPresentation;
   videoSurface?: ReactNode;
+  /** Private LAN host already used for Brainstem. The probe port is derived from it. */
+  videoProbeHost?: string | null;
   /** Connected landscape docks start expanded unless this is explicitly false. */
   landscapeDocksExpanded?: boolean;
   canRecall?: boolean;
@@ -155,7 +158,7 @@ export function ControlScreen({
   allowInteractionPreview = false, developmentInput, productionInput, controlSession, onBack,
   batteryPercent, connected, safetyLock, directConnection, robotName, robotType, canUseManualControl,
   canUseRouteMode, canUseTaskMode, manualControlBlockedReason,
-  routeModeBlockedReason, taskModeBlockedReason, mapContent, video, videoSurface, landscapeDocksExpanded,
+  routeModeBlockedReason, taskModeBlockedReason, mapContent, video, videoSurface, videoProbeHost, landscapeDocksExpanded,
   onOpenMap, onOpenTasks, onOpenRoutes, onOpenJointStatus, onOpenConnection, onOpenConnectionDiagnostics,
   canRecall, recallBlockedReason, onRecall,
   runtimeState, operationReadiness, operationCallbacks, operationStates, operationTargetKey, brainstemIntegration, recovery,
@@ -170,6 +173,12 @@ export function ControlScreen({
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
   const [navigationBottomInset, setNavigationBottomInset] = useState(0);
   const [leaving, setLeaving] = useState(false);
+  const robotVideo = useControlRobotVideo({
+    host: videoProbeHost ?? null,
+    enabled: appActive && !leaving && video == null,
+  });
+  const videoPresentation = video ?? robotVideo.presentation;
+  const videoFrame = videoSurface ?? robotVideo.surface;
   const [joystickSettingsOpen, setJoystickSettingsOpen] = useState(false);
   const [hudSettingsOpen, setHudSettingsOpen] = useState(false);
   const [docksExpanded, setDocksExpanded] = useState(landscapeDocksExpanded !== false);
@@ -833,7 +842,7 @@ export function ControlScreen({
   const immersiveConnectionLabel = immersiveConnectionReady ? '已连接' : directConnection?.fresh ? '只读已响应' : '未连接';
   // Media is a separate observation, never a grant of control authority.
   const hudSurface = isDark ? 'rgba(17,17,19,0.84)' : 'rgba(255,255,255,0.84)';
-  const hudHeaderSurface = isDark || (video?.phase === 'receiving' && videoSurface != null) ? hudSurface : 'transparent';
+  const hudHeaderSurface = isDark || (videoPresentation?.phase === 'receiving' && videoFrame != null) ? hudSurface : 'transparent';
   const hudBorder = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.56)';
   const immersiveJoystickSize = viewport.width > 0 && immersiveCanvasHeight > 0
     ? Math.min(170, Math.floor(Math.min(viewport.width * 0.15, immersiveCanvasHeight * 0.32)))
@@ -970,7 +979,7 @@ export function ControlScreen({
 
   const renderImmersiveSurface = () => <View style={[styles.immersiveSurface, { backgroundColor: appearance.canvas, height: immersiveCanvasHeight }]} testID="control-immersive-surface">
     <View pointerEvents="none" style={styles.immersiveMedia} testID="control-media-stage">
-      <ControlVideoSurface presentation={video} surface={videoSurface} active={appActive && !leaving} onInterrupted={handleCancel} />
+      <ControlVideoSurface presentation={videoPresentation} surface={videoFrame} active={appActive && !leaving} onInterrupted={handleCancel} />
     </View>
     <View style={styles.immersiveTopBar}>
       <View style={styles.immersiveHeaderIdentity}>
@@ -1050,7 +1059,7 @@ export function ControlScreen({
     {renderImmersiveIntent()}
   </View>;
 
-  const videoJoined = video?.phase === 'receiving' && videoSurface != null && videoSurface !== false;
+  const videoJoined = videoPresentation?.phase === 'receiving' && videoFrame != null && videoFrame !== false;
   const cameraHud = layout.useColumns && (connected || videoJoined);
   const recoveryOperator = useRecoveryOperator(recovery, runtimeState, visibleConfirmation || selectingPolicy ? '请先确认或取消当前操作。' : null);
   const hudSpeedLabel = speed?.source === 'device' && typeof speed.linearMps === 'number' && Number.isFinite(speed.linearMps)
@@ -1173,8 +1182,7 @@ export function ControlScreen({
       stickFrameStyle: { top: immersiveTopInset + 60, bottom: Math.max(56, actionDockInset - 60), left: 20, right: 20 },
       dockCenterY: configuredJoystickLayout.usable ? configuredJoystickLayout.left.centerY : undefined,
       onStickFrameLayout: handleStickArea,
-      videoJoined,
-      video: videoJoined ? <ControlVideoSurface presentation={video} surface={videoSurface} active={appActive && !leaving} onInterrupted={handleCancel} /> : null,
+      video: videoPresentation || videoFrame ? <ControlVideoSurface presentation={videoPresentation} surface={videoFrame} active={appActive && !leaving} onInterrupted={handleCancel} /> : null,
       feedback: operationFeedback,
       confirmation: renderImmersiveIntent(),
       recovery: showLandscapeRecovery ? recoveryPanel : undefined,

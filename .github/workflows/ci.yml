@@ -75,6 +75,7 @@ jobs:
             scripts/control-joystick.test.mjs \
             scripts/control-slider.test.mjs \
             scripts/control-video-surface.test.mjs \
+            scripts/video-probe-whep.test.mjs \
             scripts/control-operations-wiring.test.mjs \
             scripts/bounded-command.test.mjs \
             tools/ble-provisioning-sim/protocol.test.mjs

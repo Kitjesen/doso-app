@@ -59,6 +59,7 @@
     },
     "plugins": [
       "./plugins/withRobotWifiPermissions",
+      "./plugins/withReceiveOnlyWebRtc",
       "expo-font",
       [
         "expo-image-picker",

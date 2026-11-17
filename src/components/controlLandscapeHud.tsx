@@ -56,7 +56,6 @@ export type ControlLandscapeHudProps = Readonly<{
   onStickFrameLayout?: (event: LayoutChangeEvent) => void;
   /** Vertical center of the sticks inside that frame, so the docks stay aligned with them. */
   dockCenterY?: number;
-  videoJoined: boolean;
   video: ReactNode;
   feedback?: string | null;
   confirmation?: ReactNode;
@@ -146,7 +145,7 @@ function Chip({ children, style, testID }: { children: ReactNode; style?: ViewSt
 export function controlLandscapeHud({
   robotName, connectionLabel, onBack, onOpenConnection, showLocalControl, showUnlocked,
   terrain, onSelectTerrain, batteryLabel, signalLabel, speedLabel, onStop, stopDisabled, stopHint,
-  postures, docksExpanded, onToggleDocks, onOpenSettings, settingsMenu, joystick, stickFrameStyle, onStickFrameLayout, dockCenterY, videoJoined, video, feedback, confirmation, recovery,
+  postures, docksExpanded, onToggleDocks, onOpenSettings, settingsMenu, joystick, stickFrameStyle, onStickFrameLayout, dockCenterY, video, feedback, confirmation, recovery,
 }: ControlLandscapeHudProps) {
   const selectedTerrain = terrain.find(option => option.selected) ?? null;
   const otherTerrain = terrain.filter(option => option !== selectedTerrain);
@@ -161,7 +160,7 @@ export function controlLandscapeHud({
   return (
     <View style={styles.root} testID="control-landscape-hud" pointerEvents="box-none">
       <View pointerEvents="none" style={styles.backdrop} testID="control-video-backdrop" />
-      {videoJoined ? <View pointerEvents="none" style={styles.media} testID="control-media-stage">{video}</View> : null}
+      {video != null && video !== false ? <View pointerEvents="none" style={styles.media} testID="control-media-stage">{video}</View> : null}
       <View style={styles.top} pointerEvents="box-none">
         <View style={styles.sideCluster}>
         <View style={styles.identityColumn}>

@@ -2287,6 +2287,7 @@ export default function App() {
           robotImage={deviceImage}
           robotName={controlTarget === 'direct' ? 'IP 直连设备' : deviceName}
           robotType={controlTarget === 'direct' ? brainstemControl.state.connected ? '局域网配对控制' : '只读状态，设备归属未核验' : deviceType}
+          videoProbeHost={controlTarget === 'direct' ? directEndpoint?.host ?? null : null}
         />
       ) : null}
 
