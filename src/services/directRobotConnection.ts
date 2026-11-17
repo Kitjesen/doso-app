@@ -1,4 +1,4 @@
-import type { BrainstemGrpcMotorState, BrainstemGrpcObservation, BrainstemGrpcProfile } from './brainstemGrpc';
+import type { BrainstemGrpcMotorState, BrainstemGrpcObservation, BrainstemGrpcProfile, RobotModeCapability } from './brainstemGrpc';
 import type { ControlJointState, ControlPolicyOption, ControlRuntimeState, ControlTerrainModeId, ControlTerrainModeOption } from '../features/control/controlOperations';
 
 const TERRAIN_MODE_OPTIONS: readonly ControlTerrainModeOption[] = [
@@ -74,7 +74,20 @@ function validProfile(value: unknown): value is BrainstemGrpcProfile {
   return typeof profile.current === 'string' && profile.current.length <= 128 &&
     typeof profile.currentDescription === 'string' && profile.currentDescription.length <= 512 &&
     Array.isArray(profile.available) && profile.available.length <= 64 && profile.available.every(item => typeof item === 'string' && item.length <= 128) &&
-    Array.isArray(profile.descriptions) && profile.descriptions.length <= 64 && profile.descriptions.every(item => typeof item === 'string' && item.length <= 512);
+    Array.isArray(profile.descriptions) && profile.descriptions.length <= 64 && profile.descriptions.every(item => typeof item === 'string' && item.length <= 512) &&
+    (profile.modeCapabilities === undefined || Array.isArray(profile.modeCapabilities) && profile.modeCapabilities.length <= 16 && profile.modeCapabilities.every(validModeCapability)) &&
+    (profile.activeModeId === undefined || profile.activeModeId === null || typeof profile.activeModeId === 'string' && profile.activeModeId.length <= 64 && !profile.activeModeId.includes('\0'));
+}
+
+function validModeCapability(value: unknown): value is RobotModeCapability {
+  if (!value || typeof value !== 'object') return false;
+  const mode = value as Record<string, unknown>;
+  return typeof mode.id === 'string' && !!mode.id && mode.id.trim() === mode.id && mode.id.length <= 64 && !mode.id.includes('\0') &&
+    typeof mode.kind === 'string' && ['unspecified', 'locomotion', 'recovery-action'].includes(mode.kind) && typeof mode.available === 'boolean' &&
+    typeof mode.label === 'string' && mode.label.length <= 64 && !mode.label.includes('\0') &&
+    typeof mode.unavailableReason === 'string' && mode.unavailableReason.length <= 200 && !mode.unavailableReason.includes('\0') &&
+    (mode.availability === undefined || typeof mode.availability === 'string' && ['unknown', 'unavailable', 'available'].includes(mode.availability) && (mode.availability === 'available') === mode.available) &&
+    (mode.profileId === undefined || typeof mode.profileId === 'string' && mode.profileId.length <= 128 && !mode.profileId.includes('\0'));
 }
 
 function validMotorState(value: unknown): value is BrainstemGrpcMotorState {
@@ -109,6 +122,16 @@ function jointStatesFromMotors(motors: readonly BrainstemGrpcMotorState[] | unde
 }
 
 export function profileOptions(profile: BrainstemGrpcProfile): readonly ControlPolicyOption[] {
+  const motion = profile.modeCapabilities?.filter(mode => mode.kind === 'locomotion');
+  if (motion?.length) {
+    return motion.filter(mode => mode.available && mode.availability === 'available' &&
+      profile.modeCapabilities!.filter(other => other.id === mode.id).length === 1).map(mode => {
+      const key = mode.id === 'high_platform' ? 'platform' : mode.id;
+      const terrain = TERRAIN_MODE_OPTIONS.find(option => option.id === key);
+      return { id: mode.id, label: mode.label || terrain?.label || mode.id, ...(terrain ? { terrainModeId: terrain.id } : {}) };
+    });
+  }
+  // Older/custom catalogs retain their full-profile-name path.
   const descriptions = profile.descriptions;
   const seen = new Set<string>();
   return profile.available.map((id, index) => {
@@ -123,10 +146,18 @@ export function profileOptions(profile: BrainstemGrpcProfile): readonly ControlP
   });
 }
 
+export function currentPolicyFromProfile(profile: BrainstemGrpcProfile): ControlRuntimeState['currentPolicy'] {
+  if (profile.modeCapabilities?.some(mode => mode.kind === 'locomotion')) {
+    const selected = profileOptions(profile).find(option => option.id === profile.activeModeId);
+    return selected ? { id: selected.id, label: selected.label } : null;
+  }
+  return profile.current ? { id: profile.current, label: profile.currentDescription || profile.current } : null;
+}
+
 export function terrainModeFromProfile(profile: BrainstemGrpcProfile): { current: ControlTerrainModeId | null; options: readonly ControlTerrainModeOption[] } {
   const policies = profileOptions(profile);
   const options = TERRAIN_MODE_OPTIONS.filter(option => policies.filter(item => item.terrainModeId === option.id).length === 1);
-  const current = policies.find(item => item.id === profile.current)?.terrainModeId ?? null;
+  const current = policies.find(item => item.id === currentPolicyFromProfile(profile)?.id)?.terrainModeId ?? null;
   return { current: options.some(option => option.id === current) ? current : null, options };
 }
 
@@ -140,7 +171,7 @@ function runtimeFromObservation(observation: BrainstemGrpcObservation, fresh: bo
     controlLink: 'unknown', controlAuthority: 'not-held',
     motorState: fresh ? observation.status.motorOutputEnabled ? 'enabled' : 'disabled' : 'unknown',
     posture: fresh && observation.status.fsmKind === 'standing' ? 'standing' : 'unknown',
-    currentPolicy: profile && validProfile(profile) && profile.current ? { id: profile.current, label: profile.currentDescription || profile.current } : null,
+    currentPolicy: profile && validProfile(profile) ? currentPolicyFromProfile(profile) : null,
     policyCatalogStatus: profile && validProfile(profile) ? 'synced' : 'unknown',
     policyOptions: policy,
     ...(observation.voltage ? { battery: { percent: null, voltageV: busVoltages.length ? Math.min(...busVoltages) : null, source: 'device' as const, updatedAt: observation.observedAt } } : {}),
@@ -174,6 +205,12 @@ export function createDirectRobotConnectionSnapshot(
       available: Object.freeze([...observation.profile.available]),
       descriptions: Object.freeze([...observation.profile.descriptions]),
       currentDescription: observation.profile.currentDescription,
+      ...(observation.profile.activeModeId !== undefined ? { activeModeId: observation.profile.activeModeId } : {}),
+      ...(observation.profile.modeCapabilities ? { modeCapabilities: Object.freeze(observation.profile.modeCapabilities.map(mode => Object.freeze({
+        id: mode.id, kind: mode.kind, label: mode.label, available: mode.available, unavailableReason: mode.unavailableReason,
+        ...(mode.availability !== undefined ? { availability: mode.availability } : {}),
+        ...(mode.profileId !== undefined ? { profileId: mode.profileId } : {}),
+      }))) } : {}),
     })
     : undefined;
   const voltage = observation.voltage && observation.voltage.values.every(value => typeof value === 'number' && Number.isFinite(value))

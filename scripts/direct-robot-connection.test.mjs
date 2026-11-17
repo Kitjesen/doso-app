@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+
 import ts from 'typescript';
 
 const source = await readFile(new URL('../src/services/directRobotConnection.ts', import.meta.url), 'utf8');
@@ -235,4 +236,63 @@ test('empty and tampered snapshots cannot project state or leak arbitrary endpoi
     assert.equal(view.runtimeState.posture, 'unknown'); assert.equal(view.runtimeState.motorState, 'unknown');
     assert.ok(!JSON.stringify(view).includes('secret'));
   }
+});
+
+const motionProfile = (activeModeId = 'flat') => ({
+  current: 'flat_model_v2', available: ['flat_model_v2', 'stairs_model_v3', 'high_model_v4'],
+  descriptions: ['stairs: misleading', 'flat: misleading', 'high_platform: diagnostics'], currentDescription: 'diagnostic model',
+  activeModeId,
+  modeCapabilities: [
+    { id: 'flat', kind: 'locomotion', available: true, availability: 'available', label: '', unavailableReason: '', profileId: 'flat_model_v2' },
+    { id: 'stairs', kind: 'locomotion', available: true, availability: 'available', label: '', unavailableReason: '', profileId: 'stairs_model_v3' },
+    { id: 'high_platform', kind: 'locomotion', available: true, availability: 'available', label: '', unavailableReason: '', profileId: 'high_model_v4' },
+    { id: 'recovery', kind: 'recovery-action', available: false, label: '', unavailableReason: 'not configured' },
+  ],
+});
+
+test('motion capabilities use stable slot IDs and explicit active mode, never model descriptions', () => {
+  const state = runtime({ profile: motionProfile() });
+  assert.deepEqual(state.policyOptions.map(option => option.id), ['flat', 'stairs', 'high_platform']);
+  assert.deepEqual(state.policyOptions.map(option => option.terrainModeId), ['flat', 'stairs', 'platform']);
+  assert.equal(state.currentPolicy.id, 'flat');
+  assert.equal(state.terrainMode.current, 'flat');
+  const high = runtime({ profile: motionProfile('high_platform') });
+  assert.equal(high.currentPolicy.id, 'high_platform');
+  assert.equal(high.terrainMode.current, 'platform');
+  for (const active of ['recovery', 'unknown', '']) {
+    const view = runtime({ profile: motionProfile(active) });
+    assert.equal(view.currentPolicy, null);
+    assert.equal(view.terrainMode.current, null);
+  }
+});
+
+test('motion catalog rejects duplicate, unavailable and wrong-kind slots without legacy fallback', () => {
+  const p = motionProfile();
+  p.modeCapabilities[1].available = false; p.modeCapabilities[1].availability = 'unavailable';
+  p.modeCapabilities.push({ ...p.modeCapabilities[0], kind: 'recovery-action' });
+  const state = runtime({ profile: p });
+  assert.deepEqual(state.policyOptions.map(option => option.id), ['high_platform']);
+  assert.equal(state.currentPolicy, null);
+});
+
+test('direct snapshot freezes motion metadata separately from caller-owned objects', () => {
+  const p = motionProfile();
+  const snapshot = api.createDirectRobotConnectionSnapshot(endpoint(), { ...observation(), profile: p }, now);
+  p.activeModeId = 'stairs'; p.modeCapabilities[0].id = 'mutated';
+  const state = api.describeDirectRobotConnection(snapshot, now).runtimeState;
+  assert.equal(state.currentPolicy.id, 'flat');
+  assert.deepEqual(state.policyOptions.map(option => option.id), ['flat', 'stairs', 'high_platform']);
+});
+
+test('snapshot rejects malformed motion metadata rather than coercing it into a catalog', () => {
+  for (const patch of [{ kind: ['locomotion'] }, { available: 'true' }, { availability: ['available'] },
+    { label: null }, { availability: 'unavailable', available: true }]) {
+    const p = motionProfile(); Object.assign(p.modeCapabilities[0], patch);
+    assert.throws(() => api.createDirectRobotConnectionSnapshot(endpoint(), { ...observation(), profile: p }, now));
+  }
+});
+
+test('modern slots require explicit available enum consistently with Android', () => {
+  const p = motionProfile(); delete p.modeCapabilities[1].availability;
+  assert.deepEqual(runtime({ profile: p }).policyOptions.map(option => option.id), ['flat', 'high_platform']);
 });

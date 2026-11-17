@@ -7,7 +7,7 @@ import { emptyRecoveryStatus, type RobotRecoveryCommand, type RobotRecoveryStatu
 import type { BrainstemGrpcEndpoint, BrainstemGrpcProfile, BrainstemGrpcStatus } from '../../services/brainstemGrpc';
 import type { ControlActionReadiness, ControlOperation, ControlRuntimeState } from './controlOperations';
 // @ts-expect-error Node 24 type stripping requires explicit TypeScript extensions.
-import { profileOptions, terrainModeFromProfile } from '../../services/directRobotConnection.ts';
+import { currentPolicyFromProfile, profileOptions, terrainModeFromProfile } from '../../services/directRobotConnection.ts';
 
 export type BrainstemControlState = Readonly<{
   phase: 'disconnected' | 'connecting' | 'ready' | 'operating' | 'armed' | 'error';
@@ -275,7 +275,7 @@ export class BrainstemControlSession {
       stand: result(!!safe && !!status?.motorOutputEnabled && (status.fsmKind === 'grounded' || status.fsmKind === 'zero'
         || status.fsmKind === 'walking' && !status.grpcLeaseActive && !this.state.leaseActive), '电机须已使能，行走后请先停止并释放控制；站立或切换中不可起立'),
       sit: result(!!safe && !!status?.motorOutputEnabled && (status.fsmKind === 'standing' || status.fsmKind === 'walking'), '电机须已使能，且机器狗当前已站立'),
-      switchPolicy: result(!!safe && (status?.fsmKind === 'grounded' || status?.fsmKind === 'standing') && !status.grpcLeaseActive && !!this.state.profile?.available.length, '请先站稳或趴地、释放控制并同步策略目录；行走中不可切换'),
+      switchPolicy: result(!!safe && (status?.fsmKind === 'grounded' || status?.fsmKind === 'standing') && !status.grpcLeaseActive && !!this.state.profile && profileOptions(this.state.profile).length > 0, '请先站稳或趴地、释放控制并同步策略目录；行走中不可切换'),
     };
   }
 
@@ -294,7 +294,8 @@ export class BrainstemControlSession {
       if (this.readDone) await this.readDone;
       if (!this.valid(epoch) || this.sessionId !== id || this.pendingAction !== request) throw new Error('控制连接已变化，请重新操作。');
       if (this.readiness(request)[names[action]]?.ready !== true) throw new Error('机器狗当前状态不允许此操作。');
-      if (action === 'switch-profile' && (!profileId || !this.state.profile?.available.includes(profileId))) throw new Error('所选策略已不可用，请刷新状态。');
+      if (action === 'switch-profile' && (!profileId || !this.state.profile || !profileOptions(this.state.profile).some(option => option.id === profileId))) throw new Error('所选策略已不可用，请刷新状态。');
+      const slotRequest = action === 'switch-profile' && this.state.profile?.modeCapabilities?.some(mode => mode.kind === 'locomotion');
       // Native action sends zero/release before posture, power or profile changes.
       this.publish({ phase: 'operating', leaseActive: false, manualPrepared: false });
       if (!this.valid(epoch) || this.sessionId !== id || this.pendingAction !== request) throw new Error('控制连接已变化，请重新操作。');
@@ -302,6 +303,7 @@ export class BrainstemControlSession {
       dispatched = true;
       const reply = await this.transport.action(id, action, profileId);
       if (!this.valid(epoch) || this.pendingAction !== request) throw new Error('控制连接已变化，请重新操作。');
+      if (slotRequest && reply.profile?.activeModeId !== profileId) throw new Error('策略切换结果未确认，请刷新机器狗状态。');
       this.pendingAction = null; this.busy = false; this.apply(reply);
     } catch (error) {
       if (dispatched) { await this.fail(epoch, error); throw new Error(failureMessage(error)); }
@@ -437,7 +439,7 @@ export class BrainstemControlSession {
       faultStatus: s ? s.criticalMotorFault ? 'active' : 'clear' : 'unknown',
       ...(s ? { controlOwner: s.owner } : {}),
       ...(this.imu && this.now() - this.imuObservedAt >= 0 && this.now() - this.imuObservedAt < 1000 ? { imu: this.imu } : {}),
-      currentPolicy: profile?.current ? { id: profile.current, label: profile.currentDescription || profile.current } : null,
+      currentPolicy: profile ? currentPolicyFromProfile(profile) : null,
       policyCatalogStatus: profile ? 'synced' : 'unknown', policyOptions: profile ? profileOptions(profile) : [],
       ...(terrain ? { terrainMode: { ...terrain, catalogStatus: 'synced' as const, source: 'device' as const } } : {}),
       speed: { linearMps: null, lateralMps: null, yawRps: null, source: 'unknown' }, inputSource: 'touch' };

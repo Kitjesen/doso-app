@@ -37,6 +37,68 @@ function fixture(profile = { current: 'flat', available: ['flat', 'stairs'], des
 const endpoint = { host: '192.0.2.1', port: 13145, clientIdentityAlias: 'fixture' };
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 
+function slotProfile(version = 'v1', activeModeId = 'flat') {
+  return { current: `flat_${version}`, available: [`flat_${version}`, `stairs_${version}`],
+    descriptions: ['stairs: misleading', 'flat: misleading'], currentDescription: 'diagnostics', activeModeId,
+    modeCapabilities: ['flat', 'stairs'].map(id => ({ id, kind: 'locomotion', available: true,
+      availability: 'available', label: '', unavailableReason: '', profileId: `${id}_${version}` })) };
+}
+
+test('motion slot commands and UI selection remain unchanged after robot model replacement', async () => {
+  for (const version of ['v1', 'replacement']) {
+    const profile = slotProfile(version);
+    const f = fixture(profile);
+    f.transport.action = async (id, action, slot) => {
+      f.calls.push(['action', action, slot]);
+      return f.reply({ profile: { ...profile, current: `${slot}_${version}`, activeModeId: slot } });
+    };
+    try {
+      await f.session.connect(endpoint, 'doso-g20@robot');
+      assert.equal(f.session.runtimeState.currentPolicy.id, 'flat');
+      assert.deepEqual(getControlTerrainPolicies(f.session.runtimeState).map(mode => mode.profileId), ['flat', 'stairs', null]);
+      for (const target of ['stairs', 'flat']) {
+        await f.session.action('switch-profile', target);
+        assert.equal(f.session.runtimeState.currentPolicy.id, target);
+        assert.equal(f.session.runtimeState.terrainMode.current, target);
+      }
+      assert.deepEqual(f.calls.filter(call => call[0] === 'action'), [
+        ['action', 'switch-profile', 'stairs'], ['action', 'switch-profile', 'flat'],
+      ]);
+      assert.equal(f.calls.some(call => call[0] === 'acquire' || call[0] === 'input'), false);
+    } finally { f.session.dispose(); }
+  }
+});
+
+test('modern capability validation rejects model IDs and unavailable or ambiguous slot IDs before dispatch', async () => {
+  for (const change of ['model', 'unavailable', 'unknown', 'duplicate']) {
+    const profile = slotProfile();
+    let target = 'stairs';
+    if (change === 'model') target = 'stairs_v1';
+    if (change === 'unavailable') { profile.modeCapabilities[1].available = false; profile.modeCapabilities[1].availability = 'unavailable'; }
+    if (change === 'unknown') target = 'platform';
+    if (change === 'duplicate') profile.modeCapabilities.push({ ...profile.modeCapabilities[1], kind: 'recovery-action' });
+    const f = fixture(profile);
+    try {
+      await f.session.connect(endpoint, 'doso-g20@robot');
+      await assert.rejects(f.session.action('switch-profile', target));
+      assert.equal(f.calls.some(call => call[0] === 'action'), false);
+    } finally { f.session.dispose(); }
+  }
+});
+
+test('modern switch must confirm the active slot rather than an echoed model name', async () => {
+  for (const active of ['flat', '', undefined]) {
+    const profile = slotProfile(); const f = fixture(profile);
+    f.transport.action = async () => f.reply({ profile: { ...profile, current: 'stairs', activeModeId: active } });
+    try {
+      await f.session.connect(endpoint, 'doso-g20@robot');
+      await assert.rejects(f.session.action('switch-profile', 'stairs'));
+      assert.equal(f.session.state.phase, 'error');
+      assert.equal(f.session.runtimeState.currentPolicy, null);
+    } finally { f.session.dispose(); }
+  }
+});
+
 test('the live control session preserves advertised terrain slots and dispatches actual model IDs', async () => {
   const f = fixture({ current: 'w5_89999', available: ['w5_89999', 'cts_v39_61128'],
     descriptions: ['flat: W5', 'stairs: CTS'], currentDescription: 'flat: W5' });

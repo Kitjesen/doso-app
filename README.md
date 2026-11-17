@@ -8,9 +8,11 @@ DOSO 是用于管理和控制机器人的 React Native / Expo Android 应用。�
 
 ## 运动模式
 
-地形 / 运动模式切换使用已有的标准 RPC：`RobotControl.GetProfile` 与 `RobotControl.SwitchProfile`。请求为 `ProfileRequest`，字段 `name` 是目标 profile id。这两个 RPC 属于现有 `RobotControl` 服务。摔倒恢复是单独的 `RobotRecovery` 服务，见本仓库副本 [`contracts/brainstem_api/recovery.proto`](contracts/brainstem_api/recovery.proto)，与 `SwitchProfile` 分开。
+地形 / 运动模式切换使用已有的标准 RPC：`RobotControl.GetProfile` 与 `RobotControl.SwitchProfile`。支持运动能力目录的机器狗，`ProfileRequest.name`直接传槽位`flat`、`stairs`或已配置的`high_platform`；机器人从自己的配置解析具体模型，App不维护W5／CTS模型名称对应表。这两个 RPC 属于现有 `RobotControl` 服务。摔倒恢复是单独的 `RobotRecovery` 服务，见本仓库副本 [`contracts/brainstem_api/recovery.proto`](contracts/brainstem_api/recovery.proto)，与 `SwitchProfile` 分开。
 
-界面只在 `GetProfile` 目录条目的说明以前缀 `flat:`、`stairs:` 或 `platform:` 开头时，把该条目绑到平地、楼梯或高台。线上 profile id 使用真实模型名。说明没有此前缀、且 id 本身正好是 `flat`、`stairs` 或 `platform` 时，也会绑到对应按钮。同一个前缀对应多条目录时，该按钮不开放。
+优先从`GetProfile.mode_capabilities`读取`kind=LOCOMOTION_PROFILE`且可用、ID唯一的槽位，界面和TS／Android校验均使用槽位ID。`high_platform`仅在界面归入“高台”，网络请求仍原样传`high_platform`。`profile_id`只作诊断，`current`／`available`仍保留模型名语义；切换通过`active_mode_id`确认，不能用模型名或说明猜测当前槽位。没有运动能力目录的旧／自定义服务保留既有完整profile ID切换路径；现代目录不可用或重复的槽位不会回退成模型名请求。
+
+机器人端能力返回见[Brainstem PR #4](https://github.com/Kitjesen/brainstem/pull/4)。需要先合并并部署相应运行时才能使用槽位目录路径；仅合并App不代表实机已升级。App切换后不会自动使能、站起、趴下或运动。源码中的通用入口仍是`session.action('switch-profile', slotId)`和`operationCallbacks.switchPolicy(slotId)`，无需另建gRPC通道；本次没有新增名为`switchMotionPolicy`的导出函数。
 
 切换只在机器狗站立或趴地（Grounded）时允许。行走中不可切换。摔倒恢复处于选中状态时也不可切换。活动 gRPC 控制租约、姿态切换中、云卓占用或关键电机故障时，App 也不会发出 `SwitchProfile`。
 
