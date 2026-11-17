@@ -50,23 +50,46 @@ public final class RecoveryStatusParserTest {
     ByteArrayOutputStream capability = new ByteArrayOutputStream();
     text(capability, 1, "recovery");
     tag(capability, 2, 0); outEnum(capability, 2);
-    text(capability, 3, "摔倒恢复");
-    bool(capability, 4, true);
-    text(capability, 5, "");
+    tag(capability, 3, 0); outEnum(capability, 2);
+    ByteArrayOutputStream locomotion = new ByteArrayOutputStream();
+    text(locomotion, 1, "flat");
+    tag(locomotion, 2, 0); outEnum(locomotion, 1);
+    tag(locomotion, 3, 0); outEnum(locomotion, 1);
+    text(locomotion, 4, "w5_flat");
+    text(locomotion, 5, "not now");
     ByteArrayOutputStream profile = new ByteArrayOutputStream();
     text(profile, 1, "flat");
     text(profile, 4, "平地");
     tag(profile, 5, 2);
     varint(profile, capability.size());
     profile.write(capability.toByteArray(), 0, capability.size());
+    tag(profile, 5, 2);
+    varint(profile, locomotion.size());
+    profile.write(locomotion.toByteArray(), 0, locomotion.size());
     text(profile, 6, "recovery");
     Map<String, Object> parsedProfile = ProfileInfoParser.parse(profile.toByteArray());
     @SuppressWarnings("unchecked") List<Map<String, Object>> modes = (List<Map<String, Object>>) parsedProfile.get("modeCapabilities");
-    check(modes.size() == 1 && "recovery".equals(modes.get(0).get("id")));
-    check("recovery-action".equals(modes.get(0).get("kind")) && Boolean.TRUE.equals(modes.get(0).get("available")));
+    check(modes.size() == 2 && "recovery".equals(modes.get(0).get("id")));
+    check("recovery-action".equals(modes.get(0).get("kind")) && "available".equals(modes.get(0).get("availability")));
+    check("".equals(modes.get(0).get("profileId")) && Boolean.TRUE.equals(modes.get(0).get("available")));
+    check(!modes.get(0).containsKey("label"));
+    check("locomotion".equals(modes.get(1).get("kind")) && "unavailable".equals(modes.get(1).get("availability")));
+    check("w5_flat".equals(modes.get(1).get("profileId")) && Boolean.FALSE.equals(modes.get(1).get("available")));
+    check("not now".equals(modes.get(1).get("unavailableReason")));
     check("recovery".equals(parsedProfile.get("activeModeId")));
     Map<String, Object> oldProfile = ProfileInfoParser.parse(new byte[0]);
     check(!oldProfile.containsKey("modeCapabilities") && !oldProfile.containsKey("activeModeId"));
+    ByteArrayOutputStream legacy = new ByteArrayOutputStream();
+    text(legacy, 1, "recovery");
+    tag(legacy, 2, 0); outEnum(legacy, 2);
+    text(legacy, 3, "摔倒恢复");
+    bool(legacy, 4, true);
+    ByteArrayOutputStream legacyProfile = new ByteArrayOutputStream();
+    tag(legacyProfile, 5, 2);
+    varint(legacyProfile, legacy.size());
+    legacyProfile.write(legacy.toByteArray(), 0, legacy.size());
+    try { ProfileInfoParser.parse(legacyProfile.toByteArray()); throw new AssertionError("accepted label/bool capability"); }
+    catch (IOException expected) { }
     System.out.println("PASS: recovery status and profile mode capabilities");
   }
   private static void outEnum(ByteArrayOutputStream out, int value) { out.write(value); }

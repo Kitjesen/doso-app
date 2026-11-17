@@ -83,10 +83,10 @@ public final class ProfileInfoParser {
   private static Map<String, Object> capability(byte[] bytes) throws IOException {
     Reader reader = new Reader(bytes, 0, bytes.length);
     String id = "";
-    String label = "";
+    String profileId = "";
     String unavailableReason = "";
     int kind = 0;
-    boolean available = false;
+    int availability = 0;
     int seen = 0;
     while (reader.hasNext()) {
       int tag = reader.tag();
@@ -99,22 +99,28 @@ public final class ProfileInfoParser {
         long value = reader.uint32();
         if (value > 2) throw invalid();
         kind = (int) value;
-      } else if (field == 3) label = reader.string(wire);
-      else if (field == 4) {
-        if (wire != 0 || (seen & 8) != 0) throw invalid();
-        seen |= 8;
+      } else if (field == 3) {
+        // RobotModeAvailability. A string here is the retired label layout and must not parse.
+        if (wire != 0 || (seen & 4) != 0) throw invalid();
+        seen |= 4;
         long value = reader.uint32();
-        if (value > 1) throw invalid();
-        available = value == 1;
+        if (value > 2) throw invalid();
+        availability = (int) value;
+      } else if (field == 4) {
+        if ((seen & 8) != 0) throw invalid();
+        seen |= 8;
+        profileId = reader.string(wire);
       } else if (field == 5) unavailableReason = reader.string(wire);
       else reader.skip(wire);
     }
-    if (id.length() > 64 || label.length() > 64 || unavailableReason.length() > 200) throw invalid();
+    if (id.length() > 64 || profileId.length() > 128 || unavailableReason.length() > 200) throw invalid();
     Map<String, Object> value = new LinkedHashMap<>();
     value.put("id", id);
+    // 1 is LOCOMOTION_PROFILE. The session still calls that locomotion.
     value.put("kind", kind == 1 ? "locomotion" : kind == 2 ? "recovery-action" : "unspecified");
-    value.put("label", label);
-    value.put("available", available);
+    value.put("availability", availability == 1 ? "unavailable" : availability == 2 ? "available" : "unknown");
+    value.put("profileId", profileId);
+    value.put("available", availability == 2);
     value.put("unavailableReason", unavailableReason);
     return value;
   }

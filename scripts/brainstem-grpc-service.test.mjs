@@ -287,6 +287,30 @@ test('one direct native read yields only projected status, never authority or ow
   assert.ok(!JSON.stringify(observation).includes('sensitive')); assert.equal(listeners.size, 0);
 });
 
+test('GetProfile keeps a live mode capability that reports availability instead of a label', async () => {
+  const { api } = await load(good({ readProfile: async (...args) => ({
+    requestId: args[3],
+    profile: {
+      current: 'flat', available: ['flat'], descriptions: ['平地'], currentDescription: '平地', activeModeId: '',
+      modeCapabilities: [{ id: 'recovery', kind: 'recovery-action', availability: 'available', profileId: '', unavailableReason: '' }],
+    },
+  }) }));
+  const observation = await api.readBrainstemGrpcProfile({ endpoint, requestId });
+  assert.deepEqual(observation.profile.modeCapabilities, [{
+    id: 'recovery', kind: 'recovery-action', label: '', available: true, unavailableReason: '',
+    availability: 'available', profileId: '',
+  }]);
+  const { api: rejected } = await load(good({ readProfile: async (...args) => ({
+    requestId: args[3],
+    profile: {
+      current: 'flat', available: [], descriptions: [], currentDescription: '',
+      modeCapabilities: [{ id: 'recovery', kind: 'recovery-action', availability: 'unavailable', available: true, unavailableReason: '' }],
+    },
+  }) }));
+  const dropped = await rejected.readBrainstemGrpcProfile({ endpoint, requestId });
+  assert.equal(dropped.profile.modeCapabilities, undefined);
+});
+
 test('optional GetProfile read projects policy metadata and never grants a mode switch', async () => {
   const calls = [];
   const { api } = await load(good({ readProfile: async (...args) => {
