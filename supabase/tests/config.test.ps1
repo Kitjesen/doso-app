@@ -65,7 +65,7 @@ function Assert-FileNotMatch {
   Write-Output "PASS: $Message"
 }
 
-Assert-ConfigMatch '(?m)^minimum_password_length = 10$' 'passwords require at least 10 characters'
+Assert-ConfigMatch '(?m)^minimum_password_length = 8$' 'passwords require at least 8 characters'
 Assert-ConfigMatch '(?m)^password_requirements = "lower_upper_letters_digits"$' 'passwords require lower-case, upper-case, and digits'
 Assert-ConfigMatch '(?s)\[auth\.email\].*?enable_confirmations = true' 'email confirmation is required'
 Assert-ConfigMatch '(?s)\[auth\.email\].*?secure_password_change = true' 'password changes require recent authentication'

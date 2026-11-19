@@ -413,6 +413,34 @@ Deno.test("account registration delegates atomic terminal, email, and audit writ
     !registration.includes('request.headers.get("x-forwarded-for")'),
     "client-spoofable forwarding headers must not enter registration",
   );
+  const loginMigration = await Deno.readTextFile(
+    new URL("../../migrations/20261112020000_add_login_history.sql", import.meta.url),
+  );
+  const accountSessions = await Deno.readTextFile(
+    new URL("../account-sessions/index.ts", import.meta.url),
+  );
+  assert(loginMigration.includes("capture_account_login") && loginMigration.includes("auth.sessions"),
+    "login capture must derive IP and time from the verified Auth session");
+  assert(
+    loginMigration.includes("on conflict do nothing") &&
+      loginMigration.includes("create unique index if not exists audit_logs_account_login_unique_idx"),
+    "login capture must remain idempotent under concurrent retries",
+  );
+  assert(!loginMigration.includes("p_ip") && !accountSessions.includes("ipAddress: body"),
+    "clients must not provide the login IP");
+  assert(accountSessions.includes('action === "capture_login"') && accountSessions.includes('action === "list_login_history"'),
+    "account sessions must expose capture and self-only history actions");
+  assert(
+    accountSessions.includes('.select("id,created_at,metadata")') &&
+      !accountSessions.includes('.select("id,created_at,metadata,resource_id")'),
+    "login history projection must omit the internal session resource id",
+  );
+  assert(
+    loginMigration.includes('drop policy if exists "audit_logs_select_related"') &&
+      loginMigration.includes("action <> 'account.login'") &&
+      loginMigration.includes('create policy "audit_logs_select_related"'),
+    "raw account.login audit rows must stay behind the narrow history projection",
+  );
 });
 
 Deno.test("admin functions require AAL2 and inventory uses domain values", async () => {
@@ -420,7 +448,7 @@ Deno.test("admin functions require AAL2 and inventory uses domain values", async
     new URL("../admin-users/index.ts", import.meta.url),
   );
   const adminDevices = await Deno.readTextFile(
-    new URL("../admin-devices/index.ts", import.meta.url),
+    new URL("../admin-devices/handler.ts", import.meta.url),
   );
   for (const source of [adminUsers, adminDevices]) {
     assert(
@@ -555,7 +583,7 @@ Deno.test("network backend source contracts protect audits and unbind results", 
     new URL("../_shared/audit.ts", import.meta.url),
   );
   const deviceBinding = await Deno.readTextFile(
-    new URL("../device-binding/index.ts", import.meta.url),
+    new URL("../_shared/deviceBinding.ts", import.meta.url),
   );
   const http = await Deno.readTextFile(
     new URL("../_shared/http.ts", import.meta.url),
@@ -584,8 +612,8 @@ Deno.test("network backend source contracts protect audits and unbind results", 
     "user unbind still treats an empty RPC result as success",
   );
   assert(
-    deviceBinding.includes('"physical_device_limit"'),
-    "a second physical-device claim needs a stable API conflict code",
+    !deviceBinding.includes('"physical_device_limit"'),
+    "physical-device claims must allow multiple devices per account",
   );
   assert(
     deviceBinding.includes('.eq("owner_id", caller.user.id)') &&
