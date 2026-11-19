@@ -34,13 +34,13 @@ private const val PORT = 13145
 private const val ALIAS = "fixture"
 private lateinit var localMaterial: LocalIdentityKey
 
-private class Result : Promise {
+private class Result(private val onSettle: (() -> Unit)? = null) : Promise {
   val done = CountDownLatch(1)
   var value: Any? = null
   var error: String? = null
   var settlements = 0
-  override fun resolve(value: Any?) { this.value = value; settlements++; done.countDown() }
-  override fun reject(code: String, message: String, cause: Throwable?) { error = code; settlements++; done.countDown() }
+  override fun resolve(value: Any?) { this.value = value; settlements++; onSettle?.invoke(); done.countDown() }
+  override fun reject(code: String, message: String, cause: Throwable?) { error = code; settlements++; onSettle?.invoke(); done.countDown() }
   fun await(timeout: Long = 1500): Result { check(done.await(timeout, TimeUnit.MILLISECONDS)) { "bridge promise did not settle" }; return this }
   fun success() { await(); check(error == null) { "expected success, got $error" }; check(settlements == 1) }
   fun rejected(code: String) { await(); check(error == code) { "expected $code, got $error" }; check(settlements == 1) }
@@ -51,7 +51,7 @@ object ModuleTestTransport {
   val channels = CopyOnWriteArrayList<ModuleTestChannel>()
   var requestClientCertificate = true
   fun channel(host: String, port: Int, factory: SSLSocketFactory?): ManagedChannel {
-    check((host == HOST || host == "192.168.42.64") && port == PORT) { "fixture forbids other network targets" }
+    check((host == HOST || host == "192.168.66.64" || host == "127.0.0.1") && port == PORT) { "fixture forbids other network targets" }
     return ModuleTestChannel(factory).also { channels.add(it) }
   }
   fun authenticate(factory: SSLSocketFactory) {
@@ -80,6 +80,7 @@ object ModuleTestTransport {
 
 class ModuleTestChannel(private val factory: SSLSocketFactory? = null) : ManagedChannel() {
   @Volatile private var stopped = false
+  @Volatile var beforeReply: ((String) -> Unit)? = null
   override fun authority() = "fake-local-only"
   override fun shutdown(): ManagedChannel { stopped = true; return this }
   override fun shutdownNow() = shutdown()
@@ -98,9 +99,14 @@ class ModuleTestChannel(private val factory: SSLSocketFactory? = null) : Managed
       override fun halfClose() {
         factory?.let { ModuleTestTransport.authenticate(it) }
         ModuleTestTransport.methods.add(name)
-        // Protobuf defaults are legitimate grounded/disabled/no-owner observations.
-        listener.onMessage(byteArrayOf() as RespT)
-        listener.onClose(Status.OK, Metadata())
+        val hook = beforeReply
+        val reply = {
+          hook?.invoke(name)
+          // Protobuf defaults are legitimate grounded/disabled/no-owner observations.
+          listener.onMessage(byteArrayOf() as RespT)
+          listener.onClose(Status.OK, Metadata())
+        }
+        if (hook == null) reply() else Thread { reply() }.start()
       }
     }
   }
@@ -131,9 +137,19 @@ private class Bridge {
     return result
   }
   @Suppress("UNCHECKED_CAST")
-  fun controlRead(): Result {
-    val result = Result()
+  fun controlRead(result: Result = Result()): Result {
     (definition.functions.getValue("readControlStatus") as (String, Promise) -> Unit)(session.id, result)
+    return result
+  }
+  @Suppress("UNCHECKED_CAST")
+  fun input(result: Result): Result {
+    (definition.functions.getValue("sendControlInput") as (String, Double, Double, Double, Promise) -> Unit)(session.id, 0.0, 0.0, 0.0, result)
+    return result
+  }
+  @Suppress("UNCHECKED_CAST")
+  fun interrupt(): Result {
+    val result = Result()
+    (definition.functions.getValue("interruptControl") as (String, Promise) -> Unit)(session.id, result)
     return result
   }
   @Suppress("UNCHECKED_CAST")
@@ -200,7 +216,7 @@ private fun controlNavigationStableInsetsAndLifecycle() {
 @Suppress("UNCHECKED_CAST")
 private fun lanEntryGuardsAndPeer() {
   val bridge = Bridge()
-  val target = "192.168.42.64"
+  val target = "192.168.66.64"
   fun read(host: String): Result {
     val result = Result()
     (bridge.definition.functions.getValue("readLanStatus") as (String, Int, String, Promise) -> Unit)(host, PORT, "lan-read", result)
@@ -212,7 +228,7 @@ private fun lanEntryGuardsAndPeer() {
     return result
   }
   try {
-    for (host in listOf("8.8.8.8", "127.0.0.1", "172.15.0.1", "172.32.0.1", "robot.test", "::1", "::ffff:192.168.42.64", "192.168.066.64")) {
+    for (host in listOf("8.8.8.8", "127.0.0.2", "127.1", "2130706433", "172.15.0.1", "172.32.0.1", "robot.test", "::1", "::ffff:192.168.66.64", "192.168.066.64")) {
       read(host).rejected("config"); open(host).rejected("config")
     }
     read(target).rejected("busy") // Same host/alias is insufficient: a TLS session cannot admit a LAN read.
@@ -220,9 +236,24 @@ private fun lanEntryGuardsAndPeer() {
     bridge.field("control").set(bridge.module, null); bridge.field("controlPeer").set(bridge.module, null)
     bridge.module.appContext.reactContext.packageName = "com.doso.robot.qa.other"
     read(target).rejected("config"); open(target).rejected("config")
+    read("127.0.0.1").rejected("config"); open("127.0.0.1").rejected("config")
     bridge.module.appContext.reactContext.packageName = "com.doso.robot"
     read(target).rejected("config"); open(target).rejected("config")
-    bridge.module.appContext.reactContext.packageName = "com.doso.robot.qa"
+    read("127.0.0.1").rejected("config"); open("127.0.0.1").rejected("config")
+    bridge.module.appContext.reactContext.packageName = "com.doso.robot.dev"
+    read(target).rejected("config"); open(target).rejected("config")
+    bridge.module.appContext.reactContext.packageName = "com.doso.robot.localtest"
+    read(target).rejected("config"); open(target).rejected("config")
+    bridge.module.appContext.reactContext.applicationInfo.flags = android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE
+    bridge.module.appContext.reactContext.packageName = "com.doso.robot.localtest.other"
+    read(target).rejected("config"); open(target).rejected("config")
+    bridge.module.appContext.reactContext.packageName = "com.doso.robot.localtest"
+    val localTestOpen = open(target); localTestOpen.success()
+    read(target).success()
+    bridge.definition.background()
+    bridge.definition.foreground()
+    bridge.module.appContext.reactContext.packageName = "com.doso.robot.dev"
+    bridge.module.appContext.reactContext.applicationInfo.flags = android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE
     val result = open(target); result.success()
     val value = result.value as Map<*, *>
     check(value["transport"] == "grpc-lan" && value["mutualTlsVerified"] == false && value["clientIdentitySelected"] == false)
@@ -230,10 +261,21 @@ private fun lanEntryGuardsAndPeer() {
     check(principal.matches(Regex("lan-[0-9a-f]{32}@dev")))
     check(value["principalVerified"] == false && value["leaseOwnerMatched"] == false)
     read(target).success()
+    read("127.0.0.1").rejected("busy") // A different peer never reuses the LAN control channel.
     bridge.read("readStatus", target, PORT, null).rejected("busy")
     bridge.definition.background(); read(target).rejected("background")
     check(ModuleTestTransport.methods.none { it == "AcquireControl" || it == "Enable" || it == "WalkChecked" })
   } finally { bridge.destroy() }
+  val local = Bridge()
+  try {
+    local.session.close()
+    local.field("control").set(local.module, null); local.field("controlPeer").set(local.module, null)
+    val result = Result()
+    (local.definition.functions.getValue("openLanControl") as (String, Int, String, Promise) -> Unit)("127.0.0.1", PORT, "pc-fixture", result)
+    result.success()
+    check((result.value as Map<*, *>)["transport"] == "grpc-lan")
+    check(ModuleTestTransport.methods.none { it == "AcquireControl" || it == "Enable" || it == "WalkChecked" })
+  } finally { local.destroy() }
 }
 
 private fun samePeerReads() {
@@ -268,6 +310,52 @@ private fun slowReadDoesNotBlockControl() {
     check(read.done.count == 1L) { "fixture must still hold the read while control completes" }
     KeyChain.release!!.countDown(); read.success()
   } finally { KeyChain.release?.countDown(); KeyChain.entered = null; KeyChain.release = null; bridge.destroy() }
+}
+
+private fun settledControlReentryIsNotBusy() {
+  val bridge = Bridge()
+  try {
+    for (fails in listOf(false, true)) {
+      var next: Result? = null
+      val first = Result { next = bridge.controlRead() }
+      if (fails) bridge.input(first).rejected("not_armed") else bridge.controlRead(first).success()
+      checkNotNull(next).success()
+    }
+  } finally { bridge.destroy() }
+}
+
+private fun queuedInterruptKeepsItsBusyOwnership() {
+  val bridge = Bridge()
+  val firstEntered = CountDownLatch(1)
+  val firstRelease = CountDownLatch(1)
+  val interruptEntered = CountDownLatch(1)
+  val interruptRelease = CountDownLatch(1)
+  var replies = 0
+  bridge.controlChannel.beforeReply = {
+    if (++replies == 1) {
+      firstEntered.countDown()
+      check(firstRelease.await(3, TimeUnit.SECONDS))
+    } else if (replies == 2) {
+      interruptEntered.countDown()
+      check(interruptRelease.await(3, TimeUnit.SECONDS))
+    }
+  }
+  try {
+    val first = bridge.controlRead()
+    check(firstEntered.await(1, TimeUnit.SECONDS))
+    bridge.session.javaClass.getDeclaredField("token").apply { isAccessible = true }.set(bridge.session, "fixture-lease")
+    val interrupt = bridge.interrupt()
+    firstRelease.countDown()
+    first.rejected("cancelled")
+    check(interruptEntered.await(1, TimeUnit.SECONDS))
+    bridge.controlRead().rejected("busy")
+    interruptRelease.countDown()
+    interrupt.success()
+    bridge.controlRead().success()
+  } finally {
+    firstRelease.countDown(); interruptRelease.countDown()
+    bridge.destroy()
+  }
 }
 
 private fun lifecycleCancelsReadAndPeer() {
@@ -377,6 +465,47 @@ private fun factoryPermissionAndLifecycle() {
   }
 }
 
+private fun wifiSignalOnlyFromActiveWifi() {
+  val module = BrainstemGrpcModule()
+  val bridge = module.definition()
+  val context = module.appContext.reactContext
+  @Suppress("UNCHECKED_CAST")
+  val read = bridge.functions["readWifiRssi"] as () -> Int?
+  try {
+    bridge.foreground()
+    check(read() == -70)
+    context.connectivity.capabilities.wifi = false
+    check(read() == null)
+    context.connectivity.capabilities.wifi = true
+    (context.connectivity.capabilities.transportInfo as android.net.wifi.WifiInfo).rssi = -127
+    context.wifi.connectionInfo.rssi = -127
+    check(read() == null)
+    context.connectivity.capabilities.transportInfo = null
+    context.wifi.connectionInfo.rssi = -65
+    check(read() == -65)
+    context.denyNetworkState = true
+    check(read() == null)
+    context.denyNetworkState = false
+    bridge.background()
+    check(read() == null)
+  } finally { bridge.destroy() }
+}
+
+private fun controlWifiLockLifecycle() {
+  val bridge = Bridge()
+  val acquire = BrainstemGrpcModule::class.java.getDeclaredMethod("acquireControlWifiLock").apply { isAccessible = true }
+  try {
+    acquire.invoke(bridge.module)
+    val held = bridge.module.appContext.reactContext.wifi.lastLock!!
+    check(held.isHeld)
+    acquire.invoke(bridge.module)
+    check(bridge.module.appContext.reactContext.wifi.lastLock === held)
+    bridge.definition.background()
+    (bridge.field("worker").get(bridge.module) as java.util.concurrent.ExecutorService).submit {}.get(2, TimeUnit.SECONDS)
+    check(!held.isHeld)
+  } finally { bridge.destroy() }
+}
+
 fun main(args: Array<String>) {
   val mapper = BrainstemGrpcModule::class.java.getDeclaredMethod("safeGrpcCode", Status::class.java).apply { isAccessible = true }
   val mappingModule = BrainstemGrpcModule()
@@ -386,9 +515,13 @@ fun main(args: Array<String>) {
   val local = KeyStore.getInstance("PKCS12").apply { FileInputStream(args[1]).use { load(it, "fixture-password".toCharArray()) } }
   localMaterial = LocalIdentityKey(local.getKey("fixture", "fixture-password".toCharArray()) as java.security.PrivateKey, local.getCertificate("fixture").publicKey, "software")
   val cases = listOf("control-navigation-stable-inset-and-lifecycle-only" to ::controlNavigationStableInsetsAndLifecycle,
+    "wifi-signal-active-network-permission-and-sentinel" to ::wifiSignalOnlyFromActiveWifi,
+    "foreground-control-wifi-lock-releases-on-background" to ::controlWifiLockLifecycle,
     "same-peer-four-reads-and-rejections" to ::samePeerReads,
     "lan-private-ipv4-qa-and-transport-peer-guards" to ::lanEntryGuardsAndPeer,
     "slow-read-independent-control-executor" to ::slowReadDoesNotBlockControl,
+    "settled-control-success-and-failure-admit-reentry" to ::settledControlReentryIsNotBusy,
+    "queued-interrupt-keeps-busy-owner" to ::queuedInterruptKeepsItsBusyOwnership,
     "close-background-destroy-cancellation" to ::lifecycleCancelsReadAndPeer,
     "failed-open-clears-peer-without-bypassing-mtls" to ::failedOpenDoesNotLeavePeer,
     "factory-permission-target-generation-and-cancellation" to ::factoryPermissionAndLifecycle)

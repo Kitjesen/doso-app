@@ -12,6 +12,8 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.lang.reflect.InvocationTargetException
+import java.io.ByteArrayOutputStream
+import java.io.PrintStream
 
 private const val PRINCIPAL = "doso-g20@robot"
 private fun capability(id: String, profile: String = "", kind: Long = 1, availability: Long = 2) =
@@ -34,10 +36,12 @@ private class FakeChannel(val expectedPrincipal: String = PRINCIPAL) : ManagedCh
   var sequence = 0L
   var wrongAck = false
   var failWalk = false
+  var dropWalkReply = false
   var failRelease = false
   var releaseKeepsLease = false
   var delayStatus = false
   var beforeWalkCall: (() -> Unit)? = null
+  var beforeWalkAck: (() -> Unit)? = null
   val statusEntered = CountDownLatch(1)
   val releaseStatus = CountDownLatch(1)
   fun state() = ControlWireTest.join(ControlWireTest.b(1, ControlWireTest.f(1, kind.toLong())),
@@ -66,7 +70,9 @@ private class FakeChannel(val expectedPrincipal: String = PRINCIPAL) : ManagedCh
       }
       override fun halfClose() {
         requests.add(name to request)
+        if (name == "WalkChecked" && dropWalkReply) return
         if (name == "WalkChecked" && failWalk || name == "ReleaseControl" && failRelease) {
+          if (name == "WalkChecked") listener.onHeaders(Metadata())
           if (done.compareAndSet(false, true)) listener.onClose(Status.DEADLINE_EXCEEDED, Metadata())
           return
         }
@@ -109,6 +115,7 @@ private class FakeChannel(val expectedPrincipal: String = PRINCIPAL) : ManagedCh
       @Suppress("UNCHECKED_CAST")
       fun complete(response: ByteArray) {
         if (done.compareAndSet(false, true)) {
+          if (name == "WalkChecked") beforeWalkAck?.invoke()
           listener.onMessage(response as RespT)
           listener.onClose(Status.OK, Metadata())
         }
@@ -124,22 +131,52 @@ private fun expectFailure(code: String, block: () -> Unit) {
   error("Expected $code")
 }
 
+private fun verifyTimeoutDiagnostics() {
+  for (source in listOf("latch", "grpc_deadline", "logger_failure")) {
+    val channel = FakeChannel()
+    val session = ControlSession(channel, PRINCIPAL) { it() }
+    val previousError = System.err
+    val output = ByteArrayOutputStream()
+    try {
+      session.acquire()
+      channel.dropWalkReply = source == "latch"
+      channel.failWalk = source != "latch"
+      System.setErr(if (source == "logger_failure") object : PrintStream(output) {
+        override fun println(value: String?) { throw IllegalStateException("fixture logger failed") }
+      } else PrintStream(output))
+      expectFailure("timeout") { session.input(0.0, 0.0, 0.0, SystemClock.elapsedRealtime()) }
+      check(channel.requests.any { it.first == "ReleaseControl" }) { "Timeout logging blocked authority cleanup" }
+      check(session.status()["leaseActive"] == false)
+      if (source != "logger_failure") {
+        val line = output.toString("UTF-8").trim()
+        val headers = if (source == "latch") "none" else "[0-9]+"
+        check(Regex("DOSO_CONTROL_RPC_TIMEOUT method=WalkChecked elapsedMs=[0-9]+ source=$source headersMs=$headers messageMs=none").matches(line)) { "Unexpected timeout diagnostic: $line" }
+        check(!line.contains(PRINCIPAL) && !line.contains("ephemeral-fixture"))
+      }
+    } finally {
+      System.setErr(previousError)
+      session.close()
+    }
+  }
+  println("PASS: timeout diagnostics distinguish latch/grpc deadlines without leaking data or blocking cleanup")
+}
+
 private fun verify50HzWireBoundary() {
   val probe = ControlSession(FakeChannel(), PRINCIPAL) { it() }
   val lastSent = ControlSession::class.java.getDeclaredField("lastWireAt").apply { isAccessible = true }
-  val waitForWire = ControlSession::class.java.getDeclaredMethod("waitWireInterval").apply { isAccessible = true }
+  val waitForWire = ControlSession::class.java.getDeclaredMethod("waitWireInterval", Boolean::class.javaPrimitiveType).apply { isAccessible = true }
   try {
     // A pre-existing interrupt makes any attempted Thread.sleep fail immediately.
     // Fixed elapsed time proves the boundary without a wall-clock timing assertion.
     SystemClock.setTestElapsedRealtime(10_000L)
     lastSent.setLong(probe, 9_980L)
     Thread.currentThread().interrupt()
-    waitForWire.invoke(probe)
+    waitForWire.invoke(probe, true)
     check(Thread.interrupted()) { "A command eligible at 20 ms must not wait" }
 
     lastSent.setLong(probe, 9_981L)
     Thread.currentThread().interrupt()
-    val blocked = runCatching { waitForWire.invoke(probe) }.exceptionOrNull()
+    val blocked = runCatching { waitForWire.invoke(probe, true) }.exceptionOrNull()
     check(blocked is InvocationTargetException && blocked.cause is InterruptedException) {
       "A command at 19 ms must still be held by the shared motion limiter"
     }
@@ -149,6 +186,48 @@ private fun verify50HzWireBoundary() {
     probe.close()
   }
   println("PASS: native motion limiter permits 20 ms and holds 19 ms (50 Hz ceiling)")
+}
+
+private fun verifyAckReceiveCooldown() {
+  val channel = FakeChannel()
+  val session = ControlSession(channel, PRINCIPAL) { it() }
+  val lastSent = ControlSession::class.java.getDeclaredField("lastWireAt").apply { isAccessible = true }
+  val lastAck = ControlSession::class.java.getDeclaredField("lastWalkAckAt").apply { isAccessible = true }
+  val waitForWire = ControlSession::class.java.getDeclaredMethod("waitWireInterval", Boolean::class.javaPrimitiveType).apply { isAccessible = true }
+  fun expectWait(afterAck: Boolean) {
+    Thread.currentThread().interrupt()
+    val blocked = runCatching { waitForWire.invoke(session, afterAck) }.exceptionOrNull()
+    check(blocked is InvocationTargetException && blocked.cause is InterruptedException) { "ACK receive cooldown did not hold movement" }
+    Thread.interrupted()
+  }
+  try {
+    SystemClock.setTestElapsedRealtime(10_000L)
+    channel.beforeWalkAck = { SystemClock.setTestElapsedRealtime(10_080L) }
+    session.acquire()
+    check(lastAck.getLong(session) == 10_080L) { "Acquire's initial zero ACK must start the same cooldown" }
+    // The wire was eligible long ago, but the ACK only just arrived after an 80ms transport delay.
+    lastSent.setLong(session, 10_000L)
+    expectWait(true)
+    SystemClock.setTestElapsedRealtime(10_099L)
+    expectWait(true)
+    SystemClock.setTestElapsedRealtime(10_100L)
+    Thread.currentThread().interrupt()
+    waitForWire.invoke(session, true)
+    check(Thread.interrupted()) { "ACK age 20ms should be eligible without another sleep" }
+
+    SystemClock.setTestElapsedRealtime(10_080L)
+    Thread.currentThread().interrupt()
+    waitForWire.invoke(session, false)
+    check(Thread.interrupted()) { "Safety cleanup must not acquire a new ACK cooldown" }
+    val movementCount = channel.requests.count { it.first == "WalkChecked" }
+    session.haltImmediately()
+    expectFailure("not_armed") { session.input(.1, 0.0, 0.0, 10_080L) }
+    check(channel.requests.count { it.first == "WalkChecked" } == movementCount) { "Cancellation during cooldown must not dispatch movement" }
+  } finally {
+    Thread.interrupted(); channel.beforeWalkAck = null
+    SystemClock.setTestElapsedRealtime(-1L); session.close()
+  }
+  println("PASS: successful ACK receive cooldown includes initial zero, 80ms ACK, 19/20ms boundary and immediate cancellation/cleanup")
 }
 
 private fun verifyOriginalInputDeadline() {
@@ -190,8 +269,29 @@ private fun verifyOriginalInputDeadline() {
 }
 
 fun main() {
+  val catalogChannel = FakeChannel()
+  val catalog = ControlSession(catalogChannel, PRINCIPAL) { it() }
+  try {
+    check((catalog.initialStatus()["profile"] as Map<*, *>)["current"] == "flat")
+    catalogChannel.profileCurrent = "stairs"
+    catalogChannel.profileAvailable = listOf("flat", "stairs")
+    val stamp = ControlSession::class.java.getDeclaredField("profileReadAt").apply { isAccessible = true }
+    stamp.set(catalog, SystemClock.elapsedRealtime() - 2001L)
+    check((catalog.status()["profile"] as Map<*, *>)["current"] == "stairs")
+    catalog.acquire()
+    val before = catalogChannel.requests.count { it.first == "GetProfile" }
+    stamp.set(catalog, SystemClock.elapsedRealtime() - 2001L)
+    catalog.status()
+    check(catalogChannel.requests.count { it.first == "GetProfile" } == before)
+    catalog.input(1.0, -1.0, 1.0, SystemClock.elapsedRealtime())
+    try { catalog.input(3.01, 0.0, 0.0, SystemClock.elapsedRealtime()); error("Protocol bound accepted") }
+    catch (failure: ControlSession.Failure) { check(failure.code == "config") }
+  } finally { catalog.close() }
+  println("PASS: fresh idle catalog, no profile RPC while armed, deployed velocity range")
+  verifyTimeoutDiagnostics()
   verifyOriginalInputDeadline()
   verify50HzWireBoundary()
+  verifyAckReceiveCooldown()
   val channel = FakeChannel()
   val cleanup = ConcurrentLinkedQueue<() -> Unit>()
   val session = ControlSession(channel, PRINCIPAL) { cleanup.add(it) }

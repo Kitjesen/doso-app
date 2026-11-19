@@ -15,9 +15,14 @@ import com.skydroid.rcsdk.common.remotecontroller.ControlMode
 import com.skydroid.rcsdk.internal.InternalKey
 import com.skydroid.rcsdk.key.RemoteControllerKey
 import com.skydroid.rcsdk.utils.RCSDKUtils
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** G20 local RC input only. This adapter has no device SET/ACTION or robot transport. */
-internal class SkydroidG20Source(context: Context) : G20ReadOnlySource {
+internal class SkydroidG20Source(
+  context: Context,
+  private val now: () -> Long = { System.nanoTime() / 1_000_000 },
+  private val trace: (Map<String, Any>) -> Unit = {}
+) : G20ReadOnlySource {
   // RCSDK retains its callback after disconnect; never let that root retain ReactContext.
   private val applicationContext = context.applicationContext
   private class Pending<T>(var done: ((T?) -> Unit)?)
@@ -25,6 +30,8 @@ internal class SkydroidG20Source(context: Context) : G20ReadOnlySource {
     var connected: (() -> Unit)?, var failed: ((String) -> Unit)?, var disconnected: (() -> Unit)?
   ) {
     val pending = mutableSetOf<Pending<*>>()
+    var firstSettings = true
+    var firstChannels = true
     fun clear() {
       connected = null; failed = null; disconnected = null
       for (request in pending) request.done = null
@@ -67,8 +74,21 @@ internal class SkydroidG20Source(context: Context) : G20ReadOnlySource {
 
   override fun readSettings(done: (List<Map<String, Any>>?) -> Unit) {
     val (run, request) = register(done) ?: return
+    val first = synchronized(callbackLock) { run.firstSettings.also { run.firstSettings = false } }
+    val startedAt = if (first) now() else 0L
+    val reported = if (first) AtomicBoolean(false) else null
+    fun report(result: String, errorCode: Int? = null) {
+      if (reported?.compareAndSet(false, true) != true) return
+      val elapsed = now() - startedAt
+      val event = mutableMapOf<String, Any>("event" to "first_settings_callback", "result" to result,
+        "owner" to if (connection === run) "active" else "stale", "durationMs" to if (elapsed >= 0) elapsed else -1L)
+      if (errorCode != null) event["errorCode"] = if (errorCode in 0..99999) errorCode else -1
+      try { trace(event)
+      } catch (_: Exception) { /* Diagnostic failures must not affect input. */ }
+    }
     KeyManager.get(RemoteControllerKey.KeyChannelSettings, object : CompletionCallbackWith<ChannelSettings> {
       override fun onSuccess(value: ChannelSettings?) {
+        report("success")
         if (connection !== run) return
         val snapshot = try {
           value?.channels?.mapIndexed { position, item -> mapOf(
@@ -79,7 +99,7 @@ internal class SkydroidG20Source(context: Context) : G20ReadOnlySource {
         } catch (_: Exception) { null }
         complete(run, request, snapshot)
       }
-      override fun onFailure(e: SkyException) { complete(run, request, null) }
+      override fun onFailure(e: SkyException) { report("failure", e.getErrorCode()); complete(run, request, null) }
     })
   }
 
@@ -93,12 +113,29 @@ internal class SkydroidG20Source(context: Context) : G20ReadOnlySource {
 
   override fun readChannels(done: (IntArray?) -> Unit) {
     val (run, request) = register(done) ?: return
+    val first = synchronized(callbackLock) { run.firstChannels.also { run.firstChannels = false } }
+    val startedAt = if (first) now() else 0L
+    val reported = if (first) AtomicBoolean(false) else null
+    fun report(result: String, errorCode: Int? = null) {
+      if (reported?.compareAndSet(false, true) != true) return
+      val elapsed = now() - startedAt
+      val event = mutableMapOf<String, Any>("event" to "first_channels_callback", "result" to result,
+        "owner" to if (connection === run) "active" else "stale", "durationMs" to if (elapsed >= 0) elapsed else -1L)
+      if (errorCode != null) event["errorCode"] = if (errorCode in 0..99999) errorCode else -1
+      try { trace(event) } catch (_: Exception) { /* Diagnostic failures must not affect input. */ }
+    }
     KeyManager.get(RemoteControllerKey.KeyChannels, object : CompletionCallbackWith<IntArray> {
       override fun onSuccess(value: IntArray?) {
+        if (first) report(when {
+          value == null -> "empty"
+          value.size < 16 -> "short"
+          value.take(16).any { it !in 0..3000 } -> "out_of_range"
+          else -> "success"
+        })
         val snapshot = value?.copyOf()
         complete(run, request, snapshot)
       }
-      override fun onFailure(e: SkyException) { complete(run, request, null) }
+      override fun onFailure(e: SkyException) { report("failure", e.getErrorCode()); complete(run, request, null) }
     })
   }
 

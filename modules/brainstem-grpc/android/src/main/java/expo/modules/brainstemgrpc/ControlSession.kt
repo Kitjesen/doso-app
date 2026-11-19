@@ -41,12 +41,14 @@ internal class ControlSession(
   @Volatile private var recoveryHeartbeatError: String? = null
   @Volatile private var lastInputAt = 0L
   private var lastWireAt = 0L
+  private var lastWalkAckAt = 0L
   private var token = ""
   private var sequence = 0L
   private var sequenceCertain = true
   private var principalVerified = false
   private var leaseOwnerMatched = false
   private var stopUnconfirmed = false
+  private var profileReadAt: Long? = null
 
   init {
     watchdog.scheduleAtFixedRate({
@@ -58,12 +60,10 @@ internal class ControlSession(
   }
 
   fun initialStatus(): Map<String, Any> {
-    val observed = status()
-    return try { observed + mapOf("profile" to ProfileInfoParser.parse(rpc("GetProfile", EMPTY, 750))) }
-    catch (error: Failure) { if (error.code == "unimplemented") observed else throw error }
+    return status(refreshProfile = true)
   }
 
-  fun status(): Map<String, Any> {
+  fun status(refreshProfile: Boolean = false): Map<String, Any> {
     checkOpen()
     val bytes = rpc("GetControlStatus", EMPTY)
     val value = ControlStatusParser.parse(bytes)
@@ -78,7 +78,18 @@ internal class ControlSession(
       motionIntent.set(false)
       stopping.set(false)
     }
-    return envelope(value)
+    val result = envelope(value)
+    val now = SystemClock.elapsedRealtime()
+    // Profile reads never block the motion RPC queue while a lease is held.
+    if (!armed.get() && (refreshProfile || profileReadAt == null || now - profileReadAt!! >= 2000L)) {
+      profileReadAt = now
+      return try { result + mapOf("profile" to ProfileInfoParser.parse(rpc("GetProfile", EMPTY, 750))) }
+      catch (error: Failure) {
+        if (error.code in listOf("unimplemented", "unavailable", "timeout", "busy")) result + mapOf("profileUnavailable" to true)
+        else throw error
+      }
+    }
+    return result
   }
 
   fun captureEpoch(): Long = cancellationEpoch.get()
@@ -164,6 +175,7 @@ internal class ControlSession(
         sequence = 0
         sequenceCertain = true
         lastWireAt = 0
+        lastWalkAckAt = 0
         lastInputAt = SystemClock.elapsedRealtime()
         stopping.set(false)
         motionIntent.set(false)
@@ -199,8 +211,9 @@ internal class ControlSession(
 
   private fun walk(x: Double, y: Double, yaw: Double, receivedAt: Long, epoch: Long): Map<String, Any> {
     if (!armed.get() || stopping.get()) throw Failure("not_armed")
-    if (!x.isFinite() || !y.isFinite() || !yaw.isFinite() || kotlin.math.abs(x) > .3
-        || kotlin.math.abs(y) > .3 || kotlin.math.abs(yaw) > .5) throw Failure("config")
+    // Direct velocity RPC uses the deployed Brainstem protocol bounds, not a second low-speed cap.
+    if (!x.isFinite() || !y.isFinite() || !yaw.isFinite() || kotlin.math.abs(x) > ControlWire.MAX_LINEAR_MPS
+        || kotlin.math.abs(y) > ControlWire.MAX_LINEAR_MPS || kotlin.math.abs(yaw) > ControlWire.MAX_YAW_RPS) throw Failure("config")
     waitWireInterval()
     if (!armed.get() || stopping.get() || !inputFresh(receivedAt)) throw Failure("stale_input")
     val next = sequence + 1
@@ -215,6 +228,7 @@ internal class ControlSession(
     ControlWire.requireLeaseOwner(ControlWire.nestedStatus(response, 4), principal, next)
     if (!ack.status.boolean("grpcLeaseActive") || ack.status["owner"] != "grpc"
         || ack.status.boolean("criticalMotorFault") || !ack.status.boolean("motorOutputEnabled")) throw Failure("command_rejected")
+    lastWalkAckAt = SystemClock.elapsedRealtime()
     sequence = next
     leaseOwnerMatched = true
     sequenceCertain = true
@@ -245,7 +259,7 @@ internal class ControlSession(
       if (held.isNotEmpty() && !channel.isShutdown) {
         // A rejected/uncertain ACK is never retried with a guessed sequence. Release alone is safe.
         if (sequenceCertain) runCatching {
-          waitWireInterval()
+          waitWireInterval(afterAck = false)
           val ack = ControlWire.ack(rpc("WalkChecked", ControlWire.walk(held, sequence + 1, 0.0, 0.0, 0.0), MOTION_DEADLINE_MS))
           if (ack.accepted && ack.reason == 0 && ack.sequence == sequence + 1) projected = ack.status
         }
@@ -409,17 +423,23 @@ internal class ControlSession(
 
   private fun checkOpen() { if (closed.get() || channel.isShutdown) throw Failure("cancelled") }
   private fun Map<String, Any>.boolean(key: String) = this[key] == true
-  private fun waitWireInterval() {
-    val remaining = MIN_WIRE_INTERVAL_MS - (SystemClock.elapsedRealtime() - lastWireAt)
+  private fun waitWireInterval(afterAck: Boolean = true) {
+    val current = SystemClock.elapsedRealtime()
+    // Send spacing alone cannot prevent network jitter from clustering arrivals at the server.
+    val remaining = maxOf(MIN_WIRE_INTERVAL_MS - (current - lastWireAt),
+      if (afterAck) MIN_WIRE_INTERVAL_MS - (current - lastWalkAckAt) else 0L)
     if (remaining > 0) Thread.sleep(remaining)
   }
 
   private fun rpc(name: String, request: ByteArray, deadline: Long = 3000, epoch: Long? = null, sampledAt: Long? = null): ByteArray {
     checkOpen()
+    val startedAt = SystemClock.elapsedRealtime()
     val latch = CountDownLatch(1)
     var body: ByteArray? = null
     var result = Status.UNKNOWN
     var duplicate = false
+    val headersAt = AtomicLong(-1)
+    val messageAt = AtomicLong(-1)
     val next = channel.newCall(method(name), CallOptions.DEFAULT.withDeadlineAfter(deadline, TimeUnit.MILLISECONDS))
     try {
       synchronized(dispatchLock) {
@@ -428,7 +448,11 @@ internal class ControlSession(
         if (sampledAt != null && !inputFresh(sampledAt)) throw Failure("stale_input")
         call = next
         next.start(object : ClientCall.Listener<ByteArray>() {
-          override fun onMessage(message: ByteArray) { if (body != null) duplicate = true else body = message }
+          override fun onHeaders(headers: Metadata) { headersAt.compareAndSet(-1, SystemClock.elapsedRealtime()) }
+          override fun onMessage(message: ByteArray) {
+            messageAt.compareAndSet(-1, SystemClock.elapsedRealtime())
+            if (body != null) duplicate = true else body = message
+          }
           override fun onClose(status: Status, trailers: Metadata) { result = status; latch.countDown() }
         }, Metadata().apply { if (lanDev) put(DEV_CLIENT, principal) })
         next.request(2)
@@ -436,7 +460,11 @@ internal class ControlSession(
         next.halfClose()
         if (name == "WalkChecked") lastWireAt = SystemClock.elapsedRealtime()
       }
-      if (!latch.await(deadline + 50, TimeUnit.MILLISECONDS)) throw Failure("timeout")
+      if (!latch.await(deadline + 50, TimeUnit.MILLISECONDS)) {
+        recordTimeout(name, startedAt, true, headersAt.get(), messageAt.get())
+        throw Failure("timeout")
+      }
+      if (result.code == Status.Code.DEADLINE_EXCEEDED) recordTimeout(name, startedAt, false, headersAt.get(), messageAt.get())
       if (!result.isOk) throw Failure(when (result.code) {
         Status.Code.UNAUTHENTICATED, Status.Code.PERMISSION_DENIED -> "unauthorized"
         Status.Code.FAILED_PRECONDITION, Status.Code.ABORTED -> "precondition"
@@ -449,6 +477,16 @@ internal class ControlSession(
       if (epoch != null && epoch != cancellationEpoch.get()) throw Failure("cancelled")
       return body ?: throw Failure("invalid_response")
     } finally { call = null; next.cancel("Control RPC finished", null) }
+  }
+
+  private fun recordTimeout(name: String, startedAt: Long, latchExpired: Boolean, headersAt: Long, messageAt: Long) {
+    runCatching {
+      val method = if (name in allowedMethods) name else "unknown"
+      val elapsed = (SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(0L)
+      val headersMs = if (headersAt >= startedAt) (headersAt - startedAt).toString() else "none"
+      val messageMs = if (messageAt >= startedAt) (messageAt - startedAt).toString() else "none"
+      System.err.println("DOSO_CONTROL_RPC_TIMEOUT method=$method elapsedMs=$elapsed source=${if (latchExpired) "latch" else "grpc_deadline"} headersMs=$headersMs messageMs=$messageMs")
+    }
   }
 
   internal class Failure(val code: String) : Exception("Brainstem control failed")

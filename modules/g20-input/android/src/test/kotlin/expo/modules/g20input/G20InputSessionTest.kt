@@ -70,6 +70,7 @@ private class Harness(trace: (Map<String, Any>) -> Unit = {}) {
   private var settingsSnapshot: List<Map<String, Any>>? = configuration()
   private var modeSnapshot: String? = "USA"
   fun start(id: String = "request-1") { session.start(id); source.connected() }
+  fun observe(id: String = "observation-1") { session.observe(id); source.connected() }
   fun configure(settings: List<Map<String, Any>>? = configuration(), mode: String? = "USA") {
     settingsSnapshot = settings; modeSnapshot = mode
     source.settings!!(settings); source.mode!!(mode)
@@ -89,7 +90,7 @@ private class Harness(trace: (Map<String, Any>) -> Unit = {}) {
     clock.advance(delays[1]); source.mode!!("USA")
     if (source.requests.count { it == "channels" } == channelCount) {
       val last = source.requestTimes.last { it.first == "channels" }.second
-      clock.advance(maxOf(0, last + 100 - clock.time))
+      clock.advance(maxOf(0, last + G20InputSession.POLL_INTERVAL_MS - clock.time))
     }
     check(source.requests.count { it == "channels" } == channelCount + 1)
     clock.advance(delays[2]); source.channels!!(IntArray(16) { 1500 })
@@ -103,6 +104,27 @@ private var cases = 0
 private fun verify(name: String, body: () -> Unit) { body(); cases++; println("PASS: $name") }
 
 fun main() {
+  verify("initial settings may arrive after 300ms without publishing any input early") {
+    val h = Harness(); h.start(); h.clock.advance(1000)
+    check(h.session.getStatus()["status"] == "starting" && h.samples.isEmpty())
+    h.frame()
+    check(h.samples.size == 1 && h.session.isSampleFresh(h.generation, 1))
+    h.clock.advance(300)
+    check(h.session.getStatus()["reason"] == "read_timeout" && h.source.closed == 1)
+  }
+  verify("initial settings at the extended deadline remain rejected") {
+    val h = Harness(); h.start(); val callback = h.source.settings!!
+    h.clock.time = 2300; callback(configuration())
+    check(h.session.getStatus()["reason"] == "read_timeout" && h.samples.isEmpty())
+    check(h.source.closed == 1)
+  }
+  verify("stopping during extended initial settings prevents late input") {
+    val h = Harness(); h.start(); val delayed = h.source.settings!!
+    h.clock.advance(500); h.session.stop("background"); delayed(configuration()); h.clock.advance(2500)
+    check(h.samples.isEmpty() && h.source.closed == 1)
+    check(h.session.getStatus()["reason"] == "background")
+    check(h.source.requests == listOf("settings"))
+  }
   verify("raw channel data and current configuration are read sequentially, never guessed") {
     val h = Harness(); h.start()
     check(h.source.requests == listOf("settings"))
@@ -215,20 +237,20 @@ fun main() {
   }
   verify("a GET callback at the deadline cannot beat a delayed timeout timer") {
     val before = Harness(); before.start()
-    before.clock.time = 299; before.source.settings!!(configuration())
-    check(before.source.requests == listOf("settings", "mode"))
-    val h = Harness(); h.start(); val source = h.source; val delayed = source.settings!!
-    h.clock.time = 300; delayed(configuration())
+    before.source.settings!!(configuration()); before.clock.time = 299; before.source.mode!!("USA")
+    check(before.source.requests == listOf("settings", "mode", "channels"))
+    val h = Harness(); h.start(); h.source.settings!!(configuration()); val source = h.source; val delayed = source.mode!!
+    h.clock.time = 300; delayed("USA")
     check(h.session.getStatus()["reason"] == "read_timeout")
-    check(source.closed == 1 && source.requests == listOf("settings"))
+    check(source.closed == 1 && source.requests == listOf("settings", "mode"))
     h.clock.advance(1); check(h.samples.isEmpty())
     val rollback = Harness(); rollback.clock.time = 100; rollback.start()
-    rollback.clock.time = 99; rollback.source.settings!!(configuration())
+    rollback.source.settings!!(configuration()); rollback.clock.time = 99; rollback.source.mode!!("USA")
     check(rollback.session.getStatus()["reason"] == "read_timeout")
   }
   verify("a fresh restart after a delayed GET stays isolated from the expired run") {
     val h = Harness(); h.start("expired-read"); val old = h.source; val late = old.settings!!
-    h.clock.time = 300; late(configuration())
+    h.clock.time = 2300; late(configuration())
     check(h.session.getStatus()["reason"] == "read_timeout" && old.closed == 1)
     h.start("fresh-read"); h.frame(); val generation = h.generation
     late(configuration()); old.connected(); h.clock.advance(0)
@@ -281,10 +303,11 @@ fun main() {
       if (index > 1) h.source.mode!!("USA")
       if (index > 2) h.source.channels!!(IntArray(16) { 1500 })
       if (index > 3) h.source.settings!!(configuration())
-      h.clock.advance(300)
+      val limit = if (operation == "pre_settings") 2300L else 300L
+      h.clock.advance(limit)
       val failure = h.traces.last()
       check(failure["event"] == "failure" && failure["operation"] == operation)
-      check(failure["durationMs"] == 300L && failure["sequence"] == 0L)
+      check(failure["durationMs"] == limit && failure["sequence"] == 0L)
       check(failure["requestAgeMs"] == -1L)
       check(h.session.getStatus()["reason"] == "read_timeout")
     }
@@ -301,19 +324,21 @@ fun main() {
     check(h.source.requestTimes.filter { it.first == "channels" }.map { it.second } == listOf(40L, 140L, 240L))
     check(h.source.maximumOutstanding == 1)
   }
-  verify("diagnostics stop after eight frames plus one terminal record and never contain channel or identity data") {
+  verify("diagnostics stop after eight frames plus summary and terminal records without channel or identity data") {
     val h = Harness(); h.start("private-device-id")
     repeat(12) { h.frame(); if (it < 11) h.clock.advance(100) }
     check(h.samples.size == 12 && h.traces.size == 48)
     h.source.failed("private-vendor-error-and-path")
-    check(h.traces.size == 49 && h.traces.last()["event"] == "failure")
+    check(h.traces.size == 50 && h.traces.last()["event"] == "failure")
     val keys = setOf("event", "operation", "durationMs", "sequence", "requestAgeMs", "sampleGapMs")
     val operations = setOf("connect", "idle", "cadence", "pre_settings", "pre_mode", "channels", "post_settings", "post_mode", "sample")
-    check(h.traces.all { keys.containsAll(it.keys) && it["operation"] in operations })
-    check(h.traces.all { event -> event.values.none { it is List<*> || it is Map<*, *> } })
+    val detail = h.traces.filter { it["event"] != "timing_summary" }
+    check(detail.all { keys.containsAll(it.keys) && it["operation"] in operations })
+    check(detail.all { event -> event.values.none { it is List<*> || it is Map<*, *> } })
+    check(h.traces.count { it["event"] == "timing_summary" } == 1)
     check(!h.traces.toString().contains("private") && !h.traces.toString().contains("USA"))
     h.session.stop(); h.session.stop(); h.clock.advance(2000)
-    check(h.traces.size == 49)
+    check(h.traces.size == 50)
   }
   verify("stop diagnostics show the outstanding GET and late callbacks cannot trace or publish") {
     val h = Harness(); h.start(); h.frame(); h.clock.advance(123)
@@ -337,7 +362,8 @@ fun main() {
     val h = Harness(); h.start()
     for (delays in listOf(listOf(3L, 4L, 7L, 5L, 3L), listOf(30L, 5L, 25L, 15L, 20L), listOf(1L, 1L, 1L, 1L, 1L))) h.timedFrame(delays)
     val channels = h.source.requestTimes.filter { it.first == "channels" }.map { it.second }
-    check(channels.zipWithNext().all { (before, after) -> after - before >= 100L })
+    check(channels == listOf(7L, 57L, 119L))
+    check(channels.zipWithNext().all { (before, after) -> after - before >= 20L })
     check(h.samples.size == 3 && h.source.maximumOutstanding == 1)
   }
   verify("cadence waits belong to their run and stop, replacement and destroy cancel them") {
@@ -361,6 +387,141 @@ fun main() {
     check(h.samples.single()["receivedAtMonotonicMs"] == 300L)
     check(!h.session.isSampleFresh(h.generation, 1))
     check(h.traces.last { it["event"] == "sample" }["requestAgeMs"] == 180L)
+  }
+  verify("fast GETs target 20ms channel starts without overlapping or renewing the original request time") {
+    check(G20InputSession.POLL_INTERVAL_MS == 20L)
+    val h = Harness(); h.start()
+    repeat(4) { h.timedFrame(List(5) { 1L }) }
+    check(h.source.requestTimes.filter { it.first == "channels" }.map { it.second } == listOf(2L, 22L, 42L, 62L))
+    check(h.samples.map { it["requestStartedAtMonotonicMs"] } == listOf(2L, 22L, 42L, 62L))
+    check(h.samples.map { it["receivedAtMonotonicMs"] } == listOf(5L, 25L, 45L, 65L))
+    check(h.source.maximumOutstanding == 1)
+    h.clock.time = 213L
+    check(!h.session.isSampleFresh(h.generation, 4))
+  }
+  verify("slow GETs lower actual input rate and never accumulate catch-up channel requests") {
+    val h = Harness(); h.start()
+    repeat(4) { h.timedFrame(List(5) { 10L }) }
+    check(h.source.requestTimes.filter { it.first == "channels" }.map { it.second } == listOf(20L, 70L, 120L, 170L))
+    check(h.source.requests == List(4) { listOf("settings", "mode", "channels", "settings", "mode") }.flatten())
+    check(h.source.maximumOutstanding == 1)
+    h.clock.advance(0)
+    check(h.source.requests.size == 21 && h.source.requests.last() == "settings")
+    h.clock.advance(299)
+    check(h.source.requests.size == 21)
+    h.clock.advance(1)
+    check(h.session.getStatus()["reason"] == "read_timeout")
+    h.clock.advance(1000)
+    check(h.source.requests.size == 21 && h.samples.size == 4)
+  }
+  verify("timing summary aggregates beyond the trace limit once per run with fixed histograms") {
+    val h = Harness(); h.start()
+    repeat(12) { h.timedFrame(List(5) { 1L }) }
+    check(h.traces.size == 48)
+    h.session.stop()
+    val summary = h.traces.single { it["event"] == "timing_summary" }
+    check(summary["sampleCount"] == 12L && summary["pollIntervalMs"] == 20L)
+    check(summary.keys == setOf("event", "sampleCount", "pollIntervalMs", "histogramLeMs", "channelStartGapMs", "sampleGapMs", "requestAgeMs"))
+    check(summary["histogramLeMs"] == listOf(5L, 10L, 20L, 40L, 80L, 150L, 300L))
+    for (key in listOf("channelStartGapMs", "sampleGapMs")) {
+      val stats = summary[key] as Map<*, *>
+      check(stats["count"] == 11L && stats["min"] == 20L && stats["max"] == 20L && stats["mean"] == 20.0)
+      check(stats["histogram"] == listOf(0L, 0L, 11L, 0L, 0L, 0L, 0L, 0L))
+    }
+    val age = summary["requestAgeMs"] as Map<*, *>
+    check(age["count"] == 12L && age["min"] == 3L && age["max"] == 3L && age["mean"] == 3.0)
+    check(age["histogram"] == listOf(12L, 0L, 0L, 0L, 0L, 0L, 0L, 0L))
+    h.session.stop(); h.session.destroy()
+    check(h.traces.size == 50)
+  }
+  verify("observation reads only channels at 20ms and always publishes unusable configuration") {
+    val h = Harness(); h.observe()
+    repeat(12) { index ->
+      if (index > 0) h.clock.advance(20)
+      h.source.channels!!(IntArray(16) { 1500 })
+    }
+    check(h.source.requests == List(12) { "channels" } && h.source.maximumOutstanding == 1)
+    check(h.source.requestTimes.map { it.second } == List(12) { it * 20L })
+    check(h.samples.size == 12 && h.samples.all {
+      it["inputMode"] == "observation" && it["channelSettings"] == null && it["controlMode"] == null && it["configurationReady"] == false
+    })
+    check(h.session.getStatus()["configurationReady"] == false && h.session.getStatus()["inputMode"] == "observation")
+    check(h.session.isSampleFresh(h.generation, 12))
+    h.session.stop()
+    check(h.traces.size == 18 && h.traces.single { it["event"] == "timing_summary" }["sampleCount"] == 12L)
+  }
+  verify("slow observation callbacks lower the rate without overlaps, catch-up or sample-time renewal") {
+    val h = Harness(); h.observe()
+    repeat(4) {
+      h.clock.advance(50); h.source.channels!!(IntArray(16) { 1500 }); h.clock.advance(0)
+    }
+    check(h.source.requestTimes.map { it.second } == listOf(0L, 50L, 100L, 150L, 200L))
+    check(h.source.maximumOutstanding == 1 && h.source.requests.all { it == "channels" })
+    check(h.samples.map { it["requestStartedAtMonotonicMs"] } == listOf(0L, 50L, 100L, 150L))
+    check(h.samples.map { it["receivedAtMonotonicMs"] } == listOf(50L, 100L, 150L, 200L))
+    h.clock.time = 301L
+    check(!h.session.isSampleFresh(h.generation, 4))
+    h.session.stop(); val count = h.source.requests.size; h.clock.advance(1000)
+    check(h.source.requests.size == count)
+  }
+  verify("observation replaces a configured run without inheriting settings or accepting its late callback") {
+    val h = Harness(); h.start(); h.frame(); val old = h.source; val oldGeneration = h.generation
+    h.clock.advance(0); val late = old.settings!!
+    h.observe(); val generation = h.generation; late(configuration(2000)); old.connected()
+    check(old.closed == 1 && !h.session.isSampleFresh(oldGeneration, 1))
+    check(h.source.requests == listOf("channels"))
+    h.source.channels!!(IntArray(16) { 1500 })
+    check(h.samples.size == 2 && h.samples.last()["generation"] == generation)
+    check(h.samples.last()["channelSettings"] == null && h.samples.last()["controlMode"] == null)
+    check(h.samples.last()["configurationReady"] == false)
+  }
+  verify("stopped observation callbacks cannot cross a restart and guarded start still requires five GETs") {
+    val h = Harness(); h.observe(); val old = h.source; val late = old.channels!!
+    h.session.stop("background"); h.observe("new-observation"); late(IntArray(16) { 1950 })
+    check(h.samples.isEmpty() && old.closed == 1 && h.source.requests == listOf("channels"))
+    val observationLate = h.source.channels!!
+    h.start("guarded"); observationLate(IntArray(16) { 1950 })
+    check(h.source.requests == listOf("settings") && h.samples.isEmpty())
+    h.frame()
+    check(h.source.requests == listOf("settings", "mode", "channels", "settings", "mode"))
+    check(h.samples.single()["configurationReady"] == true && h.samples.single()["inputMode"] == "guarded")
+  }
+  verify("observation age uses request time and rejects callbacks at the read deadline or after destruction") {
+    val h = Harness(); h.observe(); h.clock.time = 151L; h.source.channels!!(IntArray(16) { 1500 })
+    check(h.samples.single()["requestStartedAtMonotonicMs"] == 0L && !h.session.isSampleFresh(h.generation, 1))
+    val deadline = Harness(); deadline.observe(); val late = deadline.source.channels!!
+    deadline.clock.time = 300L; late(IntArray(16) { 1500 })
+    check(deadline.samples.isEmpty() && deadline.session.getStatus()["reason"] == "read_timeout")
+    check(deadline.source.closed == 1)
+    val destroyed = Harness(); destroyed.observe(); val destroyedLate = destroyed.source.channels!!
+    destroyed.session.destroy(); destroyedLate(IntArray(16) { 1500 }); destroyed.session.observe("after-destroy")
+    check(destroyed.samples.isEmpty() && destroyed.sources.size == 1 && destroyed.session.getStatus()["reason"] == "destroyed")
+  }
+  verify("observation cadence cancellation and duplicate or invalid callbacks retain the shared lifecycle fences") {
+    val h = Harness(); h.observe(); val first = h.source.channels!!
+    first(IntArray(16) { 1500 }); first(IntArray(16) { 1950 }); h.clock.advance(0)
+    check(h.samples.size == 1 && h.source.requests == listOf("channels"))
+    h.session.stop(); h.clock.advance(20)
+    check(h.source.requests == listOf("channels"))
+    val invalid = Harness(); invalid.observe(); invalid.source.channels!!(IntArray(15))
+    check(invalid.samples.isEmpty() && invalid.session.getStatus()["reason"] == "invalid_channels")
+    check(invalid.source.requests == listOf("channels"))
+  }
+  verify("latest observation is atomic, expires by request time, and cannot survive stop or guarded mode") {
+    val h = Harness(); h.observe("raw")
+    check(h.session.getLatestObservation("raw") == null)
+    h.source.channels!!(IntArray(16) { 1500 }); h.clock.advance(20)
+    h.source.channels!!(IntArray(16) { 1600 })
+    val latest = h.session.getLatestObservation("raw")!!
+    check(latest["sequence"] == 2L && latest["requestStartedAtMonotonicMs"] == 20L)
+    check((latest["channels"] as List<*>).first() == 1600 && latest["configurationReady"] == false)
+    check(h.session.getLatestObservation("other") == null && !h.session.isSampleFresh(h.generation, 1))
+    h.clock.time = 170; check(h.session.getLatestObservation("raw") != null)
+    h.clock.time = 171; check(h.session.getLatestObservation("raw") == null)
+    h.clock.time = 19; check(h.session.getLatestObservation("raw") == null)
+    h.session.stop(); check(h.session.getLatestObservation("raw") == null)
+    h.start("guarded"); h.frame(); check(h.session.getLatestObservation("guarded") == null)
+    h.session.destroy(); check(h.session.getLatestObservation("guarded") == null)
   }
   println("PASS: $cases G20 read-only input lifecycle cases")
 }

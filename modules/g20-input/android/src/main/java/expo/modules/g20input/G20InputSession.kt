@@ -20,15 +20,39 @@ internal class G20InputSession(
   private val trace: (Map<String, Any>) -> Unit = {}
 ) {
   companion object {
-    // Space KeyChannels request starts by 100 ms without adding a full-frame delay.
-    const val POLL_INTERVAL_MS = 100L
+    // Target 20 ms between request starts; five serial GETs may lower the actual input rate.
+    const val POLL_INTERVAL_MS = 20L
     const val READ_TIMEOUT_MS = 300L
+    const val INITIAL_SETTINGS_TIMEOUT_MS = 2300L
     const val CONNECT_TIMEOUT_MS = 1500L
     const val MAX_SAMPLE_AGE_MS = 150L
     private const val TRACE_FRAME_LIMIT = 8L
+    private val HISTOGRAM_LE_MS = longArrayOf(5, 10, 20, 40, 80, 150, 300)
   }
 
-  private class Run(val id: String, val generation: Long, val source: G20ReadOnlySource) {
+  private class Timing {
+    private var count = 0L
+    private var total = 0.0
+    private var minimum = Long.MAX_VALUE
+    private var maximum = 0L
+    private val histogram = LongArray(HISTOGRAM_LE_MS.size + 1)
+    fun add(milliseconds: Long) {
+      if (milliseconds < 0) return
+      count++
+      total += milliseconds
+      minimum = minOf(minimum, milliseconds)
+      maximum = maxOf(maximum, milliseconds)
+      val bucket = HISTOGRAM_LE_MS.indexOfFirst { milliseconds <= it }
+      histogram[if (bucket < 0) histogram.lastIndex else bucket]++
+    }
+    fun snapshot(): Map<String, Any> = mapOf(
+      "count" to count, "min" to if (count == 0L) -1L else minimum,
+      "max" to if (count == 0L) -1L else maximum, "mean" to if (count == 0L) -1.0 else total / count,
+      "histogram" to histogram.toList()
+    )
+  }
+
+  private class Run(val id: String, val generation: Long, val source: G20ReadOnlySource, val observationOnly: Boolean) {
     var timer: InputCancellation? = null
     var pending: Any? = null
     var sequence = 0L
@@ -39,6 +63,10 @@ internal class G20InputSession(
     var operation = "connect"
     var operationStartedAt = 0L
     var lastSampleAt: Long? = null
+    var latestObservation: Map<String, Any?>? = null
+    val channelStartGap = Timing()
+    val sampleGap = Timing()
+    val requestAge = Timing()
   }
 
   private var active: Run? = null
@@ -46,12 +74,24 @@ internal class G20InputSession(
   private var destroyed = false
   private var state: Map<String, Any?> = mapOf(
     "requestId" to null, "generation" to 0L, "status" to "stopped", "reason" to null,
-    "sequence" to 0L, "configurationReady" to false
+    "sequence" to 0L, "configurationReady" to false, "inputMode" to null
   )
 
   @Synchronized fun getStatus(): Map<String, Any?> = state.toMap()
 
-  @Synchronized fun start(requestId: String): Map<String, Any?> {
+  /** Observe the current slot atomically; queued notifications never lend freshness to old values. */
+  @Synchronized fun getLatestObservation(requestId: String): Map<String, Any?>? {
+    val run = active ?: return null
+    if (!run.observationOnly || run.id != requestId || !isSampleFresh(run.generation, run.sequence)) return null
+    return run.latestObservation?.toMap()
+  }
+
+  @Synchronized fun start(requestId: String): Map<String, Any?> = startRun(requestId, false)
+
+  /** Channel-only observation never verifies calibration or authorizes control. */
+  @Synchronized fun observe(requestId: String): Map<String, Any?> = startRun(requestId, true)
+
+  private fun startRun(requestId: String, observationOnly: Boolean): Map<String, Any?> {
     require(requestId.matches(Regex("[A-Za-z0-9_-]{1,80}"))) { "Invalid input request identifier" }
     retire("stopped", "replaced")
     if (destroyed) return publish(null, requestId, "error", "destroyed")
@@ -60,7 +100,7 @@ internal class G20InputSession(
     } catch (_: LinkageError) {
       return publish(null, requestId, "unavailable", "sdk_unavailable")
     }
-    val run = Run(requestId, generation, source)
+    val run = Run(requestId, generation, source, observationOnly)
     run.operationStartedAt = now()
     active = run
     publish(run, requestId, "starting", null)
@@ -130,10 +170,12 @@ internal class G20InputSession(
     check(run.pending == null)
     val ticket = Any()
     val startedAt = now()
+    val timeout = if (operation == "pre_settings" && run.sequence == 0L && run.channelRequestedAt == null)
+      INITIAL_SETTINGS_TIMEOUT_MS else READ_TIMEOUT_MS
     run.operation = operation
     run.operationStartedAt = startedAt
     run.pending = ticket
-    run.timer = schedule(READ_TIMEOUT_MS) {
+    run.timer = schedule(timeout) {
       synchronized(this) { if (owns(run, ticket)) fail(run, "read_timeout") }
     }
     try {
@@ -141,7 +183,7 @@ internal class G20InputSession(
         synchronized(this) {
           if (owns(run, ticket)) {
             val current = now()
-            if (current < startedAt || current - startedAt >= READ_TIMEOUT_MS) {
+            if (current < startedAt || current - startedAt >= timeout) {
               fail(run, "read_timeout")
               return@synchronized
             }
@@ -168,43 +210,48 @@ internal class G20InputSession(
   }
 
   private fun readFrame(run: Run) {
-    // Bracket the channel GET with current settings/mode. A change during this frame
-    // invalidates the run instead of pairing raw channels with an old calibration.
-    readConfiguration(run) { settings, mode ->
+    // Guarded input brackets each channel GET; observation never supplies a configuration.
+    fun readWithConfiguration(settings: List<Map<String, Any>>?, mode: String?) {
       fun requestChannels() {
         if (active !== run || destroyed) return
         run.timer = null
         val requestedAt = now()
+        run.channelRequestedAt?.let { run.channelStartGap.add(requestedAt - it) }
         run.channelRequestedAt = requestedAt
         read<IntArray>(run, "channels", run.source::readChannels) { values ->
           if (values == null || values.size < 16 || values.take(16).any { it !in 0..3000 }) {
             fail(run, "invalid_channels")
           } else {
             val channels = values.take(16)
-            readConfiguration(run, true) verified@ { afterSettings, afterMode ->
+            fun publishVerified(afterSettings: List<Map<String, Any>>?, afterMode: String?) {
               if (settings != afterSettings || mode != afterMode) {
                 fail(run, "configuration_changed")
-                return@verified
+                return
               }
               run.settings = settings
               run.mode = mode
               run.sequence++
               run.sampleRequestedAt = requestedAt
               val sampledAt = now()
+              run.requestAge.add(sampledAt - requestedAt)
+              run.lastSampleAt?.let { run.sampleGap.add(sampledAt - it) }
               if (run.sequence <= TRACE_FRAME_LIMIT) recordTrace(mapOf(
                 "event" to "sample", "operation" to "sample", "sequence" to run.sequence,
                 "requestAgeMs" to sampledAt - requestedAt, "sampleGapMs" to (run.lastSampleAt?.let { sampledAt - it } ?: -1L)
               ))
               run.lastSampleAt = sampledAt
-              if (active !== run || destroyed) return@verified
-              val ready = run.settings != null && run.mode != null
-              publish(run, run.id, "reading", if (ready) null else "configuration_unavailable")
-              emitSample(mapOf(
+              if (active !== run || destroyed) return
+              val ready = !run.observationOnly && run.settings != null && run.mode != null
+              publish(run, run.id, "reading", if (run.observationOnly) "observation_only" else if (ready) null else "configuration_unavailable")
+              val sample = mapOf(
                 "requestId" to run.id, "generation" to run.generation, "sequence" to run.sequence,
                 "receivedAtMonotonicMs" to now(), "requestStartedAtMonotonicMs" to requestedAt,
                 "channels" to channels, "channelSettings" to run.settings,
-                "controlMode" to run.mode, "configurationReady" to ready
-              ))
+                "controlMode" to run.mode, "configurationReady" to ready,
+                "inputMode" to if (run.observationOnly) "observation" else "guarded"
+              )
+              if (run.observationOnly) run.latestObservation = sample
+              emitSample(sample)
               if (active === run) run.timer = schedule(0) {
                 synchronized(this) {
                   if (active === run && !destroyed) {
@@ -214,6 +261,8 @@ internal class G20InputSession(
                 }
               }
             }
+            if (run.observationOnly) publishVerified(null, null)
+            else readConfiguration(run, true, ::publishVerified)
           }
         }
       }
@@ -226,6 +275,8 @@ internal class G20InputSession(
         }
       }
     }
+    if (run.observationOnly) readWithConfiguration(null, null)
+    else readConfiguration(run, consume = ::readWithConfiguration)
   }
 
   private fun fail(run: Run, reason: String) {
@@ -239,12 +290,19 @@ internal class G20InputSession(
     generation++
     previous?.timer?.cancel()
     previous?.pending = null
-    // Five GETs plus one sample for eight frames, then one terminal event: at most 49 records per run.
-    if (previous != null) recordTrace(mapOf(
-      "event" to if (status == "error" || status == "unavailable") "failure" else "stopped",
-      "operation" to previous.operation, "durationMs" to now() - previous.operationStartedAt,
-      "sequence" to previous.sequence, "requestAgeMs" to (previous.sampleRequestedAt?.let { now() - it } ?: -1L)
-    ))
+    // Five GETs plus one sample for eight frames, summary and terminal: at most 50 records per run.
+    if (previous != null) {
+      recordTrace(mapOf(
+        "event" to "timing_summary", "sampleCount" to previous.sequence, "pollIntervalMs" to POLL_INTERVAL_MS,
+        "histogramLeMs" to HISTOGRAM_LE_MS.toList(), "channelStartGapMs" to previous.channelStartGap.snapshot(),
+        "sampleGapMs" to previous.sampleGap.snapshot(), "requestAgeMs" to previous.requestAge.snapshot()
+      ))
+      recordTrace(mapOf(
+        "event" to if (status == "error" || status == "unavailable") "failure" else "stopped",
+        "operation" to previous.operation, "durationMs" to now() - previous.operationStartedAt,
+        "sequence" to previous.sequence, "requestAgeMs" to (previous.sampleRequestedAt?.let { now() - it } ?: -1L)
+      ))
+    }
     // Revoke ownership before vendor cleanup: its synchronous disconnect callback is now stale.
     try { previous?.source?.close() } catch (_: Exception) {} catch (_: LinkageError) {}
     publish(null, previous?.id ?: state["requestId"] as? String, status, reason)
@@ -254,7 +312,8 @@ internal class G20InputSession(
     state = mapOf(
       "requestId" to id, "generation" to (run?.generation ?: generation),
       "status" to status, "reason" to reason, "sequence" to (run?.sequence ?: 0L),
-      "configurationReady" to (run?.settings != null && run.mode != null)
+      "configurationReady" to (run != null && !run.observationOnly && run.settings != null && run.mode != null),
+      "inputMode" to run?.let { if (it.observationOnly) "observation" else "guarded" }
     )
     emitState(state.toMap())
     return state.toMap()

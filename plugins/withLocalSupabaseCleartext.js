@@ -1,4 +1,6 @@
-const { withAndroidManifest, withAppBuildGradle } = require('expo/config-plugins');
+const { withAndroidManifest, withAppBuildGradle, withDangerousMod } = require('expo/config-plugins');
+const fs = require('node:fs/promises');
+const path = require('node:path');
 
 const DOSO_ANDROID_BUILD_START = '// DOSO_ANDROID_RELEASE_GROUNDWORK_START';
 const DOSO_ANDROID_BUILD_END = '// DOSO_ANDROID_RELEASE_GROUNDWORK_END';
@@ -36,6 +38,10 @@ const dosoAndroidBuildBlock = [
   '        }',
   '    }',
   '    buildTypes {',
+  '        debug {',
+  '            applicationIdSuffix ".dev"',
+  '            resValue "string", "app_name", "DOSO Dev"',
+  '        }',
   '        qa {',
   '            initWith release',
   '            applicationIdSuffix ".qa"',
@@ -92,7 +98,7 @@ module.exports = function withLocalSupabaseCleartext(config) {
     return modConfig;
   });
 
-  return withAppBuildGradle(manifestConfig, (modConfig) => {
+  const buildConfig = withAppBuildGradle(manifestConfig, (modConfig) => {
     if (modConfig.modResults.language !== 'groovy') {
       throw new Error('DOSO Android release groundwork requires a Groovy app/build.gradle.');
     }
@@ -105,6 +111,13 @@ module.exports = function withLocalSupabaseCleartext(config) {
     modConfig.modResults.contents = `${baseContents}\n\n${dosoAndroidBuildBlock}\n`;
     return modConfig;
   });
+
+  return withDangerousMod(buildConfig, ['android', async (modConfig) => {
+    const destination = path.join(modConfig.modRequest.platformProjectRoot, 'app/src/qa');
+    await fs.mkdir(destination, { recursive: true });
+    await fs.copyFile(path.join(__dirname, 'android-qa-manifest.xml'), path.join(destination, 'AndroidManifest.xml'));
+    return modConfig;
+  }]);
 };
 
 module.exports.assertProductionAuthLinkOrigin = assertProductionAuthLinkOrigin;
