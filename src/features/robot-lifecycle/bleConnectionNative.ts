@@ -1,17 +1,18 @@
 import type BleManager from 'react-native-ble-manager';
 import { BleConnectionError, createBleConnectionSession, type BleConnectionAdapter } from './bleConnectionSession';
+import { getBleServiceUuid } from './bleDiscoveryModel';
 
-type NativeManager = Pick<typeof BleManager, 'isStarted' | 'checkState' | 'connect' | 'retrieveServices' | 'disconnect' | 'onDisconnectPeripheral'>;
+type NativeManager = Pick<typeof BleManager, 'isStarted' | 'checkState' | 'connect' | 'retrieveServices' | 'read' | 'disconnect' | 'onDisconnectPeripheral'>;
 type NativeDisconnectEvent = Parameters<Parameters<NativeManager['onDisconnectPeripheral']>[0]>[0];
 // Android reports GATT_SUCCESS=0; iOS's no-error didDisconnect event has
 // neither status nor NSError fields. Never discard failure evidence.
 const confirmedDisconnect = (event: NativeDisconnectEvent) => (event.status === undefined || event.status === 0)
   && event.code === undefined && event.domain === undefined;
 
-// The installed 12.5.1 API is deliberately restricted to connection and service
-// discovery. No read/write/notification/bonding capability crosses this boundary.
+const ROBOT_ID_CHARACTERISTIC = '44cecaf8-0fab-4594-96f9-6e864f1dedf2';
 export function createBleNativeConnectionAdapter(manager: NativeManager, permission: () => Promise<void> = async () => {},
   options: Parameters<typeof createBleConnectionSession>[1] = {}): BleConnectionAdapter {
+  const serviceUuid = getBleServiceUuid();
   return createBleConnectionSession({
     async prepare() {
       await permission();
@@ -21,6 +22,7 @@ export function createBleNativeConnectionAdapter(manager: NativeManager, permiss
     },
     connect: id => manager.connect(id, { autoconnect: false }),
     retrieveServices: id => manager.retrieveServices(id),
+    readRobotId: id => manager.read(id, serviceUuid, ROBOT_ID_CHARACTERISTIC),
     disconnect: (id, signal) => new Promise<void>((resolve, reject) => {
       let finished = false;
       let subscription: ReturnType<NativeManager['onDisconnectPeripheral']> | undefined;

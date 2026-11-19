@@ -40,18 +40,21 @@ const settle = async () => { for (let i = 0; i < 8; i++) await Promise.resolve()
 
 function fixture() {
   const state = { stage: 'login', selectedModel: null, device: null, activeTab: 'home', accountBusy: false, deviceLoadError: null,
-    deviceBusy: false, authError: null };
+    deviceBusy: false, authError: null, accountDevices: [], deviceBootstrapBusy: false };
   const requests = [], claims = [];
   const context = vm.createContext({
     user: { id: 'user-a' }, profile: { id: 'user-a', username_claimed_at: 'fixture', username_provenance: 'registration' },
     preparedUserId: 'user-a', preparedSessionKey: 'prepared-a-1', authLoading: false, initializationError: null,
     deviceLoadAttempt: 0, mfaVerificationPending: false, mfaProbeFailed: false, recovery: false, recoveryLink: false,
-    deviceBusy: false,
+    deviceBusy: false, accountBusy: false, guestMode: false,
+    selectedDeviceStore: { load: async () => null },
+    deviceSettingsContext: { current: {} },
+    deviceSelectionRevision: { current: 0 },
     appleRecoveryProbeResolved: true, pendingAppleDisplayName: null,
     useRef: value => ({ current: value }), useCallback: callback => callback,
     AbortController, Error, BIND_DEVICE_TIMEOUT_MS: 15000,
     // Only the real reconciliation backoff clock is replaced; its identity,
-    // serial matching, repository reads and caller attempt guards still run.
+    // UUID matching, repository reads and caller attempt guards still run.
     setTimeout: callback => { queueMicrotask(callback); return 0; },
     getRobotModel: code => ({ id: code, name: code }),
     robotModels: [{ id: 'thunder-01', name: 'THUNDER 01' }],
@@ -62,6 +65,7 @@ function fixture() {
     humanizeAuthError: () => 'device-load-failed', notify() {},
   });
   for (const key of Object.keys(state)) context['set' + key[0].toUpperCase() + key.slice(1)] = value => {
+    if (key === 'device') context.deviceSelectionRevision.current += 1;
     state[key] = typeof value === 'function' ? value(state[key]) : value;
     context[key] = state[key];
   };
@@ -81,7 +85,7 @@ function fixture() {
   }
   context.completedDeviceBootstrapKey = evaluate(`(${initializer('completedDeviceBootstrapKey')})`);
   if (initializer('deviceBootstrapIntent')) context.deviceBootstrapIntent = evaluate(`(${initializer('deviceBootstrapIntent')})`);
-  for (const name of ['bindDeviceAbortControllerRef', 'pendingBindSerialNumberRef', 'bindDeviceAttemptRef', 'currentUserIdRef']) {
+  for (const name of ['bindDeviceAbortControllerRef', 'pendingBindDeviceIdRef', 'bindDeviceAttemptRef', 'currentUserIdRef']) {
     context[name] = evaluate(`(${initializer(name)})`);
   }
   context.returnToDeviceSettings = evaluate(`(${initializer('returnToDeviceSettings')})`);
@@ -102,7 +106,7 @@ function fixture() {
     enter: model => evaluate(`(${initializer('enterApp')})`)(model),
     skip: () => evaluate(`(${skipHandler})`)(),
     modelIsBusy: () => evaluate(`(${modelBusy})`),
-    bind: () => evaluate(`(${initializer('handleBindDevice')})`)('fixture-serial', 'fixture-code'),
+    bind: () => evaluate(`(${initializer('handleBindDevice')})`)('8f7e1c62-0a4d-4b89-96e2-6c47b03db1a5', 'fixture-code'),
     cancelBind: () => evaluate(`(${initializer('cancelBindDeviceAttempt')})`)(),
     chooseTab: tab => { state.activeTab = tab; },
     async showModels() { render(); requests.at(-1).resolve([]); await settle(); assert.equal(state.stage, 'models'); },
@@ -217,7 +221,7 @@ test('trusted bound-device results remain authoritative and retire the old unbou
   await app.showModels();
   await app.enter({ id: 'thunder-01', name: 'THUNDER 01' });
   app.render({ deviceLoadAttempt: 1 });
-  const trusted = { id: 'real-repository-device', model_code: 'bound-model' };
+  const trusted = { id: 'real-repository-device', owner_id: 'user-a', is_demo: false, model_code: 'bound-model' };
   app.requests.at(-1).resolve([trusted]);
   await settle();
   assert.equal(app.state.device, trusted);
@@ -228,6 +232,36 @@ test('trusted bound-device results remain authoritative and retire the old unbou
   assert.equal(app.state.device, null);
   assert.equal(app.state.stage, 'models');
   assert.equal(app.state.selectedModel, null);
+});
+
+test('reload restores only a valid device selection from the current account', async () => {
+  const a = { id: 'a', owner_id: 'user-a', is_demo: false, model_code: 'a' };
+  const b = { id: 'b', owner_id: 'user-a', is_demo: false, model_code: 'b' };
+  const foreign = { id: 'foreign', owner_id: 'user-b', is_demo: false, model_code: 'foreign' };
+  for (const [rememberedId, expected] of [['b', b], ['removed', a], ['foreign', a]]) {
+    const app = fixture();
+    app.render({ selectedDeviceStore: { load: async owner => { assert.equal(owner, 'user-a'); return rememberedId; } } });
+    app.requests.at(-1).resolve([foreign, a, b]);
+    await settle();
+    assert.equal(app.state.device, expected);
+    assert.deepEqual(Array.from(app.state.accountDevices), [a, b]);
+  }
+});
+
+test('a delayed bootstrap success or failure cannot overwrite a newer successful binding', async () => {
+  for (const outcome of ['resolve', 'reject']) {
+    const app = fixture();
+    app.render();
+    const pendingList = app.requests.at(-1);
+    const trusted = { id: 'new-dog', owner_id: 'user-a', model_code: 'new-model', display_name: 'New dog' };
+    const binding = app.bind();
+    app.claims.at(-1).resolve(trusted);
+    await binding;
+    pendingList[outcome](outcome === 'resolve' ? [] : Error('old request failed'));
+    await settle();
+    assert.equal(app.state.device, trusted);
+    assert.equal(app.state.stage, 'main');
+  }
 });
 
 test('recovery, MFA, username, Apple and failed-preparation gates retire local navigation and reject late device commits', async () => {
@@ -291,17 +325,17 @@ test('a real claim-success handler retires the earlier local model entry before 
   assert.equal(app.state.selectedModel, null);
 });
 
-test('an ambiguous claim reconciled by the real serial-matching path retires the earlier local model entry', async () => {
+test('an ambiguous claim reconciled by the real UUID-matching path retires the earlier local model entry', async () => {
   const app = fixture();
   await app.showModels();
   await app.enter({ id: 'thunder-01', name: 'THUNDER 01' });
-  const trusted = { id: 'reconciled-device', model_code: 'bound-model', display_name: 'Fixture bound robot', serial_number: 'FIXTURE-SERIAL' };
+  const trusted = { id: '8f7e1c62-0a4d-4b89-96e2-6c47b03db1a5', model_code: 'bound-model', display_name: 'Fixture bound robot', serial_number: 'FIXTURE-SERIAL' };
   const previousReads = app.requests.length;
   const binding = app.bind();
   app.claims.at(-1).reject(new Error('synthetic network timeout'));
   await settle();
   assert.equal(app.requests.length, previousReads + 1);
-  app.requests.at(-1).resolve([trusted]);
+  app.requests.at(-1).resolve([{ ...trusted, id: 'another-device' }, trusted]);
   await binding;
   assert.equal(app.state.device, trusted);
   assert.equal(app.state.selectedModel.id, 'bound-model');
@@ -318,7 +352,7 @@ test('the real cancel reconciliation retires local entry while the cancelled cla
   const app = fixture();
   await app.showModels();
   await app.enter({ id: 'thunder-01', name: 'THUNDER 01' });
-  const trusted = { id: 'cancel-reconciled-device', model_code: 'bound-model', display_name: 'Fixture bound robot', serial_number: 'fixture-serial' };
+  const trusted = { id: '8f7e1c62-0a4d-4b89-96e2-6c47b03db1a5', model_code: 'bound-model', display_name: 'Fixture bound robot', serial_number: 'fixture-serial' };
   const previousReads = app.requests.length;
   const binding = app.bind();
   const cancelledClaim = app.claims.at(-1);

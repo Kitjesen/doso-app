@@ -6,6 +6,7 @@ import vm from 'node:vm';
 
 const root = new URL('../', import.meta.url);
 const module = { exports: {} };
+let invoke = async () => { throw new Error('unexpected invocation'); };
 const source = ts.transpileModule(
   readFileSync(new URL('../src/services/deviceEnrollmentService.ts', import.meta.url), 'utf8'),
   { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
@@ -22,7 +23,7 @@ vm.runInNewContext(source, {
   TypeError,
   Response,
   require(name) {
-    if (name === './supabaseClient') return { getSupabaseClient: () => ({}) };
+    if (name === './supabaseClient') return { getSupabaseClient: () => ({ functions: { invoke: (...args) => invoke(...args) } }) };
     throw new Error(`unexpected dependency: ${name}`);
   },
 }, { filename: 'src/services/deviceEnrollmentService.ts' });
@@ -73,3 +74,24 @@ test('device enrollment error mapping keeps safe server categories', () => {
   assert.equal(enrollmentErrorCode(new TypeError('fetch failed')), 'network');
   assert.equal(enrollmentErrorCode(new Error('unexpected implementation detail')), 'unavailable');
 });
+
+test('begin rejects a well-formed challenge for another device', async () => {
+  invoke = async () => ({ data: { enrollment: enrollment({ device_id: IDS.owner_account_id }) }, error: null });
+  await assert.rejects(module.exports.beginDeviceEnrollment(IDS.device_id), error =>
+    error instanceof DeviceEnrollmentError && error.code === 'invalid_response');
+});
+
+test('begin accepts the requested UUID regardless of letter case and preserves SDK options', async () => {
+  const deviceId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const signal = new AbortController().signal;
+  invoke = async (name, options) => {
+    assert.equal(name, 'device-enrollment');
+    assert.deepEqual(JSON.parse(JSON.stringify(options.body)), { action: 'begin', deviceId });
+    assert.equal(options.signal, signal);
+    assert.equal(options.timeout, 5000);
+    return { data: { enrollment: enrollment({ device_id: deviceId.toUpperCase() }) }, error: null };
+  };
+  const result = await module.exports.beginDeviceEnrollment(deviceId, { signal, timeoutMs: 5000 });
+  assert.equal(result.deviceId, deviceId.toUpperCase());
+});
+

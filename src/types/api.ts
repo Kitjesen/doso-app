@@ -55,6 +55,13 @@ export type AccountTerminalWithCurrent = Omit<AccountTerminal, 'user_id' | 'auth
   is_current: boolean;
 };
 
+export type LoginRecord = {
+  id: number;
+  loggedInAt: string;
+  ipAddress: string | null;
+  method: string | null;
+};
+
 export type ExternalIdentityKind = 'email' | 'apple' | 'wechat' | 'qq' | 'other';
 export type ExternalIdentityStatus = 'active' | 'unlinked';
 
@@ -88,6 +95,7 @@ export type Device = {
   runtime_hours: number;
   last_seen_at: string | null;
   is_demo: boolean;
+  is_simulated?: boolean;
   created_at: string;
   updated_at: string;
 };

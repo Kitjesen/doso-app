@@ -3,6 +3,10 @@ import { Platform, useColorScheme } from 'react-native';
 
 // Scoped preview preference; production continues to follow the system.
 export const ThemePreferenceContext = createContext<'light' | 'dark' | null>(null);
+export const AppearanceControlContext = createContext<{
+  preference: 'light' | 'dark' | null;
+  onChange?: (value: 'light' | 'dark' | null) => void;
+}>({ preference: 'dark' });
 
 export const lightColors = {
   background: '#FFFFFF',
@@ -35,28 +39,28 @@ export const lightColors = {
 export type ThemeColors = { [Key in keyof typeof lightColors]: string };
 
 export const darkColors: ThemeColors = {
-  background: '#17191D',
-  surface: '#24272D',
-  surfaceStrong: '#24272D',
-  ink: '#EDF2F4',
-  inkSoft: '#EDF2F4',
-  muted: '#B9C2CC',
-  line: 'rgba(101,112,124,0.55)',
+  background: '#1C1C1B',
+  surface: '#242423',
+  surfaceStrong: '#242423',
+  ink: '#E8E8E6',
+  inkSoft: '#E8E8E6',
+  muted: '#A0A09B',
+  line: '#343432',
   navStart: '#0B1120',
   navEnd: '#1B2C46',
   mint: '#8FB9E8',
   green: '#80A9DD',
-  greenStrong: '#74A6E2',
+  greenStrong: '#7795AA',
   greenDark: '#B4D0F2',
   successText: '#A9C9F0',
   danger: '#FF7F89',
   dangerText: '#FF9BA4',
   dangerSurface: '#381D23',
-  authBackground: '#17191D',
-  authBorder: '#65707C',
-  authFocus: '#88BBFF',
-  authPrimary: '#88BBFF',
-  authPrimaryInk: '#17191D',
+  authBackground: '#1C1C1B',
+  authBorder: '#343432',
+  authFocus: '#F0F4FE',
+  authPrimary: '#F0F4FE',
+  authPrimaryInk: '#1C1C1B',
 };
 
 // Compatibility export for screens that have not yet moved to the dynamic hook.

@@ -132,6 +132,78 @@ fun main() {
     check(calls == 0)
     check(RCSDKManager.disconnectCount == before + 1)
   }
+  verify("first settings callback diagnosis is bounded and does not revive a closed session") {
+    var time = 100L
+    val traces = mutableListOf<Map<String, Any>>()
+    var calls = 0
+    val source = SkydroidG20Source(Context(), now = { time }, trace = { traces.add(it) })
+    source.open({}, {}, {})
+    source.readSettings { calls++ }
+    val old = KeyManager.pending.last()
+    source.close()
+    time = 450L
+    old.onFailure(SkyException(101)); old.onFailure(SkyException(101)); Handler.drain()
+    check(calls == 0)
+    check(traces == listOf(mapOf("event" to "first_settings_callback", "result" to "failure", "owner" to "stale", "durationMs" to 350L, "errorCode" to 101)))
+    source.open({}, {}, {})
+    time = 500L
+    source.readSettings { calls++ }
+    val current = KeyManager.pending.last()
+    time = 520L
+    current.onSuccess(ChannelSettings()); current.onSuccess(ChannelSettings()); Handler.drain()
+    check(calls == 1)
+    check(traces.last() == mapOf("event" to "first_settings_callback", "result" to "success", "owner" to "active", "durationMs" to 20L))
+    check(traces.size == 2)
+    source.close()
+  }
+  verify("diagnostic failure cannot block a current settings callback") {
+    var calls = 0
+    val source = SkydroidG20Source(Context(), now = { 100L }, trace = { throw IllegalStateException("diagnostic") })
+    source.open({}, {}, {})
+    source.readSettings { calls++ }
+    KeyManager.pending.last().onSuccess(ChannelSettings()); Handler.drain()
+    check(calls == 1)
+    source.close()
+  }
+  verify("first channel failure reports a bounded code without reviving a closed session") {
+    var time = 10L
+    val traces = mutableListOf<Map<String, Any>>()
+    var calls = 0
+    val source = SkydroidG20Source(Context(), now = { time }, trace = { traces.add(it) })
+    source.open({}, {}, {})
+    source.readChannels { calls++ }
+    val pending = KeyManager.pending.last()
+    source.close(); time = 110L
+    pending.onFailure(SkyException(101)); pending.onFailure(SkyException(101)); Handler.drain()
+    check(calls == 0)
+    check(traces == listOf(mapOf("event" to "first_channels_callback", "result" to "failure", "owner" to "stale", "durationMs" to 100L, "errorCode" to 101)))
+  }
+  verify("first channel success reports payload shape only") {
+    val traces = mutableListOf<Map<String, Any>>()
+    var calls = 0
+    val source = SkydroidG20Source(Context(), now = { 10L }, trace = { traces.add(it) })
+    source.open({}, {}, {})
+    source.readChannels { calls++ }
+    KeyManager.pending.last().onSuccess(IntArray(15) { 1500 }); Handler.drain()
+    check(calls == 1)
+    check(traces == listOf(mapOf("event" to "first_channels_callback", "result" to "short", "owner" to "active", "durationMs" to 0L)))
+    source.readChannels { calls++ }
+    KeyManager.pending.last().onSuccess(IntArray(16) { 1500 }); Handler.drain()
+    check(calls == 2 && traces.size == 1)
+    source.close()
+  }
+  verify("channel diagnostic distinguishes empty, out-of-range and valid without values") {
+    val inputs = listOf(null, IntArray(16) { if (it == 0) 3001 else 1500 }, IntArray(16) { 1500 })
+    val labels = listOf("empty", "out_of_range", "success")
+    for (index in inputs.indices) {
+      val traces = mutableListOf<Map<String, Any>>()
+      val source = SkydroidG20Source(Context(), now = { 10L }, trace = { traces.add(it) })
+      source.open({}, {}, {}); source.readChannels {}
+      KeyManager.pending.last().onSuccess(inputs[index]); Handler.drain()
+      check(traces.single() == mapOf("event" to "first_channels_callback", "result" to labels[index], "owner" to "active", "durationMs" to 0L))
+      source.close()
+    }
+  }
   check(failures.isEmpty()) { failures.joinToString("; ") }
   println("PASS: $cases actual G20 adapter callback ownership cases without vendor JNI")
 }

@@ -67,6 +67,9 @@ function mountEditor({
       if (name === 'react-native') return host;
       if (name === '@expo/vector-icons') return { Ionicons: 'Ionicons' };
       if (name === 'react-native-safe-area-context') return { useSafeAreaInsets: () => insets };
+      if (name === 'expo-font') return { useFonts: () => [true, null] };
+      if (name.endsWith('.otf')) return name;
+      if (name.endsWith('/HomeText')) return { Text: host.Text };
       if (name.endsWith('/AppText')) return { Text: host.Text, TextInput: host.TextInput };
       if (name.endsWith('/UserAvatar')) return { UserAvatar: 'UserAvatar' };
       if (name.endsWith('/avatarPicker')) return { pickProfileAvatar: async () => pickerResult };

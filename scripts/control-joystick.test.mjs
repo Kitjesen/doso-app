@@ -282,8 +282,45 @@ function event({ touches = [], changedTouches = touches, locationX = 80, locatio
 const disc = (size, centerX, centerY) => ({ size, centerX, centerY, left: centerX - size / 2, top: centerY - size / 2 });
 const configuredLayout = () => ({ usable: true, left: disc(100, 100, 150), right: disc(160, 460, 170) });
 
+test('dial shows actual input magnitude while held and removes it on release', () => {
+  const runtime = createRuntime({ variant: 'dial', layout: configuredLayout(), floating: true,
+    touchAreaWidth: 600, touchAreaHeight: 300 }, 'pair');
+  const start = touch(120, 0, 0, 100, 150);
+  runtime.find('control-joystick-pair').props.onResponderGrant(event({ touches: [start] }));
+  runtime.render();
+  assert.equal(runtime.find('drive-value').props.children.join(''), '0%');
+  const moved = touch(120, 0, 0, 130, 150);
+  runtime.find('control-joystick-pair').props.onResponderMove(event({ touches: [moved] }));
+  runtime.render();
+  assert.equal(runtime.find('drive-value').props.children.join(''), '56%');
+  assert.equal(runtime.leftChanges.at(-1).x, .556);
+  runtime.find('control-joystick-pair').props.onResponderEnd(event({ touches: [], changedTouches: [moved] }));
+  runtime.render();
+  assert.equal(runtime.find('drive-value'), undefined);
+  assert.deepEqual(plain(runtime.leftChanges.at(-1)), { x: 0, y: 0 });
+  runtime.unmount();
+});
+
+test('configured thumb follows a held touch and returns to center on release', () => {
+  const runtime = createRuntime({ layout: configuredLayout(), floating: true,
+    touchAreaWidth: 600, touchAreaHeight: 300 }, 'pair');
+  const start = touch(120, 0, 0, 100, 150);
+  runtime.find('control-joystick-pair').props.onResponderGrant(event({ touches: [start] }));
+  runtime.render();
+  const moving = touch(120, 0, 0, 130, 150);
+  runtime.find('control-joystick-pair').props.onResponderMove(event({ touches: [moving] }));
+  runtime.render();
+  const transform = runtime.find('drive-thumb').props.style.at(-1).transform;
+  assert.ok(transform[0].translateX > 0, 'the visible thumb moves in the touch direction');
+  assert.equal(transform[1].translateY, 0);
+  runtime.find('control-joystick-pair').props.onResponderEnd(event({ touches: [], changedTouches: [moving] }));
+  runtime.render();
+  assert.deepEqual(plain(runtime.find('drive-thumb').props.style.at(-1).transform), [{ translateX: 0 }, { translateY: 0 }]);
+  runtime.unmount();
+});
+
 test('configured pair uses independent fixed discs and per-side normalization without growing its bounds', () => {
-  const runtime = createRuntime({ layout: configuredLayout(), size: 400, floating: true,
+  const runtime = createRuntime({ layout: configuredLayout(), size: 400, floating: false,
     touchAreaWidth: 600, touchAreaHeight: 300 }, 'pair');
   const pair = runtime.find('control-joystick-pair');
   assert.equal(pair.props.style.at(-1).width, 600);
@@ -305,7 +342,7 @@ test('configured pair uses independent fixed discs and per-side normalization wi
 });
 
 test('configured pair declines empty half-space and circle corners before responder capture', () => {
-  const runtime = createRuntime({ layout: configuredLayout(), floating: true,
+  const runtime = createRuntime({ layout: configuredLayout(), floating: false,
     touchAreaWidth: 600, touchAreaHeight: 300 }, 'pair');
   const pair = runtime.find('control-joystick-pair');
   for (const outside of [touch(103, 0, 0, 220, 150), touch(104, 0, 0, 145, 195),
@@ -377,6 +414,7 @@ test('configured size or position changes cancel before zero and retire old touc
     assert.deepEqual(order, [], 'first mount must not cancel transport');
     const left = touch(109, 0, 0, 125, 150), right = touch(110, 0, 0, 500, 170);
     runtime.find('control-joystick-pair').props.onResponderGrant(event({ touches: [left, right] }));
+    runtime.find('control-joystick-pair').props.onResponderMove(event({ touches: [touch(109,0,0,150,150),touch(110,0,0,540,170)] }));
     runtime.render();
     const oldPair = runtime.find('control-joystick-pair');
     runtime.advanceTime(20); assert.equal(samples.length, 1);
@@ -401,6 +439,7 @@ test('configured size or position changes cancel before zero and retire old touc
     const next = touch(112, 0, 0, changedLayout.left.centerX + 25, 150);
     assert.equal(currentPair.props.onStartShouldSetResponderCapture(event({ touches: [next] })), true);
     currentPair.props.onResponderGrant(event({ touches: [next] }));
+    currentPair.props.onResponderMove(event({ touches: [touch(112,0,0,changedLayout.left.centerX+45,150)] }));
     assert.equal(order.at(-1), 'left', 'a new gesture may use the new geometry');
     runtime.unmount();
   }
@@ -721,4 +760,17 @@ test('native cancellation revokes authority before channel reset callbacks', () 
     runtime.find('control-joystick-pair').props[action]();
     assert.deepEqual(order,['interrupt','left','right']);runtime.unmount();
   }
+});
+
+
+test('configured floating pair accepts either half, anchors on press and never jumps at the edge', () => {
+ const runtime = createRuntime({layout:configuredLayout(),floating:true,touchAreaWidth:600,touchAreaHeight:300},'pair');
+ const start=touch(501,0,0,220,20);let pair=runtime.find('control-joystick-pair');
+ assert.equal(pair.props.onStartShouldSetResponderCapture(event({touches:[start]})),true);
+ pair.props.onResponderGrant(event({touches:[start]}));runtime.render();
+ assert.equal(runtime.leftChanges.length,0);
+ pair=runtime.find('control-joystick-pair');pair.props.onResponderMove(event({touches:[touch(501,0,0,245,20)]}));
+ assert.deepEqual(plain(runtime.leftChanges.at(-1)),{x:.444,y:0});
+ pair.props.onResponderEnd(event({touches:[],changedTouches:[start]}));runtime.render();
+ assert.deepEqual(plain(runtime.leftChanges.at(-1)),{x:0,y:0});runtime.unmount();
 });

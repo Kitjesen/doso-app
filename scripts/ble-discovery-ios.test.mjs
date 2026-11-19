@@ -7,6 +7,7 @@ const contractSource = await source('../src/features/robot-lifecycle/bleDiscover
 const modelSource = await source('../src/features/robot-lifecycle/bleDiscoveryModel.ts');
 const sessionSource = await source('../src/features/robot-lifecycle/bleDiscoverySession.ts');
 const adapterSource = await source('../src/features/robot-lifecycle/bleDiscoveryAdapter.ios.ts');
+const androidSource = await source('../src/features/robot-lifecycle/bleDiscoveryAdapter.android.ts');
 const fallbackSource = await source('../src/features/robot-lifecycle/bleDiscoveryAdapter.ts');
 
 const contractUrl = moduleUrl(transpile(contractSource));
@@ -17,6 +18,7 @@ const sessionUrl = moduleUrl(
     .replaceAll("from './bleDiscoveryModel.ts'", `from '${modelUrl}'`),
 );
 const managerUrl = moduleUrl(`
+  export const BleScanMode = { LowLatency: 2 };
   export const BleState = Object.freeze({
     Unknown: 'unknown', Resetting: 'resetting', Unsupported: 'unsupported',
     Unauthorized: 'unauthorized', On: 'on', Off: 'off'
@@ -36,6 +38,57 @@ const [{ createIosBleDiscoveryAdapter }, contract] = await Promise.all([
   import(adapterUrl),
   import(contractUrl),
 ]);
+const { DOSO_BLE_SERVICE_UUID } = await import(modelUrl);
+
+test('Android and iOS default to the same DOSO service and reject unrelated advertisements', async () => {
+  const nativeHostUrl = moduleUrl(`
+    export const Platform = { Version: 36 };
+    export const PermissionsAndroid = {
+      PERMISSIONS: { BLUETOOTH_SCAN: 'scan', BLUETOOTH_CONNECT: 'connect' },
+      RESULTS: { GRANTED: 'granted', NEVER_ASK_AGAIN: 'never' },
+      async requestMultiple() { return { scan: 'granted', connect: 'granted' }; },
+      async request() { return 'granted'; }
+    };
+  `);
+  const locationUrl = moduleUrl('export async function hasServicesEnabledAsync() { return true; }');
+  const androidManager = createManager();
+  globalThis.__androidBleManager = androidManager.api;
+  const androidManagerUrl = moduleUrl(`
+    export const BleScanMode = { LowLatency: 2 };
+    export const BleState = { On: 'on' };
+    export default globalThis.__androidBleManager;
+  `);
+  const androidUrl = moduleUrl(transpile(androidSource)
+    .replace("from 'react-native-ble-manager'", `from '${androidManagerUrl}'`)
+    .replace("from 'react-native'", `from '${nativeHostUrl}'`)
+    .replace("from 'expo-location'", `from '${locationUrl}'`)
+    .replace("from './bleDiscoveryContract'", `from '${contractUrl}'`)
+    .replace("from './bleDiscoveryModel'", `from '${modelUrl}'`)
+    .replace("from './bleDiscoverySession'", `from '${sessionUrl}'`));
+  const android = (await import(androidUrl)).bleDiscoveryAdapter;
+  const iosManager = createManager();
+  for (const [adapter, manager] of [[android, androidManager], [createIosBleDiscoveryAdapter(iosManager.api), iosManager]]) {
+    const pending = adapter.scan({ onCandidates() {} });
+    await manager.waitForScan(1);
+    assert.deepEqual(manager.lastScan.serviceUUIDs, [DOSO_BLE_SERVICE_UUID]);
+    manager.discover({ id: 'headphones', name: 'Headphones', rssi: -30, advertising: { serviceUUIDs: [] } });
+    manager.discover(peripheral('robot', 'DOSO-ABCDEF', -50));
+    manager.finish(10);
+    const candidates = await pending;
+    assert.deepEqual(candidates.map(candidate => candidate.id), ['robot']);
+    assert.equal(candidates[0].connectable, false);
+    assert.equal(candidates[0].matchBasis, 'service_uuid');
+  }
+  const { Platform } = await import(nativeHostUrl);
+  Platform.Version = 25;
+  const legacyScan = android.scan({ onCandidates() {} });
+  await androidManager.waitForScan(2);
+  const legacyPeripheral = peripheral('legacy', 'DOSO-LEGACY', -50);
+  legacyPeripheral.advertising.isConnectable = true;
+  androidManager.discover(legacyPeripheral);
+  androidManager.finish(0);
+  assert.equal((await legacyScan)[0].connectable, false, 'legacy bridge fallback must not enable connection');
+});
 
 test('iOS timeout completes discovery, merges duplicates, and removes listeners', async () => {
   const manager = createManager();
@@ -53,6 +106,58 @@ test('iOS timeout completes discovery, merges duplicates, and removes listeners'
   assert.equal(result[0].rssi, -39);
   assert.equal(updates.length, 2);
   assert.equal(manager.removedSubscriptions, 2);
+});
+
+test('Android and iOS scan the explicit service override and reject the default service', async () => {
+  const previous = process.env.EXPO_PUBLIC_DOSO_BLE_SERVICE_UUID;
+  const configured = '67cf35ba-9905-4acc-9712-044bd6d6f13a';
+  process.env.EXPO_PUBLIC_DOSO_BLE_SERVICE_UUID = ` ${configured} `;
+  try {
+    const nativeHostUrl = moduleUrl(`
+      export const Platform = { Version: 36 };
+      export const PermissionsAndroid = {
+        PERMISSIONS: { BLUETOOTH_SCAN: 'scan', BLUETOOTH_CONNECT: 'connect' },
+        RESULTS: { GRANTED: 'granted', NEVER_ASK_AGAIN: 'never' },
+        async requestMultiple() { return { scan: 'granted', connect: 'granted' }; },
+        async request() { return 'granted'; }
+      };
+    `);
+    const locationUrl = moduleUrl('export async function hasServicesEnabledAsync() { return true; }');
+    const androidManager = createManager(), iosManager = createManager();
+    globalThis.__configuredAndroidManager = androidManager.api;
+    const configuredManagerUrl = moduleUrl(`
+      export const BleScanMode = { LowLatency: 2 };
+      export const BleState = { On: 'on' };
+      export default globalThis.__configuredAndroidManager;
+    `);
+    const androidUrl = moduleUrl(transpile(androidSource)
+      .replace("from 'react-native-ble-manager'", `from '${configuredManagerUrl}'`)
+      .replace("from 'react-native'", `from '${nativeHostUrl}'`)
+      .replace("from 'expo-location'", `from '${locationUrl}'`)
+      .replace("from './bleDiscoveryContract'", `from '${contractUrl}'`)
+      .replace("from './bleDiscoveryModel'", `from '${modelUrl}'`)
+      .replace("from './bleDiscoverySession'", `from '${sessionUrl}'`));
+    const configuredIosUrl = moduleUrl(transpile(adapterSource)
+      .replace("from 'react-native-ble-manager'", `from '${managerUrl}'`)
+      .replace("from './bleDiscoveryContract'", `from '${contractUrl}'`)
+      .replace("from './bleDiscoveryModel'", `from '${modelUrl}'`)
+      .replace("from './bleDiscoverySession'", `from '${sessionUrl}'`) + '\n// configured service fixture');
+    const android = (await import(androidUrl)).bleDiscoveryAdapter;
+    const ios = (await import(configuredIosUrl)).createIosBleDiscoveryAdapter(iosManager.api);
+    for (const [adapter, manager] of [[android, androidManager], [ios, iosManager]]) {
+      const pending = adapter.scan({ onCandidates() {} });
+      await manager.waitForScan(1);
+      assert.deepEqual(manager.lastScan.serviceUUIDs, [configured]);
+      manager.discover(peripheral('default-service', 'DOSO', -40));
+      const robot = peripheral('configured-service', 'DOSO', -50);
+      robot.advertising.serviceUUIDs = [configured];
+      manager.discover(robot); manager.finish(10);
+      assert.deepEqual((await pending).map(candidate => candidate.id), ['configured-service']);
+    }
+  } finally {
+    if (previous === undefined) delete process.env.EXPO_PUBLIC_DOSO_BLE_SERVICE_UUID;
+    else process.env.EXPO_PUBLIC_DOSO_BLE_SERVICE_UUID = previous;
+  }
 });
 
 test('stop cancels initialization and prevents a late scan from starting', async () => {
@@ -130,6 +235,7 @@ function createManager({ state = 'on', startPromise = Promise.resolve() } = {}) 
   let stopListener = () => {};
   let scanning = false;
   const counters = { removedSubscriptions: 0, scanCalls: 0, startCalls: 0 };
+  let lastScan;
   const api = {
     async start() {
       counters.startCalls += 1;
@@ -144,7 +250,8 @@ function createManager({ state = 'on', startPromise = Promise.resolve() } = {}) 
       stopListener = listener;
       return { remove() { counters.removedSubscriptions += 1; stopListener = () => {}; } };
     },
-    async scan() {
+    async scan(options) {
+      lastScan = options;
       counters.scanCalls += 1;
       scanning = true;
     },
@@ -164,11 +271,12 @@ function createManager({ state = 'on', startPromise = Promise.resolve() } = {}) 
     get removedSubscriptions() { return counters.removedSubscriptions; },
     get scanCalls() { return counters.scanCalls; },
     get startCalls() { return counters.startCalls; },
+    get lastScan() { return lastScan; },
   };
 }
 
 function peripheral(id, name, rssi) {
-  return { id, name, rssi, advertising: { localName: name, serviceUUIDs: [] } };
+  return { id, name, rssi, advertising: { localName: name, serviceUUIDs: [DOSO_BLE_SERVICE_UUID], isConnectable: false } };
 }
 
 function transpile(value) {

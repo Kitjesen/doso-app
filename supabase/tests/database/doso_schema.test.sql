@@ -156,13 +156,13 @@ select is(
   'n'::"char",
   'deleting an account nulls device ownership instead of deleting inventory'
 );
-select has_index(
+select hasnt_index(
   'public', 'devices', 'devices_one_physical_per_owner_idx',
-  'devices enforce one bound physical device per account'
+  'accounts can own multiple physical devices'
 );
 select index_is_unique(
-  'public', 'devices', 'devices_one_physical_per_owner_idx',
-  'the physical-device ownership index is unique'
+  'public', 'devices', 'devices_serial_number_key',
+  'physical device serial numbers remain unique'
 );
 select is((select relrowsecurity from pg_class where oid = 'public.profiles'::regclass), true, 'profiles has RLS'); -- 10
 select is((select relrowsecurity from pg_class where oid = 'public.devices'::regclass), true, 'devices has RLS'); -- 11
@@ -988,7 +988,7 @@ select lives_ok(
 );
 select is(
   (public.claim_device_with_digest(
-    '22222222-2222-4222-8222-222222222222', 'DOSO-CLAIM-001',
+    '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333301'::uuid,
     'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
   )).id,
   null::uuid,
@@ -996,7 +996,7 @@ select is(
 );
 select is(
   (public.claim_device_with_digest(
-    '22222222-2222-4222-8222-222222222222', 'DOSO-CLAIM-001',
+    '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333301'::uuid,
     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
   )).owner_id,
   '22222222-2222-4222-8222-222222222222'::uuid,
@@ -1020,13 +1020,13 @@ begin
   );
 end;
 $$;
-select throws_ok(
-  $$ select public.claim_device_with_digest(
-       '22222222-2222-4222-8222-222222222222', 'DOSO-CLAIM-002',
-       'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
-     ) $$,
-  'P0001', 'account already has a bound physical device',
-  'a second physical device claim is rejected with a stable domain error'
+select is(
+  (public.claim_device_with_digest(
+    '22222222-2222-4222-8222-222222222222', '44444444-4444-4444-8444-444444444401'::uuid,
+    'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
+  )).owner_id,
+  '22222222-2222-4222-8222-222222222222'::uuid,
+  'the same account can claim a second physical device'
 );
 
 set local role authenticated;

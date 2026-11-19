@@ -370,7 +370,7 @@ function callbackAppHost(state, provider) {
   const context = {
     useRef: value => ({ current: value }), useCallback: fn => fn,
     authLoading: provider.value.loading, initializationError: provider.value.initializationError ?? null,
-    accountBusy: false, recoveryLink: false,
+    accountBusy: false, recoveryLink: false, guestMode: false,
     authService: service, createAuthCallbackInbox: inboxApi.createAuthCallbackInbox,
     AuthCallbackCancelledError: inboxApi.AuthCallbackCancelledError,
     SupabaseConfigurationError: class extends Error {},
@@ -1034,27 +1034,28 @@ test('a failed current Apple recovery probe retires MFA delivery rather than tra
 
 test('App wiring keeps unrelated auth-loading gates and delegates managed MFA completion to its persistent owner', () => {
   const source = readFileSync(new URL('App.tsx', ROOT), 'utf8');
-  assert.match(source, /if \(authLoading \|\| mfaVerificationPending\) return <LoadingScreen/);
+  assert.match(source, /if \(authLoading \|\| mfaVerificationPending \|\| deviceBootstrapBusy\) return <LoadingScreen/);
   assert.match(source, /<MfaSetupScreen[\s\S]*?onVerify=\{handleMfaVerify\}/);
   assert.match(source, /if \(mfaVerificationPending\) return undefined/);
   assert.match(source, /loading: authLoading \|\| Boolean\(user && preparedSessionKey && !appleRecoveryProbeResolved && !mfaProbeFailed\)/);
   const file = ts.createSourceFile('App.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   let gate, hardwareBack;
   const visit = node => {
-    if (ts.isIfStatement(node) && node.expression.getText(file) === 'authLoading || mfaVerificationPending') gate = node.expression;
+    if (ts.isIfStatement(node) && node.expression.getText(file) === 'authLoading || mfaVerificationPending || deviceBootstrapBusy') gate = node.expression;
     if (ts.isCallExpression(node) && node.expression.getText(file) === 'BackHandler.addEventListener'
       && node.arguments[0]?.text === 'hardwareBackPress') hardwareBack = node.arguments[1];
     ts.forEachChild(node, visit);
   };
   visit(file); assert.ok(gate);
-  for (const authLoading of [false, true]) for (const mfaVerificationPending of [false, true]) {
-    assert.equal(vm.runInNewContext(gate.getText(file), { authLoading, mfaVerificationPending }), authLoading || mfaVerificationPending);
+  for (const authLoading of [false, true]) for (const mfaVerificationPending of [false, true]) for (const deviceBootstrapBusy of [false, true]) {
+    assert.equal(vm.runInNewContext(gate.getText(file), { authLoading, mfaVerificationPending, deviceBootstrapBusy }),
+      authLoading || mfaVerificationPending || deviceBootstrapBusy);
   }
   assert.ok(hardwareBack);
   for (const mfaBusy of [false, true]) for (const pending of [false, true]) {
     let backs = 0;
     const request = vm.runInNewContext(`(${hardwareBack.getText(file)})`, {
-      __DEV__: false, stage: 'mfa-setup', mfaBusy,
+      __DEV__: false, stage: 'mfa-setup', mfaBusy, guestMode: false, deviceTestMode: false, localUseMode: false,
       robotConnectionVisible: false,
       mfaVerificationFlow: { current: { isPending: () => pending } },
       mfaBackRequestRef: { current: () => { backs++; } },

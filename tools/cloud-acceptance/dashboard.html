@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>DOSO 云端接入 · 本地验收</title>
+  <style>
+    :root { --canvas:#f4f7fb; --surface:#fff; --ink:#1b2b45; --muted:#61718a; --line:#dfe7f1; --blue:#225bc2; --soft:#eaf1ff; --green:#227451; --green-soft:#e9f5ee; --amber:#90621d; --amber-soft:#fff5e2; --red:#b03743; --red-soft:#fff0f1; --radius:18px; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--canvas); color:var(--ink); font:14px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif; }
+    button,textarea { font:inherit; }
+    button,a,summary,textarea { -webkit-tap-highlight-color:transparent; }
+    button { cursor:pointer; }
+    a { color:var(--blue); text-underline-offset:3px; }
+    :focus-visible { outline:3px solid #80aaff; outline-offset:4px; }
+    [hidden] { display:none !important; }
+    .layout { min-height:100vh; display:grid; grid-template-columns:228px minmax(0,1fr); }
+    .sidebar { position:sticky; top:0; height:100vh; padding:36px 22px 24px; background:#eef3fa; border-right:1px solid var(--line); display:flex; flex-direction:column; gap:34px; }
+    .brand { display:flex; align-items:center; gap:11px; padding:0 9px; }
+    .brand-mark { width:34px; height:34px; border-radius:11px; background:var(--ink); color:white; display:grid; place-items:center; font-size:19px; font-weight:750; }
+    .brand strong { display:block; font-size:18px; letter-spacing:2px; line-height:1.3; }
+    .brand small { color:var(--muted); font-size:10px; letter-spacing:1.6px; }
+    .nav-label { margin:0 12px 10px; color:var(--muted); font-size:11px; letter-spacing:2px; }
+    .tabs { display:grid; gap:8px; }
+    .tab { border:0; background:transparent; color:var(--muted); padding:13px 14px; min-height:48px; border-radius:12px; display:flex; align-items:center; gap:13px; text-align:left; font-weight:600; }
+    .tab:hover { background:#e5edf8; }
+    .tab[aria-selected="true"] { background:var(--surface); color:var(--blue); box-shadow:0 4px 16px #1e40770a; }
+    .nav-icon { font-size:12px; font-weight:600; color:inherit; opacity:.75; font-variant-numeric:tabular-nums; }
+    .sidebar-note { margin-top:auto; padding:16px 12px 0; border-top:1px solid var(--line); font-size:12px; color:var(--muted); }
+    .sidebar-note strong { display:block; color:var(--ink); margin-bottom:4px; font-size:12px; }
+    main { width:100%; max-width:1390px; margin:auto; padding:34px 44px 48px; min-width:0; }
+    .topline { display:flex; justify-content:space-between; align-items:center; gap:16px; color:var(--muted); font-size:12px; margin-bottom:29px; }
+    .topline .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--blue); margin-right:7px; }
+    .eyebrow { color:var(--blue); font-size:11px; font-weight:700; letter-spacing:2px; text-transform:uppercase; margin:0 0 10px; }
+    h1 { font-size:clamp(26px,3vw,36px); font-weight:650; letter-spacing:-1px; line-height:1.25; margin:0; }
+    .intro { color:var(--muted); margin:13px 0 0; max-width:760px; font-size:14px; }
+    .hero { margin-bottom:23px; }
+    .report-strip { display:flex; flex-wrap:wrap; align-items:center; gap:8px 20px; margin-top:22px; color:var(--muted); font-size:12px; }
+    .report-strip strong { color:var(--ink); font-size:14px; font-weight:650; }
+    .report-strip > span + span { border-left:1px solid var(--line); padding-left:20px; }
+    .boundary { padding:17px 20px; margin:24px 0; border:1px solid #d9e4f7; border-radius:14px; background:#eef4ff; display:flex; gap:13px; }
+    .boundary-icon { color:var(--blue); width:20px; height:20px; border:1px solid #adc4ec; border-radius:50%; text-align:center; line-height:18px; flex:none; font-size:12px; margin-top:2px; }
+    .boundary strong { display:block; color:#294d89; font-size:13px; margin-bottom:3px; }
+    .boundary p { margin:0; color:#526b92; font-size:12px; line-height:1.75; }
+    .section-head { display:flex; justify-content:space-between; align-items:center; gap:16px; margin:28px 0 15px; }
+    h2 { font-size:18px; line-height:1.4; margin:0; letter-spacing:-.2px; font-weight:650; }
+    .section-note { font-size:12px; color:var(--muted); }
+    .cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+    .card { background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:22px; min-width:0; }
+    .card-number { font-size:11px; color:var(--muted); margin-bottom:17px; letter-spacing:1px; }
+    .card h3 { font-size:16px; margin:0 0 7px; font-weight:650; }
+    .card p { font-size:12px; color:var(--muted); margin:0 0 17px; }
+    .pill { display:inline-flex; gap:6px; align-items:center; padding:4px 9px; border-radius:6px; font-size:11px; font-weight:600; line-height:1.5; background:#eef1f5; color:var(--muted); }
+    .pill.passed { color:var(--green); background:var(--green-soft); }
+    .pill.failed { color:var(--red); background:var(--red-soft); }
+    .pill.running { color:var(--blue); background:var(--soft); }
+    .pill.not-run,.pill.pending { color:var(--amber); background:var(--amber-soft); }
+    .pill.reference { color:#655690; background:#f0ecf8; }
+    .card-foot { padding-top:14px; margin-top:15px; border-top:1px solid #edf1f6; color:var(--muted); font-size:11px; }
+    .flow-card { background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; }
+    .flow-header { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:21px 24px 0; }
+    .flow-header p { color:var(--muted); font-size:12px; margin:5px 0 0; }
+    .segmented { display:flex; flex:none; background:var(--canvas); padding:4px; gap:3px; border-radius:10px; }
+    .segment { padding:7px 15px; border:0; border-radius:7px; background:transparent; color:var(--muted); font-size:12px; font-weight:600; min-height:36px; }
+    .segment[aria-pressed="true"] { color:var(--blue); background:white; box-shadow:0 2px 7px #1b2b450b; }
+    .stages { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:9px; padding:24px; }
+    .stage { position:relative; border:1px solid var(--line); background:white; border-radius:11px; min-width:0; padding:14px 9px; text-align:left; color:var(--ink); min-height:104px; }
+    .stage:hover { border-color:#a8bee3; }
+    .stage[aria-pressed="true"] { background:var(--soft); border-color:#8baee8; box-shadow:0 0 0 1px #8baee8; }
+    .stage-index { color:#8494ad; display:block; font-size:10px; margin-bottom:11px; letter-spacing:1px; }
+    .stage strong { display:block; font-size:12px; line-height:1.45; font-weight:600; }
+    .stage small { display:block; color:var(--muted); font-size:10px; margin-top:7px; }
+    .stage-detail { background:#f9fbfe; border-top:1px solid var(--line); padding:23px 24px 26px; }
+    .detail-title { display:flex; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
+    .detail-title h3 { font-size:16px; margin:0; }
+    .detail-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:24px; }
+    .detail-grid h4 { margin:0 0 7px; font-size:11px; color:#7b8ca7; letter-spacing:1px; font-weight:600; }
+    .detail-grid p { font-size:12px; margin:0; color:#475b77; line-height:1.85; }
+    .next-step { border-top:1px solid var(--line); padding-top:15px; margin-top:20px; display:flex; gap:10px; align-items:baseline; font-size:12px; color:var(--muted); }
+    .next-step strong { color:var(--ink); white-space:nowrap; }
+    .coverage { display:grid; grid-template-columns:1fr 1fr; gap:15px; margin-top:16px; }
+    .coverage article { border:1px solid var(--line); border-radius:14px; padding:18px 21px; background:#f9fbfe; }
+    .coverage h3 { margin:0 0 7px; font-size:13px; }
+    .coverage p { margin:0; font-size:12px; color:var(--muted); }
+    .test-guide { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; margin-bottom:25px; }
+    .guide { padding:19px 21px; border:1px solid var(--line); background:white; border-radius:14px; }
+    .guide b { display:block; color:var(--blue); font-size:11px; margin-bottom:7px; letter-spacing:1px; }
+    .guide strong { display:block; font-size:13px; margin-bottom:5px; }
+    .guide p { margin:0; color:var(--muted); font-size:12px; }
+    .check-list { display:grid; gap:10px; }
+    .check { background:white; border:1px solid var(--line); border-radius:13px; overflow:hidden; }
+    .check > summary { list-style:none; display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:18px; padding:18px 21px; cursor:pointer; min-height:77px; }
+    .check > summary::-webkit-details-marker { display:none; }
+    .check > summary:hover { background:#fafcff; }
+    .check > summary::after { content:'＋'; color:#8b9cb5; font-size:16px; }
+    .check[open] > summary::after { content:'−'; }
+    .check-title { font-size:13px; font-weight:600; display:block; }
+    .check-subtitle { color:var(--muted); font-size:11px; display:block; margin-top:3px; font-weight:400; }
+    .check-body { padding:0 21px 22px; border-top:1px solid #edf1f6; }
+    .check-meta { display:flex; gap:8px 20px; flex-wrap:wrap; color:var(--muted); font-size:11px; margin:16px 0; }
+    .check-meta span { overflow-wrap:anywhere; }
+    .code-label { font-size:10px; letter-spacing:1px; color:#7c8ea9; margin-bottom:5px; }
+    .code { display:block; background:#f3f6fb; border:1px solid #e8edf5; border-radius:9px; padding:11px 13px; overflow-wrap:anywhere; white-space:pre-wrap; color:#3d5475; font:12px/1.7 ui-monospace,SFMono-Regular,Consolas,"Microsoft YaHei",monospace; margin:0 0 13px; }
+    .test-details { padding-left:19px; margin:14px 0; color:var(--muted); font-size:12px; }
+    .test-details li + li { margin-top:5px; }
+    .actions { display:flex; align-items:center; gap:15px; flex-wrap:wrap; }
+    .button { min-height:36px; padding:7px 13px; border:1px solid #ccdaf0; color:var(--blue); background:white; border-radius:8px; font-size:11px; font-weight:600; }
+    .button:hover { background:var(--soft); }
+    .actions a { font-size:11px; }
+    .copy-message { font-size:11px; color:var(--muted); margin:9px 0 0; }
+    .copy-fallback { width:100%; margin-top:10px; min-height:76px; padding:10px; border:1px solid #9cb9e8; border-radius:8px; color:var(--ink); background:#f8fbff; font:12px/1.6 ui-monospace,Consolas,monospace; resize:vertical; }
+    .empty { background:white; border:1px dashed #c6d3e6; border-radius:14px; padding:25px; color:var(--muted); font-size:13px; }
+    .directory-layout { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); gap:18px; align-items:start; }
+    .directory-panel { background:white; border:1px solid var(--line); border-radius:var(--radius); padding:23px; }
+    .directory-panel h3 { font-size:15px; margin:0 0 17px; }
+    .directory-group + .directory-group { border-top:1px solid #edf1f6; margin-top:19px; padding-top:19px; }
+    .directory-group h4 { margin:0 0 8px; font-size:12px; }
+    .directory-group p { color:var(--muted); font-size:12px; margin:5px 0 10px; }
+    .path { display:block; background:#f5f7fb; border-radius:8px; padding:9px 11px; color:#526785; font:11px/1.8 ui-monospace,Consolas,"Microsoft YaHei",monospace; overflow-wrap:anywhere; white-space:pre-wrap; user-select:all; }
+    .handoff { margin:0; padding-left:19px; color:var(--muted); font-size:12px; }
+    .handoff li + li { margin-top:12px; }
+    .handoff strong { color:var(--ink); }
+    .artifact { margin-top:20px; }
+    .artifact p { margin:0 0 8px; font-size:12px; color:var(--muted); }
+    footer { border-top:1px solid var(--line); margin-top:30px; padding-top:18px; color:#8290a5; font-size:11px; display:flex; justify-content:space-between; gap:15px; flex-wrap:wrap; }
+    @media(max-width:1180px) { main { padding:30px 28px 40px; } .layout { grid-template-columns:204px minmax(0,1fr); } .sidebar { padding:33px 14px 22px; } .stages { grid-template-columns:repeat(3,minmax(0,1fr)); } .stage { min-height:88px; } .cards .card { padding:18px; } }
+    @media(max-width:860px) { .layout { display:block; } .sidebar { position:static; width:auto; height:auto; padding:18px 22px 0; gap:17px; border-right:0; border-bottom:1px solid var(--line); } .brand-mark { width:29px; height:29px; border-radius:9px; font-size:16px; } .brand strong { font-size:16px; } .brand small { font-size:9px; } .nav-label,.sidebar-note { display:none; } .tabs { display:flex; gap:6px; padding-bottom:12px; } .tab { flex:1; justify-content:center; padding:10px; min-height:43px; font-size:12px; } .nav-icon { display:none; } main { padding:24px; } .topline { margin-bottom:24px; } .cards { grid-template-columns:repeat(3,minmax(0,1fr)); } .card-number { margin-bottom:12px; } .card h3 { font-size:14px; } .detail-grid { gap:18px; } .directory-layout { grid-template-columns:1fr; } }
+    @media(max-width:600px) { main { padding:22px 17px 30px; } .sidebar { padding:17px 14px 0; } .topline { display:block; font-size:11px; } .topline time { display:block; margin-top:6px; } h1 { font-size:28px; } .intro { font-size:13px; } .report-strip { gap:6px 15px; } .report-strip > span + span { padding-left:15px; } .boundary { padding:14px; margin:20px 0; } .cards { grid-template-columns:1fr; gap:10px; } .card { padding:18px; } .card-number { margin-bottom:9px; } .card p { margin-bottom:10px; } .card-foot { margin-top:11px; padding-top:10px; } .section-head { align-items:flex-start; } .section-note { font-size:11px; text-align:right; } .flow-header { align-items:flex-start; flex-direction:column; padding:20px 17px 0; gap:13px; } .stages { padding:18px; gap:8px; grid-template-columns:repeat(2,minmax(0,1fr)); } .stage { padding:12px; min-height:87px; } .stage-index { margin-bottom:7px; } .stage-detail { padding:20px 18px; } .detail-grid { grid-template-columns:1fr; gap:16px; } .detail-grid h4 { margin-bottom:4px; } .next-step { display:block; } .next-step strong { display:block; margin-bottom:4px; } .coverage,.test-guide { grid-template-columns:1fr; gap:10px; } .test-guide { margin-bottom:23px; } .guide { padding:16px 18px; } .guide b { margin-bottom:4px; } .check > summary { padding:16px; gap:10px; grid-template-columns:minmax(0,1fr) auto; } .check > summary::after { display:none; } .check-body { padding:0 16px 18px; } .check-meta { gap:6px 13px; } .directory-panel { padding:20px 18px; } footer { margin-top:24px; } }
+    @media(prefers-reduced-motion:no-preference) { button,a { transition:background-color .15s,border-color .15s; } }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" aria-label="验收报告导航">
+      <div class="brand"><div class="brand-mark" aria-hidden="true">D</div><div><strong>DOSO</strong><small>ENGINEERING</small></div></div>
+      <nav aria-label="报告分区">
+        <p class="nav-label">本地验收</p>
+        <div class="tabs" role="tablist" aria-label="验收报告分区">
+          <button class="tab" role="tab" id="tab-overview" aria-selected="true" aria-controls="panel-overview" tabindex="0"><span class="nav-icon" aria-hidden="true">01</span>功能与链路</button>
+          <button class="tab" role="tab" id="tab-tests" aria-selected="false" aria-controls="panel-tests" tabindex="-1"><span class="nav-icon" aria-hidden="true">02</span>测试流程</button>
+          <button class="tab" role="tab" id="tab-engineering" aria-selected="false" aria-controls="panel-engineering" tabindex="-1"><span class="nav-icon" aria-hidden="true">03</span>工程目录</button>
+        </div>
+      </nav>
+      <div class="sidebar-note"><strong>功能、证据、边界</strong>按实际实现汇报。每项结果保留执行命令与本地日志。</div>
+    </aside>
+    <main>
+      <div class="topline"><span><span class="dot" aria-hidden="true"></span>本地验收记录 · 非实时设备状态</span><time id="snapshot-time">尚未生成验收记录</time></div>
+      <header class="hero">
+        <p class="eyebrow">Cloud connection / Acceptance</p>
+        <h1>云端接入 · 本地验收</h1>
+        <p class="intro">地图管理与远程状态上报的实现进展、验证记录和接线位置。选择链路节点，可以查看当前能力和下一步。</p>
+        <div class="report-strip" id="report-summary" aria-live="polite"><span>等待读取验收报告</span></div>
+      </header>
+      <div class="boundary" role="note"><span class="boundary-icon" aria-hidden="true">i</span><div><strong>该次执行范围</strong><p id="boundary-text">本页记录本地功能与测试。ECS 部署、真实机器狗、5G、真实 OSS 文件传输仍待验收；用户主动上传地图，远程管理由用户选择开启。</p><p>通过结果仅反映记录时间与执行范围。查看报告不会验证当前源码。</p></div></div>
+
+      <section role="tabpanel" id="panel-overview" aria-labelledby="tab-overview" tabindex="0">
+        <div class="section-head"><h2>已经做出的功能</h2><span class="section-note">实现状态与测试结果分别列示</span></div>
+        <div class="cards">
+          <article class="card"><div class="card-number">01 / APP</div><h3>云端地图库</h3><p>账号内查看地图目录，显示版本、大小和传输状态，支持刷新与取消读取。</p><span class="pill" id="badge-app">等待验收记录</span><div class="card-foot">本地 / 云端入口已接入 App</div></article>
+          <article class="card"><div class="card-number">02 / MAP SERVICE</div><h3>目录、权限与文件能力</h3><p>版本归属、分片上传授权、存储校验与临时下载链接已有本地实现。</p><span class="pill" id="badge-map">等待验收记录</span><div class="card-foot">对象存储字节传输待真实资源验证</div></article>
+          <article class="card"><div class="card-number">03 / REMOTE STATE</div><h3>远程状态管理</h3><p>App 主动开启或关闭，业务数据库管理许可、续期与状态保存，页面自动读取最新结果。</p><span class="pill" id="badge-remote">等待验收记录</span><div class="card-foot">既有 Rust 报告 <span class="pill reference" id="badge-rust">等待导入记录</span></div></article>
+        </div>
+        <div class="section-head"><h2>顺着链路检查</h2><span class="section-note">点击节点查看能力、验证范围和待接部分</span></div>
+        <div class="flow-card">
+          <div class="flow-header"><div><h2 id="flow-heading">地图管理</h2><p id="flow-description">主动上传 → 私有云目录 → 指定机器狗下载 → 校验导入 → 单独使用</p></div><div class="segmented" role="group" aria-label="选择功能链路"><button class="segment" id="flow-map" aria-pressed="true" aria-controls="flow-stages">地图管理</button><button class="segment" id="flow-status" aria-pressed="false" aria-controls="flow-stages">状态上报</button></div></div>
+          <div class="stages" id="flow-stages" role="group" aria-label="地图管理节点"></div>
+          <div class="stage-detail" id="stage-detail" aria-live="polite"></div>
+        </div>
+        <div class="coverage"><article><h3>文件与消息各自承担什么</h3><p>地图包通过 HTTPS 直传私有对象存储。PostgreSQL 保存目录与状态，MQTT 承载任务引用、进度和结果。</p></article><article><h3>用户授权边界</h3><p>地图上传需要用户主动选择。远程管理由用户开启，持续状态上报依赖有效许可；地图导入后仍需单独选择使用。</p></article></div>
+      </section>
+
+      <section role="tabpanel" id="panel-tests" aria-labelledby="tab-tests" tabindex="0" hidden>
+        <div class="section-head"><h2>复现与读取测试结果</h2><span class="section-note">展开每项可查看命令与日志</span></div>
+        <div class="test-guide"><article class="guide"><b>STEP 01</b><strong>运行本地验收入口</strong><p>在 App 工程目录执行 runner，逐项生成退出码、日志和本次报告。</p></article><article class="guide"><b>STEP 02</b><strong>查看单项结果</strong><p>App、数据库、API、SDK 与类型检查独立列示，检查项与测试用例保留各自单位。</p></article><article class="guide"><b>STEP 03</b><strong>区分历史证据</strong><p>此前的 Rust 报告单独导入，保留来源和时间，避免将其计作本轮执行。</p></article></div>
+        <div class="section-head"><h2>该次执行</h2><span class="section-note" id="executed-label">等待运行记录</span></div>
+        <div class="check-list" id="executed-checks"></div>
+        <div class="section-head"><h2>导入的既有结果</h2><span class="section-note">保留原始验证范围</span></div>
+        <div class="check-list" id="imported-checks"></div>
+      </section>
+
+      <section role="tabpanel" id="panel-engineering" aria-labelledby="tab-engineering" tabindex="0" hidden>
+        <div class="section-head"><h2>工程位置与职责</h2><span class="section-note">目录路径可直接选择复制</span></div>
+        <div class="directory-layout">
+          <article class="directory-panel"><h3>App 与业务后端</h3><div class="directory-group"><h4>App 入口与读取服务</h4><code class="path">src/screens/MapLibraryScreen.tsx
+src/screens/CloudMapsScreen.tsx
+src/services/cloudMaps.ts
+src/components/RemoteStatePanel.tsx
+src/services/remoteState.ts</code><p>地图页读取当前账号目录。远程状态面板只在用户点击时保存选择，前台自动读取，离开页面不改变云端选择。</p></div><div class="directory-group"><h4>业务 API 与数据库权限</h4><code class="path">supabase/functions/map-library/
+supabase/functions/remote-state/
+supabase/functions/remote-state-sync/
+supabase/migrations/20261103150000_add_remote_state.sql
+supabase/migrations/20261103120000_add_device_map_catalog.sql</code><p>处理用户会话、固定地图归属、上传状态及 OSS 临时能力。文件字节保存在私有 OSS。</p></div><div class="directory-group"><h4>验收入口与生成结果</h4><code class="path">tools/cloud-acceptance/
+artifacts/cloud-acceptance/</code><p>工具源码与生成的日志、报告分开存放。每次运行保留独立目录。</p></div><div class="directory-group"><h4>接口与实施合同</h4><code class="path">docs/production/DOSO_MAP_LIBRARY_API.md
+docs/production/DOSO_MAP_MANAGEMENT_PLAN.md
+docs/production/DOSO_REMOTE_STATE_API.md
+docs/production/DOSO_CLOUD_COLLABORATION.md</code></div></article>
+          <div><article class="directory-panel"><h3>机器人通信与运行时</h3><code class="path">D:\DOSO\robot-cloud\
+  agent / gateway / shared / lab
+  CONTRACT.md</code><p class="intro" style="font-size:12px;margin-bottom:19px">Rust 工程负责设备通信、签名消息和网关同步。授权代次、同意版本与采集会话由业务数据库持有并生成，Gateway 按收到的许可执行。协议以 shared 和 CONTRACT.md 为准。</p><ul class="handoff"><li><strong>地图接线</strong><br>机器人导出快照、HTTPS 上传下载、归档校验、导入新地图 ID 和任务回报仍待完成。</li><li><strong>状态验证范围</strong><br>App、真实 PostgreSQL 夹具和模拟依赖的 Handler 分项验收。Rust 自动同步与实际业务后端、App 的完整链路仍需独立证据。</li><li><strong>后续实际验收</strong><br>真实 OSS 字节传输、本批功能部署、机器狗和网络恢复按各自链路验收。</li></ul></article><article class="directory-panel artifact"><h3>本次报告位置</h3><p>由 runner 写入的本地输出目录。</p><code class="path" id="artifact-directory">运行验收后生成</code><p style="margin-top:14px">报告批次</p><code class="path" id="run-id">尚未生成</code></article></div>
+        </div>
+      </section>
+      <footer><span>DOSO · 地图管理 / 远程状态上报</span><span>验收记录保留执行范围与来源</span></footer>
+    </main>
+  </div>
+  <script type="application/json" id="acceptance-data"><!--ACCEPTANCE_DATA--></script>
+  <script>
+    'use strict';
+    const statusLabels = { passed: '通过', failed: '失败', 'not-run': '未执行', running: '执行中' };
+    const flows = {
+        map: {
+            title: '地图管理', description: '主动上传 → 私有云目录 → 指定机器狗下载 → 校验导入 → 单独使用',
+            stages: [
+                { id: 'map-export', title: '选择与导出', short: '原生接口已有', state: 'pending', label: '远程接线待做',
+                    capability: 'LingTu 已有完整地图包导出接口。上传应使用独立快照，并从实际快照取得大小和校验值。',
+                    verified: '本轮验收覆盖云端目录和文件能力，原生导出与真实地图包尚未纳入这份执行记录。',
+                    remaining: 'App 主动选择上传、机器人导出与归档执行器仍待接入。', next: '接入机器人导出任务，保留用户本次选择与快照身份。' },
+                { id: 'map-catalog', title: '云目录与权限', short: '本地实现已完成', state: 'passed', label: '代码已实现', checks: ['app-maps', 'postgres-maps'],
+                    capability: 'App 可查看本人最新 100 个地图版本。数据库按创建账号隔离目录，记录来源设备与授权代次。',
+                    verified: 'App 测试执行实际服务与页面处理函数。数据库测试使用隔离 PostgreSQL 检查 RLS、状态事务与权限边界。',
+                    remaining: '实际业务数据库迁移、部署后的登录和目录读取尚待验收。', next: '在部署获授权后，用实际账号完成云目录与权限验收。' },
+                { id: 'map-upload', title: '上传与存储校验', short: '本地接口已完成', state: 'passed', label: '代码已实现', checks: ['edge-handler', 'oss-sdk', 'postgres-maps'],
+                    capability: '后端准备不可变版本，签发固定对象、分片编号和准确长度的临时上传能力。完成后核对 OSS 返回的大小与 CRC64。',
+                    verified: 'API 使用受控对象存储测试权限、重试与取消。官方 SDK 离线验证签名结构。真实 OSS 字节传输待验收。',
+                    remaining: '私有 bucket 与权限配置、真实上传和 HEAD 校验、孤立文件回收仍待完成。云端 SHA-256 目前为上传方声明。', next: '连接真实 OSS 做小文件闭环，再验收大地图与中断恢复。' },
+                { id: 'map-download', title: '下载授权', short: '本地接口已完成', state: 'passed', label: '代码已实现', checks: ['edge-handler', 'postgres-maps'],
+                    capability: '当前账号可为自己的 ready 版本取得短时 HTTPS 下载能力。地图归属保持在创建账号。',
+                    verified: '本地测试覆盖 ready 状态、账户归属和签名范围。下载链接返回与机器人收到任务分开处理。',
+                    remaining: '面向机器人的异步任务领取、目标设备授权与实际下载执行器尚待接线。', next: '由业务后端把本次受限下载能力交付给获授权的目标机器狗。' },
+                { id: 'map-import', title: '校验与导入', short: '机器人执行器待接', state: 'pending', label: '待实现接线',
+                    capability: '原生地图包导入入口已有活动地图保护。云下载应计算 SHA-256、检查归档路径，并导入新的本地地图 ID。',
+                    verified: '本份报告尚无机器人下载、解包与导入的执行记录。已有原生局部验证需查看对应源报告。',
+                    remaining: '机器人完整文件校验、路径安全、mapd 调用和实际导入身份回报尚待完成。', next: '以小型地图包完成下载到新 ID 的本地闭环，核对活动地图保持。' },
+                { id: 'map-activate', title: '单独选择使用', short: '下载后单独操作', state: 'pending', label: '云端流程待接',
+                    capability: '使用地图应通过现有 ProductControl 和本地定位检查，由用户单独选择。',
+                    verified: '本份报告未执行真实定位、导航切换或地图激活。',
+                    remaining: '导入后的 App 选择、真实激活与定位结果展示仍待接入并验收。', next: '机器狗可用后验证新图定位、单独激活和旧图恢复。' },
+            ]
+        },
+        status: {
+            title: '远程状态上报', description: '用户开启 → 有期限许可 → 周期采集与上报 → 云端最新状态 → App 展示 / 关闭停报',
+            stages: [
+                { id: 'status-consent', title: '用户开启', short: '本地代码已实现', state: 'running', label: '本地代码已实现', localVerification: true, checks: ['remote-app', 'postgres-remote', 'remote-handler'],
+                    capability: '每台设备默认关闭。App 由用户主动开启或关闭，业务数据库持有选择与版本，并在事务内检查账号、设备归属和授权代次。',
+                    verified: '关联 App 交互、真实 PostgreSQL 夹具及模拟依赖的 Handler 检查，结果由本次报告读取。',
+                    remaining: '实际账号服务部署、设备接入及完整三端链路仍待验收。', next: '在隔离环境连接真实业务接口，核对用户选择到许可执行的整条链路。' },
+                { id: 'status-grant', title: '后台许可与续期', short: '本地代码已实现', state: 'running', label: '本地代码已实现', localVerification: true, checks: ['postgres-remote', 'remote-handler'],
+                    capability: '业务数据库生成有期限许可、授权版本与采集会话。有效确认后续期，过期或重连按合同换会话；Gateway 执行许可，App 退出不影响后台同步。',
+                    verified: '数据库检查覆盖默认关闭、确认与续期、无确认到期和重连。服务 Handler 检查同步鉴权与边界。既有 Rust 报告单独列示。',
+                    remaining: '本页这些分项结果尚未证明 Rust 自动同步、实际数据库和 App 的完整联调通过。', next: '单独记录 Rust 自动同步与实际业务服务的联调证据，核对许可和状态时间。' },
+                { id: 'status-report', title: '周期采集上报', short: '模拟 Brainstem', state: 'reference', label: '既有 Rust 证据', checks: ['rust-reporting'],
+                    capability: 'Agent 可在有效许可下周期读取状态并签名上报，相关消息由 Rust shared 合同持有。',
+                    verified: '此处引用此前导入的 Rust 单元测试与模拟 Brainstem 实验。该旧报告保留原时间，未作为本轮新自动同步的通过证据。',
+                    remaining: '真实机器狗字段、持续运行、网络抖动和实际流量尚待验收。', next: '完成完整联调后，接真实设备检查字段与持续上报。' },
+                { id: 'status-latest', title: '保存与读取状态', short: '本地代码已实现', state: 'running', label: '本地代码已实现', localVerification: true, checks: ['postgres-remote', 'remote-handler'],
+                    capability: '业务数据库核对授权、会话、连接和递增序号后保存状态。重复报告保留原时间，读取错误保留上次成功状态，用户只读自己的设备。',
+                    verified: '真实 PostgreSQL 夹具检查投影和事务门禁。Handler 采用受控认证与 RPC 检查用户、服务入口。',
+                    remaining: '真实 Gateway 到实际业务数据库的完整数据通路及部署后读取仍待验收。', next: '用同一条报告核对 Gateway、数据库与 App 的采集时间和过期显示。' },
+                { id: 'status-app', title: 'App 自动展示', short: '本地代码已实现', state: 'running', label: '本地代码已实现', localVerification: true, checks: ['remote-app'],
+                    capability: 'App 主动开关、前台每 4 秒读取，区分保存、设备确认与新鲜数据。后台暂停页面请求，保存不确定时自动读取核对，超过 5 秒显示过期。',
+                    verified: 'Node 测试执行实际服务和 TSX 处理函数，并检查设备页入口。网络、时间和生命周期由测试控制。',
+                    remaining: '原生界面视觉、真实账号请求和机器狗状态显示仍待实际验收。', next: '在真实 App 中验证开启、等待确认、过期和关闭的完整体验。' },
+                { id: 'status-stop', title: '关闭与到期', short: '本地代码已实现', state: 'running', label: '本地代码已实现', localVerification: true, checks: ['remote-app', 'postgres-remote', 'remote-handler'],
+                    capability: '关闭事务立即拒收旧授权报告，用户选择与设备确认分别显示。无有效确认不延长许可，到期后按合同更换采集会话。',
+                    verified: '本批 App 和数据库检查覆盖关闭、迟到报告、账号变化和无确认到期。Rust 停报的旧记录在历史区保留。',
+                    remaining: '断网时云端关闭到真实设备最终停采的时限和完整联调仍待验收。', next: '联调关闭与许可到期，分别记录云端停收、设备确认和实际停采。' },
+            ]
+        }
+    };
+    function element(tag, text, className) {
+        const node = document.createElement(tag);
+        if (text !== undefined) node.textContent = String(text);
+        if (className) node.className = className;
+        return node;
+    }
+
+    function timestamp(value) {
+        if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) return '时间未提供';
+        return new Intl.DateTimeFormat('zh-CN', {
+            timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+        }).format(new Date(value)) + ' 北京时间';
+    }
+
+    function duration(value) {
+        return typeof value === 'number' && Number.isFinite(value) && value >= 0
+            ? (value / 1000).toFixed(1) + ' 秒' : '耗时未提供';
+    }
+
+    function safeLogPath(value) {
+        return typeof value === 'string'
+            && /^(?:[a-zA-Z0-9][a-zA-Z0-9._-]*\/)?logs\/[a-zA-Z0-9][a-zA-Z0-9._-]*\.log$/.test(value)
+            ? value : null;
+    }
+    let report = { schemaVersion: 1, checks: [] };
+    let reportValid = false;
+    try {
+        const parsed = JSON.parse(document.getElementById('acceptance-data').textContent);
+        if (parsed && parsed.schemaVersion === 1 && Array.isArray(parsed.checks)) {
+            report = parsed;
+            reportValid = true;
+        }
+    }
+    catch { }
+    const checks = report.checks.filter(check => check && typeof check === 'object' && typeof check.id === 'string' && typeof check.label === 'string');
+    const executed = checks.filter(check => check.source === 'executed');
+    const imported = checks.filter(check => check.source === 'imported');
+    const snapshot = report.finishedAt || report.startedAt;
+    document.getElementById('snapshot-time').textContent = reportValid ? timestamp(snapshot) : '尚未生成验收记录';
+    if (typeof snapshot === 'string' && Number.isFinite(Date.parse(snapshot))) {
+        document.getElementById('snapshot-time').dateTime = snapshot;
+    }
+    document.getElementById('artifact-directory').textContent = typeof report.artifactDirectory === 'string' ? report.artifactDirectory : 'artifacts/cloud-acceptance/<runId>/';
+    document.getElementById('run-id').textContent = typeof report.runId === 'string' ? report.runId : '尚未生成';
+    if (Array.isArray(report.boundaries) && report.boundaries.some(value => typeof value === 'string')) {
+        document.getElementById('boundary-text').textContent = report.boundaries.filter(value => typeof value === 'string').join(' ');
+    }
+    const summary = document.getElementById('report-summary');
+    summary.replaceChildren();
+    if (reportValid) {
+        const metrics = [
+            [executed.length, '个该次检查项'],
+            [executed.filter(check => check.status === 'passed').length, '项通过'],
+            [executed.filter(check => check.status === 'failed').length, '项失败'],
+            [imported.length, '份既有记录']
+        ];
+        for (const [value, label] of metrics) {
+            const item = element('span');
+            item.append(element('strong', value), document.createTextNode(' ' + label));
+            summary.append(item);
+        }
+    } else {
+        summary.append(element('span', '尚无验收数据，运行后生成执行记录。'));
+    }
+
+    function verification(ids, reference = false) {
+        const selected = checks.filter(check => ids.includes(check.id) && check.source === (reference ? 'imported' : 'executed'));
+        const failed = selected.some(check => check.status === 'failed');
+        const passed = selected.length === ids.length && selected.every(check => check.status === 'passed');
+        let state = 'not-run';
+        let text = '等待验收记录';
+        if (failed) {
+            state = 'failed';
+            text = '存在失败结果';
+        } else if (passed) {
+            state = reference ? 'reference' : 'passed';
+            text = reference ? '已导入本地验证' : '该次本地验证通过';
+        }
+        return { state, text };
+    }
+    function badge(id, ids, reference = false) {
+        const target = document.getElementById(id);
+        const result = verification(ids, reference);
+        target.className = 'pill ' + result.state;
+        target.textContent = result.text;
+    }
+    badge('badge-app', ['app-maps']);
+    badge('badge-map', ['postgres-maps', 'edge-handler', 'oss-sdk']);
+    badge('badge-remote', ['remote-app', 'postgres-remote', 'remote-handler']);
+    badge('badge-rust', ['rust-reporting'], true);
+    const tabButtons = Array.from(document.querySelectorAll('[role="tab"]'));
+    function activateTab(button, focus = false) {
+        for (const tab of tabButtons) {
+            const selected = tab === button;
+            tab.setAttribute('aria-selected', String(selected));
+            tab.tabIndex = selected ? 0 : -1;
+            document.getElementById(tab.getAttribute('aria-controls')).hidden = !selected;
+        }
+        if (focus) button.focus();
+    }
+    for (const tab of tabButtons) {
+        tab.addEventListener('click', () => activateTab(tab));
+        tab.addEventListener('keydown', event => {
+            const index = tabButtons.indexOf(tab);
+            let next;
+            if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (index + 1) % tabButtons.length;
+            if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (index + tabButtons.length - 1) % tabButtons.length;
+            if (event.key === 'Home') next = 0;
+            if (event.key === 'End') next = tabButtons.length - 1;
+            if (next !== undefined) {
+                event.preventDefault();
+                activateTab(tabButtons[next], true);
+            }
+        });
+    }
+
+    let activeFlow = 'map';
+    function showStage(index) {
+        const stage = flows[activeFlow].stages[index];
+        for (const button of document.querySelectorAll('[data-stage]')) {
+            button.setAttribute('aria-pressed', String(Number(button.dataset.stage) === index));
+        }
+        const target = document.getElementById('stage-detail');
+        target.replaceChildren();
+        const title = element('div', undefined, 'detail-title');
+        title.append(element('h3', stage.title), element('span', stage.label, 'pill ' + stage.state));
+        if (stage.localVerification) {
+            const result = verification(stage.checks);
+            const evidenceBadge = element('span', result.text, 'pill ' + result.state);
+            evidenceBadge.dataset.stageVerification = stage.id;
+            title.append(evidenceBadge);
+        }
+        target.append(title);
+        const grid = element('div', undefined, 'detail-grid');
+        const evidence = stage.checks ? checks.filter(check => stage.checks.includes(check.id)) : [];
+        const evidenceText = evidence.length
+            ? ' 关联记录 ' + evidence.map(check => check.label + '（' + (statusLabels[check.status] || '状态未识别') + '）').join('、') + '。'
+            : ' 本报告未提供该节点的关联执行结果。';
+        const fields = [
+            ['已经支持', stage.capability],
+            ['验证到了哪里', stage.verified + evidenceText],
+            ['尚待完成', stage.remaining]
+        ];
+        for (const [label, text] of fields) {
+            const part = element('div');
+            part.append(element('h4', label), element('p', text));
+            grid.append(part);
+        }
+        target.append(grid);
+        const next = element('div', undefined, 'next-step');
+        next.append(element('strong', '下一步'), element('span', stage.next));
+        target.append(next);
+    }
+
+    function showFlow(name) {
+        activeFlow = name;
+        const flow = flows[name];
+        document.getElementById('flow-heading').textContent = flow.title;
+        document.getElementById('flow-description').textContent = flow.description;
+        document.getElementById('flow-map').setAttribute('aria-pressed', String(name === 'map'));
+        document.getElementById('flow-status').setAttribute('aria-pressed', String(name === 'status'));
+        const target = document.getElementById('flow-stages');
+        target.setAttribute('aria-label', flow.title + '节点');
+        target.replaceChildren();
+        flow.stages.forEach((stage, index) => {
+            const button = element('button', undefined, 'stage');
+            button.dataset.stage = String(index);
+            button.id = stage.id;
+            button.setAttribute('aria-pressed', 'false');
+            button.setAttribute('aria-controls', 'stage-detail');
+            button.append(
+                element('span', String(index + 1).padStart(2, '0'), 'stage-index'),
+                element('strong', stage.title),
+                element('small', stage.short)
+            );
+            button.addEventListener('click', () => showStage(index));
+            target.append(button);
+        });
+        showStage(name === 'map' ? 1 : 0);
+    }
+    document.getElementById('flow-map').addEventListener('click', () => showFlow('map'));
+    document.getElementById('flow-status').addEventListener('click', () => showFlow('status'));
+    showFlow('map');
+    function addCode(parent, label, value) {
+        if (typeof value !== 'string' || !value) return;
+        parent.append(element('div', label, 'code-label'), element('code', value, 'code'));
+    }
+
+    function renderCheck(check) {
+        const row = element('details', undefined, 'check');
+        row.dataset.checkId = check.id;
+        const head = element('summary');
+        const heading = element('span');
+        heading.append(element('span', check.label, 'check-title'));
+        const count = typeof check.count === 'number' && Number.isFinite(check.count) && typeof check.countUnit === 'string'
+            ? ' · ' + check.count + ' ' + check.countUnit : '';
+        const subtitle = check.source === 'imported' ? '此前结果 · 本轮未执行' : String(check.scope || '本地验证');
+        heading.append(element('span', subtitle + count, 'check-subtitle'));
+        const status = Object.hasOwn(statusLabels, check.status) ? check.status : 'not-run';
+        head.append(heading, element('span', statusLabels[status], 'pill ' + status));
+        row.append(head);
+        const body = element('div', undefined, 'check-body');
+        const meta = element('div', undefined, 'check-meta');
+        if (check.source === 'executed') {
+            meta.append(element('span', '开始 ' + timestamp(check.startedAt)), element('span', duration(check.durationMs)));
+            if (typeof check.exitCode === 'number') meta.append(element('span', '退出码 ' + check.exitCode));
+        }
+        if (check.evidence && typeof check.evidence === 'object') {
+            meta.append(element('span', '源文件时间 ' + timestamp(check.evidence.modifiedAt)));
+        }
+        body.append(meta);
+        addCode(body, '执行命令', check.command);
+        addCode(body, '工作目录', check.workdir);
+        if (check.evidence && typeof check.evidence.path === 'string') addCode(body, '证据来源', check.evidence.path);
+        if (Array.isArray(check.details)) {
+            const details = element('ul', undefined, 'test-details');
+            for (const text of check.details) {
+                if (typeof text === 'string') details.append(element('li', text));
+            }
+            if (details.children.length) body.append(details);
+        }
+        const actions = element('div', undefined, 'actions');
+        if (typeof check.command === 'string' && check.command) {
+            const copy = element('button', '复制命令', 'button');
+            copy.type = 'button';
+            copy.dataset.copyCommand = check.id;
+            const message = element('p', '', 'copy-message');
+            message.setAttribute('role', 'status');
+            const fallback = element('textarea', undefined, 'copy-fallback');
+            fallback.readOnly = true;
+            fallback.hidden = true;
+            fallback.value = check.command;
+            fallback.setAttribute('aria-label', check.label + '命令，已选择后可复制');
+            copy.addEventListener('click', async () => {
+                try {
+                    if (!navigator.clipboard || typeof navigator.clipboard.writeText !== 'function') throw new Error('clipboard unavailable');
+                    await navigator.clipboard.writeText(check.command);
+                    message.textContent = '命令已复制。';
+                    fallback.hidden = true;
+                } catch {
+                    fallback.hidden = false;
+                    fallback.focus();
+                    fallback.select();
+                    message.textContent = '已选中命令，请使用系统复制操作。';
+                }
+            });
+            actions.append(copy);
+            body.append(actions, message, fallback);
+        } else {
+            body.append(actions);
+        }
+        const log = safeLogPath(check.logPath);
+        if (log) {
+            const link = element('a', '打开本地日志');
+            link.href = log;
+            link.dataset.logFor = check.id;
+            link.target = '_blank';
+            link.rel = 'noopener';
+            actions.append(link);
+        }
+        row.append(body);
+        return row;
+    }
+
+    function renderChecks(targetId, items, emptyText) {
+        const target = document.getElementById(targetId);
+        if (!items.length) {
+            target.append(element('div', emptyText, 'empty'));
+            return;
+        }
+        for (const check of items) target.append(renderCheck(check));
+    }
+    document.getElementById('executed-label').textContent = reportValid ? executed.length + ' 个检查项 · ' + executed.filter(check => check.status === 'passed').length + ' 项通过' : '尚未读取运行记录';
+    renderChecks('executed-checks', executed, '尚无本轮执行结果。请运行 tools/cloud-acceptance 中的验收入口后打开生成报告。');
+    renderChecks('imported-checks', imported, '尚未导入既有报告。导入后会保留原始文件位置、时间与限制。');
+  </script>
+</body>
+</html>

@@ -17,11 +17,6 @@ type LoginScreenProps = {
   onLogin: (email: string, password: string) => void | Promise<void>;
   onCreateAccount?: () => void;
   onForgotPassword?: () => void;
-  onOpenConnectionDiagnostics?: () => void;
-  onOpenRobotConnection?: () => void;
-  onEnterGuest?: () => void;
-  onEnterDeviceTest?: () => void;
-  onOpenDataPrivacy?: () => void;
   loading?: boolean;
   error?: string | null;
   fieldErrors?: LoginFieldErrors;
@@ -98,7 +93,7 @@ export function AuthPage({ title, subtitle, children, onBack, backDisabled = fal
   return (
     <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={[authStyles.safeArea, { backgroundColor: palette.background }]}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={authStyles.keyboardView}>
-        <ScrollView bounces={false} contentContainerStyle={[authStyles.scrollContent, compact && authStyles.scrollContentCompact, landscape && authStyles.scrollContentLandscape]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <ScrollView bounces={false} contentContainerStyle={[authStyles.scrollContent, compact && authStyles.scrollContentCompact, landscape && authStyles.scrollContentLandscape, { paddingBottom: 48 + Math.max(insets.bottom, 28) }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <View style={[authStyles.content, landscape && authStyles.contentLandscape]}>
             <View style={[authStyles.defaultIntro, landscape && authStyles.defaultIntroLandscape]}>
               {onBack ? (
@@ -109,7 +104,7 @@ export function AuthPage({ title, subtitle, children, onBack, backDisabled = fal
                   disabled={backDisabled}
                   hitSlop={10}
                   onPress={onBack}
-                  style={({ pressed }) => [authStyles.backButton, { backgroundColor: palette.input }, backDisabled && authStyles.backButtonDisabled, pressed && !backDisabled && entryStyles.pressed]}
+                  style={({ pressed }) => [authStyles.backButton, { backgroundColor: '#30302F' }, backDisabled && authStyles.backButtonDisabled, pressed && !backDisabled && entryStyles.pressed]}
                 >
                   <Ionicons color={palette.ink} name="chevron-back" size={22} />
                 </Pressable>
@@ -152,7 +147,7 @@ export function AuthError({ message }: { message?: string | null }) {
   return message ? <Text selectable accessibilityLiveRegion="polite" style={[authStyles.formError, { color: palette.dangerText, backgroundColor: palette.dangerSurface }]}>{message}</Text> : null;
 }
 
-export function LoginScreen({ onLogin, onCreateAccount, onForgotPassword, onOpenConnectionDiagnostics, onOpenRobotConnection, onEnterGuest, onEnterDeviceTest, onOpenDataPrivacy, loading = false, error, fieldErrors }: LoginScreenProps) {
+export function LoginScreen({ onLogin, onCreateAccount, onForgotPassword, loading = false, error, fieldErrors }: LoginScreenProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [localErrors, setLocalErrors] = useState<LoginFieldErrors>({});
@@ -205,20 +200,14 @@ export function LoginScreen({ onLogin, onCreateAccount, onForgotPassword, onOpen
   };
   return (
     <AuthEntry mode="login" busy={busy} onSwitch={onCreateAccount ? () => navigate(onCreateAccount) : undefined}>
-      {(inlineIdentity) => <>
+      {() => <>
         <AuthEntryError message={requestError ?? error} />
         <View style={entryStyles.fields}>
-          <AuthEntryField accessibilityLabel="邮箱地址" autoCapitalize="none" autoComplete="email" autoCorrect={false} editable={!busy} error={errors.email} icon="mail-outline" inputRef={emailRef} keyboardType="email-address" label="邮箱" onChangeText={value => { setEmail(value); clear('email'); }} onSubmitEditing={() => passwordRef.current?.focus()} placeholder="输入邮箱地址" returnKeyType="next" submitBehavior="submit" testID="login-email" textContentType="emailAddress" value={email} />
-          <AuthEntryField autoCapitalize="none" autoComplete="password" autoCorrect={false} editable={!busy} error={errors.password} icon="lock-closed-outline" inputRef={passwordRef} label="密码" onChangeText={value => { setPassword(value); clear('password'); }} onSubmitEditing={submit} placeholder="输入密码" returnKeyType="done" secure testID="login-password" textContentType="password" value={password} visibilityTestID="login-password-visibility" />
+          <AuthEntryField variant="glass" accessibilityLabel="邮箱地址" autoCapitalize="none" autoComplete="email" autoCorrect={false} editable={!busy} error={errors.email} icon="mail-outline" inputRef={emailRef} keyboardType="email-address" label="邮箱" onChangeText={value => { setEmail(value); clear('email'); }} onSubmitEditing={() => passwordRef.current?.focus()} placeholder="输入邮箱地址" returnKeyType="next" submitBehavior="submit" testID="login-email" textContentType="emailAddress" value={email} />
+          <AuthEntryField variant="glass" autoCapitalize="none" autoComplete="password" autoCorrect={false} editable={!busy} error={errors.password} icon="lock-closed-outline" inputRef={passwordRef} label="密码" onChangeText={value => { setPassword(value); clear('password'); }} onSubmitEditing={submit} placeholder="输入密码" returnKeyType="done" secure testID="login-password" textContentType="password" value={password} visibilityTestID="login-password-visibility" />
         </View>
-        <Pressable accessibilityRole="button" accessibilityState={{ disabled: busy || !onForgotPassword }} disabled={busy || !onForgotPassword} onPress={() => navigate(onForgotPassword)} style={entryStyles.forgot} testID="login-forgot-password"><Text style={[entryStyles.link, { color: palette.accent }]}>忘记密码？</Text></Pressable>
-        <AuthEntryButton busy={busy} loading={busy} label={busy ? '正在登录…' : '登录'} onPress={submit} testID="login-submit" />
-        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 24, marginTop: 4 }}>
-          {onEnterDeviceTest ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: busy }} disabled={busy} onPress={() => navigate(onEnterDeviceTest)} style={{ alignItems: 'center', justifyContent: 'center', minHeight: 44 }} testID="login-device-test"><Text style={[entryStyles.link, { color: palette.accent }]}>进入设备测试</Text></Pressable> : onOpenRobotConnection ? <Pressable accessibilityHint="仅检查局域网机器人状态，不登录、绑定或获取控制权" accessibilityRole="button" accessibilityState={{ disabled: busy }} disabled={busy} onPress={() => navigate(onOpenRobotConnection)} style={{ alignItems: 'center', justifyContent: 'center', minHeight: 44 }} testID="login-robot-connection"><Text style={[entryStyles.link, { color: palette.accent }]}>连接机器狗</Text></Pressable> : null}
-          {onEnterGuest ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: busy }} disabled={busy} onPress={() => navigate(onEnterGuest)} style={{ alignItems: 'center', justifyContent: 'center', minHeight: 44 }} testID="login-guest"><Text style={[entryStyles.link, { color: palette.accent }]}>游客使用</Text></Pressable> : null}
-        </View>
-        {!inlineIdentity && onOpenDataPrivacy ? <Pressable accessibilityHint="查看当前功能涉及的数据范围" accessibilityRole="button" accessibilityState={{ disabled: busy }} disabled={busy} onPress={() => navigate(onOpenDataPrivacy)} style={{ alignItems: 'center', justifyContent: 'center', minHeight: 44, marginTop: 8 }} testID="login-data-privacy"><Text style={[entryStyles.link, { color: palette.secondary }]}>数据与隐私</Text></Pressable> : null}
-        {!inlineIdentity && onOpenConnectionDiagnostics ? <Pressable accessibilityRole="button" disabled={busy} onPress={() => navigate(onOpenConnectionDiagnostics)} style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center', marginTop: 12 }} testID="login-connection-diagnostics"><Text style={[entryStyles.link, { color: palette.accent }]}>连接诊断</Text></Pressable> : null}
+        <Pressable accessibilityRole="button" accessibilityState={{ disabled: busy || !onForgotPassword }} disabled={busy || !onForgotPassword} onPress={() => navigate(onForgotPassword)} style={entryStyles.forgot} testID="login-forgot-password"><Text style={[entryStyles.link, { color: palette.isDark ? '#F5F7FF' : '#202731', fontSize: 17, lineHeight: 26 }]}>忘记密码？</Text></Pressable>
+        <AuthEntryButton variant="glass" busy={busy} loading={busy} label={busy ? '正在登录…' : '登录'} onPress={submit} testID="login-submit" />
       </>}
     </AuthEntry>
   );

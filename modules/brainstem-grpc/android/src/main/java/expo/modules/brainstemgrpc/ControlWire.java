@@ -11,6 +11,8 @@ import java.util.Map;
 
 /** Small bounded codec for cms.proto control messages. Lease credentials never cross the bridge. */
 public final class ControlWire {
+  public static final double MAX_LINEAR_MPS = 3.0;
+  public static final double MAX_YAW_RPS = 3.0;
   private ControlWire() {}
   public static final class Lease {
     public final boolean accepted;
@@ -41,7 +43,7 @@ public final class ControlWire {
   }
   public static byte[] walk(String token, long sequence, double x, double y, double z) {
     if (sequence <= 0 || !Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z)
-        || Math.abs(x) > 0.3 || Math.abs(y) > 0.3 || Math.abs(z) > 0.5) {
+        || Math.abs(x) > MAX_LINEAR_MPS || Math.abs(y) > MAX_LINEAR_MPS || Math.abs(z) > MAX_YAW_RPS) {
       throw new IllegalArgumentException("Invalid control input");
     }
     ByteArrayOutputStream out = new ByteArrayOutputStream();

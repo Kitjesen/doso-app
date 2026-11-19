@@ -3,10 +3,15 @@ package expo.modules.brainstemgrpc
 import android.security.KeyChain
 import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.SystemClock
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.wifi.WifiInfo
+import android.net.wifi.WifiManager
 import android.util.Base64
 import android.view.WindowInsets
 import android.view.WindowInsetsController
@@ -62,8 +67,9 @@ class BrainstemGrpcModule : Module() {
   private var control: ControlSession? = null
   private var controlPeer: IdentityChoice? = null
   private var controlOpening: Promise? = null
-  private var controlBusy = false
+  private var controlOperation: Any? = null
   private var controlGeneration = 0L
+  private var controlWifiLock: WifiManager.WifiLock? = null
   // Session-only approval: JS cannot supply an arbitrary installed credential alias.
   private val approvedIdentities = mutableMapOf<String, String>()
   private var identityOperation: Promise? = null
@@ -96,7 +102,22 @@ class BrainstemGrpcModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("DosoBrainstemGrpc")
     Events("onBrainstemImu")
-    Constants { mapOf("lanDevAvailable" to (appContext.reactContext?.packageName == "com.doso.robot.qa")) }
+    Constants { mapOf("lanDevAvailable" to isLocalControlBuild()) }
+
+    AsyncFunction("readWifiRssi") {
+      runCatching {
+        val context = appContext.reactContext ?: return@runCatching null
+        if (paused || destroyed || !isForeground()) return@runCatching null
+        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = manager.activeNetwork ?: return@runCatching null
+        val capabilities = manager.getNetworkCapabilities(network) ?: return@runCatching null
+        if (!capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return@runCatching null
+        val info = if (Build.VERSION.SDK_INT >= 29) capabilities.transportInfo as? WifiInfo else null
+        @Suppress("DEPRECATION")
+        val rssi = (info ?: (context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager).connectionInfo).rssi
+        rssi.takeIf { it in -126..-1 }
+      }.getOrNull()
+    }.runOnQueue(Queues.MAIN)
 
     AsyncFunction("setControlNavigationHidden") { hidden: Boolean ->
       hideControlNavigation = hidden
@@ -247,7 +268,7 @@ class BrainstemGrpcModule : Module() {
       synchronized(lock) {
         control?.takeIf { it.id == sessionId }?.let {
           active?.let { read -> finish(read, "cancelled") }
-          control = null; controlPeer = null; controlGeneration++; it.haltImmediately(); worker.execute { it.close() }
+          control = null; controlPeer = null; controlGeneration++; it.haltImmediately(); closeRetiredControl(it)
         }
       }
     }.runOnQueue(Queues.MAIN)
@@ -454,6 +475,38 @@ class BrainstemGrpcModule : Module() {
   private fun isForeground(): Boolean =
     (appContext.currentActivity as? LifecycleOwner)?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) == true
 
+  private fun acquireControlWifiLock() {
+    if (controlWifiLock != null) return
+    runCatching {
+      val context = appContext.reactContext ?: return
+      val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+      val network = connectivity.activeNetwork ?: return
+      if (connectivity.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) != true) return
+      val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+      @Suppress("DEPRECATION")
+      val mode = if (Build.VERSION.SDK_INT >= 29) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else WifiManager.WIFI_MODE_FULL_HIGH_PERF
+      @Suppress("DEPRECATION")
+      val held = wifi.createWifiLock(mode, "DOSO:foreground-control")
+      held.setReferenceCounted(false)
+      held.acquire()
+      controlWifiLock = held
+    }
+  }
+
+  private fun releaseControlWifiLock() {
+    val held = controlWifiLock
+    controlWifiLock = null
+    runCatching { if (held?.isHeld == true) held.release() }
+  }
+
+  private fun closeRetiredControl(session: ControlSession) {
+    // Keep the radio awake until the final stop/release attempt has completed.
+    worker.execute {
+      try { session.close() }
+      finally { synchronized(lock) { if (control == null && controlOpening == null) releaseControlWifiLock() } }
+    }
+  }
+
   private fun openControl(host: String, port: Int, alias: String?, principal: String, requestId: String, promise: Promise, lanDev: Boolean = false) {
     if (!validEndpoint(host, port) || !principal.matches(Regex("[a-z][a-z0-9-]{0,63}@[a-z][a-z0-9-]{0,63}"))
         || lanDev && (!validLanEndpoint(host, port) || alias != null)
@@ -464,9 +517,10 @@ class BrainstemGrpcModule : Module() {
       if (!lanDev && (alias == null || approvedIdentities[endpointKey(host, port)] != alias)) { reject(promise, "identity_unavailable"); return }
       controlPeer = null
       controlOpening = promise
+      acquireControlWifiLock()
       val generation = ++controlGeneration
       val timeout = timer.schedule({ synchronized(lock) {
-        if (controlOpening === promise) { controlOpening = null; controlPeer = null; controlGeneration++; reject(promise, "timeout") }
+        if (controlOpening === promise) { controlOpening = null; controlPeer = null; controlGeneration++; releaseControlWifiLock(); reject(promise, "timeout") }
       } }, DEADLINE_MS, TimeUnit.MILLISECONDS)
       worker.execute {
         var candidate: ControlSession? = null
@@ -492,7 +546,7 @@ class BrainstemGrpcModule : Module() {
         } catch (error: Exception) {
           candidate?.close()
           synchronized(lock) { if (controlOpening === promise) {
-            controlOpening = null; controlPeer = null
+            controlOpening = null; controlPeer = null; releaseControlWifiLock()
             reject(promise, (error as? ControlSession.Failure)?.code ?: "unavailable")
           } }
         } finally { timeout.cancel(false) }
@@ -505,24 +559,31 @@ class BrainstemGrpcModule : Module() {
       val selected = control
       if (destroyed || paused || !isForeground()) { reject(promise, "background"); return }
       if (selected == null || selected.id != sessionId) { reject(promise, "cancelled"); return }
-      if (controlBusy && !allowBusy) { reject(promise, "busy"); return }
+      if (controlOperation != null && !allowBusy) { reject(promise, "busy"); return }
       // Bind at the bridge boundary, before work is queued. Cancellation cannot
       // authorize an old queued action by letting it capture the new epoch later.
       val expectedEpoch = selected.captureEpoch()
-      controlBusy = true
+      val owner = Any()
+      controlOperation = owner
       worker.execute {
+        var value: Map<String, Any>? = null
+        var failure: String? = null
         try {
           synchronized(lock) { if (control !== selected || paused || destroyed) throw ControlSession.Failure("cancelled") }
           if (!allowBusy) selected.requireEpoch(expectedEpoch)
-          val value = operation(selected, expectedEpoch)
-          synchronized(lock) {
-            if (control === selected && !paused && !destroyed && isForeground()
-                && (allowBusy || selected.captureEpoch() == expectedEpoch)) promise.resolve(value)
-            else reject(promise, "cancelled")
-          }
+          value = operation(selected, expectedEpoch)
         } catch (error: Exception) {
-          reject(promise, (error as? ControlSession.Failure)?.code ?: "invalid_response")
-        } finally { synchronized(lock) { controlBusy = false } }
+          failure = (error as? ControlSession.Failure)?.code ?: "invalid_response"
+        } finally {
+          // Retire only this work before Promise continuations can submit the next request.
+          synchronized(lock) { if (controlOperation === owner) controlOperation = null }
+        }
+        synchronized(lock) {
+          if (failure != null) reject(promise, failure)
+          else if (control === selected && !paused && !destroyed && isForeground()
+              && (allowBusy || selected.captureEpoch() == expectedEpoch)) promise.resolve(value)
+          else reject(promise, "cancelled")
+        }
       }
     }
   }
@@ -531,10 +592,12 @@ class BrainstemGrpcModule : Module() {
   private fun retireControl(reason: String) {
     controlGeneration++
     controlOpening?.let { reject(it, reason) }; controlOpening = null
-    control?.let { selected -> selected.haltImmediately(); worker.execute { selected.close() } }
+    val selected = control
+    selected?.haltImmediately()
     control = null
     controlPeer = null
-    controlBusy = false
+    controlOperation = null
+    if (selected != null) closeRetiredControl(selected) else releaseControlWifiLock()
   }
 
   /** Trust an explicitly selected complete private chain only in this channel, never globally. */
@@ -661,11 +724,19 @@ class BrainstemGrpcModule : Module() {
 
   private fun endpointKey(host: String, port: Int) = "$host|$port"
 
+  private fun isLocalControlBuild(): Boolean {
+    val context = appContext.reactContext ?: return false
+    return context.packageName == "com.doso.robot.qa" ||
+      (context.packageName == "com.doso.robot.dev" || context.packageName == "com.doso.robot.localtest")
+      && context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+  }
+
   private fun validLanEndpoint(host: String, port: Int): Boolean {
-    if (appContext.reactContext?.packageName != "com.doso.robot.qa" || !validEndpoint(host, port)
+    if (!isLocalControlBuild() || !validEndpoint(host, port)
         || !host.matches(Regex("[0-9.]+"))) return false
     val bytes = host.split('.').map { it.toInt() }
-    return bytes[0] == 10 || bytes[0] == 172 && bytes[1] in 16..31 || bytes[0] == 192 && bytes[1] == 168
+    // Exact loopback supports a USB-reversed PC fixture without exposing a LAN listener.
+    return host == "127.0.0.1" || bytes[0] == 10 || bytes[0] == 172 && bytes[1] in 16..31 || bytes[0] == 192 && bytes[1] == 168
   }
 
   private fun validEndpoint(host: String, port: Int): Boolean {

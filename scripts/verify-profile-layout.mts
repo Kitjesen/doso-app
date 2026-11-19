@@ -235,7 +235,7 @@ test('short controller Profile keeps device and all settings in separate scrolla
       const style = typeof node.props.style === 'function' ? node.props.style({ pressed: false }) : node.props.style;
       assert.ok(Object.assign({}, ...[style].flat(Infinity).filter(Boolean)).minHeight >= 48);
     }
-    for (const hint of ['打开IP 连接 / 添加机器狗', '打开绑定真实设备', '打开附近 BLE 设备']) {
+    for (const hint of ['打开IP 连接 / 添加机器狗', '打开添加并绑定真实设备', '打开附近 BLE 设备']) {
       rendered.nodes.find(node => node.type === 'Pressable' && node.props.accessibilityHint === hint).props.onPress();
     }
     assert.deepEqual(calls, ['connection', 'bind', 'ble']);
@@ -297,7 +297,7 @@ test('Profile preserves existing account, device and unavailable-feature explana
     target.props.onPress();
   };
   for (const id of ['profile-edit-entry', 'profile-control-entry']) press(node => node.props.testID === id);
-  for (const title of ['连接管理', '网络与配网', '固件更新', '绑定真实设备', '附近 BLE 设备', '连接诊断', '数据与隐私']) {
+  for (const title of ['连接管理', '网络与配网', '固件更新', '添加并绑定真实设备', '附近 BLE 设备', '连接诊断', '数据与隐私']) {
     press(node => node.props.accessibilityHint === `打开${title}`);
   }
   press(node => node.props.accessibilityHint === '管理账户身份与安全设置');
@@ -308,7 +308,7 @@ test('Profile preserves existing account, device and unavailable-feature explana
   assert.equal(calls.filter(name => name === 'onOpenProvisioning').length, 2, 'both existing provisioning explanation entries remain reachable');
   for (const name of Object.keys(callbacks).filter(name => !['onUnbindDevice', 'onDisconnect'].includes(name))) assert.ok(calls.includes(name), `${name} remains wired`);
   assert.ok(!calls.includes('onDisconnect'), 'offline disconnect remains disabled');
-  const bound = renderProfileSafetyLock(null, true, { ...callbacks, serialNumber: 'REAL-DEVICE-SERIAL' });
+  const bound = renderProfileSafetyLock(null, true, { ...callbacks, deviceId: '8f7e1c62-0a4d-4b89-96e2-6c47b03db1a5' });
   bound.nodes.find(node => node.type === 'Pressable' && node.props.accessibilityHint === '打开解绑当前设备').props.onPress();
   assert.ok(calls.includes('onUnbindDevice'));
   assert.match(rendered.copy, /真实配网尚未接入.*生产固件更新尚未接入/);

@@ -50,8 +50,9 @@ public final class ControlWireTest {
     fail(() -> ControlWire.stringRequest(""));
     fail(() -> ControlWire.walk("x", 0, 0, 0, 0));
     fail(() -> ControlWire.walk("x", 1, Double.NaN, 0, 0));
-    fail(() -> ControlWire.walk("x", 1, .31, 0, 0));
-    fail(() -> ControlWire.walk("x", 1, 0, 0, .51));
+    ControlWire.walk("x", 1, 1, -1, 1);
+    fail(() -> ControlWire.walk("x", 1, 3.01, 0, 0));
+    fail(() -> ControlWire.walk("x", 1, 0, 0, 3.01));
     byte[] walk = ControlWire.walk("token", 300, .2, -.1, .3);
     byte[] vector = join(new byte[]{9}, ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putDouble(.2).array(),
       new byte[]{17}, ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putDouble(-.1).array(),

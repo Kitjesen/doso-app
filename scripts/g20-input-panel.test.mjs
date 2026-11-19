@@ -17,12 +17,13 @@ function renderPanel(initial = {}) {
   const module = { exports: {} };
   const dependencies = {
     'react/jsx-runtime': require('react/jsx-runtime'),
+    './ControlSetupSurface': { ControlSetupBackground: 'ControlSetupBackground', ControlSetupPage: 'ControlSetupPage', controlSetupColors: {}, controlSetupAppearance: {} },
     '@expo/vector-icons': { Ionicons: 'Ionicons' },
     'react-native': { Pressable: 'Pressable', ScrollView: 'ScrollView', View: 'View', StyleSheet: { create: value => value } },
     'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView' },
     './AppText': { Text: 'Text' },
     '../theme': { useAppTheme: () => ({ colors }) },
-    '../typography': { typography },
+    '../typography': { typography, controlTypography: typography },
   };
   vm.runInNewContext(compiled, { module, exports: module.exports, require: name => {
     assert.ok(name in dependencies, `Unexpected G20 panel dependency: ${name}`);
@@ -67,6 +68,8 @@ function renderPanel(initial = {}) {
     calls, props, render, find,
     copy: id => copy(find(id)).replace(/\s+/g, ' ').trim(),
     press(id) {
+      const frame = nodes.find(node => node.type === 'ControlSetupPage' && node.props.backTestID === id);
+      if (frame) return frame.props.onBack();
       const node = find(id);
       assert.ok(node, `Missing action: ${id}`);
       node.props.onPress();
@@ -77,7 +80,7 @@ function renderPanel(initial = {}) {
 
 function sampleState(overrides = {}) {
   return { status: 'reading', available: true, reading: true,
-    sample: { channels: Array.from({ length: 16 }, (_, channel) => 1500 + channel) },
+    sample: { channels: Array.from({ length: 16 }, (_, channel) => 1500 + channel), configurationReady: true },
     ...overrides };
 }
 
@@ -92,6 +95,15 @@ test('unavailable input stays unknown and cannot start, calibrate or select phys
   assert.deepEqual(panel.calls, []);
   for (let channel = 1; channel <= 16; channel++) assert.equal(panel.copy(`g20-channel-${channel}`), '—');
   for (const axis of ['leftX', 'leftY', 'rightX', 'rightY']) assert.equal(panel.copy(`g20-value-${axis}`), '—');
+});
+test('raw observation cannot select physical control even with stale calibrated UI flags', () => {
+  const panel = renderPanel({ state: sampleState({ calibrated: true, calibrating: true,
+    sample: { channels: Array(16).fill(1500), configurationReady: false } }) });
+  for (const id of ['g20-calibration-finish', 'g20-source-physical', 'g20-learn-leftX']) {
+    assert.equal(panel.find(id).props.disabled, true); panel.press(id);
+  }
+  assert.deepEqual(panel.calls, []);
+  assert.equal(panel.copy('g20-channel-1'), '1500');
 });
 
 test('read, cancel during startup, stop, and return actions call only their assigned callbacks', () => {
@@ -185,7 +197,7 @@ test('clear calibration is available only when there is calibration state', () =
   assert.deepEqual(panel.calls, ['clear']);
 });
 
-test('panel keeps safe-area scrolling, shared palette and three type sizes', () => {
+test('panel keeps safe-area scrolling and delegates its title to the shared glass frame', () => {
   const panel = renderPanel({ state: sampleState() });
   const safe = panel.find('g20-input-panel');
   assert.deepEqual(Array.from(safe.props.edges), ['top', 'left', 'right', 'bottom']);
@@ -198,7 +210,8 @@ test('panel keeps safe-area scrolling, shared palette and three type sizes', () 
     if (style.fontSize) sizes.add(style.fontSize);
     for (const [key, value] of Object.entries(style)) if (/^border.*Width$/.test(key)) borders.push(value);
   }
-  assert.deepEqual([...sizes].sort((a, b) => a - b), [12, 16, 20]);
+  assert.deepEqual([...sizes].sort((a, b) => a - b), [12, 16, 17]);
+  assert.equal(panel.nodes.find(node => node.type === 'ControlSetupPage').props.title, '遥控器输入');
   assert.ok(borders.length > 0 && borders.every(width => width === 0.5));
   assert.equal(resolve(safe.props.style).backgroundColor, colors.background);
 });

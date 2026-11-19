@@ -4,7 +4,7 @@ alter table public.devices
     check (robot_lifecycle in ('unassigned','owned','quarantined','compromised','retired')),
   add column robot_public_key_pem text,
   add column robot_public_key_fingerprint text,
-  add column robot_authorization_epoch bigint not null default 1 check (robot_authorization_epoch >= 1),
+  add column if not exists robot_authorization_epoch bigint not null default 1 check (robot_authorization_epoch >= 1),
   add column robot_active_boot_id text,
   add column robot_last_telemetry_sequence bigint not null default 0 check (robot_last_telemetry_sequence >= 0),
   add column robot_last_telemetry_frame_digest text,
@@ -244,6 +244,9 @@ begin
   return new;
 end;
 $$;
+
+drop trigger if exists devices_enforce_authorization_epoch on public.devices;
+drop function if exists private.enforce_device_authorization_epoch();
 
 create trigger devices_enforce_robot_update
 before update on public.devices

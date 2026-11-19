@@ -17,22 +17,22 @@ export function getProductAppearance(isDark: boolean) {
     isDark,
     canvas: colors.background,
     surface,
-    raised: isDark ? '#30343C' : '#FFFFFF',
+    raised: isDark ? '#2C2C2A' : '#FFFFFF',
     ink: colors.ink,
     secondary: colors.muted,
     // A semantic alias, not an additional grey layer.
     quiet: surface,
-    border: isDark ? '#3B3F47' : '#E4E7EC',
+    border: isDark ? '#343432' : '#E4E7EC',
     blue: brandSky,
-    blueSoft: isDark ? '#263C4D' : '#EAF5FF',
-    blueInk: isDark ? brandSky : '#214F71',
+    blueSoft: isDark ? '#292F33' : '#EAF5FF',
+    blueInk: isDark ? '#A3B7C5' : '#214F71',
     // One accent for selection and actions; radio/text retain the distinction.
-    selectionSurface: brandSky,
-    selectionInk: accentInk,
-    action: brandSky,
-    // Pale blue needs dark labels in both modes, not low-contrast white.
-    actionInk: accentInk,
-    nav: isDark ? '#24272D' : '#F4F5F7',
+    selectionSurface: isDark ? '#363634' : brandSky,
+    selectionInk: isDark ? '#E8E8E6' : accentInk,
+    action: isDark ? '#F0F4FE' : brandSky,
+    // Official dark CTA is a light pill with dark ink.
+    actionInk: isDark ? '#1C1C1B' : accentInk,
+    nav: isDark ? '#1C1C1B' : '#F4F5F7',
   } as const;
 }
 

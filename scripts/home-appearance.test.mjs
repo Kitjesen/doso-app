@@ -29,53 +29,54 @@ test('home columns fit measured post-safe-area width without double-reserving na
 function home(props = {}) {
   return mountAuthScreen({ screen: 'home', robotImage: 'selected-robot', robotName: 'THUNDER 01', connected: false, canRecall: false, safetyLock: false, onRecall: () => {}, onOpenControl: () => {}, onOpenRoutes: () => {}, onOpenTasks: () => {}, onOpenSafety: () => {}, ...props });
 }
-test('home contains one product photo and real native labels in both themes', () => {
-  for (const dark of [false, true]) {
-    const screen = home({ dark });
-    assert.equal(screen.nodes.filter(node => node.type === 'Image' && node.props.source === 'selected-robot').length, 1);
-    assert.match(screen.copy, /THUNDER 01/);
-    assert.match(screen.copy, /巡航模板.*任务模板.*设备安全/);
-    assert.match(screen.copy, /电量待同步 传感器 待同步 温度 待同步 电机 待同步/);
-    assert.doesNotMatch(screen.copy, /32°C|12\/12|34%|在线/);
-  }
-});
-test('unknown, zero and invalid battery remain distinct', () => {
-  assert.match(home().copy, /电量待同步/);
-  assert.match(home({ batteryPercent: 0 }).copy, /0 % 电量/);
-  for (const value of [NaN, Infinity, -1, 101]) assert.match(home({ batteryPercent: value }).copy, /电量待同步/);
+test('product home has four feature entries and no invented disconnected data', () => {
+  const screen=home({hasDevice:false,batteryPercent:86,transport:'5G',updatedAt:'2026-11-11T14:32:00+08:00',journey:{locationLabel:'园区东侧'}});
+  assert.match(screen.copy,/未连接.*连接你的第一台机器狗/);
+  assert.doesNotMatch(screen.copy,/86|5G|园区东侧|14:32|召回|控制中心/);
+  assert.equal(screen.nodes.filter(n=>n.props?.testID==='home-robot').length,1);
+  for(const key of ['video','maps','tasks','settings']) assert.ok(screen.action('home-feature-'+key));
 });
 
-test('control center keeps a stretchable entry with compact borderless shortcut cards', () => {
-  const screen = home();
-  const cta = flatten(screen.action('home-control').props.style({ pressed: false }));
-  assert.equal(cta.alignSelf, 'stretch');
-  assert.equal(screen.action('home-control').props.accessibilityLabel, '控制中心');
-  assert.ok(cta.minHeight >= 48);
-  for (let index = 0; index < 3; index++) {
-    const card = screen.action(`home-quick-${index}`);
-    const style = flatten(card.props.style({ pressed: false }));
-    assert.ok(style.minHeight >= 48);
-    assert.equal(style.borderRadius, 16);
-    assert.equal(card.props.accessibilityRole, 'button');
-  }
-  const nav = mountAuthScreen({ screen: 'nav', active: 'home', onChange: () => {} });
-  const indicator = key => nav.nodes.find(node => node.props?.testID === `nav-indicator-${key}`);
-  assert.equal(flatten(indicator('tasks')?.props.style).backgroundColor, 'transparent');
-  assert.notEqual(flatten(indicator('home')?.props.style).backgroundColor, 'transparent');
+test('only connected finite battery is displayed, including zero',()=>{
+  for(const value of [0,86,100])assert.ok(home({connected:true,batteryPercent:value}).nodes.some(n=>n.props?.testID==='home-battery'));
+  for(const value of [undefined,null,NaN,Infinity,-1,101])assert.equal(home({connected:true,batteryPercent:value}).nodes.some(n=>n.props?.testID==='home-battery'),false);
 });
-test('recall refuses unavailable programmatic presses and announces the reason', () => {
-  let calls = 0;
-  const screen = home({ onRecall: () => calls++, recallBlockedReason: '未取得控制权限' });
-  const recall = screen.action('home-recall');
-  assert.equal(recall.props.disabled, true);
-  assert.equal(recall.props.accessibilityHint, '未取得控制权限');
-  recall.props.onPress(); assert.equal(calls, 0);
-  screen.render({ canRecall: true });
-  screen.action('home-recall').props.onPress(); assert.equal(calls, 1);
+
+test('actions preserve destinations and disconnected video never requests streaming',()=>{
+  const calls=[];
+  const screen=home({hasDevice:false,onConnect:()=>calls.push('connect'),onOpenVideo:()=>calls.push('video'),onOpenRoutes:()=>calls.push('maps'),onOpenTasks:()=>calls.push('tasks'),onOpenSafety:()=>calls.push('settings')});
+  screen.action('home-primary').props.onPress();screen.action('home-feature-video').props.onPress();
+  assert.deepEqual(calls,['connect','connect']);
+  screen.render({connected:true,hasDevice:true});
+  for(const key of ['video','maps','tasks','settings'])screen.action('home-feature-'+key).props.onPress();
+  screen.action('home-primary').props.onPress();
+  assert.deepEqual(calls,['connect','connect','video','maps','tasks','settings','settings']);
 });
-test('control preview and every quick action keep their existing callbacks', () => {
-  const calls = [];
-  const screen = home({ onOpenControl: () => calls.push('preview'), onOpenRoutes: () => calls.push('routes'), onOpenTasks: () => calls.push('tasks'), onOpenSafety: () => calls.push('safety') });
-  for (const id of ['home-control', 'home-quick-0', 'home-quick-1', 'home-quick-2']) screen.action(id).props.onPress();
-  assert.deepEqual(calls, ['preview', 'routes', 'tasks', 'safety']);
+
+test('a selected LAN camera opens from home while the control service is offline',()=>{
+  const calls=[];
+  const direct=home({connected:false,onOpenDirectVideo:()=>calls.push('video'),onConnect:()=>calls.push('connect')});
+  direct.action('home-feature-video').props.onPress();
+  assert.deepEqual(calls,['video']);
+});
+
+test('guide and activity panels can be opened and dismissed',()=>{
+  const screen=home({hasDevice:false});
+  screen.action('home-bottom-card').props.onPress();screen.render();
+  assert.match(screen.copy,/准备地图/);
+  screen.action('home-panel-close').props.onPress();screen.render();
+  assert.doesNotMatch(screen.copy,/准备地图/);
+  screen.render({hasDevice:true,activities:[{id:'a',title:'位置已更新',at:'2026-11-11T14:32:00+08:00'}]});
+  screen.action('home-bottom-card').props.onPress();screen.render();
+  assert.match(screen.copy,/位置已更新/);
+});
+
+test('home mounts authorized remote status only while its panel is open', () => {
+  const screen = home({ remoteStatus: 'AUTHORIZED_REMOTE_STATUS' });
+  assert.doesNotMatch(screen.copy, /AUTHORIZED_REMOTE_STATUS/);
+  screen.action('home-remote-status').props.onPress(); screen.render();
+  assert.match(screen.copy, /AUTHORIZED_REMOTE_STATUS/);
+  screen.action('home-panel-close').props.onPress(); screen.render();
+  assert.doesNotMatch(screen.copy, /AUTHORIZED_REMOTE_STATUS/);
+  assert.equal(home().action('home-remote-status'), undefined);
 });

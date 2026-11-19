@@ -1,35 +1,27 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
-import { Text, TextInput } from '../components/AppText';
+import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Text } from '../components/AppText';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { GradientButton } from '../components/GradientButton';
+import { DeviceScanner } from '../components/DeviceScanner';
 import { cardLayout, getProductAppearance } from '../appearance';
 import { typography } from '../typography';
 import { type ThemeColors, useAppTheme } from '../theme';
 import { getDevicePageLayout } from './devicePageLayout';
+import { type RobotClaim } from '../features/robot-lifecycle/robotCode';
 
 type Props = {
   busy?: boolean;
   error?: string | null;
   onBack: () => void;
-  onBind: (serialNumber: string, code: string) => void | Promise<void>;
+  onFindNearby: () => void;
+  onBind: (deviceId: string, code: string) => void | Promise<void>;
+  expectedRobotId?: string | null;
 };
 
-type BindField = 'serial' | 'code';
-type BindFieldErrors = Partial<Record<BindField, string>>;
-
-export function validateBindDeviceFields(serialNumber: string, code: string) {
-  const serial = serialNumber.trim().toUpperCase();
-  const bindingCode = code.trim();
-  const fieldErrors: BindFieldErrors = {};
-  if (serial.length < 4) fieldErrors.serial = '请输入机身或包装上的完整序列号。';
-  if (!/^[A-Z0-9]{6,32}$/i.test(bindingCode)) fieldErrors.code = '绑定码应为 6–32 位字母或数字。';
-  return { serial, bindingCode, fieldErrors };
-}
-
-export function BindDeviceScreen({ busy = false, error, onBack, onBind }: Props) {
+export function BindDeviceScreen({ busy = false, error, onBack, onFindNearby, onBind, expectedRobotId }: Props) {
   const { colors, isDark } = useAppTheme();
   const p = getProductAppearance(isDark);
   const { height, width } = useWindowDimensions();
@@ -39,41 +31,30 @@ export function BindDeviceScreen({ busy = false, error, onBack, onBind }: Props)
   const isLandscape = layout.usesColumns;
   const isCompact = width < 360;
   const styles = createStyles(colors, isDark);
-  const [serialNumber, setSerialNumber] = useState('');
-  const [code, setCode] = useState('');
-  const [fieldErrors, setFieldErrors] = useState<BindFieldErrors>({});
+  const [claim, setClaim] = useState<RobotClaim | null>(null);
+  const deviceId = claim?.deviceId;
+  const mismatched = Boolean(deviceId && expectedRobotId && deviceId !== expectedRobotId);
+  const [scanning, setScanning] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [focusedField, setFocusedField] = useState<'serial' | 'code' | null>(null);
-  const serialInputRef = useRef<TextInput>(null);
-  const codeInputRef = useRef<TextInput>(null);
+  const scanActiveRef = useRef(false);
   const mountedRef = useRef(true);
   const submitPendingRef = useRef(false);
   const locked = busy || submitting;
-  const clearFieldError = (field: BindField) => {
-    setFieldErrors(current => current[field] ? { ...current, [field]: undefined } : current);
-  };
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      submitPendingRef.current = false;
+      scanActiveRef.current = false;
     };
   }, []);
 
   const submit = async () => {
-    if (busy || submitPendingRef.current) return;
-    const { serial, bindingCode, fieldErrors: nextFieldErrors } = validateBindDeviceFields(serialNumber, code);
-    if (nextFieldErrors.serial || nextFieldErrors.code) {
-      setFieldErrors(nextFieldErrors);
-      (nextFieldErrors.serial ? serialInputRef : codeInputRef).current?.focus();
-      return;
-    }
+    if (!mountedRef.current || busy || scanActiveRef.current || submitPendingRef.current || !claim || mismatched) return;
     submitPendingRef.current = true;
     setSubmitting(true);
-    setFieldErrors({});
     try {
-      await onBind(serial, bindingCode);
+      await onBind(claim.deviceId, claim.code);
     } catch {
       // The parent owns the network error so it can be rendered through `error`.
     } finally {
@@ -84,7 +65,6 @@ export function BindDeviceScreen({ busy = false, error, onBack, onBind }: Props)
 
   return (
     <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={styles.safe}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.safe}>
         <ScrollView automaticallyAdjustKeyboardInsets contentContainerStyle={[styles.content, isCompact && styles.compactContent]} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled" onLayout={({ nativeEvent }) => setContainerWidth(nativeEvent.layout.width)}>
           <View style={[styles.layout, isLandscape && [styles.landscapeLayout, { width: layout.contentWidth, gap: layout.gap }]]}>
             <View style={[styles.introPane, isLandscape && [styles.landscapeIntroPane, { width: layout.introWidth }]]}>
@@ -94,64 +74,67 @@ export function BindDeviceScreen({ busy = false, error, onBack, onBind }: Props)
               <View style={[styles.icon, isLandscape && styles.landscapeIcon]}><Ionicons color={p.blueInk} name="link-outline" size={27} /></View>
               <Text style={[styles.eyebrow, isLandscape && styles.landscapeEyebrow]}>DOSO SECURE BINDING</Text>
               <Text style={[styles.title, isCompact && styles.compactTitle, isLandscape && styles.landscapeTitle]}>绑定机器人</Text>
-              <Text style={[styles.subtitle, isLandscape && styles.landscapeSubtitle]}>在机身或包装上找到序列号，输入随设备提供的一次性绑定码。</Text>
+              <Text style={[styles.subtitle, isLandscape && styles.landscapeSubtitle]}>将机器狗添加到当前账号，用于云端管理。借用或本地开发无需重新绑定。</Text>
               <View style={[styles.note, isLandscape && styles.landscapeNote]}>
                 <Ionicons color={p.blueInk} name="shield-checkmark-outline" size={18} />
-                <Text style={[styles.noteText, isLandscape && styles.landscapeNoteText]}>请勿分享绑定码。绑定后，机器人连接成功才会显示实时状态。</Text>
+                <Text style={[styles.noteText, isLandscape && styles.landscapeNoteText]}>{expectedRobotId
+                  ? `请扫描刚才连接的机器人专属二维码。设备尾号 ${expectedRobotId.slice(-6)}，身份仍待验证。`
+                  : '扫描专属二维码后确认绑定，无需输入编号。设备身份仍待验证。'}</Text>
               </View>
             </View>
 
             <View style={[styles.card, isLandscape && [styles.landscapeCard, { width: layout.detailsWidth }]]}>
-          <Text style={styles.label}>设备序列号</Text>
-          <TextInput
-            accessibilityLabel="设备序列号"
-            accessibilityHint={fieldErrors.serial ?? '输入机身或包装上的设备序列号'}
-            autoCapitalize="characters"
-            autoCorrect={false}
-            editable={!locked}
-            onBlur={() => setFocusedField(null)}
-            onChangeText={(value) => { setSerialNumber(value); clearFieldError('serial'); }}
-            onFocus={() => setFocusedField('serial')}
-            onSubmitEditing={() => codeInputRef.current?.focus()}
-            placeholder="例如 DOSO-TH-000001"
-            placeholderTextColor={colors.muted}
-            ref={serialInputRef}
-            returnKeyType="next"
-            submitBehavior="submit"
-            style={[styles.input, focusedField === 'serial' && styles.focusedInput, fieldErrors.serial && styles.invalidInput]}
-            testID="bind-serial"
-            value={serialNumber}
-          />
-          {fieldErrors.serial ? <Text accessibilityLiveRegion="polite" nativeID="bind-serial-error" selectable style={styles.fieldError}>{fieldErrors.serial}</Text> : null}
-          <Text style={styles.label}>一次性绑定码</Text>
-          <TextInput
-            accessibilityLabel="一次性绑定码"
-            accessibilityHint={fieldErrors.code ?? '输入随设备提供的 6 至 32 位一次性绑定码'}
-            autoComplete="one-time-code"
-            autoCapitalize="characters"
-            autoCorrect={false}
-            editable={!locked}
-            maxLength={32}
-            onBlur={() => setFocusedField(null)}
-            onChangeText={(value) => { setCode(value.replace(/[^a-z0-9]/gi, '').toUpperCase()); clearFieldError('code'); }}
-            onFocus={() => setFocusedField('code')}
-            onSubmitEditing={() => void submit()}
-            placeholder="6–32 位字母或数字"
-            placeholderTextColor={colors.muted}
-            ref={codeInputRef}
-            returnKeyType="done"
-            style={[styles.input, code.length > 0 && styles.codeInput, focusedField === 'code' && styles.focusedInput, fieldErrors.code && styles.invalidInput]}
-            testID="bind-code"
-            textContentType="oneTimeCode"
-            value={code}
-          />
-          {fieldErrors.code ? <Text accessibilityLiveRegion="polite" nativeID="bind-code-error" selectable style={styles.fieldError}>{fieldErrors.code}</Text> : null}
+          {!deviceId ? <Pressable
+            accessibilityLabel="查找附近机器人"
+            accessibilityRole="button"
+            accessibilityState={{ disabled: locked || scanning }}
+            disabled={locked || scanning}
+            onPress={() => { if (!locked && !scanning) onFindNearby(); }}
+            style={[styles.scanButton, { backgroundColor: p.action }, (locked || scanning) && styles.locked]}
+            testID="bind-nearby"
+          >
+            <Ionicons color={p.actionInk} name="bluetooth-outline" size={24} />
+            <Text style={[styles.label, { color: p.actionInk }]}>查找附近机器人</Text>
+          </Pressable> : null}
+          {deviceId ? <View style={styles.identified}>
+            <Ionicons color={p.blueInk} name="checkmark-circle-outline" size={24} />
+            <Text style={[styles.label, { color: p.ink }]}>已识别绑定二维码</Text>
+            <Text style={[styles.deviceSuffix, { color: p.secondary }]}>设备尾号 {deviceId.slice(-6)}</Text>
+          </View> : null}
+          <Pressable
+            accessibilityLabel={deviceId ? '重新扫描' : '扫描专属绑定二维码'}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: locked || scanning }}
+            disabled={locked || scanning}
+            onPress={() => {
+              if (!mountedRef.current || locked || scanActiveRef.current) return;
+              scanActiveRef.current = true;
+              setScanning(true);
+            }}
+            style={[styles.scanButton, { backgroundColor: p.canvas }, locked && styles.locked]}
+            testID="bind-scan"
+          >
+            <Ionicons color={p.blueInk} name="scan-outline" size={24} />
+            <Text style={[styles.label, { color: p.blueInk }]}>{deviceId ? '重新扫描' : '扫描专属绑定二维码'}</Text>
+          </Pressable>
+          {deviceId ? <>
+          {mismatched ? <Text accessibilityLiveRegion="polite" style={styles.serverError}>二维码与刚才读取的机器人编号不一致，请重新扫描这台机器人的专属二维码。</Text>
+            : expectedRobotId ? <Text accessibilityLiveRegion="polite" style={styles.noteText}>二维码与刚才读取的机器人编号一致，设备身份仍待验证。</Text> : null}
           {error ? <Text accessibilityLiveRegion="polite" selectable style={styles.serverError}>{error}</Text> : null}
-          <GradientButton disabled={locked} loading={locked} label={locked ? '正在安全绑定…' : '绑定设备'} onPress={() => void submit()} variant="auth" />
+          <GradientButton disabled={locked || scanning || mismatched} loading={locked} label={locked ? '正在安全绑定…' : '确认绑定'} onPress={() => void submit()} variant="auth" />
+          </> : null}
             </View>
           </View>
         </ScrollView>
-      </KeyboardAvoidingView>
+      {scanning ? <DeviceScanner onClose={() => {
+        scanActiveRef.current = false;
+        if (mountedRef.current) setScanning(false);
+      }} onScan={(nextClaim) => {
+        if (!mountedRef.current || !scanActiveRef.current || locked || submitPendingRef.current) return;
+        scanActiveRef.current = false;
+        setClaim(nextClaim);
+        setScanning(false);
+      }} /> : null}
     </SafeAreaView>
   );
 }
@@ -179,11 +162,10 @@ const createStyles = (colors: ThemeColors, isDark: boolean) => {
   card: { backgroundColor: p.surface, borderRadius: cardLayout.radius, padding: cardLayout.inset, gap: cardLayout.gap },
   landscapeCard: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', minWidth: 0, marginTop: 0, alignSelf: 'flex-start' },
   label: { ...typography.label, color: p.ink, marginTop: 4 },
-  input: { ...typography.label, minHeight: 52, borderRadius: 16, paddingHorizontal: 16, backgroundColor: p.canvas, color: p.ink, borderWidth: 0, borderColor: 'transparent' },
-  codeInput: { fontWeight: '500', letterSpacing: 1.5 },
-  focusedInput: { borderColor: colors.authFocus, borderWidth: 1.5 },
-  invalidInput: { borderColor: colors.dangerText, borderWidth: 1.5 },
-  fieldError: { color: colors.dangerText, fontSize: 13, lineHeight: 19, marginBottom: 2 },
+  scanButton: { minHeight: 80, borderRadius: 16, gap: 8, padding: 16, alignItems: 'center', justifyContent: 'center' },
+  identified: { alignItems: 'center', gap: 4, paddingVertical: 4 },
+  deviceSuffix: { ...typography.caption },
+  locked: { opacity: 0.5 },
   serverError: { color: colors.dangerText, backgroundColor: colors.dangerSurface, borderRadius: 12, fontSize: 13, lineHeight: 19, paddingHorizontal: 12, paddingVertical: 10 },
   note: { flexDirection: 'row', gap: 10, paddingVertical: 12, backgroundColor: 'transparent', marginTop: 12 },
   landscapeNote: { marginTop: 8, paddingVertical: 8 },

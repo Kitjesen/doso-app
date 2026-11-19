@@ -22,7 +22,8 @@ class G20InputModule : Module() {
     },
     sourceFactory = {
       val context = appContext.reactContext ?: throw IllegalStateException("No React context")
-      SkydroidG20Source(context)
+      SkydroidG20Source(context, now = { SystemClock.elapsedRealtime() },
+        trace = { event -> Log.i("DOSO_G20_INPUT", event.entries.joinToString(" ") { (key, value) -> "$key=$value" }) })
     },
     emitState = { if (!destroyed) sendEvent("onState", it) },
     emitSample = { if (!destroyed) sendEvent("onSample", it) },
@@ -37,13 +38,21 @@ class G20InputModule : Module() {
       if (destroyed || paused || !isForeground()) session.stop("background")
       else session.start(requestId)
     }.runOnQueue(Queues.MAIN)
+    AsyncFunction("observe") { requestId: String ->
+      if (destroyed || paused || !isForeground()) session.stop("background")
+      else session.observe(requestId)
+    }.runOnQueue(Queues.MAIN)
     AsyncFunction("stop") { session.stop() }.runOnQueue(Queues.MAIN)
     Function("getStatus") { session.getStatus() }
+    Function("getLatestObservation") { requestId: String ->
+      if (destroyed || paused || !isForeground()) null else session.getLatestObservation(requestId)
+    }
     Function("isSampleFresh") { generation: Long, sequence: Long ->
       !destroyed && !paused && isForeground() && session.isSampleFresh(generation, sequence)
     }
     Function("captureInputFence") {
-      if (!destroyed && !paused && isForeground() && session.getStatus()["status"] == "reading")
+      if (!destroyed && !paused && isForeground() && session.getStatus()["status"] == "reading"
+        && session.getStatus()["configurationReady"] == true)
         SystemClock.elapsedRealtime() else null
     }
 

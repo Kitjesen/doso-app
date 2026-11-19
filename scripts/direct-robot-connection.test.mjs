@@ -6,9 +6,21 @@ import ts from 'typescript';
 
 const source = await readFile(new URL('../src/services/directRobotConnection.ts', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText;
-const api = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+const api = await import(`data:text/javascript;base64,${Buffer.from(compiled.replace('../features/control/robotModeCapabilities.ts', new URL('../src/features/control/robotModeCapabilities.ts', import.meta.url).href)).toString('base64')}`);
 const now = Date.parse('2026-10-23T10:00:00.000Z');
 const endpoint = () => ({ host: ' ROBOT.EXAMPLE ', port: 13145, clientIdentityAlias: 'not-for-storage' });
+test('recovery capability survives the snapshot without becoming a profile', () => {
+  const profile = { current: 'flat', available: ['flat'], descriptions: [], currentDescription: '', activeModeId: 'recovery',
+    modeCapabilities: [{ id: 'recovery', kind: 2, availability: 1, profileId: '', unavailableReason: 'Selected' }] };
+  const view = api.describeDirectRobotConnection(api.createDirectRobotConnectionSnapshot(endpoint(), { ...observation(), profile }, now), now);
+  assert.deepEqual(view.runtimeState.recoveryMode, { status: 'unavailable', selected: true });
+  assert.deepEqual(api.profileOptions(profile).map(x => x.id), ['flat']);
+});
+test('recovery is not treated as a switchable locomotion profile', () => {
+  const profile = { current: 'flat-id', available: ['flat-id', 'recovery', 'recovery-id'],
+    descriptions: ['flat: W5', 'recovery: 自起', 'recovery: 自起'], currentDescription: 'flat: W5' };
+  assert.deepEqual(api.profileOptions(profile).map(x => x.id), ['flat-id']);
+});
 const observation = () => ({
   source: 'brainstem.grpc.direct', observedAt: new Date(now).toISOString(), transport: 'grpc-tls',
   motionAuthorized: false, cloudBindingVerified: false,
@@ -21,9 +33,19 @@ const motor = (id, overrides = {}) => ({
 const runtime = (diagnostics) => api.describeDirectRobotConnection(
   api.createDirectRobotConnectionSnapshot(endpoint(), { ...observation(), ...diagnostics }, now), now,
 ).runtimeState;
+test('USB reversed PC snapshots accept only exact loopback and preserve no-control facts', () => {
+  const read = { ...observation(), transport: 'grpc-lan', mutualTlsVerified: false, clientIdentitySelected: false };
+  const snapshot = api.createDirectRobotConnectionSnapshot({ host: '127.0.0.1', port: 19146, transport: 'lan-dev' }, read, now);
+  assert.equal(api.describeDirectRobotConnection(snapshot, now).fresh, true);
+  assert.equal(snapshot.observation.motionAuthorized, false);
+  assert.equal(snapshot.observation.cloudBindingVerified, false);
+  for (const host of ['127.0.0.2', '127.1', '2130706433', 'localhost', '[::1]', '8.8.8.8']) {
+    assert.throws(() => api.createDirectRobotConnectionSnapshot({ host, port: 19146, transport: 'lan-dev' }, read, now));
+  }
+});
 
 test('LAN snapshots retain explicit transport and false TLS facts and reject mixed peers or identities', () => {
-  const peer = { host: '192.168.42.64', port: 13145, transport: 'lan-dev' };
+  const peer = { host: '192.168.66.64', port: 13145, transport: 'lan-dev' };
   const read = { ...observation(), transport: 'grpc-lan', mutualTlsVerified: false, clientIdentitySelected: false };
   const snapshot = api.createDirectRobotConnectionSnapshot(peer, read, now);
   assert.equal(snapshot.endpoint.transport, 'lan-dev'); assert.equal(snapshot.observation.transport, 'grpc-lan');
@@ -41,10 +63,11 @@ test('a direct read yields normalized endpoint and safe runtime state without gr
   const view = api.describeDirectRobotConnection(snapshot, now);
   assert.equal(view.endpointLabel, 'robot.example:13145');
   assert.equal(view.fresh, true);
-  assert.equal(view.summary, '状态已读取，设备归属未核验');
+  assert.equal(view.summary, '本地状态已更新');
   assert.deepEqual(view.runtimeState, {
     controlLink: 'unknown', controlAuthority: 'not-held', posture: 'standing', motorState: 'enabled',
     currentPolicy: null, policyCatalogStatus: 'unknown', policyOptions: [],
+    recoveryMode: { status: 'unknown', selected: false },
   });
   assert.ok(!JSON.stringify(snapshot).includes('not-for-storage'));
 });
@@ -175,14 +198,14 @@ test('timestamps expire strictly at 15 seconds and future/invalid clocks never c
 });
 
 test('endpoint validation accepts canonical IP/DNS only and formats IPv6 without ambiguity', () => {
-  for (const host of ['192.168.42.64', 'robot.example', 'localhost', '::1', '[2001:0db8::1]']) {
+  for (const host of ['192.168.66.64', 'robot.example', 'localhost', '::1', '[2001:0db8::1]']) {
     const snapshot = api.createDirectRobotConnectionSnapshot({ host, port: 13145 }, observation(), now);
     assert.equal(api.isDirectRobotConnectionFresh(snapshot, now), true);
   }
   const ipv6 = api.createDirectRobotConnectionSnapshot({ host: '[2001:0db8::1]', port: 13145 }, observation(), now);
   assert.equal(ipv6.endpoint.host, '2001:db8::1');
   assert.equal(api.describeDirectRobotConnection(ipv6, now).endpointLabel, '[2001:db8::1]:13145');
-  for (const host of ['', 'https://robot', 'robot/path', 'user:secret@robot', 'robot:13145', 'robot?x', 'robot#x', '192.168.42.999', '010.0.0.1', '2130706433', 'a..b', '-robot', '::xyz', '::ffff:192.0.2.1', null, 9]) {
+  for (const host of ['', 'https://robot', 'robot/path', 'user:secret@robot', 'robot:13145', 'robot?x', 'robot#x', '192.168.66.999', '010.0.0.1', '2130706433', 'a..b', '-robot', '::xyz', '::ffff:192.0.2.1', null, 9]) {
     assert.throws(() => api.createDirectRobotConnectionSnapshot({ host, port: 13145 }, observation(), now), /无法验证/);
   }
   for (const port of [0, 65536, -1, 1.1, NaN, Infinity, '13145', null]) {

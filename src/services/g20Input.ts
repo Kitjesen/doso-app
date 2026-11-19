@@ -8,8 +8,10 @@ export type G20NativeState = Readonly<{
 type Subscription = { remove(): void };
 type NativeInput = {
   start(requestId: string): Promise<G20NativeState>;
+  observe?(requestId: string): Promise<G20NativeState>;
   stop(): Promise<G20NativeState>;
   getStatus(): G20NativeState;
+  getLatestObservation?(requestId: string): unknown;
   isSampleFresh(generation: number, sequence: number): boolean;
   captureInputFence(): number | null;
   addListener(event: string, listener: (event: unknown) => void): Subscription;
@@ -19,9 +21,18 @@ try { if (Platform.OS === 'android') native = requireOptionalNativeModule<Native
 const methods = ['start', 'stop', 'getStatus', 'isSampleFresh', 'captureInputFence', 'addListener'] as const;
 export const g20Input = {
   available: !!native && methods.every(method => typeof native?.[method] === 'function'),
+  observationAvailable: !!native && methods.every(method => typeof native?.[method] === 'function') && typeof native.observe === 'function',
+  latestObservationAvailable: typeof native?.getLatestObservation === 'function',
+  latestObservation(requestId: string): unknown {
+    try { return native?.getLatestObservation?.(requestId) ?? null; } catch { return null; }
+  },
   start(requestId: string) {
     if (!this.available) return Promise.reject(Error('此安装包不含 G20 输入模块'));
     return native!.start(requestId);
+  },
+  observe(requestId: string) {
+    if (!this.observationAvailable) return Promise.reject(Error('请升级安装包以读取 G20 通道'));
+    return native!.observe!(requestId);
   },
   stop() { return native?.stop().catch(() => undefined); },
   isFresh(generation: number, sequence: number) {

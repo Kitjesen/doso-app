@@ -70,13 +70,21 @@ test('unconfigured or failed setup neither mounts a player nor cancels line-of-s
   assert.equal(view.find('control-video-player'), undefined);
 });
 
-test('lost live video hides old frames, retires old manual intent once, and recovery does not rearm', () => {
+test('authorization failure is visible without displaying a frame', () => {
+  const view = mount({ presentation: { id: 'session', phase: 'error', error: 'authorization' }, surface: player });
+  assert.equal(view.find('control-video-player'), undefined);
+  const status = view.find('control-video-status');
+  assert.match(JSON.stringify(status), /视频授权失败/);
+  assert.equal(view.interruptions, 0);
+});
+
+test('lost live video keeps the renderer mounted, retires old manual intent once, and recovery does not rearm', () => {
   const view = mount({ presentation: source('receiving'), surface: player });
   assert.equal(view.find('control-video-status'), undefined);
   assert.ok(view.find('control-video-player'));
   view.render({ presentation: source('stalled') });
   assert.ok(view.find('control-video-status'));
-  assert.equal(view.find('control-video-player').props.style[1].opacity, 0);
+  assert.ok(view.find('control-video-player'));
   assert.equal(view.interruptions, 1);
   view.render({ presentation: source('stalled') });
   view.render({ presentation: source('error') });
@@ -112,7 +120,7 @@ test('background unmounts media and resume waits for a fresh receiver session wi
   view.render({ active: true, presentation: source('receiving') });
   assert.equal(view.interruptions, 0);
   assert.ok(view.find('control-video-status'), 'old receiving metadata is not post-resume frame evidence');
-  assert.equal(view.find('control-video-player').props.style[1].opacity, 0);
+  assert.ok(view.find('control-video-player'));
   view.render({ presentation: { id: 'post-resume-session', phase: 'receiving' } });
   assert.ok(view.find('control-video-player'));
   assert.equal(view.find('control-video-status'), undefined);

@@ -153,6 +153,22 @@ test('a missing terminal list is an error, not a trusted empty list', async () =
   await assert.rejects(service.listAccountTerminals(), /终端列表.*无法确认/);
 });
 
+test('login history uses the server projection and rejects malformed records', async () => {
+  const { service, invokes } = loadService({ records: [{ id: 1, loggedInAt: '2026-11-12T01:02:03Z', ipAddress: '198.51.100.20', method: null }] });
+  assert.deepEqual(await service.listLoginRecords(), [{ id: 1, loggedInAt: '2026-11-12T01:02:03Z', ipAddress: '198.51.100.20', method: null }]);
+  assert.equal(invokes[0].action, 'list_login_history');
+
+  const malformed = loadService({ records: [{ id: 'private-session-id', loggedInAt: '2026-11-12T01:02:03Z', ipAddress: null, method: null }] });
+  await assert.rejects(malformed.service.listLoginRecords(), /登录记录格式无效/);
+});
+
+test('login capture sends only the server-side capture action', async () => {
+  const { service, invokes } = loadService({ recorded: true });
+  await service.captureLoginRecord();
+  assert.deepEqual(invokes, [{ name: 'account-sessions', action: 'capture_login' }]);
+  await assert.rejects(loadService({ recorded: false }).service.captureLoginRecord(), /登录记录未保存/);
+});
+
 test('unconfirmed revocation must not proceed to native sign-out', async () => {
   const { service, signOutScopes } = loadService({});
   await assert.rejects(service.revokeAllTerminals(), /撤销结果.*无法确认/);
@@ -259,14 +275,16 @@ function appAction(name, dependencies) {
   const { createAuthCallbackInbox } = loadTypeScriptModule('../src/services/authCallbackInbox.ts', {
     './authSessionOperation': coordinator,
   });
+  const logoutPendingChanges = [];
   vm.runInNewContext(js, {
     module,
+    setLogoutPending: value => logoutPendingChanges.push(value),
     authCallbackInbox: { current: createAuthCallbackInbox(() => true) },
     initialAuthUrl: { current: { promise: null, delivered: false } },
     authCallbackUi: { current: { mounted: true, owner: null } },
     ...dependencies,
   });
-  return module.exports;
+  return Object.assign(module.exports, { logoutPendingChanges });
 }
 
 test('App logout does not enter emergency fallback after a typed post-list identity rejection', async () => {
@@ -290,6 +308,7 @@ test('App logout does not enter emergency fallback after a typed post-list ident
     logout: async () => { fallbacks++; },
   });
   await run();
+  assert.deepEqual(run.logoutPendingChanges, [true, false]);
   assert.equal(reads, 2);
   assert.deepEqual(invokes.map(request => request.action), ['list']);
   assert.deepEqual(rpcs, []);
@@ -324,6 +343,7 @@ test('App logout and post-password-update timeout do not replay fallback or repe
     });
     const pending = run(); await flush(); clock.advance(15_000); await flush();
     await pending;
+    assert.deepEqual(run.logoutPendingChanges, action === 'handleLogout' ? [true, false] : []);
     assert.equal(fallbacks, 0, `${action} must not repeat an unknown revocation`);
     assert.equal(notices.length, 1);
     assert.match(notices[0][1], /无法确认/);
@@ -361,6 +381,7 @@ test('App logout and post-password-update do not replay fallback after an ordina
       resetPassword: async () => { passwords += 1; },
     });
     await run();
+    assert.deepEqual(run.logoutPendingChanges, action === 'handleLogout' ? [true, false] : []);
     assert.equal(fallbacks, 0, `${action} must not replay after an unconfirmed dispatched revoke`);
     assert.equal(passwords, action === 'handleResetPassword' ? 1 : 0);
     assert.deepEqual(signOutScopes, []);
@@ -392,6 +413,7 @@ test('App logout and post-password-update do not replay fallback after a malform
       logout: async () => { fallbacks += 1; }, resetPassword: async () => { passwords += 1; },
     });
     await run();
+    assert.deepEqual(run.logoutPendingChanges, action === 'handleLogout' ? [true, false] : []);
     assert.equal(fallbacks, 0, `${action} must not replay after a malformed acknowledgement`);
     assert.equal(passwords, action === 'handleResetPassword' ? 1 : 0);
     assert.deepEqual(signOutScopes, []);
@@ -421,6 +443,7 @@ test('App logout does not fall through to SDK logout after an unconfirmed emerge
     logout: async () => { sdkLogouts += 1; },
   });
   await run();
+  assert.deepEqual(run.logoutPendingChanges, [true, false]);
   assert.equal(rpcs.length, 1);
   assert.equal(sdkLogouts, 0, 'an unconfirmed emergency revoke must not continue to SDK logout');
   assert.deepEqual(signOutScopes, []);

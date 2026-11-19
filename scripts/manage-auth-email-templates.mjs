@@ -11,11 +11,11 @@ const DEFAULT_PROJECT_REF = "vchvqfdlkomlrjenkdhj";
 const API_ORIGIN = "https://api.supabase.com";
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const CONFIG_PATH = resolve(PROJECT_ROOT, "supabase/config.toml");
-const LOGO_PATH = resolve(PROJECT_ROOT, "assets/brand/doso-robotics-wordmark-email-29dea10fd204.png");
-const LOGO_URL = "https://vchvqfdlkomlrjenkdhj.supabase.co/storage/v1/object/public/email-assets/doso-robotics-wordmark-email-29dea10fd204.png";
+const LOGO_PATH = resolve(PROJECT_ROOT, "assets/brand/doso-robotics-wordmark-email-03526d27c6b4.png");
+const LOGO_URL = "https://vchvqfdlkomlrjenkdhj.supabase.co/storage/v1/object/public/email-assets/doso-robotics-wordmark-email-03526d27c6b4.png";
 const MAX_LOGO_BYTES = 256 * 1024;
 const APPROVED_LOGO_WIDTH = 2172;
-const APPROVED_LOGO_HEIGHT = 724;
+const APPROVED_LOGO_HEIGHT = 216;
 const MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024;
 const SNAPSHOT_SCHEMA_VERSION = 2;
 const execFileAsync = promisify(execFile);
@@ -968,7 +968,7 @@ function assetChecks(content) {
   return [
     [!(/<\s*svg\b/i.test(content)), "不含内嵌 SVG"],
     [!(/(?:data:image|cid:|file:)/i.test(content)), "不含嵌入式图片资源"],
-    [imageTags.length === 2, "包含页眉与页脚两处 Logo <img>"],
+    [imageTags.length === 1, "仅包含页眉一处 Logo <img>"],
     [hasLeadingSource && sourcesByImage.every((sources) => sources.length === 1 && sources[0][3] === undefined), "每个 <img> 均以唯一且带引号的 src 作为首属性（生成模板约定）"],
     [!(/\ssrcset\s*=|<\s*(?:picture|source)\b/i.test(markup)), "不含备用图片源（srcset、picture、source）"],
     [imageSources.every((source) => source === LOGO_URL), "所有图片均只引用 DOSO 批准的版本化 HTTPS URL"],

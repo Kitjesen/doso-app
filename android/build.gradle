@@ -17,8 +17,14 @@ allprojects {
     google()
     mavenCentral()
     maven { url 'https://www.jitpack.io' }
+    maven {
+      url uri("${rootDir}/../modules/g20-input/vendor/maven")
+      content { includeGroup 'com.skydroid' }
+    }
   }
 }
 
 apply plugin: "expo-root-project"
 apply plugin: "com.facebook.react.rootproject"
+
+allprojects { configurations.configureEach { resolutionStrategy.force 'org.jitsi:webrtc:155.0.1' } }

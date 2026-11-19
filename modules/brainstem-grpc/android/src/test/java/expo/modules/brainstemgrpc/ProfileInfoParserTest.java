@@ -43,6 +43,19 @@ public final class ProfileInfoParserTest {
     check(((List<?>) parsed.get("descriptions")).size() == 2, "descriptions");
     check("Flat".equals(parsed.get("currentDescription")), "currentDescription");
     check(ProfileInfoParser.readBounded(new ByteArrayInputStream(encoded.toByteArray())).length == encoded.size(), "bounded read");
+    check(!parsed.containsKey("modeCapabilities"), "old server must not advertise recovery");
+    ByteArrayOutputStream mode = new ByteArrayOutputStream();
+    field(mode, 1, "recovery"); mode.write(16); mode.write(2); mode.write(24); mode.write(1);
+    field(mode, 5, "Not configured");
+    encoded.write(42); encoded.write(mode.size()); encoded.writeBytes(mode.toByteArray());
+    field(encoded, 6, "recovery");
+    parsed = ProfileInfoParser.parse(encoded.toByteArray());
+    Map<?, ?> recoveryMode = (Map<?, ?>)((List<?>)parsed.get("modeCapabilities")).get(0);
+    check("recovery".equals(parsed.get("activeModeId")), "active recovery");
+    check("recovery-action".equals(recoveryMode.get("kind")), "action kind");
+    check("unavailable".equals(recoveryMode.get("availability")), "unavailable recovery");
+    try { ProfileInfoParser.parse(new byte[]{42, 2, 16, (byte)128}); throw new AssertionError("truncated mode accepted"); }
+    catch (java.io.IOException expected) { }
 
     ByteArrayOutputStream capability = new ByteArrayOutputStream();
     field(capability, 1, "recovery");

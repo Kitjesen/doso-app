@@ -1,5 +1,5 @@
-export type BleConnectionPhase = 'idle' | 'preparing' | 'connecting' | 'discovering' | 'connected' | 'disconnecting' | 'disconnected' | 'error';
-export type BleConnectionErrorCode = 'unsupported' | 'busy' | 'invalid_target' | 'preparation_failed' | 'connect_failed' | 'discovery_failed' | 'timeout' | 'cancelled' | 'disconnected' | 'cleanup_unconfirmed';
+export type BleConnectionPhase = 'idle' | 'preparing' | 'connecting' | 'discovering' | 'reading' | 'connected' | 'disconnecting' | 'disconnected' | 'error';
+export type BleConnectionErrorCode = 'unsupported' | 'busy' | 'invalid_target' | 'preparation_failed' | 'connect_failed' | 'discovery_failed' | 'robot_id_failed' | 'timeout' | 'cancelled' | 'disconnected' | 'cleanup_unconfirmed';
 export class BleConnectionError extends Error {
   constructor(readonly code: BleConnectionErrorCode) { super(code); this.name = 'BleConnectionError'; }
 }
@@ -8,6 +8,7 @@ export type BleConnectionSnapshot = Readonly<{
   peripheralId: string | null;
   serviceCount: number;
   characteristicCount: number;
+  robotId: string | null;
   identityVerified: false;
   bound: false;
   wifiConfigured: false;
@@ -19,6 +20,7 @@ export type BleConnectionRuntime = {
   prepare(): Promise<void>;
   connect(id: string): Promise<void>;
   retrieveServices(id: string): Promise<BleServiceInfo>;
+  readRobotId(id: string): Promise<number[]>;
   // Resolve only after native disconnect evidence, never merely a request ack.
   disconnect(id: string, signal: AbortSignal): Promise<void>;
   onDisconnect(listener: (event: { id: string; confirmed: boolean }) => void): { remove(): void };
@@ -31,7 +33,7 @@ export type BleConnectionAdapter = {
   disconnect(): Promise<void>;
 };
 export const INITIAL_BLE_CONNECTION_STATE: BleConnectionSnapshot = Object.freeze({ phase: 'idle', peripheralId: null,
-  serviceCount: 0, characteristicCount: 0, identityVerified: false, bound: false, wifiConfigured: false, cleanupConfirmed: true });
+  serviceCount: 0, characteristicCount: 0, robotId: null, identityVerified: false, bound: false, wifiConfigured: false, cleanupConfirmed: true });
 type ConnectionClock = { setTimeout(callback: () => void, ms: number): unknown; clearTimeout(timer: unknown): void };
 type Owner = {
   id: string; onState: (state: BleConnectionSnapshot) => void;
@@ -51,9 +53,9 @@ export function createBleConnectionSession(runtime: BleConnectionRuntime, option
   let active: Owner | null = null;
   let latest = INITIAL_BLE_CONNECTION_STATE;
   const subscribers = new Set<(state: BleConnectionSnapshot) => void>();
-  const publish = (owner: Owner, phase: BleConnectionPhase, services = 0, characteristics = 0) => {
+  const publish = (owner: Owner, phase: BleConnectionPhase, services = 0, characteristics = 0, robotId: string | null = null) => {
     const snapshot: BleConnectionSnapshot = { phase, peripheralId: owner.id, serviceCount: services,
-      characteristicCount: characteristics, identityVerified: false, bound: false, wifiConfigured: false,
+      characteristicCount: characteristics, robotId, identityVerified: false, bound: false, wifiConfigured: false,
       cleanupConfirmed: owner.ended && owner.cleanupOk && !owner.nativePending && !owner.lateCleanup,
       ...(owner.errorCode ? { errorCode: owner.errorCode } : {}) };
     if (active && active !== owner) return snapshot;
@@ -118,6 +120,7 @@ export function createBleConnectionSession(runtime: BleConnectionRuntime, option
         publish(owner, owner.terminal);
       });
       publish(owner, 'connecting');
+      if (owner.ended) return;
       phase = 'connect_failed';
       owner.nativeStarted = true; owner.nativePending = true;
       try { await runtime.connect(owner.id); }
@@ -141,14 +144,24 @@ export function createBleConnectionSession(runtime: BleConnectionRuntime, option
         return;
       }
       publish(owner, 'discovering');
+      if (owner.ended) return;
       phase = 'discovery_failed';
       const info = await runtime.retrieveServices(owner.id);
       if (owner.ended) return;
       if (info.id !== owner.id || (info.services !== undefined && !Array.isArray(info.services))
         || (info.characteristics !== undefined && !Array.isArray(info.characteristics))) throw new BleConnectionError('discovery_failed');
+      publish(owner, 'reading', info.services?.length ?? 0, info.characteristics?.length ?? 0);
+      if (owner.ended) return;
+      phase = 'robot_id_failed';
+      const bytes = await runtime.readRobotId(owner.id);
+      if (owner.ended) return;
+      if (!Array.isArray(bytes) || bytes.length !== 16 || !bytes.every(byte => Number.isInteger(byte) && byte >= 0 && byte <= 255)
+        || (bytes[6] & 0xf0) !== 0x40 || (bytes[8] & 0xc0) !== 0x80) throw new BleConnectionError('robot_id_failed');
+      const hex = bytes.map(byte => byte.toString(16).padStart(2, '0')).join('');
+      const robotId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
       if (owner.timer !== undefined) clock.clearTimeout(owner.timer);
       owner.timer = undefined;
-      owner.resolve(publish(owner, 'connected', info.services?.length ?? 0, info.characteristics?.length ?? 0));
+      owner.resolve(publish(owner, 'connected', info.services?.length ?? 0, info.characteristics?.length ?? 0, robotId));
     } catch {
       if (!owner.ended) await stop(owner, phase, 'error');
     }

@@ -3,11 +3,11 @@ import test from 'node:test';
 import { mountAuthScreen } from './helpers/auth-screen-harness.mjs';
 
 const tabs = [
-  ['home', 'home-outline'],
-  ['map', 'map-outline'],
-  ['tasks', 'reader-outline'],
-  ['analysis', 'stats-chart-outline'],
-  ['profile', 'person-outline'],
+  ['map', 'map'],
+  ['tasks', 'clipboard'],
+  ['home', 'home'],
+  ['analysis', 'bar-chart-2'],
+  ['profile', 'user'],
 ];
 
 const flatten = style => Object.assign({}, ...[style].flat(Infinity).filter(Boolean));
@@ -33,7 +33,7 @@ test('exposes five labelled tabs with exactly one selected tab on native and web
   for (const [active] of tabs) {
     const screen = nav({ active });
     const renderedTabs = tabs.map(([key]) => screen.action(`nav-${key}`));
-    assert.deepEqual(renderedTabs.map(tab => tab.props.accessibilityLabel), ['首页', '地图', '任务', '分析', '我的']);
+    assert.deepEqual(renderedTabs.map(tab => tab.props.accessibilityLabel), ['地图', '任务', '首页', '分析', '我的']);
     assert.ok(renderedTabs.every(tab => tab.props.accessibilityRole === 'tab'));
     assert.deepEqual(renderedTabs.filter(tab => tab.props.accessibilityState.selected).map(tab => tab.props.testID), [`nav-${active}`]);
     assert.deepEqual(renderedTabs.filter(tab => tab.props['aria-selected']).map(tab => tab.props.testID), [`nav-${active}`]);
@@ -41,13 +41,13 @@ test('exposes five labelled tabs with exactly one selected tab on native and web
   }
 });
 
-test('renders the five tabs as icon-only Ionicons', () => {
+test('renders icon-only navigation with home centered', () => {
   const screen = nav();
   assert.equal(screen.copy, '');
   assert.equal(screen.nodes.filter(node => node.type === 'Text').length, 0);
   assert.deepEqual(
-    screen.nodes.filter(node => node.type === 'Ionicons').map(node => [node.props.name, node.props.size]),
-    tabs.map(([, icon]) => [icon, 22]),
+    screen.nodes.filter(node => node.type === 'Feather').map(node => [node.props.name, node.props.size]),
+    tabs.map(([key, icon]) => [icon, 20]),
   );
   assert.equal(screen.nodes.filter(node => node.type === 'Image').length, 0);
 });
@@ -64,32 +64,32 @@ test('gives each portrait tab an equal flexible 48dp touch target', () => {
   }
 });
 
-test('uses a 36dp rounded highlight around the selected 22dp icon', () => {
+test('underlines the selected tab', () => {
   const screen = nav({ active: 'tasks' });
   for (const [key] of tabs) {
     const indicator = screen.nodes.find(node => node.props?.testID === `nav-indicator-${key}`);
     const style = flatten(indicator.props.style);
-    assert.equal(style.width, 36);
-    assert.equal(style.height, 36);
-    assert.equal(style.borderRadius, 12);
+    assert.equal(style.width, 16);
+    assert.equal(style.height, 2);
+    assert.equal(style.borderRadius, 1);
     assert.equal(style.backgroundColor === 'transparent', key !== 'tasks');
   }
 });
 
-test('renders a 56dp white portrait bar with a tiny light-theme shadow', () => {
+test('keeps the portrait rail transparent and 56dp tall', () => {
   const screen = nav({ dark: false, width: 390, height: 844 });
   const style = flatten(screen.nodes.find(node => node.props?.testID === 'main-navigation').props.style);
-  assert.equal(style.height, 56);
-  assert.equal(style.backgroundColor, '#FFFFFF');
-  assert.match(style.boxShadow, /rgba\([^)]*,\s*0\.0\d+\)/);
+  assert.equal(style.minHeight, 56);
+  assert.equal(style.backgroundColor ?? 'transparent', 'transparent');
+  assert.equal(style.boxShadow ?? 'none', 'none');
 });
 
-test('renders the dark portrait bar in graphite without a light shadow', () => {
+test('keeps the dark portrait rail transparent without a light shadow', () => {
   const screen = nav({ dark: true, width: 390, height: 844 });
   const style = flatten(screen.nodes.find(node => node.props?.testID === 'main-navigation').props.style);
-  assert.equal(style.height, 56);
-  assert.equal(style.backgroundColor, '#24272D');
-  assert.equal(style.boxShadow, 'none');
+  assert.equal(style.minHeight, 56);
+  assert.equal(style.backgroundColor ?? 'transparent', 'transparent');
+  assert.equal(style.boxShadow ?? 'none', 'none');
 });
 
 test('places the landscape rail at the reserved right-side geometry', () => {
@@ -141,7 +141,7 @@ test('inset changes reposition the rail while portrait flow does not apply them 
   assert.equal(outer.top, undefined);
   assert.equal(outer.bottom, undefined);
   assert.equal(outer.paddingTop, 6);
-  assert.equal(outer.paddingBottom, 6);
+  assert.equal(outer.paddingBottom, 24);
   for (const [key] of tabs) assert.ok(flatten(screen.action(`nav-${key}`).props.style({ pressed: false })).minHeight >= 48);
 });
 

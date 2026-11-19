@@ -143,3 +143,4 @@ const styles = StyleSheet.create({
   },
   noticeText: { flex: 1, fontSize: 13, lineHeight: 21 },
 });
+

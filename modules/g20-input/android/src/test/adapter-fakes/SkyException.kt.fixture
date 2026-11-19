@@ -1,2 +1,4 @@
 package com.skydroid.rcsdk.common.error
-class SkyException : Exception()
+class SkyException(private val errorCode: Int = 0) : Exception() {
+  fun getErrorCode(): Int = errorCode
+}

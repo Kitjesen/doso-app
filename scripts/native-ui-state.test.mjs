@@ -44,6 +44,7 @@ test('registration and Android-qualified IDs use exact IDs only, including cross
 
 test('loading, recovery error, preview, main and system states are diagnostic only and never safe', () => {
   const fixtures = [
+    [input(['app-font-system'], { nodes: [node('app-font-system'), node('', { text: '正在恢复安全会话…' })] }), 'auth-restoring'],
     [input(['font-loading']), 'font-loading'],
     [input(['app-font-misans'], { nodes: [node('app-font-misans'), node('', { text: '正在恢复安全会话…' })] }), 'auth-restoring'],
     [input([], { nodes: [node('app-font-misans'), node('', { description: 'DOSO SERVICE, 无法恢复账户会话, 重新尝试' })] }), 'auth-recovery-error'],

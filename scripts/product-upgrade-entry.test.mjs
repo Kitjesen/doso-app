@@ -37,16 +37,41 @@ test('choosing a model enters the normal app without a fake binding or developme
   assert.deepEqual(tabs, ['home']);
   assert.deepEqual(stages, ['main']);
   assert.doesNotMatch(notices.flat().join(' '), /预览|已连接|绑定成功/);
-  assert.match(notices[0][1], /尚未绑定机器人.*序列号和绑定码/);
+  assert.match(notices[0][1], /尚未绑定机器人.*机身二维码/);
   assert.equal(intent.preservesNavigation('fixture-user'), true);
+});
+
+test('choosing a model reports a restored local robot connection when one is remembered', async () => {
+  const handler = declarations.find(node => node.name.getText(ast) === 'enterApp');
+  const compiled = ts.transpileModule(`(${handler.initializer.getText(ast)})`, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const notices = [];
+  const helper = { exports: {} };
+  vm.runInNewContext(ts.transpileModule(read('src/services/deviceBootstrapIntent.ts'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, { module: helper, exports: helper.exports });
+  const intent = helper.exports.createDeviceBootstrapIntent();
+  intent.update({ userId: 'fixture-user', ready: true, reset: false });
+  const invoke = vm.runInNewContext(compiled, {
+    deviceBootstrapIntent: { current: intent },
+    setSelectedModel() {}, setDevice() {}, setActiveTab() {}, setStage() {},
+    controlTarget: 'direct', controlEndpoint: null,
+    rememberedControl: { connection: { endpoint: { host: '192.168.66.64', port: 13145 } } },
+    directConnection: { snapshot: null },
+    notify: (...args) => notices.push(args),
+  });
+  await invoke({ id: 'thunder-01', name: 'THUNDER 01' });
+  assert.match(notices[0][1], /已恢复机器狗局域网连接/);
 });
 
 test('Android upgrade preparation increments the shared version while keeping the existing QA application identity', () => {
   const config = JSON.parse(read('app.json'));
   const gradle = read('android/app/build.gradle');
   assert.equal(config.expo.android.package, 'com.doso.robot');
-  assert.equal(config.expo.android.versionCode, 9);
-  assert.match(gradle, /defaultConfig\s*\{[\s\S]*?applicationId 'com\.doso\.robot'[\s\S]*?versionCode 9\b/);
+  assert.ok(Number.isSafeInteger(config.expo.android.versionCode) && config.expo.android.versionCode >= 51);
+  const code = gradle.match(/defaultConfig\s*\{[\s\S]*?applicationId 'com\.doso\.robot'[\s\S]*?versionCode (\d+)\b/);
+  assert.equal(Number(code?.[1]), config.expo.android.versionCode);
   assert.match(gradle, /qa\s*\{\s*initWith release\s*applicationIdSuffix "\.qa"/);
   assert.equal(JSON.parse(read('package.json')).main, 'index.ts');
   assert.match(read('index.ts'), /createElement\(AuthProvider, null, createElement\(App\)\)/);

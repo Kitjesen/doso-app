@@ -18,7 +18,7 @@ const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SCRIPT_PATH = resolve(PROJECT_ROOT, "scripts/manage-auth-email-templates.mjs");
 const PROJECT_REF = "vchvqfdlkomlrjenkdhj";
 const OTHER_PROJECT_REF = "abcdefghijklmnopqrst";
-const LOGO_PATH = resolve(PROJECT_ROOT, "assets/brand/doso-robotics-wordmark-email-29dea10fd204.png");
+const LOGO_PATH = resolve(PROJECT_ROOT, "assets/brand/doso-robotics-wordmark-email-03526d27c6b4.png");
 const TEMPLATE_DEFINITIONS = [
   {
     key: "confirmation",
@@ -96,13 +96,13 @@ test("email:check succeeds for the committed local templates", async () => {
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /PASS  本地校验/);
-  assert.match(result.stdout, /PASS  本地 Logo — 2172×724 RGBA PNG · 196202 字节 · SHA-256 29dea10fd204/);
+  assert.match(result.stdout, /PASS  本地 Logo — 2172×216 RGBA PNG · 157380 字节 · SHA-256 03526d27c6b4/);
 });
 
 test("email:check rejects a Logo whose dimensions no longer match the approved email wordmark", async (t) => {
   const fixtureRoot = await createProjectFixture();
   t.after(() => rm(fixtureRoot, { recursive: true, force: true }));
-  const logoPath = resolve(fixtureRoot, "assets/brand/doso-robotics-wordmark-email-29dea10fd204.png");
+  const logoPath = resolve(fixtureRoot, "assets/brand/doso-robotics-wordmark-email-03526d27c6b4.png");
   const logo = Buffer.from(await readFile(logoPath));
   logo.writeUInt32BE(724, 16);
   await writeFile(logoPath, logo);
@@ -113,7 +113,7 @@ test("email:check rejects a Logo whose dimensions no longer match the approved e
   });
 
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /必须是 2172×724 8-bit RGBA PNG/);
+  assert.match(result.stderr, /必须是 2172×216 8-bit RGBA PNG/);
 });
 
 test("local validation rejects a template with no Logo images even when the approved URL remains as text", async (t) => {
@@ -121,11 +121,11 @@ test("local validation rejects a template with no Logo images even when the appr
   t.after(() => rm(fixtureRoot, { recursive: true, force: true }));
   const templatePath = resolve(fixtureRoot, "supabase/templates/confirmation.html");
   const html = await readFile(templatePath, "utf8");
-  const logoUrl = "https://vchvqfdlkomlrjenkdhj.supabase.co/storage/v1/object/public/email-assets/doso-robotics-wordmark-email-29dea10fd204.png";
+  const logoUrl = "https://vchvqfdlkomlrjenkdhj.supabase.co/storage/v1/object/public/email-assets/doso-robotics-wordmark-email-03526d27c6b4.png";
   await writeFile(templatePath, html.replace(/<img\b[^>]*>/gi, "").replace("</body>", `${logoUrl}</body>`), "utf8");
   const result = await runScript([], { scriptPath: resolve(fixtureRoot, "scripts/manage-auth-email-templates.mjs"), mockFetch: false });
   assert.equal(result.status, 1, 'A URL in text is not a rendered Logo reference');
-  assert.match(result.stderr, /页眉与页脚.*Logo/);
+  assert.match(result.stderr, /页眉一处.*Logo/);
   assert.equal(result.calls.length, 0);
 });
 
@@ -142,15 +142,16 @@ test("local validation does not count Logo images inside HTML comments", async (
   });
 
   assert.equal(result.status, 1, "Commented-out images cannot satisfy the Logo requirement");
-  assert.match(result.stderr, /页眉与页脚.*Logo/);
+  assert.match(result.stderr, /页眉一处.*Logo/);
   assert.equal(result.calls.length, 0);
 });
 
 test("invalid Logo markup blocks remote verification and direct sync before requests or snapshots", async (t) => {
   const cases = [
-    ["missing one Logo", (html) => html.replace(/<img\b[^>]*>/i, ""), /页眉与页脚.*Logo/],
-    ["commented Logos", (html) => html.replace(/<img\b[^>]*>/gi, (tag) => `<!-- ${tag} -->`), /页眉与页脚.*Logo/],
-    ["unterminated comment", (html) => html.replace(/<img\b/, "<!-- <img"), /页眉与页脚.*Logo/],
+    ["missing Logo", (html) => html.replace(/<img\b[^>]*>/i, ""), /页眉一处.*Logo/],
+    ["duplicate Logo", (html) => html.replace(/<img\b[^>]*>/i, (tag) => tag + tag), /页眉一处.*Logo/],
+    ["commented Logos", (html) => html.replace(/<img\b[^>]*>/gi, (tag) => `<!-- ${tag} -->`), /页眉一处.*Logo/],
+    ["unterminated comment", (html) => html.replace(/<img\b/, "<!-- <img"), /页眉一处.*Logo/],
     ["alternate source", (html) => html.replace("<img ", '<img srcset="https://example.com/logo.png 2x" '), /不含备用图片源/],
     ["source text inside alt", (html) => html.replace(/\bsrc="([^"]+)"/g, 'alt=" src=\'$1\'"'), /每个 <img>.*唯一.*src/],
   ];
@@ -592,9 +593,9 @@ test("local validation enforces exact Go-template allowlists and hosted image as
     ["duplicate token", "confirmation", (html) => html.replace("{{ .Token }}", "{{ .Token }} {{ .Token }}"), /仅包含一个/],
     ["unsupported Go-template action", "confirmation", (html) => html.replace("{{ .Token }}", "{{ if .Unknown }}{{ .Token }}{{ end }}"), /所有 Go 模板块/],
     ["credential link", "recovery", (html) => html.replace("</body>", '<a href="https://example.com">x</a></body>'), /不含 <a> 标签/],
-    ["embedded image", "confirmation", (html) => html.replace("https://vchvqfdlkomlrjenkdhj.supabase.co/storage/v1/object/public/email-assets/doso-robotics-wordmark-email-29dea10fd204.png", "data:image/png;base64,AAAA"), /不含嵌入式图片资源/],
-    ["relative image", "confirmation", (html) => html.replace("https://vchvqfdlkomlrjenkdhj.supabase.co/storage/v1/object/public/email-assets/doso-robotics-wordmark-email-29dea10fd204.png", "./logo.png"), /版本化 HTTPS URL/],
-    ["third-party image", "confirmation", (html) => html.replace("https://vchvqfdlkomlrjenkdhj.supabase.co/storage/v1/object/public/email-assets/doso-robotics-wordmark-email-29dea10fd204.png", "https://example.com/logo.png"), /DOSO 批准的版本化 HTTPS URL/],
+    ["embedded image", "confirmation", (html) => html.replace("https://vchvqfdlkomlrjenkdhj.supabase.co/storage/v1/object/public/email-assets/doso-robotics-wordmark-email-03526d27c6b4.png", "data:image/png;base64,AAAA"), /不含嵌入式图片资源/],
+    ["relative image", "confirmation", (html) => html.replace("https://vchvqfdlkomlrjenkdhj.supabase.co/storage/v1/object/public/email-assets/doso-robotics-wordmark-email-03526d27c6b4.png", "./logo.png"), /版本化 HTTPS URL/],
+    ["third-party image", "confirmation", (html) => html.replace("https://vchvqfdlkomlrjenkdhj.supabase.co/storage/v1/object/public/email-assets/doso-robotics-wordmark-email-03526d27c6b4.png", "https://example.com/logo.png"), /DOSO 批准的版本化 HTTPS URL/],
     ["alternate image source", "confirmation", (html) => html.replace("<img ", '<img srcset="https://example.com/logo.png 2x" '), /不含备用图片源/],
     ["lazy source without src", "confirmation", (html) => html.replace(/\bsrc=/g, "data-src="), /每个 <img>.*唯一.*src/],
     ["duplicate src", "confirmation", (html) => html.replace("<img ", '<img src="https://example.com/logo.png" '), /每个 <img>.*唯一.*src/],
@@ -694,7 +695,7 @@ test("--rollback is independent of local templates, Logo, and smtp_pass and perf
   t.after(() => rm(fixtureRoot, { recursive: true, force: true }));
   await writeFile(resolve(fixtureRoot, "supabase/config.toml"), "invalid local config", "utf8");
   await writeFile(resolve(fixtureRoot, "supabase/templates/confirmation.html"), "invalid local template", "utf8");
-  await rm(resolve(fixtureRoot, "assets/brand/doso-robotics-wordmark-email-29dea10fd204.png"), { force: true });
+  await rm(resolve(fixtureRoot, "assets/brand/doso-robotics-wordmark-email-03526d27c6b4.png"), { force: true });
 
   const rollback = await runScript(["--rollback", snapshotPath], {
     scriptPath: resolve(fixtureRoot, "scripts/manage-auth-email-templates.mjs"),
@@ -703,7 +704,7 @@ test("--rollback is independent of local templates, Logo, and smtp_pass and perf
   });
   assert.equal(rollback.status, 0, rollback.stderr);
   assert.deepEqual(rollback.calls.map((call) => call.method), ["PATCH", "GET"]);
-  assert.equal(rollback.calls.some((call) => call.url.includes("doso-robotics-wordmark-email-29dea10fd204.png")), false);
+  assert.equal(rollback.calls.some((call) => call.url.includes("doso-robotics-wordmark-email-03526d27c6b4.png")), false);
   assert.doesNotMatch(rollback.stdout, /本地校验|本地 Logo|SMTP 密码/);
   assert.doesNotMatch(`${rollback.stdout}\n${rollback.stderr}`, /PAT_EMERGENCY_ROLLBACK_SENTINEL_DO_NOT_PRINT/);
 });
@@ -751,7 +752,7 @@ test("--logo validates only the approved public Logo without a Management API to
 
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(result.calls, [{
-    url: "https://vchvqfdlkomlrjenkdhj.supabase.co/storage/v1/object/public/email-assets/doso-robotics-wordmark-email-29dea10fd204.png",
+    url: "https://vchvqfdlkomlrjenkdhj.supabase.co/storage/v1/object/public/email-assets/doso-robotics-wordmark-email-03526d27c6b4.png",
     method: "GET",
   }]);
   assert.match(result.stdout, /PASS  本地 Logo/);
@@ -1076,7 +1077,7 @@ function createMockFetch(scenario, calls) {
       });
     }
 
-    if (String(url).includes("doso-robotics-wordmark-email-29dea10fd204.png")) {
+    if (String(url).includes("doso-robotics-wordmark-email-03526d27c6b4.png")) {
       const bytes = Buffer.from(scenario.logoBase64, "base64");
       return new Response(bytes, {
         status: 200,
@@ -1126,7 +1127,7 @@ async function createProjectFixture(options = {}) {
     ["scripts/build-email-template-suite.mjs", "scripts/build-email-template-suite.mjs"],
     ["supabase/config.toml", "supabase/config.toml"],
     ["supabase/functions/_shared/generatedAccountEmailTemplates.ts", "supabase/functions/_shared/generatedAccountEmailTemplates.ts"],
-    ["assets/brand/doso-robotics-wordmark-email-29dea10fd204.png", "assets/brand/doso-robotics-wordmark-email-29dea10fd204.png"],
+    ["assets/brand/doso-robotics-wordmark-email-03526d27c6b4.png", "assets/brand/doso-robotics-wordmark-email-03526d27c6b4.png"],
     ...TEMPLATE_DEFINITIONS.map((definition) => [
       `supabase/templates/${definition.file ?? definition.key}.html`,
       `supabase/templates/${definition.file ?? definition.key}.html`,

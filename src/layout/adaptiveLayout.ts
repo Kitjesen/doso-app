@@ -20,7 +20,7 @@ export function getAdaptivePageLayout({ containerWidth, windowHeight, isLandscap
     && measuredWidth >= (variant === 'profile' ? 660 : 608) && (variant === 'profile' || measuredWidth < 880)
     && Number.isFinite(windowHeight) && windowHeight >= 240 && windowHeight < 480
     && readableScale && fontScale <= 1.2;
-  const padding = Math.min(measuredWidth / 2, isCompactColumns ? 12 : measuredWidth >= 880 ? 24 : 16);
+  const padding = Math.min(measuredWidth / 2, isCompactColumns ? 12 : measuredWidth >= 880 ? 24 : variant === 'home' ? 20 : 16);
   const gap = isCompactColumns ? 12 : padding === 24 ? 24 : 16;
   const contentWidth = Math.max(0, measuredWidth - padding * 2);
   const useColumns = isCompactColumns || (isLandscape && !isCompactHeight && contentWidth >= 800 && readableScale);

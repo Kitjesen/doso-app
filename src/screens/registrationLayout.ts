@@ -12,7 +12,7 @@ export function getRegistrationLayout(safeWidth: number, fontScale = 1) {
 
 export function registrationPasswordChecks(password: string) {
   return [
-    { label: '至少 10 位', met: password.length >= 10 },
+    { label: '至少 8 位', met: password.length >= 8 },
     { label: '大小写字母', met: /[a-z]/.test(password) && /[A-Z]/.test(password) },
     { label: '包含数字', met: /\d/.test(password) },
   ];

@@ -10,7 +10,7 @@ const RETAINED = 'releases/20261016/DOSO-0.0.1-qa-f3135f77.apk';
 const RETAINED_SHA = 'f3135f778f2a6e67c1b0878e32b7bf856418a86af971b0879462fbe0d1ca1e7e';
 const OUTPUT = 'android/app/build/outputs/apk/qa/app-qa.apk';
 
-export function createQaProgressScanner() {
+export function createQaProgressScanner(tasks = { bundle: ':app:createBundleQaJsAndAssets', assemble: ':app:assembleQa' }, onLine) {
   const decoder = new TextDecoder('utf-8', { fatal: true });
   const proof = { bundleExecuted: false, assembleCompleted: false, buildSuccessful: false, rejected: false };
   let pending = '';
@@ -18,9 +18,10 @@ export function createQaProgressScanner() {
     for (const character of text) {
       if (character === '\n') {
         const line = pending.endsWith('\r') ? pending.slice(0, -1) : pending;
-        if (line === '> Task :app:createBundleQaJsAndAssets') proof.bundleExecuted = true;
-        if (/^> Task :app:assembleQa(?: UP-TO-DATE)?$/.test(line)) proof.assembleCompleted = true;
+        if (line === `> Task ${tasks.bundle}`) proof.bundleExecuted = true;
+        if (line === `> Task ${tasks.assemble}` || line === `> Task ${tasks.assemble} UP-TO-DATE`) proof.assembleCompleted = true;
         if (/^BUILD SUCCESSFUL in [0-9hms .]+$/.test(line)) proof.buildSuccessful = true;
+        onLine?.(line);
         pending = '';
       } else {
         if (pending.length >= 2048) { proof.rejected = true; pending = ''; return; }
@@ -45,10 +46,10 @@ export function createQaProgressScanner() {
   };
 }
 
-export async function executeQaBuild(command, { timeoutMs = 20 * 60 * 1000 } = {}) {
+export async function executeQaBuild(command, { timeoutMs = 20 * 60 * 1000, tasks, onLine } = {}) {
   if (!Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 20 * 60 * 1000) throw new Error('qa_timeout_rejected');
-  const stdout = createQaProgressScanner();
-  const stderr = createQaProgressScanner();
+  const stdout = createQaProgressScanner(tasks, onLine);
+  const stderr = createQaProgressScanner(tasks, onLine);
   return await new Promise((resolve) => {
     let child;
     let started = false;
@@ -149,7 +150,7 @@ export async function runQaBuildAttempt({ root, reportDir, host, configuration, 
     phase = 'environment';
     const environment = createQaBuildEnvironment(host, configuration);
     phase = 'inputs';
-    const inputs = snapshotQaBuildInputs(root);
+    const inputs = snapshotQaBuildInputs(root, environment.DOSO_SDK_ROOT);
     result.inputs = inputs;
     phase = 'resource_observation';
     const assessment = assessQaBuildReadiness({ ...await observeResources(environment), environment });
@@ -182,7 +183,7 @@ export async function runQaBuildAttempt({ root, reportDir, host, configuration, 
       } else if (execution.outcome === 'completed' && execution.exitCode === 0) result.decision = 'candidate_unproven';
     }
     phase = 'inputs_after';
-    const after = snapshotQaBuildInputs(root);
+    const after = snapshotQaBuildInputs(root, environment.DOSO_SDK_ROOT);
     result.inputDrift = JSON.stringify(inputs) === JSON.stringify(after) ? 0 : 1;
     if (result.inputDrift) { result.decision = 'input_changed'; result.candidate = null; }
   } catch {

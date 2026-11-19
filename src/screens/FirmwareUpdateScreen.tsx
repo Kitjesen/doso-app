@@ -15,6 +15,12 @@ import {
 } from '../features/robot-lifecycle/firmwareUpdateGateway';
 import { radii, type ThemeColors, useAppTheme } from '../theme';
 
+function formatBytes(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} MB`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)} KB`;
+  return `${value} B`;
+}
+
 type Props = {
   batteryPercent?: number;
   currentVersion?: string;
@@ -212,6 +218,11 @@ export function FirmwareUpdateScreen({ batteryPercent = 82, currentVersion = '0.
                 </View>
               ) : null}
               <Text style={styles.progressText}>{progress.label}</Text>
+              {progress.totalBytes !== null && progress.remainingBytes !== null ? (
+                <Text style={styles.progressText} accessibilityLiveRegion="polite">
+                  剩余 {formatBytes(progress.remainingBytes)}
+                </Text>
+              ) : null}
               {presentation.status === 'recovery_required' && presentation.diagnosticCode ? (
                 <Text style={styles.diagnostic}>诊断编号：{presentation.diagnosticCode}</Text>
               ) : null}

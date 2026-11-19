@@ -38,6 +38,11 @@ async function host() {
     readAuthSessionIdentity: identity.readAuthSessionIdentity, humanizeAuthError: humanize,
     currentUserIdRef: { current: USER }, preparedUserIdRef: { current: USER }, preparedSessionKeyRef: { current: 'prepared-A' },
     notify(...args) { notices.push(args); },
+    setAccountDevices() {},
+    setSelectedDevice(update) {
+      const next = typeof update === 'function' ? update(context.device) : update;
+      if (next !== context.device) { context.device = next; writes.push(next); render(); }
+    },
     setDevice(value) { context.device = typeof value === 'function' ? value(context.device) : value; writes.push(context.device); render(); },
   };
   for (const name of ['deviceSettingsAttemptRef', 'deviceSettingsMountedRef', 'deviceSettingsContext']) {
@@ -45,7 +50,7 @@ async function host() {
   }
   let contextProjection, lifecycle;
   const visit = node => {
-    if (ts.isIfStatement(node) && node.expression.getText(app).includes('deviceSettingsContext.current.identity')) contextProjection = node.getText(app);
+    if (!contextProjection && ts.isIfStatement(node) && node.expression.getText(app).includes('deviceSettingsContext.current.identity')) contextProjection = node.getText(app);
     if (ts.isCallExpression(node) && node.expression.getText(app) === 'useEffect' && node.arguments[0]?.getText(app).includes('deviceSettingsMountedRef.current = true')) lifecycle = node.arguments[0].getText(app);
     ts.forEachChild(node, visit);
   }; visit(app);
@@ -184,13 +189,15 @@ test('effect cleanup and immediate replay cannot revive a retired settings attem
   } finally { await finish(h, pending); }
 });
 
-test('old attempt finally cannot clear admission or optimistic state of a newer device save', { timeout: 10000 }, async () => {
+test('switching devices keeps settings single-flight until the existing write settles', { timeout: 10000 }, async () => {
   const h = await host(), first = h.save({ display_name: 'Old device' }); let second;
   try {
     const old = await h.entered(), current = { id: 'second-device', owner_id: USER, display_name: 'Second device', alerts_enabled: true };
-    h.render({ device: current }); second = h.save({ alerts_enabled: false }); const next = await h.entered(1);
+    h.render({ device: current }); await h.save({ alerts_enabled: false });
+    assert.equal(h.requests.length, 1);
+    assert.equal(h.context.device.alerts_enabled, true);
     old.gate.resolve(rejectedResponse()); await first;
-    await h.save({ alerts_enabled: true });
+    second = h.save({ alerts_enabled: false }); const next = await h.entered(1);
     assert.equal(h.requests.length, 2); assert.equal(h.context.device.id, current.id); assert.equal(h.context.device.alerts_enabled, false);
     next.gate.resolve(response({ ...current, alerts_enabled: false })); await second;
     assert.equal(h.context.device.id, current.id); assert.equal(h.context.device.alerts_enabled, false);

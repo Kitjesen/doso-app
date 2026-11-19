@@ -66,6 +66,19 @@ test('axis deadzone and diagonal clamp limit actual generated intent', () => {
   assert.ok(Math.abs(Math.hypot(frame.vector.leftX, frame.vector.leftY) - 1) < 1e-10);
 });
 
+test('asymmetric end-stop baseline cannot become a calibrated center', () => {
+  const base = sample({ 0: 100 });
+  base.channelSettings[0] = { ...base.channelSettings[0], min: 0, middle: 99, max: 100 };
+  const moved = { ...base, channels: [...base.channels] }; moved.channels[0] = 0;
+  assert.ok(parseG20Sample(base));
+  assert.throws(() => learnG20Axis(beginG20Calibration(base), 'leftX', moved), /中心/);
+  const cal = calibrated();
+  for (const patch of [{ center: 1950 }, { center: 1050 }, { center: NaN }, { min: Infinity }, { sign: 0 }, { channel: 16 }]) {
+    const corrupted = { ...cal, axes: { ...cal.axes, leftX: { ...cal.axes.leftX, ...patch } } };
+    assert.throws(() => projectG20Input(corrupted, sample()), /校验/);
+  }
+});
+
 test('the unused right vertical axis cannot reduce commanded turn speed', () => {
   const calibration = calibrated();
   const horizontal = projectG20Input(calibration, sample({ 11: 1050 }));

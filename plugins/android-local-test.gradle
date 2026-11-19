@@ -1,0 +1,23 @@
+// Full normal-entry local acceptance build; installed alongside QA and Dev.
+android {
+    buildTypes {
+        localtest {
+            initWith release
+            applicationIdSuffix ".localtest"
+            versionNameSuffix "-localtest"
+            debuggable true
+            signingConfig signingConfigs.debug
+            matchingFallbacks = ["release"]
+            // Match the release native libraries while keeping local LAN access debuggable.
+            externalNativeBuild {
+                cmake { arguments("-DCMAKE_BUILD_TYPE=RelWithDebInfo") }
+            }
+        }
+    }
+}
+
+afterEvaluate {
+    tasks.named('createBundleLocaltestJsAndAssets').configure { bundleTask ->
+        bundleTask.entryFile.set(file('../../index.ts'))
+    }
+}

@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = process.cwd();
-const configuration = { projectId: 'vchvqfdlkomlrjenkdhj', publishableKey: 'sb_publishable_SYNTHETIC_CANARY' };
+const configuration = { publishableKey: 'sb_publishable_SYNTHETIC_CANARY' };
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'doso-qa-once-'));
   const host = { SystemRoot: join(dir, 'Windows'), JAVA_HOME: join(dir, 'java'),
@@ -86,6 +86,22 @@ test('ready attempt invokes exactly one fixed Java QA command with isolated envi
   assert.equal(result.execution.exitCode, 37);
   assert.equal(result.candidate, null);
   assert.doesNotMatch(readFileSync(join(reportDir, 'build-result.json'), 'utf8'), /CANARY|PRIVATE|sb_publishable_/);
+});
+
+test('optional diagnostic receives complete bounded lines and failure does not escape the scanner', async () => {
+  const { createQaProgressScanner } = await import('./qa-build-once.mjs');
+  const lines = [];
+  const scanner = createQaProgressScanner(undefined, line => lines.push(line));
+  scanner.push(Buffer.from('> Task :app:checkQaAar'));
+  scanner.push(Buffer.from('Metadata FAILED\r\n* What went wrong:\n'));
+  assert.deepEqual(lines, ['> Task :app:checkQaAarMetadata FAILED', '* What went wrong:']);
+  assert.equal(scanner.finish().rejected, false);
+  const oversized = createQaProgressScanner(undefined, () => assert.fail('oversized line must not be delivered'));
+  oversized.push(Buffer.from('x'.repeat(2049) + '\n'));
+  assert.equal(oversized.finish().rejected, true);
+  const brokenSink = createQaProgressScanner(undefined, () => { throw Error('diagnostic failure'); });
+  brokenSink.push(Buffer.from('complete line\n'));
+  assert.equal(brokenSink.finish().rejected, true);
 });
 
 test('progress parser survives split markers, discards arbitrary output and rejects unbounded or invalid output', async () => {

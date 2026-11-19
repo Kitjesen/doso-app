@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 export const MINIMUM_FREE_MEMORY_KIB = 4 * 1024 * 1024;
 export const QA_COMPETING_TASK_PREDICATE = String.raw`($_.Name -match '^(emulator|qemu-system.*)\.exe$') -or (($_.Name -match '^(java|gradle|node)\.exe$') -and ($_.CommandLine -match 'GradleDaemon|GradleWrapper|gradlew|assembleQa|build-android|expo.*export|metro|emulator'))`;
 
-export function assessQaBuildReadiness({ freeMemoryKiB, environment = {}, competingProcesses }) {
+export function assessBuildResources({ freeMemoryKiB, environment = {}, competingProcesses }) {
   const blockers = [];
   if (!Number.isSafeInteger(freeMemoryKiB) || freeMemoryKiB < MINIMUM_FREE_MEMORY_KIB) {
     blockers.push('insufficient_memory');
@@ -17,7 +17,15 @@ export function assessQaBuildReadiness({ freeMemoryKiB, environment = {}, compet
     blockers.push('competing_tasks_or_unknown');
   }
   if (environment.EXPO_NO_DOTENV !== '1') blockers.push('dotenv_not_disabled');
-  const expectedUrl = 'https://vchvqfdlkomlrjenkdhj.supabase.co';
+  return { ready: blockers.length === 0, blockers, freeMemoryKiB,
+    minimumFreeMemoryKiB: MINIMUM_FREE_MEMORY_KIB, buildStarts: 0 };
+}
+
+export function assessQaBuildReadiness(observation) {
+  const resources = assessBuildResources(observation);
+  const { environment = {} } = observation;
+  const blockers = [...resources.blockers];
+  const expectedUrl = 'https://api-test.dosorobotics.com';
   if (environment.EXPO_PUBLIC_SUPABASE_URL !== expectedUrl ||
       environment.EXPO_PUBLIC_SUPABASE_URL_ANDROID !== expectedUrl ||
       !/^sb_publishable_[A-Za-z0-9_-]+$/.test(environment.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? '')) {
@@ -31,27 +39,26 @@ export function assessQaBuildReadiness({ freeMemoryKiB, environment = {}, compet
       break;
     }
   }
-  return { ready: blockers.length === 0, blockers, freeMemoryKiB,
-    minimumFreeMemoryKiB: MINIMUM_FREE_MEMORY_KIB, buildStarts: 0 };
+  return { ...resources, ready: blockers.length === 0, blockers };
 }
 
-export function snapshotQaBuildInputs(root) {
+export function snapshotQaBuildInputs(root, sdkRoot) {
   const base = realpathSync(root);
   const result = [];
   const privateName = /^(?:\.env.*|local\.properties|.*\.(?:keystore|jks|p12|pfx|pem|key|p8)|.*credentials.*)$/i;
-  const visit = (relative) => {
+  const visit = (relative, source = base, prefix = '') => {
     const name = relative.split('/').at(-1);
     if (privateName.test(name)) return;
     if (relative.startsWith('android/') && /^(?:build|\.gradle|\.cxx|\.kotlin)$/.test(name)) return;
     if (/^modules\/[^/]+\/android\/(?:build|\.gradle|\.cxx|\.kotlin)$/.test(relative)) return;
     if (name === 'node_modules' || name === '.git') return;
-    const absolute = join(base, relative);
+    const absolute = join(source, relative);
     const stat = lstatSync(absolute);
     if (stat.isSymbolicLink()) throw new Error('unsafe_input_link');
     if (stat.isDirectory()) {
-      for (const child of readdirSync(absolute).sort()) visit(`${relative}/${child}`);
+      for (const child of readdirSync(absolute).sort()) visit(`${relative}/${child}`, source, prefix);
     } else if (stat.isFile()) {
-      result.push({ path: relative, sha256: createHash('sha256').update(readFileSync(absolute)).digest('hex') });
+      result.push({ path: prefix + relative, sha256: createHash('sha256').update(readFileSync(absolute)).digest('hex') });
     } else throw new Error('unsupported_input_type');
   };
   for (const name of ['App.tsx', 'index.ts', 'app.json', 'package.json', 'package-lock.json', 'tsconfig.json',
@@ -59,9 +66,17 @@ export function snapshotQaBuildInputs(root) {
     if (!existsSync(join(base, name))) throw new Error('required_input_missing');
     visit(name);
   }
-  for (const name of ['index.preview.ts', 'eas.json', 'babel.config.js', 'babel.config.cjs', 'babel.config.mjs',
+  for (const name of ['index.preview.ts', 'index.video-test.ts', 'eas.json', 'babel.config.js', 'babel.config.cjs', 'babel.config.mjs',
     'metro.config.js', 'metro.config.cjs', 'metro.config.mjs', 'react-native.config.js', 'modules']) {
     if (existsSync(join(base, name))) visit(name);
+  }
+  if (sdkRoot) {
+    const sdk = realpathSync(sdkRoot);
+    for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs', 'src', 'proto', 'docs/usage.md',
+      'android/Cargo.toml', 'android/Cargo.lock', 'android/src', 'android/build.ps1', 'android/build.sh']) {
+      if (!existsSync(join(sdk, name))) throw new Error('required_sdk_input_missing');
+      visit(name, sdk, 'doso-sdk/');
+    }
   }
   return result.sort((a, b) => a.path.localeCompare(b.path, 'en'));
 }
@@ -90,7 +105,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         competingProcesses: Array.from({ length: parsed.competingTaskCount }, () => ({})) };
     } catch { /* Unknown resources are blockers; no raw process output retained. */ }
     const assessment = assessQaBuildReadiness({ ...observation, environment: process.env });
-    const inputs = snapshotQaBuildInputs(root);
+    const inputs = snapshotQaBuildInputs(root, process.env.DOSO_SDK_ROOT);
     const report = { observedAt: new Date().toISOString(), mode: 'read_only_preflight', assessment,
       entry: 'index.ts', taskNotStarted: ':app:assembleQa', inputs,
       limits: ['Not a build or native/auth acceptance', 'No private env or signing input digest',

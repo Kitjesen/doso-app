@@ -24,7 +24,7 @@ assert.doesNotMatch(home, /images\.home(?:Recall|Quick|Metric)/, 'native icons r
 assert.match(home, /batteryPercent\?: number \| null/);
 assert.match(home, /Number.isFinite\(batteryPercent\)/);
 assert.match(home, /hasTrustedBattery \? batteryPercent : '—'/);
-assert.match(home, />待同步<\/Text>/);
+assert.doesNotMatch(home, /待同步|执行条件|任务概览/);
 assert.doesNotMatch(home, />34%<|12\/12|32°C|运行中/);
 assert.match(home, /实际操作需连接设备并获得控制权限/);
 assert.match(home, /disabled=\{!canRecall\}/);
@@ -43,7 +43,7 @@ for (const config of [{}, { dark: true }, { width: 320, height: 844, fontScale: 
     onOpenSafety: () => calls.push('safety'), ...config });
   assert.equal(screen.nodes.filter(node => node.type === 'Image').length, 1);
   assert.match(screen.copy, /离线/);
-  assert.match(screen.copy, /电量待同步/);
+  assert.match(screen.copy, /—\s+电量/);
   assert.doesNotMatch(screen.copy, /34%|12\/12|32°C|运行中|查看路线|查看任务|状态与设置/);
   assert.equal(screen.nodes.some(node => node.props?.testID === 'home-battery-meter'), false);
   const recall = screen.action('home-recall');

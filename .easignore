@@ -1,0 +1,52 @@
+# Build source allowlist. Unlike .gitignore, includes all runtime Figma assets.
+/*
+# Keep generated/native archives and local evidence out of the upload. EAS
+# regenerates android/ and none of these folders are runtime inputs.
+/android/
+/android/**
+/artifacts/
+/artifacts/**
+/releases/
+/releases/**
+/dist*/
+/admin/
+/docs/
+/scripts/
+/supabase/
+/link-host/
+/.expo/
+/.eas/
+/.eas/**
+/.maestro/
+/.maestro/**
+!/.easignore
+!/package.json
+!/package-lock.json
+!/app.json
+!/eas.json
+!/tsconfig.json
+!/App.tsx
+!/index.ts
+!/index.preview.ts
+!/src
+!/assets
+!/plugins
+!/iot
+# Local EAS/maestro caches are not runtime inputs and can be multi-gigabyte.
+
+# Never upload local configuration, credentials or generated artifacts.
+**/.env*
+**/*.p8
+**/*.p12
+**/*.pem
+**/*.key
+**/*.jks
+**/*.keystore
+**/*.mobileprovision
+**/credentials.json
+**/node_modules/
+**/.git/
+**/*.apk
+**/*.aab
+**/*.ipa
+**/*.log

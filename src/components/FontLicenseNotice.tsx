@@ -11,8 +11,8 @@ export function FontLicenseNotice() {
   const { colors } = useAppTheme();
   return (
     <View style={styles.container}>
-      <Pressable accessibilityRole="button" accessibilityLabel="界面字体 MiSans，查看字体许可" accessibilityState={{ expanded }} onPress={() => setExpanded(value => !value)} style={styles.action} testID="font-license-toggle">
-        <Text style={[styles.label, { color: colors.muted }]}>界面字体（MiSans）{expanded ? '−' : '+'}</Text>
+      <Pressable accessibilityRole="button" accessibilityLabel="MiSans 字体许可" accessibilityState={{ expanded }} onPress={() => setExpanded(value => !value)} style={styles.action} testID="font-license-toggle">
+        <Text style={[styles.label, { color: colors.muted }]}>界面字体：MiSans · 字体许可{expanded ? '−' : '+'}</Text>
       </Pressable>
       {expanded ? <View testID="font-license-details"><Text selectable style={[styles.copy, { color: colors.inkSoft }]}>{fontCopyright}{'\n\n'}{fontLicense}</Text></View> : null}
     </View>

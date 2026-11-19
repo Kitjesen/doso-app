@@ -17,13 +17,17 @@ function mount(search = '?design-qa=1&qa-browse=1', rootProps = {}) {
     useState(initial) { const i = cursor++; if (!(i in slots)) slots[i] = initial; return [slots[i], next => { slots[i] = typeof next === 'function' ? next(slots[i]) : next; }]; },
   };
   const imports = {
+    '../features/routes/routePreview': { previewRoutes: [] },
+    './VideoFixture': { VideoFixture: 'VideoFixture' }, './HomeFixture': { HomeMapFixture: 'HomeMapFixture',homeJourney: {},homeEvents: [] }, './ProfileFixture': { ProfileFixture: 'ProfileScreen' },
+    './HomeInteractionPrototype': { HomeInteractionPrototype: 'HomeInteractionPrototype' },
     react, 'react/jsx-runtime': require('react/jsx-runtime'),
     'react-native': { ...Object.fromEntries(['Pressable', 'ScrollView', 'Text', 'View'].map(x => [x, x])), BackHandler: { addEventListener(event, handler) { assert.equal(event, 'hardwareBackPress'); backHandler = handler; return { remove() { backHandler = null; } }; } }, StyleSheet: { create: x => x }, useWindowDimensions: () => ({ width: 390, height: 844 }) },
     'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView', SafeAreaProvider: 'SafeAreaProvider' },
     '@expo/vector-icons': { Ionicons: 'Ionicons' }, 'expo-status-bar': { StatusBar: 'StatusBar' },
-    '../theme': { ThemePreferenceContext: { Provider: props => { theme = props.value; return props.children; } }, useAppTheme: () => ({ colors: {}, isDark: theme === 'dark' }) },
-    '../assets': { images: {} },
+    '../theme': { AppearanceControlContext: { Provider: props => props.children }, ThemePreferenceContext: { Provider: props => { theme = props.value; return props.children; } }, useAppTheme: () => ({ colors: {}, isDark: theme === 'dark' }) },
+    '../assets': { images: { thunderJointDiagram: 'thunder-v4-top-line' } },
     '../features/robot-lifecycle/robotDiagnosticsGateway': { createRobotDiagnosticsGateway: () => ({}) },
+    './ControlReferencePreview': { ControlReferencePreview: 'ControlReferencePreview' },
   };
   function load(file) {
     const module = { exports: {} };
@@ -56,53 +60,42 @@ function mount(search = '?design-qa=1&qa-browse=1', rootProps = {}) {
   };
   api.render(); return api;
 }
-test('browse opens home in light mode and all five tabs navigate', () => {
+test('browse opens home in dark mode and all five tabs navigate', () => {
   const app = mount();
-  assert.equal(app.theme, 'light'); app.node('HomeScreen');
-  const date = app.node('AppHeader').props.referenceDate;
-  assert.deepEqual([date.getFullYear(), date.getMonth(), date.getDate()], [2026, 7, 31]);
+  assert.equal(app.theme, 'dark'); app.node('HomeScreen');
   for (const [tab, screen] of [['map', 'MapScreen'], ['tasks', 'TasksScreen'], ['analysis', 'AnalysisScreen'], ['profile', 'ProfileScreen'], ['home', 'HomeScreen']]) {
     app.node('BottomNav').props.onChange(tab); app.render(); app.node(screen);
   }
-  app.click('切换深色'); assert.equal(app.theme, 'dark');
   app.click('切换浅色'); assert.equal(app.theme, 'light');
+  app.click('切换深色'); assert.equal(app.theme, 'dark');
 });
 
-test('bell feedback opens and closes without replacing tab navigation', () => {
+test('each main tab renders its own header and keeps the bottom navigation available', () => {
   const app = mount();
-  app.node('AppHeader').props.onNotifications(); app.render();
-  const feedback = app.node('AppToast').props;
-  assert.deepEqual({ ...feedback.notice }, {
-    title: '通知服务尚未接入',
-    message: '当前不能确认是否存在新的设备告警。',
-    tone: 'info',
-  });
-  assert.equal(feedback.withinSafeArea, true);
-  app.node('BottomNav').props.onChange('tasks'); app.render(); app.node('TasksScreen');
-  app.node('AppHeader').props.onNotifications(); app.render();
-  app.node('AppToast').props.onDismiss(); app.render();
-  assert.equal(app.node('AppToast').props.notice, null);
+  for (const tab of ['home','tasks','analysis','map','profile']) {
+    app.node('BottomNav').props.onChange(tab); app.render();
+    assert.equal(app.nodes.some(node => node.type === 'AppHeader'), false);
+    assert.equal(app.node('AppToast').props.notice,null);
+  }
 });
 
 test('capture browsing hides QA chrome but keeps real tab navigation and disabled commands', () => {
   const app = mount('?design-qa=1&qa-browse=1&qa-stage=main-home', { hideDisclosure: true });
-  assert.equal(app.theme, null, 'native capture follows system theme without writing account preferences');
+  assert.equal(app.theme, 'dark', 'capture uses the default product palette');
   assert.equal(app.nodes.some(node => node.props?.accessibilityLabel === '测试首页'), false);
   const home = app.node('HomeScreen').props;
-  assert.equal(home.canRecall, false);
-  assert.equal(home.taskControlAvailable, false);
-  assert.equal(home.taskExecutorAvailable, false);
+  assert.equal(home.onRecall, undefined);
   app.node('BottomNav').props.onChange('tasks'); app.render();
   const tasks = app.node('TasksScreen').props;
   assert.equal(tasks.controlAvailable, false);
   assert.equal(tasks.executorAvailable, false);
-  assert.equal(app.node('AppHeader').props.title, '任务');
+  assert.equal(app.node('BottomNav').props.active, 'tasks');
 });
 test('control, return and page picker work while write callbacks remain inert', () => {
   const app = mount();
   const home = app.node('HomeScreen').props;
-  assert.equal(home.canRecall, false); home.onRecall(); app.render(); app.node('HomeScreen');
-  home.onOpenControl(); app.render();
+  assert.equal(home.onRecall, undefined); app.render(); app.node('HomeScreen');
+  home.onOpenVideo(); app.render();
   const control = app.node('ControlScreen').props;
   assert.equal(control.allowInteractionPreview, true, 'local input demo does not grant robot capability');
   assert.equal(control.canUseManualControl, false); control.onBack(); app.render(); app.node('HomeScreen');
@@ -113,7 +106,7 @@ test('control, return and page picker work while write callbacks remain inert', 
 });
 test('static screenshot mode stays system-themed and does not navigate', () => {
   const app = mount('?design-qa=1&qa-stage=main-home&qa-state=default');
-  assert.equal(app.theme, null);
+  assert.equal(app.theme, 'dark');
   app.node('BottomNav').props.onChange('tasks'); app.render(); app.node('HomeScreen');
 });
 test('analysis browsing does not invent telemetry', () => {
@@ -121,9 +114,23 @@ test('analysis browsing does not invent telemetry', () => {
   assert.equal(app.node('AnalysisScreen').props.previewMode, false);
 });
 
+test('joint fixture requires an explicit local QA option and is labelled as simulated', () => {
+  const empty = mount('?design-qa=1&qa-stage=robot-control&qa-extra=joint-status').node('JointStatusScreen').props;
+  assert.equal(empty.joints, undefined);
+  const app = mount('?design-qa=1&qa-stage=robot-control&qa-extra=joint-status&qa-fixture=joints');
+  const fixture = app.node('JointStatusScreen').props;
+  assert.match(fixture.deviceName, /模拟数据.*非机器狗/);
+  assert.equal(fixture.robotDiagram, 'thunder-v4-top-line');
+  assert.equal(fixture.joints.length, 16);
+  assert.equal(fixture.joints.filter(joint => joint.online === false).length, 1);
+  assert.deepEqual(Array.from(fixture.joints[3].errors), [2]);
+  fixture.onBack(); app.render();
+  assert.equal(app.node('ControlScreen').props.canUseManualControl, false);
+});
+
 test('Android back closes the page picker, returns home, and only then permits exit', () => {
   const app = mount();
-  app.node('HomeScreen').props.onOpenControl(); app.render();
+  app.node('HomeScreen').props.onOpenVideo(); app.render();
   app.click('切换测试页面');
   assert.equal(app.back(), true); app.node('ControlScreen');
   assert.equal(app.back(), true); app.node('HomeScreen');
@@ -143,5 +150,5 @@ test('profile control returns to its origin and the editor never pretends to per
   editor.onBackRequestChange(() => guarded++);
   assert.equal(app.back(), true); assert.equal(guarded, 1);
   app.node('EditProfileScreen').props.onBack(); app.render(); app.node('ProfileScreen');
-  app.node('AppHeader').props.onProfile(); app.render(); app.node('EditProfileScreen');
+  app.node('ProfileScreen').props.onEditProfile(); app.render(); app.node('EditProfileScreen');
 });

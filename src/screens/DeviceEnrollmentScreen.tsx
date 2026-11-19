@@ -12,7 +12,7 @@ import { type ThemeColors, useAppTheme } from '../theme';
 type Props = {
   busy?: boolean;
   deviceName: string;
-  serialNumber?: string | null;
+  deviceId?: string | null;
   enrollment?: DeviceEnrollmentSession | null;
   error?: string | null;
   onBack: () => void;
@@ -47,14 +47,14 @@ const PHASE_COPY: Record<DeviceEnrollmentPhase, { title: string; detail: string;
   },
 };
 
-export function DeviceEnrollmentScreen({ busy = false, deviceName, serialNumber, enrollment, error, onBack, onStart }: Props) {
+export function DeviceEnrollmentScreen({ busy = false, deviceName, deviceId, enrollment, error, onBack, onStart }: Props) {
   const { colors, isDark } = useAppTheme();
   const p = getProductAppearance(isDark);
   const styles = createStyles(colors, isDark);
   const phase = enrollment?.phase ?? null;
   const copy = phase ? PHASE_COPY[phase] : null;
   const actionLabel = phase === 'challenge_issued' || phase === 'identity_verified'
-    ? '重新读取设备状态'
+    ? '重新发起身份验证'
     : '发起身份验证挑战';
 
   return (
@@ -67,13 +67,13 @@ export function DeviceEnrollmentScreen({ busy = false, deviceName, serialNumber,
         <View style={styles.icon}><Ionicons color={p.blueInk} name="shield-checkmark-outline" size={27} /></View>
         <Text style={styles.eyebrow}>DOSO TRUSTED ENROLLMENT</Text>
         <Text style={styles.title}>设备身份验证</Text>
-        <Text style={styles.subtitle}>这一步把“账户归属”与“真实机器狗身份”分开确认，避免仅凭序列号就开放控制。</Text>
+        <Text style={styles.subtitle}>通过机器狗提供的签名证明确认设备身份，再由服务端核对账户归属。</Text>
 
         <View style={styles.deviceCard}>
           <View style={styles.deviceIcon}><Ionicons color={p.blueInk} name="hardware-chip-outline" size={22} /></View>
           <View style={styles.deviceCopy}>
             <Text style={styles.deviceName}>{deviceName}</Text>
-            <Text style={styles.deviceMeta}>序列号：{serialNumber?.trim() || '待同步'}</Text>
+            <Text selectable style={styles.deviceMeta}>机器人 ID：{deviceId?.trim() || '待同步'}</Text>
             <Text style={styles.deviceMeta}>账户绑定：已完成，设备身份：{phase === 'completed' ? '已验证' : '待验证'}</Text>
           </View>
         </View>
@@ -123,3 +123,4 @@ function createStyles(colors: ThemeColors, isDark: boolean) {
     boundaryText: { ...typography.supporting, color: p.secondary, flex: 1 },
   });
 }
+

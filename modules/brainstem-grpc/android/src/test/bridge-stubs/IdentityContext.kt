@@ -5,8 +5,17 @@ import java.util.UUID
 import java.util.concurrent.CountDownLatch
 
 open class Context {
+  val applicationContext: Context get() = this
+  val connectivity = android.net.ConnectivityManager()
+  val wifi = android.net.wifi.WifiManager()
+  var denyNetworkState = false
+  fun getSystemService(name: String): Any {
+    if (denyNetworkState) throw SecurityException("fixture permission denied")
+    return if (name == CONNECTIVITY_SERVICE) connectivity else wifi
+  }
   val noBackupFilesDir = File(System.getProperty("java.io.tmpdir"), "doso-context-${UUID.randomUUID()}")
   var packageName = "com.doso.robot.qa"
+  val applicationInfo = android.content.pm.ApplicationInfo()
   var receiver: BroadcastReceiver? = null
   var senderPermission: String? = null
   fun registerReceiver(receiver: BroadcastReceiver, filter: IntentFilter, permission: String, scheduler: Any?): Intent? {
@@ -16,7 +25,7 @@ open class Context {
     check(flags == RECEIVER_EXPORTED); return registerReceiver(receiver, filter, permission, scheduler)
   }
   fun unregisterReceiver(receiver: BroadcastReceiver) { check(this.receiver === receiver); this.receiver = null }
-  companion object { const val RECEIVER_EXPORTED = 2 }
+  companion object { const val RECEIVER_EXPORTED = 2; const val CONNECTIVITY_SERVICE = "connectivity"; const val WIFI_SERVICE = "wifi" }
 }
 class Intent(val action: String? = null) {
   var `package`: String? = null

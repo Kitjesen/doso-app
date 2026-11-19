@@ -1,10 +1,11 @@
-import { Ionicons } from '@expo/vector-icons';
+import type { ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Text } from './AppText';
+import { ControlSetupPage, controlSetupColors, type ControlSetupMedia } from './ControlSetupSurface';
 import { useAppTheme } from '../theme';
-import { typography } from '../typography';
+import { controlTypography as typography } from '../typography';
 
 export type G20InputAxis = 'leftX' | 'leftY' | 'rightX' | 'rightY';
 export type G20InputButton = 'stand' | 'sit' | 'stop' | 'enableMotor' | 'disableMotor' | 'switchPolicy';
@@ -13,7 +14,7 @@ export type G20InputPanelState = Readonly<{
   reading: boolean;
   available: boolean;
   message: string | null;
-  sample: Readonly<{ channels: readonly number[] }> | null;
+  sample: Readonly<{ channels: readonly number[]; configurationReady?: boolean }> | null;
   axes: Readonly<Partial<Record<G20InputAxis, Readonly<{ channel: number; sign: 1 | -1 }>>>>;
   buttons: Readonly<Partial<Record<G20InputButton, Readonly<{ channel: number }>>>>;
   calibrating: boolean;
@@ -23,6 +24,8 @@ export type G20InputPanelState = Readonly<{
 }>;
 
 type Props = Readonly<{
+  media?: ControlSetupMedia;
+  header?: ReactNode;
   state: G20InputPanelState;
   onStart: () => void;
   onStop: () => void;
@@ -72,12 +75,14 @@ function axisValue(value: number | undefined) {
 /** Input setup is local: these callbacks never stand in for a robot action. */
 export function G20InputPanel({
   state, onStart, onStop, onBeginCalibration, onFinishCalibration, onLearnAxis, onLearnButton,
-  onClearCalibration, onClose, source, onSourceChange,
+  onClearCalibration, onClose, source, onSourceChange, media, header,
 }: Props) {
-  const { colors } = useAppTheme();
+  const theme = useAppTheme();
+  const colors = { ...theme.colors, ...controlSetupColors };
   const hasSample = state.reading && state.sample !== null;
-  const canLearn = hasSample && state.calibrating;
-  const canSelectPhysical = hasSample && state.calibrated && !state.calibrating;
+  const configurationReady = hasSample && state.sample?.configurationReady === true;
+  const canLearn = configurationReady && state.calibrating;
+  const canSelectPhysical = configurationReady && state.calibrated && !state.calibrating;
   const starting = state.status === 'starting';
   const status = statusLabels[state.status] ?? state.status;
 
@@ -101,26 +106,18 @@ export function G20InputPanel({
 
   return (
     <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={[styles.safe, { backgroundColor: colors.background }]} testID="g20-input-panel">
-      <View style={[styles.header, { borderColor: colors.line }]}>
-        <Pressable accessibilityLabel="返回控制中心" accessibilityRole="button" onPress={onClose} style={styles.back} testID="g20-input-close">
-          <Ionicons color={colors.ink} name="arrow-back" size={22} />
-        </Pressable>
-        <Text accessibilityRole="header" style={[styles.title, { color: colors.ink }]}>遥控器</Text>
-        <Text accessibilityLiveRegion="polite" style={[styles.caption, { color: colors.muted }]} testID="g20-input-status">{status}</Text>
-      </View>
-
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.toolbar}>
-          <Text style={[styles.sectionTitle, { color: colors.ink }]}>G20 输入</Text>
-          {state.reading || starting
-            ? action('g20-input-stop', '停止读取', onStop)
-            : action('g20-input-start', '读取输入', onStart, !state.available)}
-        </View>
+      <ControlSetupPage title="遥控器输入" onBack={onClose} backTestID="g20-input-close" media={media} header={header}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} style={{ borderRadius: 22, borderWidth: .5, borderColor: colors.line, backgroundColor: colors.surface }}>
         {state.message ? <Text accessibilityLiveRegion="polite" style={[styles.caption, { color: colors.muted }]} testID="g20-input-message">{state.message}</Text> : null}
 
         <View style={styles.sourceRow} testID="g20-input-sources">
+          <Text accessibilityLiveRegion="polite" style={[styles.caption, { color: colors.muted }]} testID="g20-input-status">{status}</Text>
           {action('g20-source-touch', '触屏摇杆', () => onSourceChange('touch'), false, source === 'touch')}
           {action('g20-source-physical', '实体摇杆', () => onSourceChange('physical'), !canSelectPhysical, source === 'physical' && canSelectPhysical)}
+          <View style={{ flex: 1 }} />
+          {state.reading || starting
+            ? action('g20-input-stop', '停止读取', onStop)
+            : action('g20-input-start', '读取输入', onStart, !state.available)}
         </View>
 
         <View style={styles.metrics} testID="g20-input-vectors">
@@ -130,14 +127,23 @@ export function G20InputPanel({
           </View>)}
         </View>
 
+        <Text style={[styles.sectionTitle, { color: colors.ink }]}>原始通道</Text>
+        <View style={styles.channels} testID="g20-input-channels">
+          {Array.from({ length: 16 }, (_, channel) => <View key={channel} style={[styles.channel, { backgroundColor: colors.surface, borderColor: colors.line }]}>
+            <Text style={[styles.caption, { color: colors.muted }]}>CH{channel + 1}</Text>
+            <Text style={[styles.value, { color: colors.ink }]} testID={`g20-channel-${channel + 1}`}>{rawValue(hasSample ? state.sample?.channels[channel] : undefined)}</Text>
+          </View>)}
+        </View>
+
         <View style={styles.sectionHeader}>
           <Text style={[styles.sectionTitle, { color: colors.ink }]}>输入校验</Text>
           {action('g20-calibration-begin', state.calibrating ? '重新开始' : state.calibrated ? '重新校验' : '开始校验', onBeginCalibration, !hasSample)}
-          {state.calibrating ? action('g20-calibration-finish', '完成校验', onFinishCalibration, !hasSample || !state.calibrated) : null}
+          {state.calibrating ? action('g20-calibration-finish', '完成校验', onFinishCalibration, !configurationReady || !state.calibrated) : null}
           {action('g20-calibration-clear', '清除', onClearCalibration, !state.calibrating && !state.calibrated)}
         </View>
         <Text style={[styles.caption, { color: colors.muted }]} testID="g20-calibration-instruction">
-          {state.calibrating ? '按住当前项后记录，全部松开后完成。校验期间 App 不发送动作。' : '先断开机器人接收机，松开所有摇杆和按键后开始。'}
+          {state.calibrating ? '按住当前项后记录，全部松开后完成。校验期间 App 不发送动作。' : state.reading && !configurationReady
+            ? '校验会读取配置，遥控器可能发出提示音。' : '先断开机器人接收机，松开所有摇杆和按键后开始。'}
         </Text>
         <View style={styles.list}>
           {axes.map(axis => <View key={axis.id} style={[styles.row, { borderColor: colors.line }]} testID={`g20-axis-${axis.id}`}>
@@ -161,25 +167,15 @@ export function G20InputPanel({
           </View>)}
         </View>
 
-        <Text style={[styles.sectionTitle, { color: colors.ink }]}>原始通道</Text>
-        <View style={styles.channels} testID="g20-input-channels">
-          {Array.from({ length: 16 }, (_, channel) => <View key={channel} style={[styles.channel, { backgroundColor: colors.surface, borderColor: colors.line }]}>
-            <Text style={[styles.caption, { color: colors.muted }]}>CH{channel + 1}</Text>
-            <Text style={[styles.value, { color: colors.ink }]} testID={`g20-channel-${channel + 1}`}>{rawValue(hasSample ? state.sample?.channels[channel] : undefined)}</Text>
-          </View>)}
-        </View>
       </ScrollView>
+      </ControlSetupPage>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  header: { alignItems: 'center', borderBottomWidth: 0.5, flexDirection: 'row', gap: 12, minHeight: 60, paddingHorizontal: 16 },
-  back: { alignItems: 'center', height: 44, justifyContent: 'center', width: 44 },
-  title: { ...typography.compactTitle, flex: 1 },
-  content: { alignSelf: 'center', gap: 12, maxWidth: 960, padding: 20, paddingBottom: 32, width: '100%' },
-  toolbar: { alignItems: 'center', flexDirection: 'row', gap: 12 },
+  content: { alignSelf: 'center', gap: 12, maxWidth: 1100, padding: 16, paddingBottom: 24, width: '100%' },
   sectionTitle: { ...typography.cardTitle, flexGrow: 1 },
   caption: { ...typography.caption },
   body: { ...typography.body },
@@ -187,12 +183,12 @@ const styles = StyleSheet.create({
   buttonText: { ...typography.body, fontWeight: '500' },
   sourceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  metric: { borderRadius: 12, borderWidth: 0.5, flexBasis: 130, flexGrow: 1, gap: 4, padding: 12 },
-  value: { ...typography.body, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  metric: { borderRadius: 12, borderWidth: 0.5, flexBasis: 130, flexGrow: 1, gap: 4, padding: 10 },
+  value: { ...typography.body, fontSize: 17, lineHeight: 24, fontWeight: '500', fontVariant: ['tabular-nums'] },
   sectionHeader: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
   list: { gap: 0 },
   row: { alignItems: 'center', borderBottomWidth: 0.5, flexDirection: 'row', gap: 12, minHeight: 64, paddingVertical: 8 },
   rowCopy: { flex: 1, gap: 2, minWidth: 0 },
   channels: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  channel: { borderRadius: 10, borderWidth: 0.5, flexBasis: 84, flexGrow: 1, gap: 4, padding: 10 },
+  channel: { borderRadius: 10, borderWidth: 0.5, flexBasis: '11%', minWidth: 64, flexGrow: 1, gap: 4, padding: 8 },
 });

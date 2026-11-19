@@ -17,6 +17,7 @@ const transpiledCore = ts.transpileModule(coreSource, {
 }).outputText;
 const coreModuleUrl = `data:text/javascript;base64,${Buffer.from(transpiledCore).toString('base64')}`;
 const core = await import(coreModuleUrl);
+const cleanupTestTimeoutMs = 150;
 const journalSource = await readFile(new URL('../src/services/profileAvatarJournalCore.ts', import.meta.url), 'utf8');
 const journalCode = ts.transpileModule(journalSource, {
   compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
@@ -57,7 +58,7 @@ transpiledService = transpiledService
   .replace("from './supabaseClient'", `from '${clientModuleUrl}'`)
   .replace("from './authSessionOperation'", `from '${coordinatorModuleUrl}'`)
   .replace('const PROFILE_EDIT_TIMEOUT_MS = 20_000;', 'const PROFILE_EDIT_TIMEOUT_MS = 15;')
-  .replace('const PROFILE_AVATAR_CLEANUP_TIMEOUT_MS = 3_000;', 'const PROFILE_AVATAR_CLEANUP_TIMEOUT_MS = 15;');
+  .replace('const PROFILE_AVATAR_CLEANUP_TIMEOUT_MS = 3_000;', `const PROFILE_AVATAR_CLEANUP_TIMEOUT_MS = ${cleanupTestTimeoutMs};`);
 const profileEditing = await import(
   `data:text/javascript;base64,${Buffer.from(transpiledService).toString('base64')}`
 );
@@ -1321,7 +1322,7 @@ test('cleanup retry shares the original time budget and starts no DELETE after i
       currentAvatar: previous,
       rpcResult: { data: profile({ avatar_url: null }), error: null },
       removeResults: [() => {
-        clock += 100;
+        clock += cleanupTestTimeoutMs + 1;
         return { data: null, error: { message: 'Service unavailable', statusCode: '503' } };
       }],
     });

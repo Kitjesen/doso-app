@@ -13,6 +13,7 @@ assert.match(indexSource, /const useDesignQa = __DEV__\s*&&/, '所有验收入�
 assert.match(indexSource, /Platform\.OS === 'web'[\s\S]*isDesignQaRequested\(webDesignQaSearch\)/, 'Web 入口必须同时要求 Web 平台与显式 query');
 assert.match(indexSource, /Platform\.OS !== 'web'[\s\S]*EXPO_PUBLIC_DESIGN_QA === '1'[\s\S]*EXPO_PUBLIC_DESIGN_QA_STAGE/, '原生验收入口必须同时要求非 Web、显式开关与页面 ID');
 assert.match(indexSource, /EXPO_PUBLIC_DESIGN_QA_BROWSE === '1' \? '&qa-browse=1' : ''/, '原生交互浏览必须另有显式开关');
+assert.match(indexSource, /EXPO_PUBLIC_DESIGN_QA_EXTRA === 'joint-status-sample' \? '&qa-extra=joint-status&qa-fixture=joints' : ''/, '原生关节夹具必须显式限定在离线验收入口');
 assert.match(indexSource, /isDesignQaRequested\(webDesignQaSearch\)/, 'Web 入口必须由 URL query 明确启用');
 assert.match(requestSource, /get\('design-qa'\)\s*===\s*'1'/, '只接受 design-qa=1');
 
@@ -44,16 +45,15 @@ for (const stage of stages) {
   assert.match(rootSource, new RegExp(`case '${stage}'`), `${stage} 未接入渲染分支`);
 }
 
-for (const disclosure of ['设计验收预览', '不连接真实后端', '不发送邮件', '不修改账号', '不发送机器人命令']) {
-  assert.match(rootSource, new RegExp(disclosure), `缺少持续风险标识：${disclosure}`);
-}
+assert.match(rootSource, /document.title = 'DOSO 界面预览'/, '浏览器标题继续标识隔离预览');
+assert.doesNotMatch(rootSource, /testID="design-qa-disclosure"/, '用户要求移除黄色预览条');
 
 assert.doesNotMatch(rootSource, /from ['"]\.\.\/services\//, '验收根组件不得导入真实服务');
 assert.doesNotMatch(rootSource, /<MfaSetupScreen/, 'MFA 验收不得挂载会触发真实 enrollment 的组件');
 assert.match(rootSource, /example\.invalid/, '验收邮箱必须使用保留的无效域名，避免看起来像真实账户');
 assert.match(rootSource, /MFA|双重验证/, 'MFA 不可用壳必须明确存在');
-assert.match(rootSource, /canRecall=\{false\}/, '首页验收壳必须让召回保持禁用');
-assert.match(rootSource, /const DESIGN_QA_REFERENCE_DATE = new Date\(2026, 7, 31, 12\)/, '验收日期必须固定，避免每日证据漂移');
+assert.doesNotMatch(rootSource.match(/<HomeScreen\b[\s\S]*?\n\s*\/>/)?.[0] ?? '', /\bonRecall=/, '预览首页不得连接召回回调');
+assert.match(rootSource, /const DESIGN_QA_REFERENCE_DATE = new Date\(2026, 10, 11, 14, 32\)/, '验收日期必须固定，避免每日证据漂移');
 const rootAst = ts.createSourceFile('DesignQaRoot.tsx', rootSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const headers = [];
 function collectHeaders(node) {
@@ -71,15 +71,16 @@ assert.match(rootSource, /<TasksScreen[\s\S]*referenceDate=\{DESIGN_QA_REFERENCE
 assert.match(rootSource, /batteryPercent=\{null\}/, '首页验收壳不得伪造可信电量');
 assert.match(rootSource, /<MapScreen[\s\S]*controlAvailable=\{false\}[\s\S]*executorAvailable=\{false\}[\s\S]*onStartRoute=\{noop\}/, '路线验收壳必须保持真实执行能力关闭');
 assert.match(rootSource, /<TasksScreen[\s\S]*controlAvailable=\{false\}[\s\S]*executorAvailable=\{false\}[\s\S]*onStartTask=\{noop\}/, '任务验收壳必须保持真实执行能力关闭');
-assert.match(rootSource, /previewMode=\{!browsing && state !== 'trusted-empty'\}/, '截图可显示明确示例，交互浏览默认保持可信遥测空态');
+assert.match(rootSource, /previewMode=\{!browsing && state !== 'trusted-empty' && state !== 'empty'\}/, '交互浏览和空态截图不得展示示例遥测');
 assert.match(rootSource, /params.get\('qa-browse'\) === '1'/, '交互浏览需要显式开关');
 assert.match(rootSource, /if \(!browsing\) return;[\s\S]*setSelectedStage\(stage\)/, '截图模式不能被点击改变页面');
 assert.match(rootSource, /onChange=\{tab => onNavigate\(tabStages\[tab\]\)\}/, '底部导航需要接通浏览跳转');
-assert.match(rootSource, /value=\{browsing && !hideDisclosure \? theme : null\}/, '主题覆盖仅限可见交互测试栏，隐藏捕获栏时跟随系统主题');
+assert.match(rootSource, /ThemePreferenceContext\.Provider value=\{theme\}/, '验收画面应使用所选主题');
 assert.match(rootSource, /diagnosticsDeviceClass="physical"/, '控制页验收壳必须使用真实硬件不可用态，不能启用诊断模拟器');
 assert.match(rootSource, /canUseManualControl=\{false\}[\s\S]*canUseRouteMode=\{false\}[\s\S]*canUseTaskMode=\{false\}/, '控制页三种执行能力必须全部关闭');
 assert.match(rootSource, /canOpenFirmwareUpdate=\{false\}[\s\S]*canOpenProvisioning=\{false\}/, '个人页配网与固件执行能力必须关闭');
-assert.match(rootSource, /serialNumber="待绑定"/, '个人页不得伪造真实设备序列号');
+assert.match(rootSource, /deviceId="待绑定"/, '个人页应展示未绑定的设备身份');
+assert.match(rootSource, /robotVersion="待同步"/, '个人页应展示尚未同步的机器人版本');
 assert.match(rootSource, /<BindDeviceScreen[\s\S]*onBind=\{noop\}/, '绑定页验收必须使用无副作用回调');
 assert.doesNotMatch(rootSource, /BleDiscoveryScreen/, 'BLE 验收不得静态加载会初始化原生扫描模块的页面');
 assert.match(rootSource, /不会请求附近设备权限或启动扫描/, 'BLE 不可用壳必须说明权限和扫描均未启动');
@@ -92,7 +93,6 @@ assert.match(rootSource, /不会注册终端、发送心跳或读取真实登录
 assert.match(requestSource, /allowedStates/, 'qa-state 必须使用有限白名单');
 assert.doesNotMatch(requestSource, /'auth-forgot-password': \[[^\]]*'sent'/, '找回密码不得保留真实产品不可达的 sent 预览状态');
 assert.doesNotMatch(rootSource, /sent=\{state === 'sent'\}/, '验收根组件不得向找回密码页注入不可达 sent 状态');
-assert.match(rootSource, /testID="design-qa-disclosure"/, '截图工具必须能稳定隐藏持续风险标识，而不是依赖脆弱的文本遍历');
 assert.match(rootSource, /testID="design-qa-preview"/, '截图工具必须等待显式预览根节点');
 assert.match(rootSource, /<View\s+accessible\s+accessibilityLabel=\{`design-qa-preview:/, '原生预览根节点必须显式加入 Android 无障碍树');
 assert.match(rootSource, /importantForAccessibility="yes"/, '原生预览就绪标记必须声明 Android 无障碍优先级');

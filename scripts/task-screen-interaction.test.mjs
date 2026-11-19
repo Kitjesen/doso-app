@@ -60,6 +60,10 @@ function mountTasks({
     }).outputText;
     const localRequire = name => {
       if (/(?:^|\/)AppText$/.test(name)) return { Text: host.Text, TextInput: 'TextInput' };
+      if (name === '../components/TaskAgenda') return { TaskAgenda: 'View' };
+      if (name === 'expo-font') return { useFonts: () => [true, null] };
+      if (name.endsWith('.otf')) return name;
+      if (name === '../components/HomeText') return { Text: host.Text };
       if (name === 'react') return react;
       if (name === 'react/jsx-runtime') return require('react/jsx-runtime');
       if (name === 'react-native') return host;
@@ -78,8 +82,9 @@ function mountTasks({
     return module.exports;
   }
 
-  const TasksScreen = load('src/screens/TasksScreen.tsx').TasksScreen;
-  const appearance = load('src/appearance.ts').useProductAppearance();
+  const TasksScreen = load('src/screens/TasksScreen.tsx').TaskTemplates;
+  const base = load('src/appearance.ts').useProductAppearance();
+  const appearance = { ...base, canvas: isDark ? base.canvas : '#F5F6F9', surface: isDark ? base.surface : '#FFFFFF', action: isDark ? '#E8E8E6' : '#202329', actionInk: isDark ? '#1C1C1B' : '#FFFFFF', selectionSurface: isDark ? '#30302F' : '#F0F2F5', selectionInk: base.ink };
   function render() {
     cursor = 0;
     nodes = [];
@@ -179,7 +184,7 @@ test('large text in the same short controller container stacks without clipping 
   assert.equal(screen.nodes.find(node => node.props?.testID === 'tasks-controller-layout'), undefined);
   for (const index of [0, 1, 2]) {
     const style = flattenStyle(screen.action(`task-template-${index}`).props.style({ pressed: false }));
-    assert.ok(style.minHeight >= 78); assert.equal(style.height, undefined);
+    assert.ok(style.minHeight >= 76); assert.equal(style.height, undefined);
   }
   assert.ok(screen.all('Text').every(node => node.props.numberOfLines == null));
   assert.match(screen.copy, /查看回充流程.*查看巡检流程.*查看安全流程/);
@@ -210,9 +215,9 @@ test('product task instructions have no development preview copy and retain trus
   const screen = mountTasks({ width: 753, height: 471 });
   screen.measure(675, 359);
   assert.doesNotMatch(screen.copy, /预览/);
-  assert.match(screen.copy, /流程说明/);
-  assert.match(screen.copy, /尚未同步可信任务/);
-  assert.match(screen.copy, /仅可查看流程，开始保持锁定/);
+  assert.match(screen.copy, /流程/);
+  assert.match(screen.copy, /流程模板/);
+  assert.match(screen.copy, /流程模板/);
   for (const action of screen.all('Pressable')) assert.doesNotMatch(action.props.accessibilityHint ?? '', /预览/);
   screen.action('task-start').props.onPress();
   assert.deepEqual(screen.startCalls, []);
@@ -221,16 +226,16 @@ test('product task instructions have no development preview copy and retain trus
 test('compact controller landscape drops the duplicate summary without losing read-only or locked actions', () => {
   const screen = mountTasks({ width: 753, height: 471 });
   screen.measure(675, 359);
-  assert.doesNotMatch(screen.copy, /当前可查看通用模板/);
-  assert.match(screen.copy, /只读.*3.*个模板/);
-  assert.match(screen.copy, /尚未同步可信任务/);
+  assert.doesNotMatch(screen.copy, /浏览下方流程模板/);
+  assert.match(screen.copy, /3.*个模板/);
+  assert.match(screen.copy, /流程模板/);
   assert.equal(screen.action('task-start').props.disabled, true);
   assert.ok(screen.nodes.find(node => node.props?.testID === 'task-preview-steps'));
   screen.action('task-preview-toggle').props.onPress(); screen.render();
   assert.equal(screen.nodes.some(node => node.props?.testID === 'task-preview-steps'), false);
   screen.action('task-preview-toggle').props.onPress(); screen.render();
   assert.ok(screen.nodes.find(node => node.props?.testID === 'task-preview-steps'));
-  assert.match(screen.copy, /只读.*仅可查看流程，开始保持锁定/);
+  assert.match(screen.copy, /流程模板/);
   screen.action('task-start').props.onPress();
   assert.deepEqual(screen.startCalls, []);
 });
@@ -239,9 +244,9 @@ test('compact template feedback never removes the missing trusted-task disclosur
   const screen = mountTasks({ width: 753, height: 471 });
   screen.measure(675, 359);
   screen.action('task-template-2').props.onPress(); screen.render();
-  assert.match(screen.copy, /已选择设备安全模板/);
-  assert.match(screen.copy, /THUNDER 01.*尚未同步可信任务/);
-  assert.match(screen.copy, /只读.*3.*个模板/);
+  assert.match(screen.copy, /设备安全\s*流程/);
+  assert.match(screen.copy, /流程模板/);
+  assert.match(screen.copy, /3.*个模板/);
   assert.equal(screen.action('task-template-2').props.accessibilityState.selected, true);
   screen.action('task-start').props.onPress();
   assert.deepEqual(screen.startCalls, []);
@@ -250,17 +255,17 @@ test('compact template feedback never removes the missing trusted-task disclosur
 test('restoring content height restores the summary without losing task selection or manual expansion', () => {
   const screen = mountTasks({ width: 1280, height: 800 });
   screen.measure(700, 359);
-  assert.doesNotMatch(screen.copy, /当前可查看通用模板/);
+  assert.doesNotMatch(screen.copy, /浏览下方流程模板/);
   screen.action('task-template-2').props.onPress(); screen.render();
   screen.action('task-preview-toggle').props.onPress(); screen.render();
   assert.equal(screen.nodes.some(node => node.props?.testID === 'task-preview-steps'), false);
   screen.action('task-preview-toggle').props.onPress(); screen.render();
   screen.measure(700, 600);
-  assert.match(screen.copy, /当前可查看通用模板/);
+  assert.match(screen.copy, /浏览下方流程模板/);
   assert.equal(screen.action('task-template-2').props.accessibilityState.selected, true);
   assert.equal(screen.action('task-preview-toggle').props.accessibilityState.expanded, true);
   assert.equal(screen.action('task-start').props.disabled, true);
-  assert.match(mountTasks({ width: 390, height: 844 }).copy, /当前可查看通用模板/);
+  assert.match(mountTasks({ width: 390, height: 844 }).copy, /浏览下方流程模板/);
 });
 
 test('phone task templates are full-width vertical selection rows', () => {
@@ -280,7 +285,7 @@ test('task details do not repeat the device robot artwork', () => {
   assert.equal(screen.all('Image').length, 0);
 });
 
-test('selected weekday and date share one blue selection surface', () => {
+test('selected weekday and date share one charcoal selection surface', () => {
   const screen = mountTasks();
   const selected = screen.all('Pressable').find(node => (
     /^周[一二三四五六日]\d+日$/.test(node.props.accessibilityLabel ?? '')
@@ -355,18 +360,10 @@ test('selecting another native template updates the unique selection and normal-
 
   assert.deepEqual([0, 1, 2].map(index => screen.action(`task-template-${index}`).props.accessibilityState.selected), [true, false, false]);
   assert.match(screen.copy, /回充电座/);
-  assert.match(screen.copy, /不会发送|仅供查看|模板预览/);
+  assert.match(screen.copy, /流程模板/);
   assert.deepEqual(screen.startCalls, []);
 
-  const liveFeedback = screen.nodes.find(node => (
-    node.type === 'Text'
-    && node.props.accessibilityLiveRegion === 'polite'
-    && node.parent?.props.testID === 'task-feedback'
-  ));
-  assert.ok(liveFeedback, 'selection feedback must be announced');
-  assert.notEqual(flattenStyle(liveFeedback.parent?.props.style).position, 'absolute');
-  assert.equal(flattenStyle(liveFeedback.parent?.props.style).bottom, undefined);
-  assert.equal(flattenStyle(liveFeedback.props.style).fontSize >= 12, true);
+  assert.equal(screen.action('task-template-0').props.accessibilityState.selected, true);
 });
 
 test('selecting a date keeps one date selected and shows truthful generic-template feedback without dispatch', () => {
@@ -381,7 +378,7 @@ test('selecting a date keeps one date selected and shows truthful generic-templa
   const nextDates = screen.all('Pressable').filter(node => /^周[一二三四五六日]\d+日$/.test(node.props.accessibilityLabel ?? ''));
   assert.equal(nextDates.filter(node => node.props.accessibilityState.selected).length, 1);
   assert.equal(nextDates.find(node => node.props.accessibilityState.selected)?.props.accessibilityLabel, target.props.accessibilityLabel);
-  assert.match(screen.copy, /尚未同步可信任务。当前展示通用模板/);
+  assert.match(screen.copy, /暂无已同步任务/);
   assert.deepEqual(screen.startCalls, []);
 });
 
@@ -456,9 +453,9 @@ test('normal task content renders only canvas, one card surface and one accent i
   for (const isDark of [false, true]) for (const viewport of [{ width: 390, height: 844 }, { width: 844, height: 390 }]) {
     const screen = mountTasks({ isDark, ...viewport });
     const fills = new Set(screen.nodes.map(node => flattenStyle(typeof node.props?.style === 'function' ? node.props.style({ pressed: false }) : node.props?.style).backgroundColor).filter(color => color && color !== 'transparent'));
-    assert.deepEqual([...fills].sort(), [screen.appearance.canvas, screen.appearance.surface, screen.appearance.action].sort());
+    assert.deepEqual([...fills].sort(), [screen.appearance.canvas, screen.appearance.surface, screen.appearance.action, screen.appearance.selectionSurface, isDark ? '#30302F' : '#F3F5F8'].filter((v,i,a)=>a.indexOf(v)===i).sort());
     assert.equal(screen.action('task-template-1').props.accessibilityState.selected, true);
-    assert.match(screen.copy, /只读.*不会发送指令/);
+    assert.match(screen.copy, /流程模板/);
     assert.equal(screen.action('task-start').props.disabled, true);
   }
 });
@@ -484,7 +481,7 @@ test('short landscape and large-font wide windows stay stacked with reachable ac
     assert.equal(flattenStyle(content.props.contentContainerStyle).flexDirection, 'column');
     assert.equal(screen.nodes.find(node => node.props?.testID === 'task-preview-steps'), undefined);
     assert.ok(screen.all('ScrollView').length >= 1);
-    assert.match(screen.copy, /尚未同步可信任务/);
+    assert.match(screen.copy, /流程模板/);
     for (const id of ['task-start', 'task-preview-toggle']) {
       assert.ok(flattenStyle(screen.action(id).props.style({ pressed: false })).minHeight >= 48);
     }

@@ -70,7 +70,11 @@ jobs:
           done
           node --experimental-strip-types --test \
             scripts/brainstem-imu.test.mjs \
-            scripts/joystick-input.test.mjs
+            scripts/joystick-input.test.mjs \
+            scripts/depth-snapshot-interaction.test.mjs \
+            scripts/video-binding.test.mjs \
+            scripts/video-viewer-screen.test.mjs \
+            scripts/direct-robot-connection-wiring.test.mjs
           node --test \
             scripts/control-joystick.test.mjs \
             scripts/control-slider.test.mjs \

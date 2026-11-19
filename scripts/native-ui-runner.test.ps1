@@ -136,7 +136,7 @@ $AllowedMarkerIds = [System.Collections.Generic.HashSet[string]]::new([StringCom
     'auth-entry-header', 'login-intro', 'register-intro', 'login-form', 'register-form',
     'login-email', 'login-password', 'login-submit', 'login-register', 'register-username',
     'register-email', 'register-password', 'register-submit', 'register-login', 'font-loading',
-    'app-font-misans', 'app-font-system-fallback', 'design-qa-disclosure', 'design-qa-preview',
+    'app-font-system', 'app-font-misans', 'app-font-system-fallback', 'design-qa-disclosure', 'design-qa-preview',
     'home-device-card', 'home-control', 'main-navigation'
 ) | ForEach-Object { [void] $AllowedMarkerIds.Add($_) }
 $AllowedForeignNodeCountKeys = @(

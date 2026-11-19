@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const control = await readFile(new URL('../src/screens/ControlScreen.tsx', import.meta.url), 'utf8');
+const referenceUi = await readFile(new URL('../src/components/ControlReferenceUi.tsx', import.meta.url), 'utf8');
 const controlOperations = await readFile(new URL('../src/features/control/controlOperations.ts', import.meta.url), 'utf8');
 const app = await readFile(new URL('../App.tsx', import.meta.url), 'utf8');
 
@@ -15,9 +16,9 @@ for (const text of [
   "axis: 'x', label: '转向'",
   'allowInteractionPreview = false',
   'previewControlsEnabled = __DEV__ && allowInteractionPreview && appActive && !leaving',
-  'disabled={!controlsEnabled || selectedInputSource !== \'touch\'}',
+  'disabled={joystickDisabled}',
   'showLabels={true}',
-  'onChange: productionInput || developmentInput ? handleDrive : ignoreLocalInput',
+  'onChange: offlinePreview ? ignoreLocalInput : productionInput || developmentInput ? handleDrive : ignoreLocalInput',
   "if (state !== 'active')",
   'setLeaving(true)',
   'testID="control-back"',
@@ -32,11 +33,12 @@ for (const text of [
   'testID="control-route-status"',
   'testID="control-recall"',
   'testID="control-telemetry"',
-  'testID="control-open-diagnostics"',
   'onOpenJointStatus',
   'testID="control-terrain-mode"',
-  '模式切换通道未接入',
+  '暂无可用模式',
 ]) assert.ok(control.includes(text), text);
+assert.ok(referenceUi.includes("link('control-open-diagnostics', '电机诊断', p.onDiagnostics)"));
+assert.match(control, /onDiagnostics: onOpenJointStatus \|\| onOpenConnectionDiagnostics/);
 for (const text of ['平地模式', '楼梯模式', '高台模式']) assert.ok(controlOperations.includes(text), text);
 
 assert.ok(app.includes("allowInteractionPreview={controlTarget !== 'direct' && __DEV__}"));

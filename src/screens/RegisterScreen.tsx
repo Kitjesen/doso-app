@@ -62,7 +62,7 @@ export function RegisterScreen({ onRegister, onBackToLogin, onOpenDataPrivacy, l
     catch (caught) { next.username = caught instanceof Error ? caught.message : '请输入有效的用户名'; }
     if (!normalizedEmail) next.email = '请输入邮箱地址';
     else if (!EMAIL_PATTERN.test(normalizedEmail)) next.email = '请输入有效的邮箱地址';
-    if (passwordChecks.some(check => !check.met)) next.password = '密码至少 10 位，需包含大写字母、小写字母和数字';
+    if (passwordChecks.some(check => !check.met)) next.password = '密码至少 8 位，需包含大写字母、小写字母和数字';
     setLocalErrors(next);
     setDismissedErrors({});
     setRequestError(null);
@@ -96,7 +96,7 @@ export function RegisterScreen({ onRegister, onBackToLogin, onOpenDataPrivacy, l
         </View>
         <View style={styles.passwordGroup}>
           <AuthEntryField autoCapitalize="none" autoComplete="new-password" autoCorrect={false} editable={!busy} error={errors.password} icon="lock-closed-outline" inputRef={passwordRef} label="密码" onChangeText={value => { setPassword(value); clear('password'); }} onSubmitEditing={submit} placeholder="设置密码" returnKeyType="done" secure testID="register-password" textContentType="newPassword" value={password} visibilityTestID="register-password-visibility" />
-          <Text accessibilityLabel={passwordChecks.map(check => check.label + (check.met ? '，已满足' : '，未满足')).join('；')} style={[styles.passwordHint, { color: passwordChecks.every(check => check.met) ? palette.accent : palette.secondary }]}>至少10位，含大小写字母和数字</Text>
+          <Text accessibilityLabel={passwordChecks.map(check => check.label + (check.met ? '，已满足' : '，未满足')).join('；')} style={[styles.passwordHint, { color: passwordChecks.every(check => check.met) ? palette.accent : palette.secondary }]}>至少8位，含大小写字母和数字</Text>
         </View>
         <AuthEntryButton busy={busy} loading={busy} label={busy ? '正在创建账户…' : '创建账户'} onPress={submit} testID="register-submit" />
         {onOpenDataPrivacy ? <Pressable accessibilityHint="查看当前功能涉及的数据范围" accessibilityRole="button" accessibilityState={{ disabled: busy }} disabled={busy} onPress={() => { if (!busy && !requestInFlightRef.current) onOpenDataPrivacy(); }} style={{ alignItems: 'center', justifyContent: 'center', minHeight: 44, marginTop: 8 }} testID="register-data-privacy"><Text style={[styles.link, { color: palette.secondary }]}>数据与隐私</Text></Pressable> : null}

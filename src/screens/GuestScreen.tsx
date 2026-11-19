@@ -13,6 +13,7 @@ import { TasksScreen } from './TasksScreen';
 type Props = {
   onExitGuest: () => void;
   onOpenConnection: () => void;
+  onOpenLocalUse: () => void;
 };
 
 const titles: Record<MainTab, string> = { home: '首页', map: '地图', tasks: '任务', analysis: '分析', profile: '我的' };
@@ -20,7 +21,7 @@ const titles: Record<MainTab, string> = { home: '首页', map: '地图', tasks: 
 // execution is disabled both by real template policy and by the absent executor.
 const ignoreTaskStart = (_taskId: string) => {};
 
-export function GuestScreen({ onExitGuest, onOpenConnection }: Props) {
+export function GuestScreen({ onExitGuest, onOpenConnection, onOpenLocalUse }: Props) {
   const p = useProductAppearance();
   const { width, height } = useWindowDimensions();
   const landscape = width > height;
@@ -47,7 +48,13 @@ export function GuestScreen({ onExitGuest, onOpenConnection }: Props) {
     </View>
     <View style={styles.body}>
       {activeTab === 'home' ? <ScrollView contentContainerStyle={[styles.content, landscape && styles.homeColumns]} testID="guest-home">
-        <View style={[styles.primary, landscape && styles.primaryLandscape]}>{empty('link-outline', '尚未连接机器狗', '连接后读取设备状态')}</View>
+        <View style={[styles.primary, landscape && styles.primaryLandscape]}>
+          {empty('link-outline', '尚未连接机器狗', '连接后读取设备状态')}
+          <View style={styles.localUse}>
+            {button('本地使用', onOpenLocalUse, 'guest-open-local-use')}
+            <Text style={[styles.secondary, { color: p.secondary }]}>通过机器狗的本地授权连接和操作</Text>
+          </View>
+        </View>
         <View style={[styles.shortcuts, landscape && styles.shortcutsLandscape, { backgroundColor: p.surface }]}>
           {([
             { tab: 'tasks' as const, title: '任务模板', icon: 'reader-outline' as const },
@@ -90,6 +97,7 @@ const styles = StyleSheet.create({
   homeColumns: { flexDirection: 'row', alignItems: 'flex-start' },
   primary: { minWidth: 0, width: '100%' },
   primaryLandscape: { flex: 2, width: undefined },
+  localUse: { alignItems: 'center', gap: 8, paddingTop: 12 },
   empty: { alignItems: 'center', borderRadius: 24, gap: 12, padding: 24 },
   cardTitle: { fontSize: 20, lineHeight: 28, fontWeight: '600', textAlign: 'center' },
   secondary: { fontSize: 14, lineHeight: 22, textAlign: 'center' },

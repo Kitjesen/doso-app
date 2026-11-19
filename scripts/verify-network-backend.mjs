@@ -321,7 +321,7 @@ async function assertDeviceBindingEdgeFunction(instance, userId) {
 
   const claim = await invokeEdge(instance, 'device-binding', {
     action: 'claim',
-    serialNumber,
+    deviceId: device.id,
     code: bindingCode,
   });
   assert.equal(claim.response.status, 200, edgeFailure('device-binding claim', claim));
@@ -329,7 +329,7 @@ async function assertDeviceBindingEdgeFunction(instance, userId) {
 
   const repeatedClaim = await invokeEdge(instance, 'device-binding', {
     action: 'claim',
-    serialNumber,
+    deviceId: device.id,
     code: bindingCode,
   });
   assert.equal(repeatedClaim.response.status, 200, edgeFailure('device-binding idempotent retry', repeatedClaim));

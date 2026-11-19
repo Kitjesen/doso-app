@@ -38,9 +38,11 @@ export function diagnosticOrigin(value: string, allowLocalHttp = false) {
   return url.origin;
 }
 
-async function readJson(url: string, headers: Record<string, string>, options: {
-  fetchImpl?: typeof fetch; signal?: AbortSignal; timeoutMs?: number;
+export async function readJson(url: string, headers: Record<string, string>, options: {
+  fetchImpl?: typeof fetch; signal?: AbortSignal; timeoutMs?: number; method?: 'GET' | 'POST'; body?: string;
 }) {
+  const method = options.method ?? 'GET';
+  if (!['GET', 'POST'].includes(method) || method === 'GET' && options.body !== undefined) throw new ConnectionCheckError('config');
   const controller = new AbortController();
   let timedOut = false;
   const cancel = () => controller.abort();
@@ -55,8 +57,9 @@ async function readJson(url: string, headers: Record<string, string>, options: {
   try {
     return await Promise.race([aborted, (async () => {
       response = await (options.fetchImpl ?? fetch)(url, {
-        method: 'GET', headers, signal: controller.signal, redirect: 'error',
+        method, headers, signal: controller.signal, redirect: 'error',
         credentials: 'omit', cache: 'no-store',
+        ...(options.body === undefined ? {} : { body: options.body }),
       });
       if (response.redirected || (response.url && response.url !== url)) throw new ConnectionCheckError('invalid_response');
       if (response.status === 401 || response.status === 403) throw new ConnectionCheckError('unauthorized');

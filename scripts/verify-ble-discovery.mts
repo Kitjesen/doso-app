@@ -39,6 +39,7 @@ await check('name-prefix discovery accepts a real DOSO advertisement', () => {
     rssi: -48,
     serviceUUIDs: [],
     matchBasis: 'name_hint',
+    connectable: false,
   });
 });
 
@@ -73,7 +74,7 @@ await check('duplicate discoveries keep one candidate and the strongest observed
   }, {
     id: 'same-device', displayName: 'DOSO Thunder', rssi: -42, serviceUUIDs: ['B'], matchBasis: 'name_hint',
   }), {
-    id: 'same-device', displayName: 'DOSO Thunder', rssi: -42, serviceUUIDs: ['A', 'B'], matchBasis: 'name_hint',
+    id: 'same-device', displayName: 'DOSO Thunder', rssi: -42, serviceUUIDs: ['A', 'B'], matchBasis: 'name_hint', connectable: undefined,
   });
 });
 
@@ -224,7 +225,7 @@ await check('native wiring requests permission, scans, cleans up, and never writ
   assert.doesNotMatch(iosAdapter, /PermissionsAndroid|expo-location|enableBluetooth/);
   assert.match(fallbackAdapter, /supported:\s*false/);
 
-  for (const token of ['bleDiscoveryAdapter.scan', '蓝牙扫描与连接', '不会自动绑定或配网', '候选设备']) {
+  for (const token of ['bleDiscoveryAdapter.scan', '查找附近设备', '身份确认尚未接通', '候选设备']) {
     assert.match(screen, new RegExp(escapeRegex(token)), `screen missing ${token}`);
   }
   assert.match(screen, /scanPendingRef\.current/);
@@ -238,8 +239,8 @@ await check('native wiring requests permission, scans, cleans up, and never writ
   assert.match(screen, /应用进入后台，蓝牙扫描已停止/, 'the interruption reason is visible to the user');
   assert.match(screen, /accessibilityState=\{\{ busy: status === 'scanning' \}\}/, 'assistive technology receives the active scan state');
   assert.match(app, /import \{ BleDiscoveryScreen \} from '\.\/src\/screens\/BleDiscoveryScreen';/);
-  assert.match(app, /stage === 'ble-discovery'[\s\S]*?<BleDiscoveryScreen[\s\S]*?onBack=\{returnToDeviceSettings\}/);
-  assert.match(app, /onOpenBleDiscovery=\{\(\) => setStage\('ble-discovery'\)\}/);
+  assert.match(app, /stage === 'ble-discovery'[\s\S]*?<BleDiscoveryScreen[\s\S]*?onBack=\{returnFromBleDiscovery\}/);
+  assert.match(app, /onOpenBleDiscovery=\{\(\) => openBleDiscovery\('main'\)\}/);
   assert.match(app, /canOpenProvisioning=\{robotCapabilityReadiness\.provisioning\.available\}/);
   assert.match(profile, /title="附近 BLE 设备"/);
   // Connection is now explicit in the BLE screen, while this entry still only

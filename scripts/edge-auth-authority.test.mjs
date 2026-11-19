@@ -363,3 +363,4 @@ test('production authenticate wrapper rejects missing authorization before envir
   await assert.rejects(authenticate(new Request('https://fixture.invalid/functions/v1/account-sessions')),
     error => error?.status === 401 && error?.code === 'missing_authorization');
 });
+

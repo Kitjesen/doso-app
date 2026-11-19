@@ -89,3 +89,4 @@ test('Brainstem contract records authenticated remote actuator scope without gra
   assert.equal(disable?.scope, 'remote-mtls');
   assert.equal(getBrainstemIntegrationReadiness(readable).controlReady, false);
 });
+

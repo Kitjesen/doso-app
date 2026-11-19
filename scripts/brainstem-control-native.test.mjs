@@ -27,7 +27,7 @@ function run(command, args, options = {}) {
   return result.stdout;
 }
 
-test('native control session compiles and obeys the lease/ACK/deadman lifecycle using a local fake channel', async () => {
+test('native control session compiles and obeys the lease/ACK/deadman lifecycle using a local fake channel', async t => {
   const output = await mkdtemp(path.join(tmpdir(), 'doso-control-native-'));
   try {
     const classes = path.join(output, 'classes');
@@ -60,7 +60,10 @@ test('native control session compiles and obeys the lease/ACK/deadman lifecycle 
     run('java', ['-cp', compiler.join(path.delimiter), 'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler',
       '-no-stdlib', '-no-reflect', '-jvm-target', '17', '-classpath', classpath, '-d', classes,
       source('ControlSession.kt'), fixture('kotlin/expo/modules/brainstemgrpc/ControlSessionTest.kt')]);
-    assert.match(run('java', ['-cp', classpath, 'expo.modules.brainstemgrpc.ControlSessionTestKt']), /PASS: native lease/);
+    const sessionResult = run('java', ['-cp', classpath, 'expo.modules.brainstemgrpc.ControlSessionTestKt']);
+    assert.match(sessionResult, /PASS: native lease/);
+    assert.match(sessionResult, /PASS: successful ACK receive cooldown includes initial zero/);
+    t.diagnostic(sessionResult.trim());
 
     // Compile the real Expo bridge too, using the SDK and already-built/cached dependencies.
     const sdk = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
@@ -92,7 +95,8 @@ test('control channel requires explicit endpoint-approved KeyChain identity, sco
   assert.match(module, /\.useTransportSecurity\(\)/);
   assert.doesNotMatch(module, /overrideAuthority|hostnameVerifier|checkServerTrusted|FileOutputStream/);
   assert.match(module, /if \(lanDev\) builder\.usePlaintext\(\) else builder\.useTransportSecurity\(\)/);
-  assert.match(module, /packageName != "com\.doso\.robot\.qa"/);
+  assert.match(module, /if \(!isLocalControlBuild\(\)/);
+  assert.match(module, /packageName == "com\.doso\.robot\.dev"[\s\S]*?ApplicationInfo\.FLAG_DEBUGGABLE/);
   assert.match(module, /OnActivityEntersBackground[\s\S]*?retireControl\("background"\)/);
   assert.match(module, /registerReceiver\(receiver, IntentFilter\(action\), "android\.permission\.MANAGE_DEBUGGING"/);
   assert.match(module, /intent\.`package` != context\.packageName/);

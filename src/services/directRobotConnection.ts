@@ -1,4 +1,6 @@
 import type { BrainstemGrpcMotorState, BrainstemGrpcObservation, BrainstemGrpcProfile, RobotModeCapability } from './brainstemGrpc';
+// @ts-expect-error Node 24 type stripping requires explicit TypeScript extensions.
+import { recoveryModeFromProfile } from '../features/control/robotModeCapabilities.ts';
 import type { ControlJointState, ControlPolicyOption, ControlRuntimeState, ControlTerrainModeId, ControlTerrainModeOption } from '../features/control/controlOperations';
 
 const TERRAIN_MODE_OPTIONS: readonly ControlTerrainModeOption[] = [
@@ -40,7 +42,7 @@ function normalizedEndpoint(value: unknown): { host: string; port: number; trans
   if (endpoint.transport === 'lan-dev') {
     const parts = host.split('.').map(Number);
     if (endpoint.clientIdentityAlias !== undefined || !/^[0-9.]+$/.test(host) || parts.length !== 4 ||
-      !(parts[0] === 10 || parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31 || parts[0] === 192 && parts[1] === 168)) invalidSnapshot();
+      !(host === '127.0.0.1' || parts[0] === 10 || parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31 || parts[0] === 192 && parts[1] === 168)) invalidSnapshot();
   }
   return { host, port: endpoint.port, ...(endpoint.transport ? { transport: endpoint.transport } : {}) };
 }
@@ -138,12 +140,13 @@ export function profileOptions(profile: BrainstemGrpcProfile): readonly ControlP
     // Slot-enabled Brainstem prefixes descriptions with the configured slot key.
     const key = /^(flat|stairs|platform):/.exec(descriptions[index] ?? '')?.[1] ?? id;
     const terrainModeId = TERRAIN_MODE_OPTIONS.find(option => option.id === key)?.id;
-    return { id, label: descriptions[index] || id, ...(terrainModeId ? { terrainModeId } : {}) };
+    return { id, label: descriptions[index] || id, ...(terrainModeId ? { terrainModeId } : {}),
+      recovery: id.trim().toLowerCase() === 'recovery' || /^recovery:/i.test(descriptions[index] ?? '') };
   }).filter(option => {
-    if (!option.id || !option.label || seen.has(option.id)) return false;
+    if (!option.id || !option.label || option.recovery || seen.has(option.id)) return false;
     seen.add(option.id);
     return true;
-  });
+  }).map(({ recovery: _recovery, ...option }) => option);
 }
 
 export function currentPolicyFromProfile(profile: BrainstemGrpcProfile): ControlRuntimeState['currentPolicy'] {
@@ -174,6 +177,7 @@ function runtimeFromObservation(observation: BrainstemGrpcObservation, fresh: bo
     currentPolicy: profile && validProfile(profile) ? currentPolicyFromProfile(profile) : null,
     policyCatalogStatus: profile && validProfile(profile) ? 'synced' : 'unknown',
     policyOptions: policy,
+    recoveryMode: recoveryModeFromProfile(fresh ? profile : null),
     ...(observation.voltage ? { battery: { percent: null, voltageV: busVoltages.length ? Math.min(...busVoltages) : null, source: 'device' as const, updatedAt: observation.observedAt } } : {}),
     ...(observation.motors ? { joints: jointStatesFromMotors(observation.motors, observation.voltage?.values) } : {}),
     ...(terrain ? { terrainMode: { current: terrain.current, options: terrain.options, catalogStatus: 'synced' as const, source: 'device' as const, updatedAt: observation.observedAt } } : {}),
@@ -254,7 +258,7 @@ export function describeDirectRobotConnection(snapshot: DirectRobotConnectionSna
   return {
     endpointLabel,
     fresh,
-    summary: !snapshot ? '尚未读取设备状态' : fresh ? '状态已读取，设备归属未核验' : '状态已过期，请重新检查',
+    summary: !snapshot ? '尚未读取设备状态' : fresh ? '本地状态已更新' : '状态已过期，请重新检查',
     runtimeState: snapshot && fresh ? runtimeFromObservation(snapshot.observation, true) : {
       controlLink: 'unknown', controlAuthority: 'not-held', motorState: 'unknown', posture: 'unknown',
       currentPolicy: null, policyCatalogStatus: 'unknown', policyOptions: [],

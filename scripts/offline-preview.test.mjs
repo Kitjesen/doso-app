@@ -1,7 +1,35 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import vm from 'node:vm';
+import ts from 'typescript';
 import { readFileSync } from 'node:fs';
 const read = file => readFileSync(new URL('../' + file, import.meta.url), 'utf8');
+
+test('provisioning demonstration requires an explicit Web development request', () => {
+  const source = read('index.ts');
+  const ast = ts.createSourceFile('index.ts', source, ts.ScriptTarget.Latest, true);
+  let gate;
+  function visit(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(ast) === 'useProvisioningPreview') gate = node.initializer;
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  assert.ok(gate);
+  const expression = ts.transpileModule(`(${gate.getText(ast)})`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  for (const [development, platform, search, expected] of [
+    [true, 'web', '?provisioning-preview=1', true],
+    [false, 'web', '?provisioning-preview=1', false],
+    [true, 'android', '?provisioning-preview=1', false],
+    [true, 'web', '', false],
+    [true, 'web', '?provisioning-preview=0', false],
+  ]) {
+    assert.equal(vm.runInNewContext(expression, {
+      __DEV__: development, Platform: { OS: platform }, webDesignQaSearch: search, URLSearchParams,
+    }), expected);
+  }
+});
 
 test('preview entry opens the safe browse shell without production auth', () => {
   const entry = read('index.preview.ts');

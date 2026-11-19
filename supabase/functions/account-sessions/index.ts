@@ -92,6 +92,41 @@ Deno.serve((request) =>
       });
     }
 
+    if (action === "capture_login") {
+      const { data, error } = await db.rpc("capture_account_login", {
+        p_user_id: caller.user.id,
+        p_session_id: caller.sessionId,
+      });
+      if (error) throw error;
+      return json({ recorded: data === true });
+    }
+
+    if (action === "list_login_history") {
+      const { data, error } = await db.from("audit_logs")
+        .select("id,created_at,metadata")
+        .eq("action", "account.login")
+        .eq("resource_type", "account_login")
+        .eq("target_user_id", caller.user.id)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return json({
+        records: (data ?? []).map((row) => {
+          const metadata = row.metadata && typeof row.metadata === "object"
+            ? row.metadata as Record<string, unknown>
+            : {};
+          return {
+            id: row.id,
+            loggedInAt: typeof metadata.loginAt === "string" ? metadata.loginAt : row.created_at,
+            ipAddress: typeof metadata.loginIp === "string" && metadata.loginIp.length
+              ? metadata.loginIp
+              : null,
+            method: null,
+          };
+        }),
+      });
+    }
+
     if (action === "heartbeat") {
       const { data, error } = await userDb.rpc("heartbeat_current_terminal");
       if (error) throw error;

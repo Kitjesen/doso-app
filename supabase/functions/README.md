@@ -35,18 +35,44 @@ All mutations use `POST` with `Content-Type: application/json`.
 
 - `account-sessions`: `register`, `list`, `heartbeat`, `revoke_one`,
   `revoke_others`, `revoke_all`
-- `device-binding`: `claim`, `unbind`
+- `device-binding`: `claim` uses `{action:"claim",deviceId:"UUID v4",code:"..."}` and atomically assigns the account owner. `unbind` uses `{action:"unbind",deviceId:"UUID"}`. Device IDs are trimmed and normalized to lowercase. Installed App builds can continue sending `serialNumber`, which resolves to the same device ID before using the UUID claim transaction. Apply `20261104090000_claim_device_by_uuid.sql` before deploying this Edge function. Inventory serials remain available for existing records.
 - `admin-users`: `list_users`, `set_status`, `set_role`, `send_password_reset`,
   `global_signout`, `list_audit_logs`
 - `admin-devices`: `list_devices`, `create_inventory`, `rotate_binding_code`,
   `unbind`
 - `device-enrollment`: `begin`, `attest`, `complete`
+- `remote-state`: authenticated owner-only `GET ?deviceId=UUID` reads the
+  saved choice and current projection; `POST {deviceId,enabled,revision}`
+  changes that choice through a caller-RLS transaction. Reads never renew leases.
+- `remote-state-sync`: internal `POST` for the Rust Gateway's single automatic
+  sync loop. Uses the dedicated `apikey` named by `DOSO_REMOTE_SYNC_SECRET_NAME`
+  (default `remote-state-sync`) in platform `SUPABASE_SECRET_KEYS`, not a user
+  token or the Gateway management credential. Only this function disables the
+  platform JWT check; its handler authenticates before reading the body or
+  creating a privileged client. Each batch uses one RPC, at most 32 devices and
+  128 KiB. See [remote state contract](../../docs/production/DOSO_REMOTE_STATE_API.md).
+- `map-library`: authenticated `GET` reads the owner's latest 100 map versions;
+  `POST` supports `prepare-upload`, `upload-part`, `complete-upload`,
+  `cancel-upload`, and `download`. This is a local, undeployed catalog and OSS
+  capability implementation, not robot transfer dispatch. See
+  [the map API contract](../../docs/production/DOSO_MAP_LIBRARY_API.md) for
+  server-only OSS configuration, checksum semantics and remaining acceptance.
 - `account-email-worker`: internal `POST` only. Platform JWT verification is
   disabled so Cron can use an opaque named Supabase secret key on `apikey`;
   the function validates that named key before claiming one outbox row at a
   time. An absent body defaults to 10 messages. A present body must be exactly
   a JSON object with an integer `limit` from 1 through 25; malformed bodies
   return 400 before any claim.
+
+`admin-devices` mutations require an active administrator AAL2 session. Apply
+`20261104100000_create_device_inventory.sql` before publishing the handler.
+`create_inventory` uses `create_device_inventory`, `rotate_binding_code` uses
+`admin_rotate_device_claim`, and `unbind` uses `admin_unbind_device`. Each
+service-role-only RPC commits its mutation and success audit together. An audit
+failure rolls back the mutation. The database also verifies and locks the active
+administrator profile for the transaction. Inventory creation returns HTTP 201
+with the existing safe device fields, and a duplicate normalized serial returns
+HTTP 409 `serial_exists`. Rotation still returns the plaintext binding code once.
 
 Errors use `{ "error": { "code": "...", "message": "..." } }`. Passwords,
 access/refresh tokens, service keys, and binding-code digests are never returned

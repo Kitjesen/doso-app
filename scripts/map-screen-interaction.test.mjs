@@ -31,6 +31,7 @@ function mountMap({ width = 390, height = 844, fontScale = 1, isDark = false, co
   }, { get: (target, key) => target[key] ?? '#A1A9B5' });
   const react = {
     useMemo: factory => factory(),
+    useRef(initial) { const slot = cursor++; if (!(slot in slots)) slots[slot] = { current: initial }; return slots[slot]; },
     useState(initial) {
       const slot = cursor++;
       if (!(slot in slots)) slots[slot] = typeof initial === 'function' ? initial() : initial;
@@ -38,8 +39,9 @@ function mountMap({ width = 390, height = 844, fontScale = 1, isDark = false, co
     },
   };
   const host = {
-    Image: 'Image', Pressable: 'Pressable', ScrollView: 'ScrollView', Text: 'Text', View: 'View',
+    KeyboardAvoidingView: 'View', Platform: { OS: 'web' }, Modal: 'Modal', TextInput: 'TextInput', Image: 'Image', Pressable: 'Pressable', ScrollView: 'ScrollView', Text: 'Text', View: 'View',
     StyleSheet: { create: value => value, flatten: flattenStyle },
+    PanResponder: { create: handlers => ({ panHandlers: handlers }) },
     useWindowDimensions: () => ({ width, height, fontScale, scale: 1 }),
   };
   function load(relative) {
@@ -49,12 +51,21 @@ function mountMap({ width = 390, height = 844, fontScale = 1, isDark = false, co
       compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
     }).outputText;
     const localRequire = name => {
-      if (/(?:^|\/)AppText$/.test(name)) return { Text: host.Text, TextInput: 'TextInput' };
+      if (/(?:^|\/)(?:AppText|HomeText)$/.test(name)) return { Text: host.Text, TextInput: 'TextInput' };
       if (name === 'react') return react;
       if (name === 'react/jsx-runtime') return require('react/jsx-runtime');
       if (name === 'react-native') return host;
-      if (name === 'react-native-safe-area-context') return { useSafeAreaInsets: () => ({ top: 24, bottom: 24, left: 0, right: 0 }) };
-      if (name === '@expo/vector-icons') return { Ionicons: 'Ionicons' };
+      if (name === 'react-native-safe-area-context') return { SafeAreaView: 'SafeAreaView', useSafeAreaInsets: () => ({ top: 24, bottom: 24, left: 0, right: 0 }) };
+      if (name === '@expo/vector-icons') return { Feather: 'Feather', Ionicons: 'Ionicons' };
+      if (name === '../features/tasks/useTaskDraft') return { useTaskDraft() { const [draft, save] = react.useState(null); return { draft, save, loading: false, error: null, retry() {} }; } };
+      if (name === '../components/TrackSheet') return { TrackSheet: ({ map, summary, children }) => [map, summary, children] };
+      if (name === '../components/TaskEditor') return { TaskEditor: 'TaskEditor', makeTaskDraft: date => ({ name: '', route: '', checkpointCount: 1, checkpoint: 1, photo: false, pause: true, dwellSeconds: 10, date, time: '14:00', finish: 'wait' }) };
+      if (name === '../components/ProductHeader') return { ProductHeader: 'ProductHeader' };
+      if (name === '../components/RoutePreviewMap') return { RoutePreviewMap: 'RoutePreviewMap' };
+      if (name === '../components/ControlPanelMotion') return { ControlPanelMotion: 'View' };
+      if (name === '../features/routes/routePreview') return load('src/features/routes/routePreview.ts');
+      if (name === '../fonts/home') return { homeFont: {}, productType: { title: {}, section: {}, body: {}, caption: {}, button: {} } };
+      if (name === '../../assets/scene/route-campus.png') return 'route-campus';
       if (name === '../assets') return { images: { routeMapLarge: 'routeMapLarge', routeMapCompact: 'routeMapCompact' } };
       if (name === '../theme') return { useAppTheme: () => ({ colors, isDark }) };
       if (name === '../typography') return load('src/typography.ts');
@@ -77,6 +88,7 @@ function mountMap({ width = 390, height = 844, fontScale = 1, isDark = false, co
       if (Array.isArray(node)) return node.forEach(child => walk(child, parent));
       if (typeof node !== 'object') { nodes.push({ type: 'copy', value: String(node), parent }); return; }
       if (typeof node.type === 'function') return walk(node.type(node.props), parent);
+      if (node.type === 'Modal' && node.props.visible === false) return;
       const entry = { ...node, parent };
       nodes.push(entry);
       walk(node.props.children, entry);
@@ -84,6 +96,7 @@ function mountMap({ width = 390, height = 844, fontScale = 1, isDark = false, co
     walk(MapScreen({ ...props, blockedReason: '连接设备后检查控制权限', controlAvailable, executorAvailable, robotName: 'THUNDER 01', onStartRoute: value => startCalls.push(value) }));
   }
   render();
+  if (showExamples) { nodes.find(node => node.props?.testID === 'route-library').props.onPress(); render(); }
   return {
     action: id => nodes.find(node => node.type === 'Pressable' && node.props.testID === id),
     all: type => nodes.filter(node => node.type === type),
@@ -99,235 +112,110 @@ function mountMap({ width = 390, height = 844, fontScale = 1, isDark = false, co
   };
 }
 
-test('normal product map hides example galleries and commands without inventing saved routes', () => {
-  const screen = mountMap({ width: 753, height: 471, controlAvailable: true, executorAvailable: true, showExamples: false });
-  screen.layout(675, 359);
-  assert.match(screen.copy, /尚无已保存路线/);
-  assert.match(screen.copy, /设备地图与路线编辑器尚在接入中/);
-  assert.doesNotMatch(screen.copy, /界面示例|示例不可执行|预览/);
-  for (const id of ['route-library-示例路线', 'route-template-a', 'route-start', 'route-details-toggle']) assert.equal(screen.action(id), undefined);
-  assert.deepEqual(screen.startCalls, []);
 
-  const example = mountMap({ showExamples: true });
-  assert.ok(example.action('route-template-a'));
-  example.render({ showExamples: false });
-  assert.match(example.copy, /尚无已保存路线/);
-  assert.equal(example.action('route-start'), undefined, 'hiding examples must also hide a previously selected example');
+test('production empty state contains no examples or command and keeps connection action', () => {
+  const screen=mountMap({showExamples:false,controlAvailable:true,executorAvailable:true});
+  assert.match(screen.copy,/添加第一张点云地图/);
+  assert.doesNotMatch(screen.copy,/东侧巡检路线|示例路线|执行器|界面示例/);
+  assert.equal(screen.action('route-template-a'),undefined);
+  assert.equal(screen.action('route-start'),undefined);
+  let opened=0;
+  screen.render({onOpenNavigation:()=>opened++});
+  screen.action('map-open-navigation').props.onPress();
+  assert.equal(opened,1);
+  assert.deepEqual(screen.startCalls,[]);
 });
 
-test('a narrow route container inside a wide window stays readable in one scrolling column', () => {
-  const screen = mountMap({ width: 1280, height: 800 });
-  screen.layout(620, 620);
-  const content = flattenStyle(screen.all('ScrollView')[0].props.contentContainerStyle);
-  assert.notEqual(content.flexDirection, 'row');
-  assert.equal(screen.action('route-template-a').props.accessibilityState.selected, true);
-  screen.action('route-details-toggle').props.onPress();
-  screen.render();
-  assert.match(screen.copy, /这是界面示例/);
-  assert.deepEqual(screen.startCalls, []);
+test('selection, favorite filters and empty favorites never leave a hidden selected route',()=>{
+  const screen=mountMap();
+  screen.action('route-template-b').props.onPress();screen.render();
+  assert.equal(screen.all('RoutePreviewMap')[0].props.route.id,'b');
+  screen.action('route-filter-收藏').props.onPress();screen.render();
+  assert.equal(screen.all('RoutePreviewMap')[0].props.route.id,'a');
+  screen.action('route-favorite').props.onPress();screen.render();
+  assert.equal(screen.all('RoutePreviewMap')[0].props.route.id,'c');
+  screen.action('route-favorite').props.onPress();screen.render();
+  assert.equal(screen.all('RoutePreviewMap').length,0);
+  assert.equal(screen.action('route-view'),undefined);
+  assert.match(screen.copy,/暂无收藏路线/);
+  screen.action('route-filter-全部').props.onPress();screen.render();
+  assert.equal(screen.all('RoutePreviewMap')[0].props.route.id,'b');
+  assert.deepEqual(screen.startCalls,[]);
 });
 
-test('route columns follow measured width and height while retaining selection after resize', () => {
-  const screen = mountMap({ width: 1280, height: 800 });
-  screen.layout(1100, 640);
-  const contentStyle = () => flattenStyle(screen.all('ScrollView')[0].props.contentContainerStyle);
-  assert.equal(contentStyle().flexDirection, 'row');
-  screen.action('route-template-c').props.onPress();
-  screen.render();
-  screen.layout(1100, 440);
-  assert.notEqual(contentStyle().flexDirection, 'row', 'a short usable area falls back without shrinking text');
-  assert.equal(screen.action('route-template-c').props.accessibilityState.selected, true);
-  screen.layout(1100, 640);
-  assert.equal(contentStyle().flexDirection, 'row');
-  const columns = screen.all('View').filter(node => flattenStyle(node.props.style).width >= 320);
-  const widths = columns.map(node => flattenStyle(node.props.style).width);
-  assert.equal(widths.length, 2);
-  assert.equal(widths[0] >= 320 && widths[0] <= 360, true);
-  assert.equal(widths[1] >= 440, true);
-  assert.equal(widths[0] + widths[1] + contentStyle().gap + contentStyle().paddingHorizontal * 2, 1100);
-  assert.deepEqual(screen.startCalls, []);
+test('view and edit panels close, validate blank names, and apply only a local draft',()=>{
+  const screen=mountMap({controlAvailable:true,executorAvailable:true});
+  screen.action('route-view').props.onPress();screen.render();
+  assert.ok(screen.all('Modal').length);
+  screen.action('route-close').props.onPress();screen.render();
+  assert.equal(screen.all('Modal').length,0);
+  screen.action('route-sheet-edit').props.onPress();screen.render();
+  screen.all('TextInput')[0].props.onChangeText('  ');screen.render();
+  screen.action('route-save').props.onPress();screen.render();
+  assert.match(screen.copy,/请输入 1–24/);
+  screen.all('TextInput')[0].props.onChangeText('午后巡检');screen.render();
+  screen.action('route-save').props.onPress();screen.render();
+  assert.match(screen.copy,/午后巡检/);
+  assert.equal(screen.all('Modal').length,0);
+  screen.action('route-library').props.onPress();screen.render();
+  screen.action('route-new').props.onPress();screen.render();
+  screen.all('TextInput')[0].props.onChangeText('新路线');screen.render();
+  screen.action('route-save').props.onPress();screen.render();
+  screen.action('route-library').props.onPress();screen.render();
+  assert.ok(screen.action('route-template-draft-1'));
+  assert.equal(screen.all('RoutePreviewMap')[0].props.route.name,'新路线');
+  assert.deepEqual(screen.startCalls,[]);
+  screen.render({showExamples:false});
+  assert.equal(screen.all('RoutePreviewMap').length,0);
+  assert.doesNotMatch(screen.copy,/午后巡检|新路线/);
 });
 
-test('large text keeps even a wide route screen in a growing single column', () => {
-  for (const fontScale of [1.31, 1.5, 2]) {
-    const screen = mountMap({ width: 1280, height: 800, fontScale });
-    screen.layout(1100, 640);
-    assert.notEqual(flattenStyle(screen.all('ScrollView')[0].props.contentContainerStyle).flexDirection, 'row');
-    for (const id of ['route-filter-全部路线', 'route-filter-最近', 'route-filter-收藏']) {
-      const style = flattenStyle(screen.action(id).props.style);
-      assert.equal(style.height, undefined, 'filter targets grow with the real font scale');
-      assert.notEqual(style.overflow, 'hidden');
-    }
-    screen.action('route-library-我的路线').props.onPress();
-    screen.render();
-    assert.match(screen.copy, /尚无已保存路线/);
-    assert.equal(screen.action('route-start'), undefined);
-    assert.deepEqual(screen.startCalls, []);
+test('recent filter includes newly selected routes and map selection survives resizing',()=>{
+  const screen=mountMap({width:1280,height:800});
+  screen.action('route-template-c').props.onPress();screen.render();
+  screen.action('route-filter-最近').props.onPress();screen.render();
+  assert.ok(screen.action('route-template-c'));
+  screen.layout(1100,640);
+  assert.equal(flattenStyle(screen.all('ScrollView')[0].props.contentContainerStyle).flexDirection,'row');
+  screen.layout(620,600);
+  assert.equal(flattenStyle(screen.all('ScrollView')[0].props.contentContainerStyle).flexDirection,'column');
+  assert.equal(screen.all('RoutePreviewMap')[0].props.route.id,'c');
+});
+
+test('large text and dark mode keep growing cards and text-based selected state',()=>{
+  const screen=mountMap({width:1280,height:800,fontScale:1.6,isDark:true});screen.layout(1100,640);
+  assert.equal(flattenStyle(screen.all('ScrollView')[0].props.contentContainerStyle).flexDirection,'column');
+  for(const id of ['a','b','c']){
+    const card=screen.action('route-template-'+id),style=flattenStyle(card.props.style({pressed:false}));
+    assert.equal(style.height,undefined);assert.ok(style.minHeight>=44);
+    assert.equal(card.props.accessibilityState.selected,id==='a');
   }
+  assert.deepEqual(screen.startCalls,[]);
 });
 
-for (const viewport of [
-  { label: 'portrait', width: 390, height: 844 },
-  { label: 'landscape', width: 844, height: 390 },
-  { label: 'large text', width: 390, height: 620, fontScale: 1.5 },
-]) {
-  test(`${viewport.label}: native route selection, help and blocked reason remain accessible`, () => {
-    const screen = mountMap(viewport);
-    assert.equal(screen.action('route-template-a').props.accessibilityState.selected, true);
-    assert.equal(screen.action('route-details-toggle').props.accessibilityState.expanded, false);
-    assert.equal(screen.action('route-start').props.disabled, true);
-    assert.equal(screen.all('ScrollView')[0].props.horizontal, undefined, 'expanded help is reachable by vertical scrolling');
-    const reason = screen.nodes.find(node => node.props?.testID === 'route-blocked-reason');
-    assert.equal(reason.props.numberOfLines, undefined, 'reasons are not truncated');
-    for (let parent = reason.parent; parent; parent = parent.parent) assert.notEqual(parent.props.testID, 'route-start');
-    assert.equal(flattenStyle(reason.props.style).fontSize >= 13, true);
-    assert.equal(screen.all('Pressable').some(node => node.props.accessibilityLabel === '自定义'), false);
-  });
 
-  test(`${viewport.label}: every selected route keeps 15/22 text and naturally-sized consistent cards`, () => {
-    const screen = mountMap(viewport);
-    const styleOf = node => flattenStyle(typeof node.props.style === 'function' ? node.props.style({ pressed: false }) : node.props.style);
-    const titleOf = id => screen.nodes.find(node => node.props?.testID === `route-title-${id}`);
-    const titleBeforeSelection = ['a', 'b', 'c'].map(id => styleOf(titleOf(id)));
 
-    for (const selected of ['b', 'c', 'a']) {
-      screen.action(`route-template-${selected}`).props.onPress();
-      screen.render();
-      for (const [index, id] of ['a', 'b', 'c'].entries()) {
-        const title = titleOf(id);
-        const textStyle = styleOf(title);
-        const card = screen.action(`route-template-${id}`);
-        const cardStyle = styleOf(card);
-        assert.equal(textStyle.fontSize, 15);
-        assert.equal(textStyle.lineHeight, 22);
-        assert.equal(textStyle.fontWeight, '500');
-        const { color: beforeColor, ...beforeMetrics } = titleBeforeSelection[index];
-        const { color: selectedColor, ...selectedMetrics } = textStyle;
-        assert.deepEqual(selectedMetrics, beforeMetrics, 'selection changes paired ink, never text metrics');
-        assert.equal(title.props.numberOfLines, undefined);
-        assert.notEqual(title.props.allowFontScaling, false);
-        assert.equal(cardStyle.minHeight, 104);
-        assert.equal(cardStyle.height, undefined, 'a growing title must be able to grow its card');
-        assert.notEqual(cardStyle.overflow, 'hidden');
-        assert.equal(card.props.accessibilityState.selected, id === selected);
-        if (id === selected) {
-          assert.equal(cardStyle.borderWidth ?? 0, 0);
-          assert.equal(cardStyle.backgroundColor, '#98D1FF');
-          assert.equal(textStyle.color, '#17354D');
-        }
-      }
-    }
-    for (const image of screen.all('Image')) {
-      const previewStyle = styleOf(image.parent);
-      assert.equal(previewStyle.width, 76);
-      assert.equal(previewStyle.height, 80);
-    }
-    assert.deepEqual(screen.startCalls, []);
-  });
-}
+test('GPS tab shows its supplied content without starting a route', () => {
+  const screen = mountMap({ showExamples: false });
+  screen.render({ gpsContent: 'Authorized GPS content' });
+  const tab = screen.nodes.find(node => node.props?.accessibilityLabel === 'GPS 轨迹');
+  tab.props.onPress(); screen.render();
+  assert.match(screen.copy, /Authorized GPS content/);
+  assert.equal(screen.all('TaskEditor').length, 0);
+  assert.equal(screen.startCalls.length, 0);
+});
 
-test('one preview notice replaces repeated card disclaimers while detailed truth stays in expandable help', () => {
+test('using a preview route opens a local task draft without a publish handler', () => {
   const screen = mountMap();
-  assert.equal(screen.nodes.filter(node => node.props?.testID === 'route-preview-notice').length, 1);
-  assert.match(screen.copy, /不是设备地图或已保存路线/);
-  assert.match(screen.copy, /从设备地图开始规划巡航路线/);
-  assert.doesNotMatch(screen.copy, /可用路线模板|已选择|路线界面预览|时长、距离与检查点待同步/);
-  const heading = screen.all('Text').find(node => node.props.children === '巡航路线');
-  const headingStyle = flattenStyle(heading.props.style);
-  assert.equal(headingStyle.fontSize, 20);
-  assert.equal(headingStyle.lineHeight, 28);
-  assert.equal(headingStyle.fontWeight, '600');
-  assert.equal(screen.action('route-start').props.disabled, true);
-  assert.match(screen.copy, /连接设备后检查控制权限/);
-
-  screen.action('route-details-toggle').props.onPress();
-  screen.render();
-  assert.match(screen.copy, /同步设备地图及版本信息/);
-  assert.match(screen.copy, /编辑航点并保存到“我的路线”/);
-  assert.match(screen.copy, /设备地图与路线编辑器尚在接入中/);
-  assert.doesNotMatch(screen.copy, /当前版本不支持绘制或保存自定义路线/);
-  assert.deepEqual(screen.startCalls, []);
-});
-
-test('route help expands real read-only details, collapses, and never changes the route selection or dispatches', () => {
-  const screen = mountMap();
-  screen.action('route-details-toggle').props.onPress();
-  screen.render();
-  assert.equal(screen.action('route-details-toggle').props.accessibilityState.expanded, true);
-  assert.match(screen.copy, /这是界面示例/);
-  assert.match(screen.copy, /地图接入后，可编辑航点并保存/);
-  assert.equal(screen.action('route-template-a').props.accessibilityState.selected, true);
-  screen.action('route-details-toggle').props.onPress();
-  screen.render();
-  assert.equal(screen.nodes.some(node => node.props?.testID === 'route-details'), false);
-  assert.deepEqual(screen.startCalls, []);
-});
-
-test('route libraries distinguish real saved routes from examples without inventing route data', () => {
-  const screen = mountMap();
-  assert.equal(screen.action('route-library-示例路线').props.accessibilityState.selected, true);
-  assert.equal(screen.action('route-library-我的路线').props.accessibilityState.selected, false);
-  assert.equal(screen.nodes.some(node => node.props?.testID === 'route-owned-empty'), false);
-
-  screen.action('route-library-我的路线').props.onPress();
-  screen.render();
-  assert.equal(screen.action('route-library-我的路线').props.accessibilityState.selected, true);
-  assert.equal(screen.nodes.some(node => node.props?.testID === 'route-owned-empty'), true);
-  assert.match(screen.copy, /尚无已保存路线/);
-  assert.match(screen.copy, /同步设备地图[\s\S]*编辑航点并保存[\s\S]*设备校验后执行/);
-  assert.equal(screen.action('route-start'), undefined);
-  assert.equal(screen.action('route-template-a'), undefined);
-
-  screen.action('route-library-示例路线').props.onPress();
-  screen.render();
-  assert.equal(screen.action('route-library-示例路线').props.accessibilityState.selected, true);
-  assert.equal(screen.action('route-template-a').props.accessibilityState.selected, true);
-  assert.deepEqual(screen.startCalls, []);
-});
-
-test('selecting a template resets help and filters preserve exactly one visible selected template', () => {
-  const screen = mountMap();
-  screen.action('route-details-toggle').props.onPress();
-  screen.render();
-  screen.action('route-template-b').props.onPress();
-  screen.render();
-  assert.equal(screen.action('route-details-toggle').props.accessibilityState.expanded, false);
-  assert.equal(screen.action('route-template-b').props.accessibilityState.selected, true);
-  screen.action('route-filter-收藏').props.onPress();
-  screen.render();
-  assert.equal(screen.action('route-template-b'), undefined);
-  assert.equal(screen.action('route-template-a').props.accessibilityState.selected, true);
-  assert.equal(screen.action('route-template-c').props.accessibilityState.selected, false);
-  screen.action('route-template-c').props.onPress();
-  screen.action('route-filter-最近').props.onPress();
-  screen.render();
-  assert.equal(screen.action('route-template-c'), undefined);
-  assert.equal(screen.action('route-template-a').props.accessibilityState.selected, true);
-  assert.deepEqual(screen.startCalls, []);
-});
-
-test('templates cannot dispatch even if both capability flags are true or a disabled handler is invoked directly', () => {
-  const screen = mountMap({ controlAvailable: true, executorAvailable: true });
-  assert.equal(screen.action('route-start').props.disabled, true);
-  assert.equal(screen.action('route-start').props.accessibilityState.disabled, true);
-  assert.match(screen.copy, /路线模板尚未生成可信路线/);
-  screen.action('route-start').props.onPress();
-  screen.action('route-template-b').props.onPress();
-  screen.render();
-  screen.action('route-start').props.onPress();
-  assert.deepEqual(screen.startCalls, []);
-});
-
-test('action touch targets are at least 48 points and all explicit copy stays 12sp or larger', () => {
-  const screen = mountMap({ width: 844, height: 390, isDark: true });
-  for (const id of ['route-start', 'route-details-toggle', 'route-filter-全部路线', 'route-filter-最近', 'route-filter-收藏', 'route-library-我的路线', 'route-library-示例路线']) {
-    const node = screen.action(id);
-    const style = flattenStyle(typeof node.props.style === 'function' ? node.props.style({ pressed: false }) : node.props.style);
-    assert.equal(style.minHeight >= 48, true, id);
-  }
-  for (const node of screen.all('Text')) {
-    const style = flattenStyle(node.props.style);
-    if (style.fontSize !== undefined) assert.equal(style.fontSize >= 12, true);
-  }
-  assert.equal(screen.all('Ionicons').find(node => node.props.name === 'checkmark').props.color, '#17354D');
+  screen.action('route-close').props.onPress(); screen.render();
+  screen.action('route-sheet-view').props.onPress(); screen.render();
+  const editor = screen.all('TaskEditor')[0];
+  assert.equal(editor.props.initial.route, '东侧巡检路线');
+  assert.equal(editor.props.initial.checkpointCount, 6);
+  assert.equal(editor.props.onPublish, undefined);
+  editor.props.onSaveDraft({ ...editor.props.initial, name: '保存的草稿' });
+  editor.props.onClose(); screen.render();
+  screen.action('route-sheet-view').props.onPress(); screen.render();
+  assert.equal(screen.all('TaskEditor')[0].props.initial.name, '保存的草稿');
+  assert.equal(screen.startCalls.length, 0);
 });

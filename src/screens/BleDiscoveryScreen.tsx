@@ -17,6 +17,8 @@ import { radii, type ThemeColors, useAppTheme } from '../theme';
 type Props = {
   deviceName: string;
   onBack: () => void;
+  fromBinding?: boolean;
+  onRobotSelected?: (robotId: string) => void;
 };
 
 type DiscoveryStatus = 'idle' | 'scanning' | 'complete' | 'error' | 'interrupted';
@@ -55,7 +57,7 @@ const ERROR_COPY: Record<BleDiscoveryErrorCode, {
   },
 };
 
-export function BleDiscoveryScreen({ deviceName, onBack }: Props) {
+export function BleDiscoveryScreen({ deviceName, onBack, fromBinding = false, onRobotSelected }: Props) {
   const { colors, isDark } = useAppTheme();
   const p = getProductAppearance(isDark);
   const { height, width } = useWindowDimensions();
@@ -148,7 +150,7 @@ export function BleDiscoveryScreen({ deviceName, onBack }: Props) {
 
   const connectCandidate = async (candidate: BleRobotCandidate) => {
     if (scanPendingRef.current || connectionPendingRef.current || !connectionRef.current.cleanupConfirmed
-      || !candidatesRef.current.some(current => current.id === candidate.id)
+      || !candidatesRef.current.some(current => current.id === candidate.id && current.connectable)
       || shouldStopBleScanForAppState(AppState.currentState)) return;
     connectionPendingRef.current = true;
     connectionCancelledRef.current = false;
@@ -187,6 +189,14 @@ export function BleDiscoveryScreen({ deviceName, onBack }: Props) {
     }
   };
   const leaveScreen = () => { release(); onBack(); };
+  const selectRobot = async () => {
+    const current = connectionRef.current;
+    if (current.phase !== 'connected' || !current.robotId || !onRobotSelected) return;
+    const robotId = current.robotId;
+    await disconnect();
+    if (mountedRef.current && bleConnectionAdapter.getSnapshot().cleanupConfirmed
+      && !shouldStopBleScanForAppState(AppState.currentState)) onRobotSelected(robotId);
+  };
   const connectionLocked = connectionPending || !connection.cleanupConfirmed;
 
   const error = errorCode ? ERROR_COPY[errorCode] : null;
@@ -204,8 +214,8 @@ export function BleDiscoveryScreen({ deviceName, onBack }: Props) {
               <View style={styles.liveBanner}>
                 <Ionicons color={p.blueInk} name="bluetooth-outline" size={21} />
                 <View style={styles.bannerCopy}>
-                  <Text style={styles.liveTitle}>蓝牙扫描与连接</Text>
-                  <Text style={styles.liveText}>先查找，再由你选择设备连接并查看服务。系统连接不代表机器人身份已验证，也不会自动绑定或配网。</Text>
+                  <Text style={styles.liveTitle}>查找附近设备</Text>
+                  <Text style={styles.liveText}>发现附近的 DOSO 广播。设备身份仍待确认，扫码后再确认账号绑定。</Text>
                 </View>
               </View>
             ) : null}
@@ -213,7 +223,7 @@ export function BleDiscoveryScreen({ deviceName, onBack }: Props) {
             <Text style={styles.eyebrow}>DOSO BLE DISCOVERY</Text>
             <Text style={[styles.title, isCompact && styles.compactTitle]}>查找附近机器人</Text>
             <Text style={styles.subtitle}>
-              为 {deviceName} 查找附近候选设备。连接后可发现服务；机器人身份握手、绑定和配网需要对应的固件协议。
+              让 {deviceName} 进入可发现状态并靠近手机，然后开始查找。
             </Text>
           </View>
 
@@ -227,8 +237,8 @@ export function BleDiscoveryScreen({ deviceName, onBack }: Props) {
             ) : (
               <>
           <View style={styles.actionCard}>
-            <Text style={styles.actionTitle}>{status === 'scanning' ? '正在读取真实蓝牙广播…' : '附近设备扫描'}</Text>
-            <Text style={styles.actionText}>扫描约 8 秒；列表不会自动连接，也不会把最强信号当作 DOSO 身份。</Text>
+            <Text style={styles.actionTitle}>{status === 'scanning' ? '正在查找附近设备…' : '附近设备'}</Text>
+            <Text style={styles.actionText}>请保持手机靠近机器人。发现广播后，扫描随设备提供的专属二维码。</Text>
             <Pressable
               accessibilityLabel={status === 'scanning' ? '停止查找附近设备' : '开始查找附近设备'}
               accessibilityRole="button"
@@ -245,18 +255,21 @@ export function BleDiscoveryScreen({ deviceName, onBack }: Props) {
           {connection.phase !== 'idle' ? <View style={styles.messageCard} testID="ble-connection-status">
             <Text accessibilityLiveRegion="polite" style={styles.messageTitle}>{connectionTitle(connection)}</Text>
             <Text style={styles.messageText}>{connection.phase === 'connected'
-              ? `发现 ${connection.serviceCount} 个服务、${connection.characteristicCount} 个特征。仅确认系统蓝牙连接，机器人身份尚未验证。`
+              ? `已读取设备尾号 ${connection.robotId?.slice(-6)}，请扫描专属二维码核对。设备身份仍待验证。`
               : connectionMessage(connection)}</Text>
             {!connection.cleanupConfirmed && ['error', 'disconnected'].includes(connection.phase)
               ? <Text style={styles.messageText}>系统连接的释放尚未确认，暂不能重新连接。请等待系统释放；仍未恢复时关闭并重启 App。</Text> : null}
-            {['preparing', 'connecting', 'discovering', 'connected'].includes(connection.phase) ? <Pressable
+            {['preparing', 'connecting', 'discovering', 'reading', 'connected'].includes(connection.phase) ? <Pressable
               accessibilityRole="button" accessibilityLabel="断开蓝牙连接" onPress={() => void disconnect()}
               style={styles.primaryButton} testID="ble-disconnect"><Text style={styles.primaryButtonText}>断开连接</Text></Pressable> : null}
             <Pressable accessibilityRole="button" accessibilityState={{ disabled: true }} disabled testID="ble-identity-blocked">
-              <Text style={styles.messageText}>验证机器人身份并绑定，待固件协议</Text>
+              <Text style={styles.messageText}>设备身份确认尚未接通</Text>
             </Pressable>
+            {fromBinding && onRobotSelected && connection.phase === 'connected' && connection.robotId ? <Pressable
+              accessibilityRole="button" accessibilityLabel="扫描这台机器人的二维码" onPress={() => void selectRobot()}
+              style={styles.primaryButton} testID="ble-select-robot"><Text style={styles.primaryButtonText}>扫描这台机器人的二维码</Text></Pressable> : null}
             <Pressable accessibilityRole="button" accessibilityState={{ disabled: true }} disabled testID="ble-wifi-blocked">
-              <Text style={styles.messageText}>配置 Wi-Fi，待身份与配网协议</Text>
+              <Text style={styles.messageText}>联网配置尚未接通</Text>
             </Pressable>
           </View> : null}
 
@@ -302,16 +315,20 @@ export function BleDiscoveryScreen({ deviceName, onBack }: Props) {
                     <Text style={styles.candidateName}>{candidate.displayName}</Text>
                     <Text style={styles.candidateMeta}>{maskPeripheralId(candidate.id)}，{signalLabel(candidate.rssi)}</Text>
                     <Text style={styles.identityLabel}>{basisLabel(candidate.matchBasis)}</Text>
-                    <Pressable accessibilityRole="button" accessibilityLabel={`连接${candidate.displayName}并查看服务`}
+                    {candidate.connectable ? <Pressable accessibilityRole="button" accessibilityLabel={`连接${candidate.displayName}`}
                       accessibilityState={{ disabled: status === 'scanning' || connectionLocked || !bleConnectionAdapter.supported }}
                       disabled={status === 'scanning' || connectionLocked || !bleConnectionAdapter.supported}
                       onPress={() => void connectCandidate(candidate)} style={styles.primaryButton} testID={`ble-connect-${index}`}>
-                      <Text style={styles.primaryButtonText}>连接并查看服务</Text>
-                    </Pressable>
+                      <Text style={styles.primaryButtonText}>连接设备</Text>
+                    </Pressable> : <Text style={styles.identityLabel}>已发现广播，设备身份待确认</Text>}
                   </View>
                 </View>
               ))}
-              <Text style={styles.nextStep}>广播名称、信号和服务 UUID 均不能证明机器人身份。当前仅开放系统连接与服务发现，不执行账户绑定或 Wi-Fi 凭据写入。</Text>
+              <Text style={styles.nextStep}>附近候选与二维码中的机器人尚未核对，扫码后由你确认账号绑定。</Text>
+              {fromBinding ? <Pressable accessibilityRole="button" accessibilityLabel="返回扫码绑定"
+                onPress={leaveScreen} style={styles.primaryButton} testID="ble-return-to-bind">
+                <Text style={styles.primaryButtonText}>返回扫码绑定</Text>
+              </Pressable> : null}
             </View>
           ) : status === 'complete' && !error ? (
             <View style={styles.messageCard}>
@@ -332,7 +349,7 @@ export function BleDiscoveryScreen({ deviceName, onBack }: Props) {
 function connectionTitle(state: BleConnectionSnapshot) {
   if (state.phase === 'disconnected' && !state.cleanupConfirmed) return '正在释放蓝牙连接…';
   return ({ idle: '尚未连接', preparing: '正在准备蓝牙连接…', connecting: '正在连接所选设备…',
-    discovering: '正在发现设备服务…', connected: '系统蓝牙已连接，身份未验证', disconnecting: '正在断开连接…',
+    discovering: '正在检查连接…', reading: '正在读取机器人编号…', connected: '已读取机器人编号，身份待验证', disconnecting: '正在断开连接…',
     disconnected: '蓝牙连接已结束', error: '蓝牙连接未完成' } as const)[state.phase];
 }
 
@@ -341,8 +358,9 @@ function connectionMessage(state: BleConnectionSnapshot) {
   if (state.errorCode === 'timeout') return '连接或服务发现已超时，已请求释放本次连接。';
   if (state.errorCode === 'preparation_failed') return '请检查手机蓝牙和附近设备权限，并重新查找后再连接。';
   if (state.errorCode === 'discovery_failed') return '设备服务发现未完成，本次连接已请求释放。';
+  if (state.errorCode === 'robot_id_failed') return '无法读取有效的机器人编号，请重新连接设备。';
   if (state.phase === 'disconnected') return '本页不再保持蓝牙连接；重新连接需要你再次选择设备。';
-  return '仅连接你明确选择的设备；不会读取特征值、写入 Wi-Fi 信息或发送机器人控制指令。';
+  return '正在处理你选择的蓝牙连接，请稍候。';
 }
 
 function signalLabel(rssi: number) {
@@ -353,8 +371,8 @@ function signalLabel(rssi: number) {
 
 function basisLabel(basis: BleRobotCandidate['matchBasis']) {
   if (basis === 'service_uuid') return '服务标识匹配，身份仍待验证';
-  if (basis === 'name_hint') return 'DOSO 名称线索，身份未验证';
-  return '附近 BLE 广播，身份未验证';
+  if (basis === 'name_hint') return '名称匹配，身份待确认';
+  return '附近设备，身份待确认';
 }
 
 const createStyles = (colors: ThemeColors, isDark: boolean) => {

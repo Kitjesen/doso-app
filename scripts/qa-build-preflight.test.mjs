@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url';
 
 const publicEnvironment = {
   EXPO_NO_DOTENV: '1',
-  EXPO_PUBLIC_SUPABASE_URL: 'https://vchvqfdlkomlrjenkdhj.supabase.co',
-  EXPO_PUBLIC_SUPABASE_URL_ANDROID: 'https://vchvqfdlkomlrjenkdhj.supabase.co',
+  EXPO_PUBLIC_SUPABASE_URL: 'https://api-test.dosorobotics.com',
+  EXPO_PUBLIC_SUPABASE_URL_ANDROID: 'https://api-test.dosorobotics.com',
   EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_SYNTHETIC_CANARY',
 };
 
@@ -20,8 +20,8 @@ test('insufficient memory blocks build readiness without exposing environment va
     competingProcesses: [],
     environment: {
       EXPO_NO_DOTENV: '1',
-      EXPO_PUBLIC_SUPABASE_URL: 'https://vchvqfdlkomlrjenkdhj.supabase.co',
-      EXPO_PUBLIC_SUPABASE_URL_ANDROID: 'https://vchvqfdlkomlrjenkdhj.supabase.co',
+      EXPO_PUBLIC_SUPABASE_URL: 'https://api-test.dosorobotics.com',
+      EXPO_PUBLIC_SUPABASE_URL_ANDROID: 'https://api-test.dosorobotics.com',
       EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_SYNTHETIC_CANARY',
       SUPABASE_SERVICE_ROLE_KEY: 'PRIVATE_CANARY',
     },
@@ -121,9 +121,34 @@ test('manifest includes ignored native inputs, omits private files and outputs, 
   // Synthetic fixture retained in the OS temp directory; no recursive deletion.
 });
 
+test('manifest binds external Rust SDK build inputs without its caches or private files', async () => {
+  const { snapshotQaBuildInputs } = await import('./qa-build-preflight.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'doso-app-sdk-inputs-'));
+  for (const name of ['App.tsx', 'index.ts', 'app.json', 'package.json', 'package-lock.json', 'tsconfig.json']) {
+    writeFileSync(join(root, name), 'synthetic');
+  }
+  for (const name of ['src', 'assets', 'plugins', 'android']) mkdirSync(join(root, name));
+  const sdk = mkdtempSync(join(tmpdir(), 'doso-sdk-inputs-'));
+  for (const name of ['src', 'proto', 'docs', 'android/src', 'android/target']) mkdirSync(join(sdk, name), { recursive: true });
+  for (const name of ['Cargo.toml', 'Cargo.lock', 'build.rs', 'src/lib.rs', 'proto/cloud.proto', 'docs/usage.md',
+    'android/Cargo.toml', 'android/Cargo.lock', 'android/src/lib.rs', 'android/build.ps1', 'android/build.sh']) {
+    writeFileSync(join(sdk, name), 'synthetic');
+  }
+  writeFileSync(join(sdk, 'src/client.key'), 'PRIVATE_CANARY');
+  writeFileSync(join(sdk, 'android/target/generated'), 'output');
+  const before = snapshotQaBuildInputs(root, sdk);
+  assert.ok(before.some(row => row.path === 'doso-sdk/android/src/lib.rs'));
+  assert.ok(before.some(row => row.path === 'doso-sdk/docs/usage.md'));
+  assert.equal(before.some(row => /client\.key|target/.test(row.path)), false);
+  writeFileSync(join(sdk, 'android/src/lib.rs'), 'changed-native-source');
+  assert.notDeepEqual(snapshotQaBuildInputs(root, sdk), before);
+  assert.doesNotMatch(JSON.stringify(before), /PRIVATE_CANARY/);
+});
+
 test('missing configuration, dotenv loading and competing tasks fail closed', async () => {
   const { assessQaBuildReadiness } = await import('./qa-build-preflight.mjs');
   for (const environment of [{}, { ...publicEnvironment, EXPO_NO_DOTENV: '0' },
+    { ...publicEnvironment, EXPO_PUBLIC_SUPABASE_URL: 'https://vchvqfdlkomlrjenkdhj.supabase.co' },
     { ...publicEnvironment, EXPO_PUBLIC_SUPABASE_URL_ANDROID: 'http://localhost:8000' },
     { ...publicEnvironment, EXPO_PUBLIC_DESIGN_QA: '1' }]) {
     const result = assessQaBuildReadiness({ freeMemoryKiB: 8388608, environment,

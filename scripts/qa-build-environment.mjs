@@ -3,7 +3,7 @@ import { realpathSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const PROJECT_ID = 'vchvqfdlkomlrjenkdhj';
+const SUPABASE_URL = 'https://api-test.dosorobotics.com';
 const OFF_FLAGS = ['EXPO_PUBLIC_DESIGN_QA', 'EXPO_PUBLIC_DESIGN_QA_CAPTURE',
   'EXPO_PUBLIC_CONNECTION_DIAGNOSTICS', 'EXPO_PUBLIC_BRAINSTEM_SIMULATION',
   'EXPO_PUBLIC_APPLE_AUTH_ENABLED', 'EXPO_PUBLIC_WECHAT_AUTH_ENABLED', 'EXPO_PUBLIC_QQ_AUTH_ENABLED'];
@@ -14,28 +14,37 @@ export function parseQaPublishableInput(text) {
   }
   const key = text.slice(0, text.endsWith('\r\n') ? -2 : -1);
   if (!/^sb_publishable_[A-Za-z0-9_-]{16,200}$/.test(key)) throw new Error('qa_public_configuration_rejected');
-  return { projectId: PROJECT_ID, publishableKey: key };
+  return { publishableKey: key };
 }
 
 export function createQaBuildEnvironment(host, configuration) {
   if (!configuration || typeof configuration !== 'object' || Array.isArray(configuration) ||
-      Object.keys(configuration).sort().join(',') !== 'projectId,publishableKey' ||
-      configuration.projectId !== PROJECT_ID ||
+      Object.keys(configuration).join(',') !== 'publishableKey' ||
       typeof configuration.publishableKey !== 'string' ||
       !/^sb_publishable_[A-Za-z0-9_-]{16,200}$/.test(configuration.publishableKey)) {
     throw new Error('qa_public_configuration_rejected');
   }
-  const directory = (name) => {
+  return {
+    ...createToolchainBuildEnvironment(host),
+    EXPO_PUBLIC_SUPABASE_URL: SUPABASE_URL,
+    EXPO_PUBLIC_SUPABASE_URL_ANDROID: SUPABASE_URL,
+    EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: configuration.publishableKey,
+  };
+}
+
+export function createToolchainBuildEnvironment(host) {
+  const location = (name, isDirectory = true) => {
     try {
       const keys = Object.keys(host).filter(key => key.toUpperCase() === name.toUpperCase());
       if (keys.length !== 1) throw new Error();
       const value = host[keys[0]];
       if (typeof value !== 'string' || !isAbsolute(value) || /[\0\r\n]/.test(value)) throw new Error();
       const path = realpathSync(value);
-      if (!statSync(path).isDirectory()) throw new Error();
+      if (isDirectory ? !statSync(path).isDirectory() : !statSync(path).isFile()) throw new Error();
       return path;
     } catch { throw new Error('qa_toolchain_environment_rejected'); }
   };
+  const directory = (name) => location(name);
   const systemRoot = directory('SystemRoot');
   const java = directory('JAVA_HOME');
   const android = directory('ANDROID_HOME');
@@ -45,22 +54,36 @@ export function createQaBuildEnvironment(host, configuration) {
     }
     if (!statSync(join(systemRoot, 'System32', 'cmd.exe')).isFile()) throw new Error();
   } catch { throw new Error('qa_toolchain_environment_rejected'); }
+  let rust = {}, cargoBin;
+  if (Object.keys(host).some(key => key.toUpperCase() === 'DOSO_SDK_ROOT')) {
+    try {
+      const sdk = directory('DOSO_SDK_ROOT');
+      const cargo = directory('CARGO_HOME');
+      const rustup = directory('RUSTUP_HOME');
+      const protoc = location('PROTOC', false);
+      cargoBin = join(cargo, 'bin');
+      for (const path of [join(cargoBin, 'cargo.exe'), join(cargoBin, 'rustup.exe'),
+        join(sdk, 'Cargo.toml'), join(sdk, 'android/Cargo.toml'), join(sdk, 'android/build.ps1')]) {
+        if (!statSync(path).isFile()) throw new Error();
+      }
+      rust = { DOSO_SDK_ROOT: sdk, CARGO_HOME: cargo, RUSTUP_HOME: rustup, PROTOC: protoc, CARGO_BUILD_JOBS: '2' };
+    } catch { throw new Error('qa_rust_toolchain_environment_rejected'); }
+  }
   return {
     SystemRoot: systemRoot, WINDIR: systemRoot,
     ComSpec: join(systemRoot, 'System32', 'cmd.exe'), PATHEXT: '.COM;.EXE;.BAT;.CMD',
     PATH: [dirname(process.execPath), join(java, 'bin'), join(android, 'platform-tools'),
-      join(systemRoot, 'System32'), systemRoot].join(delimiter),
+      join(systemRoot, 'System32/WindowsPowerShell/v1.0'), join(systemRoot, 'System32'), systemRoot,
+      ...(cargoBin ? [cargoBin] : [])].join(delimiter),
     TEMP: directory('TEMP'), TMP: directory('TMP'),
     JAVA_HOME: java, ANDROID_HOME: android, ANDROID_SDK_ROOT: android,
+    ...rust,
     CI: '1', NODE_ENV: 'production', ENTRY_FILE: 'index.ts', EXPO_NO_DOTENV: '1',
-    EXPO_PUBLIC_SUPABASE_URL: `https://${PROJECT_ID}.supabase.co`,
-    EXPO_PUBLIC_SUPABASE_URL_ANDROID: `https://${PROJECT_ID}.supabase.co`,
-    EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: configuration.publishableKey,
     ...Object.fromEntries(OFF_FLAGS.map(flag => [flag, '0'])),
   };
 }
 
-async function readNoEchoInput() {
+export async function readNoEchoInput() {
   if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== 'function') throw new Error();
   process.stdin.setRawMode(true);
   process.stdin.setEncoding('utf8');
@@ -105,7 +128,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       const flags = ${JSON.stringify(OFF_FLAGS)};
       console.log(JSON.stringify({
         publicConfigurationPresent: /^sb_publishable_[A-Za-z0-9_-]{16,200}$/.test(env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? ''),
-        targetUrlsExact: env.EXPO_PUBLIC_SUPABASE_URL === 'https://${PROJECT_ID}.supabase.co' && env.EXPO_PUBLIC_SUPABASE_URL_ANDROID === env.EXPO_PUBLIC_SUPABASE_URL,
+        targetUrlsExact: env.EXPO_PUBLIC_SUPABASE_URL === '${SUPABASE_URL}' && env.EXPO_PUBLIC_SUPABASE_URL_ANDROID === env.EXPO_PUBLIC_SUPABASE_URL,
         dotenvDisabled: env.EXPO_NO_DOTENV === '1', normalEntry: env.ENTRY_FILE === 'index.ts',
         standardFlagsOff: flags.every(flag => env[flag] === '0'),
         unsafeVariablesPresent: Object.keys(env).some(key => /SECRET|PASSWORD|TOKEN|DATABASE_URL|^SUPABASE_|^DOSO_ANDROID_|^NODE_OPTIONS$|^JAVA_TOOL_OPTIONS$|^GRADLE_OPTS$|^NODE_EXTRA_CA_CERTS$/.test(key.toUpperCase()))

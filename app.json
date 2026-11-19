@@ -4,7 +4,7 @@
     "slug": "hongsen",
     "scheme": "doso",
     "version": "0.0.1",
-    "orientation": "default",
+    "orientation": "landscape",
     "icon": "./assets/brand/doso-lighthouse-app-icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
@@ -23,7 +23,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.doso.robot",
-      "versionCode": 24,
+      "versionCode": 53,
       "intentFilters": [
         {
           "action": "VIEW",
@@ -64,8 +64,15 @@
         "expo-image-picker",
         {
           "photosPermission": "允许 DOSO 选择照片用作头像",
-          "cameraPermission": false,
           "microphonePermission": false
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "允许 DOSO 使用相机扫描机器人二维码",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
         }
       ],
       "expo-secure-store",
@@ -96,7 +103,11 @@
       ],
       "expo-splash-screen",
       "./plugins/withLegacyBleLocationPermissions",
-      "./plugins/withOfflinePreview"
+      "./plugins/withPinnedWebRtcAndroid",
+      "./plugins/withReceiveOnlyWebRtc",
+      "./plugins/withOfflinePreview",
+      "./plugins/withVideoAcceptance",
+      "./plugins/withLocalAcceptance"
     ],
     "extra": {
       "eas": {

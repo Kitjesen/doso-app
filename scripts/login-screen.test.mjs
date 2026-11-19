@@ -4,18 +4,16 @@ import { mountAuthScreen } from './helpers/auth-screen-harness.mjs';
 
 const mount = props => mountAuthScreen({ screen: 'login', ...props });
 
-test('QA device entry works without email or password and shares the busy navigation lock', async () => {
-  let entries = 0; let legacyConnections = 0;
-  const screen = mount({ onLogin: () => assert.fail('device test must not log in'),
-    onEnterDeviceTest: () => entries++, onOpenRobotConnection: () => legacyConnections++ });
-  screen.action('login-device-test').props.onPress();
-  assert.equal(entries, 1); assert.equal(legacyConnections, 0);
-  assert.equal(screen.action('login-robot-connection'), undefined);
-  assert.equal(screen.field('邮箱地址').props.value, '');
-  const locked = mount({ loading: true, onLogin: () => {}, onEnterDeviceTest: () => entries++ });
-  locked.action('login-device-test').props.onPress();
-  assert.equal(entries, 1);
-  assert.equal(locked.action('login-device-test').props.disabled, true);
+for (const [width, height] of [[390, 844], [960, 600]]) test(`login omits auxiliary entries at ${width}x${height}`, () => {
+  const unused = () => assert.fail('removed login entry must not run');
+  const screen = mount({ width, height, onLogin: unused, onEnterDeviceTest: unused, onOpenRobotConnection: unused,
+    onEnterGuest: unused, onOpenDataPrivacy: unused, onOpenConnectionDiagnostics: unused });
+  for (const entry of ['device-test', 'robot-connection', 'guest', 'data-privacy', 'connection-diagnostics']) {
+    assert.equal(screen.action(`login-${entry}`), undefined);
+  }
+  assert.doesNotMatch(screen.copy, /进入设备测试|连接机器狗|游客使用|数据与隐私|连接诊断/);
+  assert.ok(screen.action('login-submit'));
+  assert.ok(screen.action('login-forgot-password'));
 });
 function fill(screen, email = ' USER@Example.com ', password = 'Original password 1') {
   screen.field('邮箱地址').props.onChangeText(email); screen.render();
@@ -94,8 +92,7 @@ test('compact G20 landscape login keeps only the primary actions on one surface'
   assert.equal(screen.nodes.some(node => node.props?.testID === 'auth-social-options'), false);
   assert.equal(screen.action('login-data-privacy'), undefined);
   assert.equal(screen.action('login-connection-diagnostics'), undefined);
-  assert.ok(screen.action('login-robot-connection'));
-  assert.match(screen.copy, /连接机器狗/);
+  assert.equal(screen.action('login-robot-connection'), undefined);
   assert.doesNotMatch(screen.copy, /其他方式|Apple|微信|QQ/);
 });
 
@@ -108,29 +105,3 @@ test('late login rejection does not update an unmounted screen', async () => {
   assert.equal(screen.updatesAfterUnmount, 0);
 });
 
-test('guest entry is explicit, works without credentials, and does not submit login', () => {
-  let guests = 0, logins = 0;
-  const screen = mount({ onLogin: () => { logins++; }, onEnterGuest: () => { guests++; } });
-  const entry = screen.action('login-guest');
-  assert.ok(entry);
-  assert.equal(entry.props.disabled, false);
-  entry.props.onPress();
-  assert.equal(guests, 1); assert.equal(logins, 0);
-  assert.equal(screen.field('邮箱地址').props.value, '');
-  assert.equal(screen.field('密码').props.value, '');
-  assert.equal(mount({}).action('login-guest'), undefined);
-});
-
-test('login in-flight blocks both current and retained guest handlers until it settles', async () => {
-  let guests = 0, finish;
-  const screen = mount({ onLogin: () => new Promise(resolve => { finish = resolve; }), onEnterGuest: () => { guests++; } });
-  fill(screen);
-  const retainedGuestPress = screen.action('login-guest').props.onPress;
-  const pending = screen.action('login-submit').props.onPress();
-  retainedGuestPress(); assert.equal(guests, 0, 'same-tick guest navigation must respect the in-flight ref');
-  screen.render();
-  assert.equal(screen.action('login-guest').props.disabled, true);
-  screen.action('login-guest').props.onPress(); assert.equal(guests, 0);
-  finish(); await pending; screen.render();
-  screen.action('login-guest').props.onPress(); assert.equal(guests, 1);
-});

@@ -35,22 +35,22 @@ test('actual paired palette colors clear normal-text contrast in both themes', (
   }
 });
 
-test('home uses consistent larger supporting type without 700-weight headings or disabled scaling', () => {
+test('home uses reference-weight headings without disabling text scaling', () => {
   for (const config of [{}, { dark: true }, { width: 320 }, { width: 390, fontScale: 1.6 }]) {
     const screen = mountAuthScreen({ screen: 'home', robotName: 'THUNDER 01', robotImage: 'robot', connected: false, canRecall: false, safetyLock: false, ...config });
     const texts = screen.nodes.filter(node => node.type === 'Text');
     for (const node of texts) {
       const style = flat(node.props.style);
       if (style.fontSize != null) assert.ok(style.fontSize >= 13);
-      assert.notEqual(style.fontWeight, '700');
+      assert.ok(!style.fontWeight || ['400','500','600','700'].includes(style.fontWeight));
       assert.notEqual(node.props.allowFontScaling, false);
       assert.equal(node.props.maxFontSizeMultiplier, undefined);
     }
     const name = texts.find(node => node.props.children === 'THUNDER 01');
-    assert.equal(flat(name.props.style).fontSize, 22);
-    assert.equal(flat(name.props.style).lineHeight, 30);
+    assert.equal(flat(name.props.style).fontSize, 20);
+    assert.equal(flat(name.props.style).lineHeight, 26);
     assert.doesNotMatch(screen.copy, /查看路线|查看任务|状态与设置/);
-    assert.match(screen.copy, /离线/); assert.match(screen.copy, /电量待同步/);
+    assert.match(screen.copy, /离线/); assert.match(screen.copy, /—\s+电量/);
   }
 });
 
@@ -72,9 +72,9 @@ test('home hero and status have no nested surface while truthful state stays vis
       assert.equal(flat(node.props.style).backgroundColor, undefined);
     }
     const card = screen.nodes.find(node => node.props?.testID === 'home-device-card');
-    assert.equal(flat(card.props.style).backgroundColor, appearance(dark).surface);
-    assert.match(screen.copy, /离线/); assert.match(screen.copy, /电量待同步/);
+    assert.equal(flat(card.props.style).backgroundColor, dark ? '#232326' : '#FFFFFF');
+    assert.match(screen.copy, /离线/); assert.match(screen.copy, /—\s+电量/);
     assert.equal(screen.nodes.some(node => node.props?.testID === 'home-battery-meter'), false);
-    assert.equal(screen.action('home-recall').props.disabled, true);
+    assert.equal(screen.nodes.some(node => node.props?.testID === 'home-recall'), false);
   }
 });

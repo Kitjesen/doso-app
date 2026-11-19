@@ -116,13 +116,12 @@ if ($RestartApp) {
 
 $encodedMetroUrl = [Uri]::EscapeDataString($metroBaseUrl)
 $devClientUrl = "${Scheme}://expo-development-client/?url=$encodedMetroUrl"
-$activity = "$Package/.MainActivity"
+$activity = "$Package/com.doso.robot.MainActivity"
 $launchOutput = Invoke-Adb -Executable $resolvedAdb -Arguments @(
     '-s', $Serial,
     'shell', 'am', 'start', '-W',
     '-n', $activity,
     '-a', 'android.intent.action.VIEW',
-    '-c', 'android.intent.category.BROWSABLE',
     '-d', $devClientUrl
 )
 
