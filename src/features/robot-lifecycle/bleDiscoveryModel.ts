@@ -3,7 +3,14 @@ export type BleAdvertisement = {
   name?: string | null;
   rssi: number;
   serviceUUIDs?: string[] | null;
+  connectable?: boolean;
 };
+
+export const DOSO_BLE_SERVICE_UUID = '81343a98-47b3-4a0b-af0c-d42d87c7070f';
+
+export function getBleServiceUuid(): string {
+  return process.env.EXPO_PUBLIC_DOSO_BLE_SERVICE_UUID?.trim() || DOSO_BLE_SERVICE_UUID;
+}
 
 export type BleDiscoveryCriteria = {
   namePrefix: string;
@@ -16,6 +23,7 @@ export type BleRobotCandidate = {
   rssi: number;
   serviceUUIDs: string[];
   matchBasis: 'service_uuid' | 'name_hint' | 'unverified';
+  connectable?: boolean;
 };
 
 export const UNNAMED_BLE_DEVICE_LABEL = '附近未命名 BLE 设备';
@@ -38,6 +46,7 @@ export function candidateFromPeripheral(
     displayName: name || UNNAMED_BLE_DEVICE_LABEL,
     rssi: Number.isFinite(peripheral.rssi) ? peripheral.rssi : -127,
     serviceUUIDs,
+    connectable: peripheral.connectable === true,
     matchBasis: matchesConfiguredService ? 'service_uuid' : matchesNameHint ? 'name_hint' : 'unverified',
   };
 }
@@ -53,6 +62,7 @@ export function mergeCandidate(current: BleRobotCandidate, incoming: BleRobotCan
     displayName,
     rssi: Math.max(current.rssi, incoming.rssi),
     serviceUUIDs: [...new Set([...current.serviceUUIDs, ...incoming.serviceUUIDs])],
+    connectable: incoming.connectable,
     matchBasis: strongerBasis(current.matchBasis, incoming.matchBasis),
   };
 }

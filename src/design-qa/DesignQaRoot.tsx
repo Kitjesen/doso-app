@@ -15,30 +15,41 @@ import { AnalysisScreen } from '../screens/AnalysisScreen';
 import { BindDeviceScreen } from '../screens/BindDeviceScreen';
 import { ControlPreviewCameraPlate } from '../components/ControlPreviewCameraPlate';
 import { ControlScreen } from '../screens/ControlScreen';
+import { G20_LANDSCAPE_PREVIEW_INSETS } from '../components/controlLandscapeHud';
+import { ControlReferencePreview } from './ControlReferencePreview';
+import { HomeInteractionPrototype } from './HomeInteractionPrototype';
 import { DeviceUnavailableScreen } from '../screens/DeviceUnavailableScreen';
 import { DisplayNameConfirmationScreen } from '../screens/DisplayNameConfirmationScreen';
 import { EmailOtpScreen } from '../screens/EmailOtpScreen';
 import { EditProfileScreen } from '../screens/EditProfileScreen';
 import { DataPrivacyScreen } from '../screens/DataPrivacyScreen';
 import { ForgotPasswordScreen } from '../screens/ForgotPasswordScreen';
+import { VideoFixture } from './VideoFixture';
+import { previewRoutes } from '../features/routes/routePreview';
 import { HomeScreen } from '../screens/HomeScreen';
+import { HomeMapFixture, homeJourney, homeEvents } from './HomeFixture';
 import { JointStatusScreen } from '../screens/JointStatusScreen';
 import { LoginScreen } from '../screens/LoginScreen';
 import { MapScreen } from '../screens/MapScreen';
 import { ModelSelectScreen } from '../screens/ModelSelectScreen';
-import { ProfileScreen } from '../screens/ProfileScreen';
+import { ProfileFixture as ProfileScreen } from './ProfileFixture';
 import { RegisterScreen } from '../screens/RegisterScreen';
 import { ResetPasswordScreen } from '../screens/ResetPasswordScreen';
 import { TasksScreen } from '../screens/TasksScreen';
 import { UsernameOnboardingScreen } from '../screens/UsernameOnboardingScreen';
-import { ThemePreferenceContext, useAppTheme } from '../theme';
+import { AppearanceControlContext, ThemePreferenceContext, useAppTheme } from '../theme';
 import type { MainTab } from '../types';
 import { DESIGN_QA_STAGES, parseDesignQaRequest, type DesignQaStage, type DesignQaState } from './request';
 
 const noop = () => undefined;
 const SAMPLE_ERROR = '设计验收示例错误：当前操作未连接真实服务。';
-const DESIGN_QA_REFERENCE_DATE = new Date(2026, 7, 31, 12);
+const DESIGN_QA_REFERENCE_DATE = new Date(2026, 10, 11, 14, 32);
 const physicalDiagnosticsGateway = createRobotDiagnosticsGateway({ nowMs: () => 0 });
+const jointStatusFixture = Array.from({ length: 16 }, (_, id) => ({
+  id: String(id), label: `关节 ${id + 1}`, source: 'device' as const, online: id !== 5,
+  statusCode: id === 5 ? 0 : 2, positionDeg: id * 1.5, temperatureC: 35 + id * 0.1,
+  voltageV: 51, velocityRps: 0, torqueNm: 0, errors: id === 3 ? [2] : [],
+}));
 const tabStages: Record<MainTab, DesignQaStage> = { home: 'main-home', map: 'main-routes', tasks: 'main-tasks', analysis: 'main-analysis', profile: 'main-profile' };
 const stageLabels: Record<DesignQaStage, string> = {
   'main-home': '首页', 'main-routes': '地图', 'main-tasks': '任务', 'main-analysis': '分析', 'main-profile': '我的',
@@ -133,7 +144,7 @@ function MainPreviewShell({ active, children, onNavigate = noop, onEditProfile }
         isLandscape && styles.mainSafeAreaLandscape,
       ]}
     >
-      <AppHeader flow title={active === 'tasks' ? '任务' : undefined} subtitle={active === 'tasks' ? 'THUNDER 01（离线）' : undefined} displayName="DOSO Demo" onProfile={onEditProfile} onNotifications={() => setNotice(notificationUnavailableNotice)} referenceDate={DESIGN_QA_REFERENCE_DATE} />
+      {active !== 'map' && active !== 'home' && active !== 'tasks' && active !== 'profile' && active !== 'analysis' ? <AppHeader flow   displayName="森哥" onProfile={onEditProfile} onNotifications={() => setNotice(notificationUnavailableNotice)} referenceDate={DESIGN_QA_REFERENCE_DATE} /> : null}
       <AppToast notice={notice} onDismiss={() => setNotice(null)} withinSafeArea />
       <View style={[styles.mainScreen, { backgroundColor: colors.background }]}>{children}</View>
       <BottomNav active={active} onChange={tab => onNavigate(tabStages[tab])} />
@@ -141,7 +152,7 @@ function MainPreviewShell({ active, children, onNavigate = noop, onEditProfile }
   );
 }
 
-function PreviewScreen({ stage, state, onNavigate = noop, browsing = false, onEditProfile, onControlBack, cameraPreview = false, landscapeDocksExpanded = true }: { stage: DesignQaStage; state: DesignQaState; onNavigate?: NavigatePreview; browsing?: boolean; onEditProfile?: () => void; onControlBack?: () => void; cameraPreview?: boolean; landscapeDocksExpanded?: boolean }) {
+function PreviewScreen({ stage, state, onNavigate = noop, browsing = false, onEditProfile, onControlBack, onOpenPrivacy, cameraPreview = false, landscapeDocksExpanded = true }: { onOpenPrivacy?: () => void; stage: DesignQaStage; state: DesignQaState; onNavigate?: NavigatePreview; browsing?: boolean; onEditProfile?: () => void; onControlBack?: () => void; cameraPreview?: boolean; landscapeDocksExpanded?: boolean }) {
   const loading = state === 'loading';
   const error = state === 'error' ? SAMPLE_ERROR : null;
 
@@ -168,21 +179,25 @@ function PreviewScreen({ stage, state, onNavigate = noop, browsing = false, onEd
       return (
         <MainPreviewShell active="home" onNavigate={onNavigate} onEditProfile={onEditProfile}>
           <HomeScreen
+            displayName="森哥"
+            hasDevice={state !== 'empty'}
+            onConnect={() => onNavigate('device-bind')}
+            onOpenVideo={() => onNavigate('robot-control')}
             batteryPercent={null}
-            canRecall={false}
-            connected={false}
-            taskControlAvailable={false}
-            taskExecutorAvailable={false}
-            onOpenControl={() => onNavigate('robot-control')}
+            busVoltageV={null}
+            currentTask={state === 'empty' ? undefined : { title: '园区巡检', done: 3, total: 6, elapsed: '已运行 12 分钟' }}
+            updatedAt={null}
+            transport={undefined}
+            journey={homeJourney}
+            activities={state === 'empty' ? [] : homeEvents}
+            connected={state !== 'empty'}
             onOpenRoutes={() => onNavigate('main-routes')}
             onOpenSafety={() => onNavigate('main-profile')}
             onOpenTasks={() => onNavigate('main-tasks')}
-            onRecall={noop}
-            recallBlockedReason="生产执行器未接入，召回保持禁用"
-            robotCompactImage={images.thunderCompact}
             robotImage={images.thunderHero}
             robotName="THUNDER 01"
-            safetyLock
+            modelLabel={state === 'empty' ? undefined : 'THUNDER-01'}
+            safetyLock={false}
           />
         </MainPreviewShell>
       );
@@ -190,12 +205,14 @@ function PreviewScreen({ stage, state, onNavigate = noop, browsing = false, onEd
       return (
         <MainPreviewShell active="map" onNavigate={onNavigate} onEditProfile={onEditProfile}>
           <MapScreen
+            draftScope="qa:thunder01"
             blockedReason="生产控制与路线执行器未接入"
-            showExamples
+            showExamples={state !== 'empty'}
+            onOpenNavigation={() => onNavigate('device-bind')}
             controlAvailable={false}
             executorAvailable={false}
             onStartRoute={noop}
-            robotName="THUNDER 01"
+            robotName={state === 'empty' ? '未连接设备' : 'THUNDER 01'}
           />
         </MainPreviewShell>
       );
@@ -203,6 +220,14 @@ function PreviewScreen({ stage, state, onNavigate = noop, browsing = false, onEd
       return (
         <MainPreviewShell active="tasks" onNavigate={onNavigate} onEditProfile={onEditProfile}>
           <TasksScreen
+            routes={state === 'empty' ? [] : previewRoutes.map(route => ({ name: route.name, checkpointCount: route.points.length }))}
+            draftScope="qa:thunder01"
+            onSelectDevice={() => onNavigate('main-profile')}
+            items={state === 'empty' ? [] : [
+              { id: 'qa-check', title: '设备检查', date: '2026-11-11', time: '09:12', location: '设备自检', status: 'completed', result: '检查已完成（界面样例）' },
+              { id: 'qa-patrol', title: '园区巡检', date: '2026-11-11', time: '14:20', location: '东侧步道', status: 'running', progress: { done: 3, total: 6 }, duration: '12 分钟', routePreview: previewRoutes[0], checkpoint: { number: 3, label: '东侧入口', action: '正在采集图像' }, events: [{ id: 'e3', time: '14:32', title: '到达检查点 03' }, { id: 'e2', time: '14:28', title: '检查点 02 已完成' }, { id: 'e1', time: '14:23', title: '检查点 01 已完成' }, { id: 'e0', time: '14:20', title: '任务开始' }] },
+              { id: 'qa-warehouse', title: '仓库巡检', date: '2026-11-11', time: '15:30', location: 'B 区', status: 'pending' },
+            ]}
             blockedReason="生产控制与任务执行器未接入"
             controlAvailable={false}
             executorAvailable={false}
@@ -215,16 +240,18 @@ function PreviewScreen({ stage, state, onNavigate = noop, browsing = false, onEd
     case 'main-analysis':
       return (
         <MainPreviewShell active="analysis" onNavigate={onNavigate} onEditProfile={onEditProfile}>
-          <AnalysisScreen previewMode={!browsing && state !== 'trusted-empty'} />
+          <AnalysisScreen previewMode={!browsing && state !== 'trusted-empty' && state !== 'empty'} />
         </MainPreviewShell>
       );
     case 'main-profile':
       return (
         <MainPreviewShell active="profile" onNavigate={onNavigate} onEditProfile={onEditProfile}>
           <ProfileScreen
+            onOpenDataPrivacy={onOpenPrivacy}
+            initialDeviceOpen={state === 'device'}
             accountEmail="design.qa@example.invalid"
-            displayName="DOSO Demo"
-            username="doso_demo"
+            displayName="森哥"
+            username="senge"
             avatarUrl={null}
             onEditProfile={onEditProfile}
             onOpenControl={() => onNavigate('robot-control')}
@@ -252,7 +279,8 @@ function PreviewScreen({ stage, state, onNavigate = noop, browsing = false, onEd
             provisioningBlockedReason="真实安全配网能力未接入"
             runtimeHours={null}
             safetyLock={null}
-            serialNumber="待绑定"
+            deviceId="待绑定"
+            robotVersion="待同步"
           />
         </MainPreviewShell>
       );
@@ -326,10 +354,15 @@ function PreviewScreen({ stage, state, onNavigate = noop, browsing = false, onEd
           />
         );
       }
+      if (state === 'connection' || state === 'input') return <ControlReferencePreview initialPage={state} onBack={onControlBack ?? (() => onNavigate('main-home'))} />;
+      if (state === 'reference') return <ControlReferencePreview onBack={onControlBack ?? (() => onNavigate('main-home'))} />;
       return (
         <ControlScreen
           allowInteractionPreview
           batteryPercent={null}
+          landscapeDocksExpanded={typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('qa-docks') !== 'folded' : true}
+          previewSafeInsets={typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('qa-insets') === 'g20' ? G20_LANDSCAPE_PREVIEW_INSETS : undefined}
+          previewSafeAreaGuides={typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('qa-guides') === '1'}
           canUseManualControl={false}
           canUseRouteMode={false}
           canUseTaskMode={false}
@@ -348,7 +381,7 @@ function PreviewScreen({ stage, state, onNavigate = noop, browsing = false, onEd
         />
       );
     case 'device-bind':
-      return <BindDeviceScreen busy={loading} error={error} onBack={() => onNavigate('main-profile')} onBind={noop} />;
+      return <BindDeviceScreen busy={loading} error={error} onBack={() => onNavigate('main-profile')} onFindNearby={() => onNavigate('device-ble-discovery')} onBind={noop} />;
     case 'device-ble-discovery':
       return <BleDiscoveryPreview state={state} />;
     case 'device-provisioning':
@@ -375,6 +408,7 @@ function DesignQaContent({ hideDisclosure, search, browsing, onToggleTheme }: { 
   const [selectedStage, setSelectedStage] = useState<DesignQaStage | null>(null);
   const [showPages, setShowPages] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
   const [controlOrigin, setControlOrigin] = useState<DesignQaStage>('main-home');
   const [controlScene, setControlScene] = useState<DesignQaState | null>(null);
   const profileBackRef = useRef<() => void>(noop);
@@ -382,8 +416,9 @@ function DesignQaContent({ hideDisclosure, search, browsing, onToggleTheme }: { 
   const initialSearch = browsing && !new URLSearchParams(search).has('qa-stage') ? '?qa-stage=main-home' : search;
   // Static, local-only extras do not expand the formal 20-stage acceptance list.
   // Neither page mounts an account provider or calls a service automatically.
-  const extra = new URLSearchParams(search).get('design-qa') === '1' ? new URLSearchParams(search).get('qa-extra') : null;
+  const extra = !selectedStage && new URLSearchParams(search).get('design-qa') === '1' ? new URLSearchParams(search).get('qa-extra') : null;
   const extraTokens = extra ? extra.split(',').map(token => token.trim()).filter(Boolean) : [];
+  const showJointFixture = extra === 'joint-status' && new URLSearchParams(search).get('qa-fixture') === 'joints';
   const hudExtraOnly = extraTokens.every(token => token === 'camera' || token === 'folded');
   const requested = parseDesignQaRequest(selectedStage ? `?qa-stage=${selectedStage}` : initialSearch);
   const request = requested.stage === 'robot-control' && controlScene ? { ...requested, state: controlScene, issue: null } : requested;
@@ -426,12 +461,7 @@ function DesignQaContent({ hideDisclosure, search, browsing, onToggleTheme }: { 
             {DESIGN_QA_STAGES.map(stage => <Pressable key={stage} accessibilityRole="button" accessibilityLabel={`查看${stageLabels[stage]}`} accessibilityState={{ selected: request.stage === stage }} onPress={() => navigate(stage)} style={[styles.pageChip, { backgroundColor: request.stage === stage ? colors.authFocus : colors.surface }]}><Text style={{ color: request.stage === stage ? colors.authPrimaryInk : colors.ink }}>{stageLabels[stage]}</Text></Pressable>)}
           </ScrollView> : null}
         </SafeAreaView>
-      </> : !hideDisclosure ? (
-        <View accessibilityRole="alert" style={[styles.disclosure, { backgroundColor: isDark ? '#4A3516' : '#FFF3CD' }]} testID="design-qa-disclosure">
-          <Text style={[styles.disclosureTitle, { color: isDark ? '#FFE3A3' : '#6F4B00' }]}>设计验收预览</Text>
-          <Text style={[styles.disclosureBody, { color: isDark ? '#F4D48D' : '#765B1B' }]}>不连接真实后端，不发送邮件，不修改账号，不发送机器人命令</Text>
-        </View>
-      ) : null}
+      </> : null}
       <View
         accessible
         accessibilityLabel={`design-qa-preview:${request.stage ?? 'invalid'}:${request.state ?? 'invalid'}`}
@@ -439,14 +469,14 @@ function DesignQaContent({ hideDisclosure, search, browsing, onToggleTheme }: { 
         style={[styles.preview, { backgroundColor: colors.background }]}
         testID="design-qa-preview"
       >
-        {extra === 'joint-status' ? <JointStatusScreen deviceName="THUNDER 01" onBack={noop} /> : extra === 'data-privacy' ? <DataPrivacyScreen onBack={noop} /> : (editingProfile && browsing) || extra === 'edit-profile' ? <EditProfileScreen
+        {extra === 'home-interactions' ? <HomeInteractionPrototype /> : extra === 'cloud-video' ? <MainPreviewShell active="home" onNavigate={navigate}><VideoFixture onBack={() => navigate('main-home')} /></MainPreviewShell> : extra === 'joint-status' ? <JointStatusScreen deviceName={showJointFixture ? '模拟数据 · 非机器狗' : 'THUNDER 01'} robotDiagram={images.thunderJointDiagram} joints={showJointFixture ? jointStatusFixture : undefined} onBack={() => setSelectedStage('robot-control')} /> : privacyOpen || extra === 'data-privacy' ? <DataPrivacyScreen onBack={() => { setPrivacyOpen(false); setSelectedStage('main-profile'); }} /> : (editingProfile && browsing) || extra === 'edit-profile' ? <EditProfileScreen
           avatarUrl={null}
           profile={{ id: 'design-preview', username: 'doso_demo', display_name: 'DOSO Demo', avatar_url: null }}
           onBack={closeProfileEditor}
           onBackRequestChange={registerProfileBack}
           onSave={async () => { throw new Error('这是界面预览，不会写入账户资料。请在正式登录后保存。'); }}
         /> : extra && !hudExtraOnly ? <InvalidRequest issue="qa-extra 不受支持" /> : request.stage && request.state
-          ? <PreviewScreen key={request.stage} cameraPreview={extraTokens.includes('camera')} landscapeDocksExpanded={!extraTokens.includes('folded')} stage={request.stage} state={request.state} onNavigate={navigate} browsing={browsing} onEditProfile={browsing ? () => setEditingProfile(true) : undefined} onControlBack={() => navigate(controlOrigin)} />
+          ? <PreviewScreen onOpenPrivacy={() => setPrivacyOpen(true)} key={request.stage} cameraPreview={extraTokens.includes('camera')} landscapeDocksExpanded={!extraTokens.includes('folded')} stage={request.stage} state={request.state} onNavigate={navigate} browsing={browsing} onEditProfile={browsing ? () => setEditingProfile(true) : undefined} onControlBack={() => navigate(controlOrigin)} />
           : <InvalidRequest issue={request.issue ?? '未知参数错误'} />}
       </View>
     </View>
@@ -461,14 +491,22 @@ type DesignQaRootProps = {
 export function DesignQaRoot({ hideDisclosure = false, search }: DesignQaRootProps) {
   const resolvedSearch = search ?? (typeof window === 'undefined' ? '' : window.location.search);
   const params = new URLSearchParams(resolvedSearch);
+  hideDisclosure = hideDisclosure || params.get('qa-chrome') === '0';
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const previousTitle = document.title;
+    document.title = 'DOSO 界面预览';
+    return () => { document.title = previousTitle; };
+  }, []);
   const browsing = params.get('qa-browse') === '1';
-  const [theme, setTheme] = useState<'light' | 'dark'>(params.get('qa-theme') === 'dark' ? 'dark' : 'light');
+  const [theme, setTheme] = useState<'light' | 'dark' | null>(params.get('qa-theme') === 'light' ? 'light' : 'dark');
+  const previewInsets = params.get('qa-insets') === 'g20' ? G20_LANDSCAPE_PREVIEW_INSETS : undefined;
   return (
-    <ThemePreferenceContext.Provider value={browsing && !hideDisclosure ? theme : null}>
-      <SafeAreaProvider>
+    <AppearanceControlContext.Provider value={{ preference: theme, onChange: setTheme }}><ThemePreferenceContext.Provider value={theme}>
+      <SafeAreaProvider initialMetrics={previewInsets ? { frame: { x: 0, y: 0, width: 0, height: 0 }, insets: { top: previewInsets.top, right: previewInsets.right, bottom: previewInsets.bottom, left: previewInsets.left } } : undefined}>
         <DesignQaContent hideDisclosure={hideDisclosure} search={resolvedSearch} browsing={browsing} onToggleTheme={() => setTheme(value => value === 'light' ? 'dark' : 'light')} />
       </SafeAreaProvider>
-    </ThemePreferenceContext.Provider>
+    </ThemePreferenceContext.Provider></AppearanceControlContext.Provider>
   );
 }
 
@@ -481,9 +519,6 @@ const styles = StyleSheet.create({
   browsePages: { maxHeight: 200 },
   browsePageList: { flexDirection: 'row', flexWrap: 'wrap', padding: 12, gap: 8 },
   pageChip: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 14, borderRadius: 12 },
-  disclosure: { alignItems: 'center', minHeight: 54, justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 8, zIndex: 20 },
-  disclosureTitle: { fontSize: 13, fontWeight: '900', letterSpacing: 0.5 },
-  disclosureBody: { fontSize: 11, fontWeight: '700', marginTop: 2 },
   preview: { flex: 1, minHeight: 0 },
   invalidPage: { flex: 1, justifyContent: 'center', padding: 28 },
   invalidTitle: { fontSize: 25, fontWeight: '900' },

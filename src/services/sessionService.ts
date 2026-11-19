@@ -1,7 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
-import type { AccountTerminal, AccountTerminalWithCurrent } from '../types/api';
+import type { AccountTerminal, AccountTerminalWithCurrent, LoginRecord } from '../types/api';
 import { readAuthSessionIdentity, type AuthSessionIdentity } from './authSessionIdentity';
 import {
   isAuthSessionOperationBusyError,
@@ -85,6 +85,8 @@ type PublicTerminal = Omit<AccountTerminal, 'user_id' | 'auth_session_id' | 'use
 type AccountSessionsResponse = {
   terminal?: PublicTerminal | null;
   terminals?: PublicTerminal[];
+  records?: unknown;
+  recorded?: boolean;
   revoked?: number;
   error?: string | { code?: string; message?: string };
   message?: string;
@@ -105,7 +107,7 @@ async function invokeAccountSessions(
   canDispatch?: () => boolean,
   accessToken?: string,
 ): Promise<AccountSessionsResponse> {
-  const outcome = body.action === 'list' ? 'read-timeout'
+  const outcome = ['list', 'list_login_history'].includes(String(body.action)) ? 'read-timeout'
     : String(body.action).startsWith('revoke_') ? 'revocation-unconfirmed' : 'registration-unconfirmed';
   try {
     return await withinSessionDeadline(
@@ -252,6 +254,26 @@ export async function heartbeatCurrentTerminal() {
 
 export async function listAccountTerminals(): Promise<AccountTerminalWithCurrent[]> {
   return readAccountTerminals();
+}
+
+export async function captureLoginRecord() {
+  const data = await invokeAccountSessions({ action: 'capture_login' });
+  if (data.recorded !== true) throw new Error('登录记录未保存，请稍后重试。');
+}
+
+export async function listLoginRecords(): Promise<LoginRecord[]> {
+  const data = await invokeAccountSessions({ action: 'list_login_history' });
+  if (!Array.isArray(data.records)) throw new Error('登录记录返回结果无法确认，请刷新后重试。');
+  return data.records.map((value: unknown) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('登录记录格式无效。');
+    const record = value as Record<string, unknown>;
+    if (!Number.isSafeInteger(record.id) || typeof record.loggedInAt !== 'string'
+      || (record.ipAddress !== null && typeof record.ipAddress !== 'string')
+      || (record.method !== null && typeof record.method !== 'string')) {
+      throw new Error('登录记录格式无效。');
+    }
+    return record as unknown as LoginRecord;
+  });
 }
 
 async function readAccountTerminals(lease?: AuthSessionOperationLease, accessToken?: string): Promise<AccountTerminalWithCurrent[]> {

@@ -168,9 +168,14 @@ export async function beginDeviceEnrollment(
       }
       throw new DeviceEnrollmentError(enrollmentErrorCode(error));
     }
-    return parseDeviceEnrollmentResponse(data);
+    const enrollment = parseDeviceEnrollmentResponse(data);
+    if (enrollment.deviceId.toLowerCase() !== deviceId.toLowerCase()) {
+      throw new DeviceEnrollmentError('invalid_response');
+    }
+    return enrollment;
   } catch (error) {
     if (error instanceof DeviceEnrollmentError) throw error;
     throw new DeviceEnrollmentError(enrollmentErrorCode(error));
   }
 }
+

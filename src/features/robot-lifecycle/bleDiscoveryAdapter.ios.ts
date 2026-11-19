@@ -8,6 +8,7 @@ import {
 } from './bleDiscoveryContract';
 import {
   candidateFromPeripheral,
+  getBleServiceUuid,
   type BleRobotCandidate,
 } from './bleDiscoveryModel';
 import {
@@ -16,7 +17,7 @@ import {
 } from './bleDiscoverySession';
 
 const namePrefix = process.env.EXPO_PUBLIC_DOSO_BLE_NAME_PREFIX?.trim() || 'DOSO';
-const serviceUuid = process.env.EXPO_PUBLIC_DOSO_BLE_SERVICE_UUID?.trim() || null;
+const serviceUuid = getBleServiceUuid();
 
 type IosBleManager = Pick<typeof BleManager,
   | 'start'
@@ -56,6 +57,7 @@ export function createIosBleDiscoveryAdapter(manager: IosBleManager): BleDiscove
       name: peripheral.name ?? peripheral.advertising?.localName,
       rssi: peripheral.rssi,
       serviceUUIDs: peripheral.advertising?.serviceUUIDs ?? [],
+      connectable: peripheral.advertising?.isConnectable,
     }, { namePrefix, serviceUuid });
   }
 
@@ -99,7 +101,7 @@ export function createIosBleDiscoveryAdapter(manager: IosBleManager): BleDiscove
       const controller = new AbortController();
       const pending = runBleDiscoveryScanSession(nativeRuntime, {
         seconds,
-        serviceUUIDs: serviceUuid ? [serviceUuid] : [],
+        serviceUUIDs: [serviceUuid],
         signal: controller.signal,
         onCandidates,
         toCandidate: peripheralCandidate,

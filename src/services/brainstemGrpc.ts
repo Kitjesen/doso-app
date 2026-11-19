@@ -206,7 +206,7 @@ export function validateBrainstemEndpoint(host: string, port: string | number, t
   if (transport === 'lan-dev') {
     const parts = normalized.split('.').map(Number);
     if (alias !== undefined || !/^[0-9.]+$/.test(normalized) || parts.length !== 4 ||
-      !(parts[0] === 10 || parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31 || parts[0] === 192 && parts[1] === 168)) throw new BrainstemGrpcError('config');
+      !(normalized === '127.0.0.1' || parts[0] === 10 || parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31 || parts[0] === 192 && parts[1] === 168)) throw new BrainstemGrpcError('config');
   }
   return { host: normalized, port: Number(portText) };
 }

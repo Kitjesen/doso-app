@@ -9,6 +9,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import {
   heartbeatCurrentTerminal,
   isAccountSessionOutcomeError,
+  listLoginRecords,
   listAccountTerminals,
   revokeAccountTerminal,
   revokeAllTerminals,
@@ -17,7 +18,7 @@ import {
 import { listMyLoginMethods } from '../services/authService';
 import { getMfaStatus } from '../services/mfaService';
 import { radii, type ThemeColors, useAppTheme } from '../theme';
-import type { AccountTerminalWithCurrent, ExternalIdentityKind, ExternalIdentitySummary } from '../types/api';
+import type { AccountTerminalWithCurrent, ExternalIdentityKind, ExternalIdentitySummary, LoginRecord } from '../types/api';
 import { getSecurityPageLayout } from './securityPageLayout';
 
 type Props = {
@@ -47,6 +48,10 @@ function formatLastSeen(value: string) {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function formatLoginIp(value: string | null) {
+  return value?.trim() || '未记录';
 }
 
 const LOGIN_METHOD_LABELS: Record<ExternalIdentityKind, string> = {
@@ -111,11 +116,14 @@ export function AccountSecurityScreen({
   const accentColor = isDark ? colors.successText : colors.greenDark;
   const [terminals, setTerminals] = useState<AccountTerminalWithCurrent[]>([]);
   const [loginMethods, setLoginMethods] = useState<ExternalIdentitySummary[]>([]);
+  const [loginRecords, setLoginRecords] = useState<LoginRecord[]>([]);
   const [terminalsLoading, setTerminalsLoading] = useState(true);
   const [loginMethodsLoading, setLoginMethodsLoading] = useState(true);
   const [mfaDisplayState, setMfaDisplayState] = useState<MfaDisplayState>('loading');
   const [terminalError, setTerminalError] = useState<string | null>(null);
   const [loginMethodsError, setLoginMethodsError] = useState<string | null>(null);
+  const [loginRecordsLoading, setLoginRecordsLoading] = useState(true);
+  const [loginRecordsError, setLoginRecordsError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [activeAction, setActiveAction] = useState<string | null>(null);
   const [unconfirmedAction, setUnconfirmedAction] = useState<string | null>(null);
@@ -123,6 +131,7 @@ export function AccountSecurityScreen({
   const mountedRef = useRef(true);
   const terminalRequestGenerationRef = useRef(0);
   const loginMethodsRequestGenerationRef = useRef(0);
+  const loginRecordsRequestGenerationRef = useRef(0);
   const mfaRequestGenerationRef = useRef(0);
   const actionRequestGenerationRef = useRef(0);
   const activeActionRef = useRef<string | null>(null);
@@ -164,6 +173,22 @@ export function AccountSecurityScreen({
     }
   }, []);
 
+  const loadLoginRecords = useCallback(async () => {
+    const requestId = ++loginRecordsRequestGenerationRef.current;
+    setLoginRecordsLoading(true);
+    setLoginRecordsError(null);
+    try {
+      const records = await listLoginRecords();
+      if (!mountedRef.current || requestId !== loginRecordsRequestGenerationRef.current) return;
+      setLoginRecords(records);
+    } catch (error) {
+      if (!mountedRef.current || requestId !== loginRecordsRequestGenerationRef.current) return;
+      setLoginRecordsError(errorMessage(error, '登录记录暂时无法读取，请检查网络后刷新。'));
+    } finally {
+      if (mountedRef.current && requestId === loginRecordsRequestGenerationRef.current) setLoginRecordsLoading(false);
+    }
+  }, []);
+
   const loadMfaStatus = useCallback(async () => {
     const requestId = ++mfaRequestGenerationRef.current;
     setMfaDisplayState('loading');
@@ -186,6 +211,7 @@ export function AccountSecurityScreen({
       mountedRef.current = false;
       terminalRequestGenerationRef.current += 1;
       loginMethodsRequestGenerationRef.current += 1;
+      loginRecordsRequestGenerationRef.current += 1;
       mfaRequestGenerationRef.current += 1;
       actionRequestGenerationRef.current += 1;
       activeActionRef.current = null;
@@ -195,8 +221,9 @@ export function AccountSecurityScreen({
   useEffect(() => {
     void loadTerminals();
     void loadLoginMethods();
+    void loadLoginRecords();
     if (canManageMfa) void loadMfaStatus();
-  }, [canManageMfa, loadLoginMethods, loadMfaStatus, loadTerminals]);
+  }, [canManageMfa, loadLoginMethods, loadLoginRecords, loadMfaStatus, loadTerminals]);
 
   const requestBack = useCallback(() => {
     // The ref closes the same-tick gap before the disabled header rerenders.
@@ -360,6 +387,43 @@ export function AccountSecurityScreen({
             <View style={styles.emptyLoginMethods}>
               <Text style={styles.emptyTitle}>暂未同步到登录方式</Text>
               <Text style={styles.emptyText}>请刷新页面；登录身份仅由服务端安全记录确认。</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>登录记录</Text>
+          <Pressable accessibilityRole="button" disabled={loginRecordsLoading || interactionLocked} onPress={() => void loadLoginRecords()} style={styles.refreshButton}>
+            <Text style={styles.refreshText}>刷新</Text>
+          </Pressable>
+        </View>
+        <View style={styles.card}>
+          {loginRecordsLoading ? (
+            <View style={styles.inlineLoading}>
+              <ActivityIndicator color={colors.greenStrong} size="small" />
+              <Text style={styles.loadingText}>正在读取登录记录…</Text>
+            </View>
+          ) : loginRecordsError ? (
+            <View accessibilityLiveRegion="polite" style={styles.inlineError}>
+              <Ionicons color={colors.dangerText} name="alert-circle-outline" size={19} />
+              <Text style={styles.errorText}>{loginRecordsError}</Text>
+              <Pressable accessibilityRole="button" disabled={interactionLocked} onPress={() => void loadLoginRecords()} style={styles.retryButton}>
+                <Text style={styles.retryText}>重试</Text>
+              </Pressable>
+            </View>
+          ) : loginRecords.length ? loginRecords.map((record, index) => (
+            <View key={record.id} style={[styles.row, index > 0 && styles.rowDivider]}>
+              <View style={styles.iconCircle}><Ionicons color={accentColor} name="time-outline" size={20} /></View>
+              <View style={styles.rowCopy}>
+                <Text style={styles.rowTitle}>{formatLastSeen(record.loggedInAt)}</Text>
+                <Text style={styles.rowDetail}>{formatLoginIp(record.ipAddress)}</Text>
+              </View>
+              <Text style={[styles.status, styles.statusNeutral]}>{record.method ?? '登录'}</Text>
+            </View>
+          )) : (
+            <View style={styles.emptyLoginMethods}>
+              <Text style={styles.emptyTitle}>暂无登录记录</Text>
+              <Text style={styles.emptyText}>新的登录会在认证完成后保存。</Text>
             </View>
           )}
         </View>

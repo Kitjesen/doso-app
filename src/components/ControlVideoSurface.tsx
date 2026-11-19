@@ -12,10 +12,13 @@ import { Text } from './AppText';
  */
 export type ControlVideoPresentation = Readonly<{
   id: string;
+  error?: import('../features/video/whepReceiver').VideoSnapshot['error'];
   phase: 'unconfigured' | 'connecting' | 'receiving' | 'stalled' | 'error';
 }>;
 
 type Props = Readonly<{
+  statusTop?: number;
+  statusColor?: string;
   presentation?: ControlVideoPresentation;
   surface?: ReactNode;
   active: boolean;
@@ -29,7 +32,7 @@ const messages = {
   error: '视频连接失败',
 } as const;
 
-export function ControlVideoSurface({ presentation, surface, active, onInterrupted }: Props) {
+export function ControlVideoSurface({ presentation, surface, active, onInterrupted, statusTop, statusColor }: Props) {
   const suspendedId = useRef<string | undefined>(undefined);
   if (!active && presentation) suspendedId.current = presentation.id;
   const hasSurface = surface !== null && surface !== undefined && surface !== false;
@@ -55,15 +58,16 @@ export function ControlVideoSurface({ presentation, surface, active, onInterrupt
   }, [active, phase, presentation?.id]);
 
   const canMountSurface = active && hasSurface && phase !== 'unconfigured' && phase !== 'error';
-  const message = !active ? '视频已暂停' : phase === 'receiving' ? null : messages[phase];
+  const message = !active ? '视频已暂停' : phase === 'receiving' ? null
+    : presentation?.error === 'authorization' ? '视频授权失败' : messages[phase];
 
   return (
     <View testID="control-video-surface" pointerEvents="none" style={styles.stage}>
-      {canMountSurface ? <View testID="control-video-player" style={[StyleSheet.absoluteFill, phase !== 'receiving' && styles.hiddenFrame]}>{surface}</View> : null}
+      {canMountSurface ? <View testID="control-video-player" style={StyleSheet.absoluteFill}>{surface}</View> : null}
       {message ? (
-        <View testID="control-video-status" style={styles.status}>
+        <View testID="control-video-status" style={[styles.status, statusTop === undefined ? null : { top: statusTop }]}>
           <View style={styles.statusIcon}><Ionicons name="videocam-outline" size={28} color="#8B8D98" /></View>
-          <Text style={styles.statusText}>{message}</Text>
+          <Text style={[styles.statusText, statusColor ? { color: statusColor } : null]}>{message}</Text>
         </View>
       ) : null}
     </View>
@@ -71,8 +75,7 @@ export function ControlVideoSurface({ presentation, surface, active, onInterrupt
 }
 
 const styles = StyleSheet.create({
-  stage: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#F9F9FB' },
-  hiddenFrame: { opacity: 0 },
+  stage: { flex: 1, height: '100%', width: '100%', backgroundColor: '#F9F9FB' },
   status: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', gap: 12 },
   statusIcon: { alignItems: 'center', justifyContent: 'center', width: 48, height: 48 },
   statusText: { color: '#80838D', fontSize: 14, lineHeight: 22, fontWeight: '400' },

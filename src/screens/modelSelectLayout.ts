@@ -112,52 +112,38 @@ export function getModelSelectLayoutMetrics({
     };
   }
 
-  if (availableContentWidth >= BASE_GRID_WIDTH) {
-    const cardWidth = Math.floor(
-      (MODEL_SELECT_LANDSCAPE_BASE_RIGHT_WIDTH - MODEL_SELECT_LANDSCAPE_CARD_GAP) / 2,
-    );
-    return {
-      availableContentWidth: BASE_GRID_WIDTH,
-      cardGap: MODEL_SELECT_LANDSCAPE_CARD_GAP,
-      cardHeight: MODEL_SELECT_LANDSCAPE_CARD_HEIGHT,
-      cardWidth,
-      cardsPerRow: 2,
-      controlWidth: MODEL_SELECT_LANDSCAPE_CONTROL_MAX_WIDTH,
-      gridGap: MODEL_SELECT_LANDSCAPE_BASE_GAP,
-      headerContentWidth: MODEL_SELECT_LANDSCAPE_BASE_LEFT_WIDTH,
-      headerProgressWidth: getHeaderProgressWidth(MODEL_SELECT_LANDSCAPE_BASE_LEFT_WIDTH),
-      isLandscape,
-      largeText,
-      leftColumnWidth: MODEL_SELECT_LANDSCAPE_BASE_LEFT_WIDTH,
-      rightColumnWidth: MODEL_SELECT_LANDSCAPE_BASE_RIGHT_WIDTH,
-      usesColumns,
-    };
-  }
-
-  const interpolation = (availableContentWidth - MIN_GRID_WIDTH) / (BASE_GRID_WIDTH - MIN_GRID_WIDTH);
-  const leftColumnWidth = Math.round(
+  const wide = availableContentWidth >= BASE_GRID_WIDTH;
+  const interpolation = wide
+    ? 1
+    : (availableContentWidth - MIN_GRID_WIDTH) / (BASE_GRID_WIDTH - MIN_GRID_WIDTH);
+  const leftColumnWidth = Math.round(Math.min(
+    wide ? 420 : MODEL_SELECT_LANDSCAPE_BASE_LEFT_WIDTH,
     MODEL_SELECT_LANDSCAPE_MIN_LEFT_WIDTH
-      + (MODEL_SELECT_LANDSCAPE_BASE_LEFT_WIDTH - MODEL_SELECT_LANDSCAPE_MIN_LEFT_WIDTH) * interpolation,
-  );
-  const gridGap = Math.round(
-    MODEL_SELECT_LANDSCAPE_MIN_GAP
-      + (MODEL_SELECT_LANDSCAPE_BASE_GAP - MODEL_SELECT_LANDSCAPE_MIN_GAP) * interpolation,
-  );
+      + (MODEL_SELECT_LANDSCAPE_BASE_LEFT_WIDTH - MODEL_SELECT_LANDSCAPE_MIN_LEFT_WIDTH) * interpolation
+      + (wide ? Math.min(44, (availableContentWidth - BASE_GRID_WIDTH) * 0.04) : 0),
+  ));
+  const gridGap = wide
+    ? 24
+    : Math.round(
+      MODEL_SELECT_LANDSCAPE_MIN_GAP
+        + (MODEL_SELECT_LANDSCAPE_BASE_GAP - MODEL_SELECT_LANDSCAPE_MIN_GAP) * interpolation,
+    );
   const rightColumnWidth = availableContentWidth - leftColumnWidth - gridGap;
-  const cardWidth = Math.floor(
-    (rightColumnWidth - MODEL_SELECT_LANDSCAPE_CARD_GAP) / 2,
+  const cardWidth = Math.min(
+    wide ? 320 : Number.POSITIVE_INFINITY,
+    Math.floor((rightColumnWidth - MODEL_SELECT_LANDSCAPE_CARD_GAP) / 2),
   );
 
   return {
     availableContentWidth,
     cardGap: MODEL_SELECT_LANDSCAPE_CARD_GAP,
-    cardHeight: MODEL_SELECT_LANDSCAPE_CARD_HEIGHT,
+    cardHeight: wide ? 220 : MODEL_SELECT_LANDSCAPE_CARD_HEIGHT,
     cardWidth,
     cardsPerRow: 2,
     controlWidth: Math.min(MODEL_SELECT_LANDSCAPE_CONTROL_MAX_WIDTH, leftColumnWidth),
     gridGap,
-    headerContentWidth: leftColumnWidth,
-    headerProgressWidth: getHeaderProgressWidth(leftColumnWidth),
+    headerContentWidth: availableContentWidth,
+    headerProgressWidth: getHeaderProgressWidth(availableContentWidth),
     isLandscape,
     largeText,
     leftColumnWidth,

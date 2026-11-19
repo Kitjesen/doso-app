@@ -7,6 +7,9 @@ import App from './App';
 import { AuthProvider } from './src/auth';
 import { DesignQaRoot, isDesignQaRequested } from './src/design-qa';
 import { FontProvider } from './src/fonts/FontProvider';
+import { PrismaticLoadingScreen } from './src/components/PrismaticLoadingScreen';
+import { ProvisioningScreen } from './src/screens/ProvisioningScreen';
+import { simulatedProvisioningGateway } from './src/features/robot-lifecycle/provisioningGateway';
 import { ConnectionDiagnosticsScreen } from './src/screens/ConnectionDiagnosticsScreen';
 import { BrainstemSimulationScreen } from './src/screens/BrainstemSimulationScreen';
 
@@ -24,12 +27,14 @@ const nativeDesignQaEnabled = Platform.OS !== 'web'
   && process.env.EXPO_PUBLIC_DESIGN_QA === '1'
   && Boolean(process.env.EXPO_PUBLIC_DESIGN_QA_STAGE);
 const nativeDesignQaSearch = nativeDesignQaEnabled
-  ? `?design-qa=1&qa-stage=${encodeURIComponent(process.env.EXPO_PUBLIC_DESIGN_QA_STAGE ?? '')}&qa-state=${encodeURIComponent(process.env.EXPO_PUBLIC_DESIGN_QA_STATE ?? 'default')}${process.env.EXPO_PUBLIC_DESIGN_QA_BROWSE === '1' ? '&qa-browse=1' : ''}`
+  ? `?design-qa=1&qa-stage=${encodeURIComponent(process.env.EXPO_PUBLIC_DESIGN_QA_STAGE ?? '')}&qa-state=${encodeURIComponent(process.env.EXPO_PUBLIC_DESIGN_QA_STATE ?? 'default')}${process.env.EXPO_PUBLIC_DESIGN_QA_BROWSE === '1' ? '&qa-browse=1' : ''}${process.env.EXPO_PUBLIC_DESIGN_QA_EXTRA === 'joint-status-sample' ? '&qa-extra=joint-status&qa-fixture=joints' : ''}`
   : null;
 const designQaSearch = webDesignQaSearch && isDesignQaRequested(webDesignQaSearch)
   ? webDesignQaSearch
   : nativeDesignQaSearch;
 const useDesignQa = __DEV__ && designQaSearch !== null;
+const useProvisioningPreview = __DEV__ && Platform.OS === 'web'
+  && new URLSearchParams(webDesignQaSearch ?? '').get('provisioning-preview') === '1';
 // Separate from Design QA: this explicitly requested development tool may perform
 // only user-triggered, read-only checks. The existing QA entry remains offline.
 const useConnectionDiagnostics = __DEV__ && !useDesignQa && (
@@ -63,8 +68,19 @@ function DesignQaEntry() {
   });
 }
 
+function ProvisioningPreviewEntry() {
+  return createElement(SafeAreaProvider, null, createElement(ProvisioningScreen, {
+    deviceName: 'THUNDER 01 · 模拟设备',
+    gateway: simulatedProvisioningGateway,
+    onBack: () => window.location.assign('/?design-qa=1&qa-stage=main-profile&qa-browse=1'),
+  }));
+}
+
 function FontReadyEntry() {
-  return createElement(FontProvider, null, createElement(useBrainstemSimulation ? BrainstemSimulationEntry : useDesignQa ? DesignQaEntry : useConnectionDiagnostics ? ConnectionDiagnosticsEntry : Root));
+  if (__DEV__ && Platform.OS === 'web' && new URLSearchParams(webDesignQaSearch ?? '').get('loading-preview') === '1') {
+    return createElement(PrismaticLoadingScreen, { testID: 'loading-preview' });
+  }
+  return createElement(FontProvider, null, createElement(useProvisioningPreview ? ProvisioningPreviewEntry : useBrainstemSimulation ? BrainstemSimulationEntry : useDesignQa ? DesignQaEntry : useConnectionDiagnostics ? ConnectionDiagnosticsEntry : Root));
 }
 
 registerRootComponent(FontReadyEntry);

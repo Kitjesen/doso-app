@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Image, type LayoutChangeEvent, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Image, type LayoutChangeEvent, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Text, TextInput } from '../components/AppText';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { cardLayout, getProductAppearance } from '../appearance';
 import { typography } from '../typography';
 
@@ -30,6 +30,8 @@ export function ModelSelectScreen({ busy = false, onContinue, onBack, onSkip, on
   const { fontScale, height, width } = useWindowDimensions();
   const isLandscape = width > height;
   const largeText = fontScale >= 1.5;
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, Platform.OS === 'android' ? 122 : 0);
   const [containerWidth, setContainerWidth] = useState(0);
   const [activeFilter, setActiveFilter] = useState<FilterId>('全部');
   const [query, setQuery] = useState('');
@@ -256,12 +258,13 @@ export function ModelSelectScreen({ busy = false, onContinue, onBack, onSkip, on
   );
 
   return (
-    <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={styles.safeArea}>
-      <View onLayout={handleLayout} style={styles.screen}>
+    <SafeAreaView edges={['top', 'left', 'right']} style={styles.safeArea}>
+      <View onLayout={handleLayout} style={[styles.screen, { paddingBottom: bottomInset }]}>
         {layout.usesColumns ? (
-          <View style={styles.landscapeGrid}>
+          <View style={styles.landscapeBody}>
+            <View style={styles.landscapeHeader}>{header}</View>
+            <View style={styles.landscapeGrid}>
             <View style={styles.leftColumn}>
-              {header}
               {intro}
               {search}
               {filterBar}
@@ -277,6 +280,7 @@ export function ModelSelectScreen({ busy = false, onContinue, onBack, onSkip, on
             >
               {modelGrid}
             </ScrollView>
+            </View>
           </View>
         ) : (
           <>
@@ -483,24 +487,23 @@ function createStyles(colors: ThemeColors, isDark: boolean, layout: ModelSelectL
     previewNotice: {
       ...typography.supporting,
       color: p.secondary,
-      bottom: usesColumns ? 0 : undefined,
-      left: usesColumns ? 0 : undefined,
-      marginTop: usesColumns ? 0 : 9,
-      position: usesColumns ? 'absolute' : 'relative',
+      alignSelf: usesColumns ? 'center' : undefined,
+      marginTop: 9,
       textAlign: 'center',
       width: controlWidth,
     },
+    landscapeBody: { flex: 1, width: '100%' },
+    landscapeHeader: { paddingHorizontal: 20 },
     landscapeGrid: {
-      alignSelf: 'center',
+      flex: 1,
       flexDirection: 'row',
       gap: gridGap,
-      height: '100%',
       paddingHorizontal: 20,
-      paddingTop: 24,
-      width: layout.availableContentWidth + 40,
+      paddingTop: 12,
+      width: '100%',
     },
-    leftColumn: { height: '100%', position: 'relative', width: leftColumnWidth },
-    rightColumn: { flexGrow: 0, width: rightColumnWidth },
+    leftColumn: { flexGrow: 0, flexShrink: 0, minWidth: 0, width: leftColumnWidth },
+    rightColumn: { flexGrow: 1, flexShrink: 1, minWidth: 0, width: rightColumnWidth },
     landscapeModelContent: { paddingBottom: 10, paddingTop: 10 },
     landscapeButton: { alignSelf: 'center', marginTop: 22, width: controlWidth },
     pressed: { opacity: 0.62, transform: [{ scale: 0.98 }] },

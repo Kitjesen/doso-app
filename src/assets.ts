@@ -1,6 +1,7 @@
 export const images = {
   avatar: require('../assets/figma/home-01.png'),
   thunderHero: require('../assets/figma/home-02.png'),
+  thunderJointDiagram: require('../assets/robot/thunder-v4-top-line.png'),
   thunderCompact: require('../assets/figma/home-03.png'),
   homeQuickArrow: require('../assets/figma/home-quick-arrow.png'),
   homeMetricSensors: require('../assets/figma/home-metric-sensors.png'),

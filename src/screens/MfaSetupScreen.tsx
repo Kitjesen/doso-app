@@ -257,7 +257,7 @@ export function MfaSetupScreen({ expectedIdentity, onBack, onBackRequestChange, 
         {!loading && completed && status ? (
           <View style={styles.enabledCard}>
             <View style={styles.enabledIcon}>
-              <Ionicons color={colors.successText} name="shield-checkmark" size={32} />
+              <Ionicons color={colors.ink} name="shield-checkmark" size={32} />
             </View>
             <Text style={styles.enabledTitle}>管理员 TOTP 已启用</Text>
             <Text style={styles.enabledStatus}>{assuranceLabel(status.currentLevel)}</Text>
@@ -270,7 +270,7 @@ export function MfaSetupScreen({ expectedIdentity, onBack, onBackRequestChange, 
         {!loading && needsStepUp && status ? (
           <View style={styles.enabledCard}>
             <View style={styles.enabledIcon}>
-              <Ionicons color={colors.successText} name="shield-checkmark-outline" size={32} />
+              <Ionicons color={colors.ink} name="shield-checkmark-outline" size={32} />
             </View>
             <Text style={styles.enabledTitle}>管理员 TOTP 已启用</Text>
             <Text style={styles.enabledStatus}>{assuranceLabel(status.currentLevel)}</Text>

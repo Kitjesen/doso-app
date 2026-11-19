@@ -4,5 +4,5 @@
     "strict": true,
     "types": ["node"]
   },
-  "exclude": ["supabase/functions/**/*", "artifacts/**/*"]
+  "exclude": ["supabase/functions/**/*", "supabase/verification/**/*", "artifacts/**/*", "deploy/backend/**/*", "scripts/helpers/telemetry-live-server.ts"]
 }

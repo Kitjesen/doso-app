@@ -45,17 +45,17 @@ export function UserAvatar({ displayName, size = 44, uri }: Props) {
       style={[
         styles.fallback,
         sharedStyle,
-        { backgroundColor: isDark ? '#263C4D' : '#98D1FF' },
+        { backgroundColor: isDark ? '#343D4A' : '#E8EDF4' },
       ]}
     >
       {initial ? (
         <Text style={[styles.initial, {
-          color: colors.greenDark,
+          color: isDark ? '#DAE1EB' : '#4E6077',
           fontSize: Math.max(15, Math.round(size * 0.38)),
           lineHeight: Math.max(19, Math.round(size * 0.46)),
         }]}>{initial}</Text>
       ) : (
-        <Ionicons color={colors.greenDark} name="person-outline" size={Math.round(size * 0.48)} />
+        <Ionicons color={isDark ? '#DAE1EB' : '#4E6077'} name="person-outline" size={Math.round(size * 0.48)} />
       )}
     </View>
   );

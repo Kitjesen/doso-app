@@ -1,16 +1,19 @@
 import { setStatusBarStyle, StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, BackHandler, Keyboard, Linking, Modal, Platform, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Alert, AppState, BackHandler, Keyboard, Linking, Modal, Platform, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Text } from './src/components/AppText';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import { images } from './src/assets';
 import { useAuth } from './src/auth';
 import { AppHeader } from './src/components/AppHeader';
+import { PrismaticLoadingScreen } from './src/components/PrismaticLoadingScreen';
+import { RemoteStatePanel } from './src/components/RemoteStatePanel';
 import { AppToast, ToastNotice } from './src/components/AppToast';
 import { notificationUnavailableNotice } from './src/components/notification-notice';
 import { createDeviceBootstrapIntent } from './src/services/deviceBootstrapIntent';
+import { selectedDeviceStore } from './src/services/selectedDevice';
 import { BottomNav } from './src/components/BottomNav';
 import { GradientButton } from './src/components/GradientButton';
 import { createRobotDiagnosticsGateway } from './src/features/robot-lifecycle/robotDiagnosticsGateway';
@@ -36,8 +39,11 @@ import { AccountSecurityScreen } from './src/screens/AccountSecurityScreen';
 import { BindDeviceScreen } from './src/screens/BindDeviceScreen';
 import { BleDiscoveryScreen } from './src/screens/BleDiscoveryScreen';
 import { ControlScreen } from './src/screens/ControlScreen';
+import { VideoViewerScreen } from './src/screens/VideoViewerScreen';
 import { DeviceTestScreen } from './src/screens/DeviceTestScreen';
+import { LocalRobotScreen } from './src/screens/LocalRobotScreen';
 import { useBrainstemControl } from './src/features/control/useBrainstemControl';
+import { useRememberedBrainstemConnection } from './src/features/control/useRememberedBrainstemConnection';
 import { useG20Input } from './src/features/control/useG20Input';
 import { useBrainstemTelemetry } from './src/features/control/useBrainstemTelemetry';
 import { isBrainstemControlAvailable } from './src/services/brainstemControl';
@@ -45,6 +51,13 @@ import type { BrainstemGrpcEndpoint } from './src/services/brainstemGrpc';
 import { ConnectionDiagnosticsScreen } from './src/screens/ConnectionDiagnosticsScreen';
 import { DeviceEnrollmentScreen } from './src/screens/DeviceEnrollmentScreen';
 import { RobotConnectionScreen } from './src/screens/RobotConnectionScreen';
+import { LingtuMapsScreen } from './src/screens/LingtuMapsScreen';
+import { MapLibraryScreen } from './src/screens/MapLibraryScreen';
+import { LingtuTaskScreen } from './src/screens/LingtuTaskScreen';
+import { validateLingtuOrigin } from './src/services/lingtuReadOnly';
+import { bindVideoOrigin, directVideoOrigin, videoTargetKey } from './src/features/video/videoBinding';
+import { useControlVideoReceiver } from './src/features/video/useControlVideoReceiver';
+import { CloudVideoScreen } from './src/features/video/CloudVideoScreen';
 import { DataPrivacyScreen } from './src/screens/DataPrivacyScreen';
 import { DeviceUnavailableScreen } from './src/screens/DeviceUnavailableScreen';
 import { DisplayNameConfirmationScreen } from './src/screens/DisplayNameConfirmationScreen';
@@ -64,7 +77,7 @@ import { getAuthSessionOperationSnapshot, isAuthSessionOperationBusyError } from
 import { verifyTotpEnrollment, verifyTotpFactor } from './src/services/mfaService';
 import { ModelSelectScreen } from './src/screens/ModelSelectScreen';
 import { JointStatusScreen } from './src/screens/JointStatusScreen';
-import { ProfileScreen } from './src/screens/ProfileScreen';
+import { ProfileHub as ProfileScreen } from './src/screens/ProfileScreen';
 import { RegisterScreen, RegisterValues } from './src/screens/RegisterScreen';
 import { ResetPasswordScreen } from './src/screens/ResetPasswordScreen';
 import { TasksScreen } from './src/screens/TasksScreen';
@@ -91,7 +104,7 @@ import {
   revokeCurrentTerminal,
   revokeCurrentTerminalWithoutAudit,
 } from './src/services/sessionService';
-import { useAppTheme } from './src/theme';
+import { AppearanceControlContext, ThemePreferenceContext, useAppTheme } from './src/theme';
 import { AppStage, MainTab, RobotModel } from './src/types';
 import type { Device, DeviceSettingsUpdate, Profile, UsernameProvenance } from './src/types/api';
 import { AuthOperationError } from './src/services/authOperationError';
@@ -185,13 +198,40 @@ export default function App() {
   const [stage, setStage] = useState<AppStage>('login');
   const [guestMode, setGuestMode] = useState(false);
   const [deviceTestMode, setDeviceTestMode] = useState(false);
+  const [localUseMode, setLocalUseMode] = useState(false);
+  const localUseEntry = useRef({ mounted: true, revision: 0 });
+  useEffect(() => {
+    localUseEntry.current.mounted = true;
+    const listener = AppState.addEventListener('change', state => {
+      if (state !== 'active') localUseEntry.current.revision++;
+    });
+    return () => { localUseEntry.current.mounted = false; localUseEntry.current.revision++; listener.remove(); };
+  }, []);
   const [dataPrivacyVisible, setDataPrivacyVisible] = useState(false);
   const [connectionDiagnosticsOpen, setConnectionDiagnosticsOpen] = useState(false);
   const [robotConnectionVisible, setRobotConnectionVisible] = useState(false);
   const [controlTarget, setControlTarget] = useState<'account' | 'direct'>('account');
   const [activeTab, setActiveTab] = useState<MainTab>('home');
+  const [profileDeviceOpen, setProfileDeviceOpen] = useState(false);
+  const [productTheme, setProductTheme] = useState<'light' | 'dark' | null>('dark');
   const [selectedModel, setSelectedModel] = useState<RobotModel | null>(null);
-  const [device, setDevice] = useState<Device | null>(null);
+  const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
+  const [accountDevices, setAccountDevices] = useState<Device[]>([]);
+  const deviceSelectionRevision = useRef(0);
+  const devices = accountDevices.filter(candidate => candidate.owner_id === user?.id && !candidate.is_demo);
+  const device = selectedDevice?.owner_id === user?.id ? selectedDevice : null;
+  const setDevice = useCallback((next: Device | null, cache = true) => {
+    deviceSelectionRevision.current += 1;
+    setSelectedDevice(next);
+    if (next && cache) setAccountDevices(current => {
+      const exists = current.some(candidate => candidate.id === next.id);
+      return exists ? current.map(candidate => candidate.id === next.id ? next : candidate) : [...current, next];
+    });
+  }, []);
+  useEffect(() => {
+    setDevice(null);
+    setAccountDevices([]);
+  }, [user?.id]);
   const [accountBusy, setAccountBusy] = useState(false);
   const [deviceBootstrapBusy, setDeviceBootstrapBusy] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false);
@@ -279,6 +319,7 @@ export default function App() {
   const profileBackRequestRef = useRef<() => void>(() => undefined);
   const profileSaveAttemptRef = useRef<symbol | null>(null);
   const deviceSettingsAttemptRef = useRef<symbol | null>(null);
+  const unbindDeviceAttemptRef = useRef<symbol | null>(null);
   const deviceSettingsMountedRef = useRef(true);
   const deviceSettingsContext = useRef<{ identity: string | null; deviceId: string | null; ownerId: string | null }>({
     identity: null, deviceId: null, ownerId: null,
@@ -286,7 +327,9 @@ export default function App() {
   const displayNameCancelRef = useRef<() => void>(() => undefined);
   const bindDeviceAttemptRef = useRef(0);
   const bindDeviceAbortControllerRef = useRef<AbortController | null>(null);
-  const pendingBindSerialNumberRef = useRef<string | null>(null);
+  const pendingBindDeviceIdRef = useRef<string | null>(null);
+  const bleReturnStage = useRef<'main' | 'bind-device'>('main');
+  const bleRobotIdRef = useRef<string | null>(null);
   const deviceEnrollmentAbortControllerRef = useRef<AbortController | null>(null);
   const deviceEnrollmentAttemptRef = useRef(0);
   const appleDiagnosticReason = useRef<string | null>(null);
@@ -386,6 +429,14 @@ export default function App() {
     setNotice({ title, message, tone });
     noticeTimer.current = durationMs === null ? null : setTimeout(() => setNotice(null), durationMs);
   }, []);
+  useEffect(() => {
+    if (!user || !device || device.owner_id !== user.id) return;
+    let active = true;
+    void selectedDeviceStore.save(user.id, device.id).catch(() => {
+      if (active) notify('设备选择未保存', '当前设备可以继续使用，重启后可能需要重新选择。', 'info');
+    });
+    return () => { active = false; };
+  }, [user?.id, device?.id, notify]);
   const registerMfaBackRequest = useCallback((request: (() => void) | null) => {
     mfaBackRequestRef.current = request ?? (() => undefined);
   }, []);
@@ -443,14 +494,14 @@ export default function App() {
         ? images.scout
         : images.thunderHero;
   const deviceCompactImage = currentModel.id === 'thunder-01' ? images.thunderCompact : deviceImage;
-  const deviceType = `${currentModel.environment}${currentModel.category}机器人`;
+  const deviceType = `${device?.is_simulated ? '模拟设备 · ' : ''}${device?.environment ?? currentModel.environment}${device?.category ?? currentModel.category}机器人`;
   const connected = device?.connection_status === 'online' && isRecentDeviceStatus(device.last_seen_at);
   const trustedSafetyLock = readTrustedSafetyLock(device);
   const safetyLock = trustedSafetyLock ?? true;
   const alertsEnabled = device?.alerts_enabled ?? true;
   const displayBatteryPercent = device?.battery_percent ?? null;
   const lifecycleDemoEnabled = !device || device.is_demo;
-  const firmwareVersion = device?.firmware_version?.trim().replace(/^v/i, '') || '待同步';
+  const firmwareVersion = device?.firmware_version?.trim() || '待同步';
   const canManageMfa = profile?.app_role === 'admin' || profile?.app_role === 'support';
   const mfaIdentity = readAuthSessionIdentity(session);
   const deviceSettingsIdentity = user && mfaIdentity?.userId === user.id
@@ -460,12 +511,24 @@ export default function App() {
     || deviceSettingsContext.current.ownerId !== (device?.owner_id ?? null)) {
     // A new context object also retires A→B→A attempts. JWT rotation within
     // the same session does not invalidate a legitimate in-flight save.
+    if (deviceSettingsContext.current.identity !== deviceSettingsIdentity) deviceSettingsAttemptRef.current = null;
     deviceSettingsContext.current = {
       identity: deviceSettingsIdentity, deviceId: device?.id ?? null, ownerId: device?.owner_id ?? null,
     };
-    deviceSettingsAttemptRef.current = null;
   }
   const deviceSettingsRenderContext = deviceSettingsContext.current;
+  const connectionOwner = useRef({ context: deviceSettingsRenderContext, generation: 0 });
+  if (connectionOwner.current.context !== deviceSettingsRenderContext) {
+    connectionOwner.current = { context: deviceSettingsRenderContext, generation: connectionOwner.current.generation + 1 };
+  }
+  const robotConnectionOwnerKey = deviceSettingsIdentity
+    ? `${deviceSettingsIdentity}:${device?.id ?? 'unbound'}:${connectionOwner.current.generation}` : null;
+  useEffect(() => {
+    unbindDeviceAttemptRef.current = null;
+    bindDeviceAbortControllerRef.current?.abort();
+    bindDeviceAttemptRef.current += 1;
+    setDeviceBusy(false);
+  }, [deviceSettingsIdentity]);
   useEffect(() => {
     authCallbackInbox.current.reconcileIdentity(mfaIdentity ? `${mfaIdentity.userId}:${mfaIdentity.sessionId}` : null, authLoading);
   }, [authLoading, mfaIdentity?.userId, mfaIdentity?.sessionId]);
@@ -491,25 +554,114 @@ export default function App() {
   const directConnectionReady = Boolean(!guestMode && user && deviceBootstrapIntent.current.canCommit(user.id)
     && preparedSessionKey && preparedUserId === user.id && !authLoading && !initializationError
     && !mfaVerificationPending && !accountBusy && !deviceBootstrapBusy);
-  const directConnection = useDirectRobotConnection(deviceSettingsIdentity, directConnectionReady);
-  const [controlEndpoint, setControlEndpoint] = useState<BrainstemGrpcEndpoint | null>(null);
-  const brainstemControl = useBrainstemControl({ ownerKey: deviceSettingsIdentity,
-    ready: directConnectionReady && (stage === 'control' || robotConnectionVisible) });
-  const directTelemetry = useBrainstemTelemetry({ ownerKey: deviceSettingsIdentity,
+  const [navigationBinding, setNavigationBinding] = useState<{ owner: typeof deviceSettingsRenderContext; endpoint: string; videoTarget: string | null; videoGeneration: number; viewerToken?: string } | null>(null);
+  const [videoViewing, setVideoViewing] = useState<{ owner: typeof deviceSettingsRenderContext; guest: boolean; origin: string; viewerToken?: string; depthHost?: string; homeGeneration?: number } | null>(null);
+  const connectionVideoDraft = useRef<{ owner: typeof deviceSettingsRenderContext; guest: boolean; endpoint: BrainstemGrpcEndpoint } | null>(null);
+  if (!robotConnectionVisible || connectionVideoDraft.current?.owner !== deviceSettingsRenderContext || connectionVideoDraft.current?.guest !== guestMode) connectionVideoDraft.current = null;
+  const [cloudVideoViewing, setCloudVideoViewing] = useState<{ owner: typeof deviceSettingsRenderContext; userId: string; deviceId: string } | null>(null);
+  useEffect(() => {
+    if (cloudVideoViewing && (cloudVideoViewing.owner !== deviceSettingsRenderContext || cloudVideoViewing.userId !== user?.id
+      || !directConnectionReady)) setCloudVideoViewing(null);
+  }, [cloudVideoViewing, deviceSettingsRenderContext, user?.id, directConnectionReady]);
+  // shortcut: cancellation receipts live for this App session; persist them before adding restart recovery.
+  const navigationCancellation = useRef({ owner: deviceSettingsRenderContext, attempts: new Map<string, string>() });
+  if (navigationCancellation.current.owner !== deviceSettingsRenderContext) {
+    navigationCancellation.current = { owner: deviceSettingsRenderContext, attempts: new Map<string, string>() };
+  }
+  const navigationEndpoint = directConnectionReady && navigationBinding?.owner === deviceSettingsRenderContext
+    ? navigationBinding.endpoint : null;
+  useEffect(() => {
+    if (!directConnectionReady || navigationBinding?.owner !== deviceSettingsRenderContext) setNavigationBinding(null);
+  }, [directConnectionReady, deviceSettingsRenderContext]);
+  const directConnection = useDirectRobotConnection(robotConnectionOwnerKey, directConnectionReady);
+  const rememberedControl = useRememberedBrainstemConnection(user ? `account:${user.id}:device:${device?.id ?? 'unbound'}` : null, directConnectionReady);
+  const rememberedDeviceTest = useRememberedBrainstemConnection('qa-local-device-test', isBrainstemLanAvailable());
+  useEffect(() => {
+    const message = rememberedControl.error ?? rememberedDeviceTest.error;
+    if (message) Alert.alert('自动连接设置未保存', message);
+  }, [rememberedControl.error, rememberedDeviceTest.error]);
+  const [controlSelection, setControlSelection] = useState<{ ownerKey: string | null; endpoint: BrainstemGrpcEndpoint } | null>(null);
+  const controlEndpoint = controlSelection?.ownerKey === robotConnectionOwnerKey ? controlSelection?.endpoint ?? null : null;
+  const setControlEndpoint = useCallback((endpoint: BrainstemGrpcEndpoint | null) => {
+    setControlSelection(endpoint ? { ownerKey: robotConnectionOwnerKey, endpoint } : null);
+  }, [robotConnectionOwnerKey]);
+  const brainstemControl = useBrainstemControl({ ownerKey: robotConnectionOwnerKey,
+    ready: directConnectionReady && (robotConnectionVisible || controlTarget === 'direct' && (stage === 'control' || stage === 'main')),
+    autoConnectEndpoint: !robotConnectionVisible && controlTarget === 'direct' ? rememberedControl.connection?.endpoint : null,
+    autoConnectPrincipal: rememberedControl.connection?.principal,
+    autoReconnectEnabled: !robotConnectionVisible && controlTarget === 'direct',
+  });
+  useEffect(() => {
+    if (directConnectionReady && rememberedControl.connection && !controlEndpoint && !robotConnectionVisible) {
+      setControlEndpoint(rememberedControl.connection.endpoint); setControlTarget('direct');
+    }
+  }, [directConnectionReady, rememberedControl.connection, controlEndpoint, robotConnectionVisible]);
+  useEffect(() => {
+    // Keep the live session when returning to home or opening joint status.
+    // Interrupting here was clearing the connection as soon as control closed,
+    // so the home screen went back to “未连接” and video could not start.
+    if (stage === 'control' || stage === 'main' || stage === 'joint-status') return;
+    void brainstemControl.interrupt();
+  }, [stage, brainstemControl.interrupt]);
+  const directTelemetry = useBrainstemTelemetry({ ownerKey: robotConnectionOwnerKey,
     endpoint: controlTarget === 'direct' ? controlEndpoint : null,
     active: directConnectionReady && controlTarget === 'direct' && !robotConnectionVisible
-      && (stage === 'joint-status' || stage === 'control' && brainstemControl.state.connected) });
-  const directEndpoint = controlEndpoint ?? directConnection.snapshot?.endpoint;
+      && (stage === 'main' || stage === 'joint-status' || stage === 'control' && brainstemControl.state.connected) });
+  const directEndpoint = controlEndpoint ?? directConnection.snapshot?.endpoint ?? null;
+  const homeObservation = controlTarget === 'direct' && controlEndpoint
+    ? (directTelemetry.presentation?.fresh ? directTelemetry.snapshot : null)
+    : (directConnection.presentation?.fresh ? directConnection.snapshot : null);
+  const homeVoltage = controlTarget === 'direct' && controlEndpoint
+    ? directTelemetry.presentation?.runtimeState.battery
+    : directConnection.presentation?.runtimeState.battery;
+  const homeTelemetry = {
+    busVoltageV: homeObservation && homeVoltage?.source === 'device' && typeof homeVoltage.voltageV === 'number' && Number.isFinite(homeVoltage.voltageV) && homeVoltage.voltageV > 0
+      ? homeVoltage.voltageV : null,
+    updatedAt: homeObservation?.observation.observedAt ?? null,
+    transport: homeObservation ? (directEndpoint?.host === '192.168.50.1' ? '机器狗热点' : 'Wi-Fi') : undefined,
+  };
+  const currentVideoTarget = controlTarget === 'direct' ? videoTargetKey(robotConnectionOwnerKey, directEndpoint) : null;
+  const videoTargetGeneration = useRef({ target: currentVideoTarget, generation: 0 });
+  if (videoTargetGeneration.current.target !== currentVideoTarget) {
+    videoTargetGeneration.current = { target: currentVideoTarget, generation: videoTargetGeneration.current.generation + 1 };
+  }
+  const videoRouteActive = videoViewing?.homeGeneration == null ? robotConnectionVisible
+    : !robotConnectionVisible && stage === 'main' && activeTab === 'home' && currentVideoTarget !== null
+      && videoViewing.homeGeneration === videoTargetGeneration.current.generation;
+  useEffect(() => {
+    if (videoViewing && (!videoRouteActive || videoViewing.owner !== deviceSettingsRenderContext
+      || videoViewing.guest !== guestMode || !guestMode && !directConnectionReady)) setVideoViewing(null);
+  }, [videoRouteActive, deviceSettingsRenderContext, guestMode, directConnectionReady, videoViewing]);
+  // A direct LAN connection already identifies the robot and its gateway.
+  // Bind the sibling WebRTC origin automatically so the control page can
+  // receive video immediately; navigation setup remains available for cloud
+  // and explicitly selected origins.
+  useEffect(() => {
+    const origin = directVideoOrigin(directEndpoint);
+    if (controlTarget !== 'direct' || !origin || !currentVideoTarget) return;
+    if (navigationBinding?.owner === deviceSettingsRenderContext && navigationBinding.videoTarget === currentVideoTarget) return;
+    setNavigationBinding({ owner: deviceSettingsRenderContext, endpoint: origin,
+      videoTarget: currentVideoTarget, videoGeneration: videoTargetGeneration.current.generation });
+  }, [directEndpoint, controlTarget, currentVideoTarget, deviceSettingsRenderContext, navigationBinding]);
+  const lanVideoOrigin = directVideoOrigin(directEndpoint);
+  const videoConfig = navigationEndpoint && currentVideoTarget && navigationBinding?.videoTarget === currentVideoTarget
+      && navigationBinding.videoGeneration === videoTargetGeneration.current.generation
+      ? { deviceId: currentVideoTarget, gatewayUrl: navigationBinding.endpoint, viewerToken: navigationBinding.viewerToken, allowLocalHttp: isBrainstemLanAvailable() }
+      : lanVideoOrigin && currentVideoTarget && isBrainstemLanAvailable()
+      ? { deviceId: currentVideoTarget, gatewayUrl: lanVideoOrigin, viewerToken: undefined, allowLocalHttp: true }
+      : null;
+  const controlVideo = useControlVideoReceiver(videoConfig,
+    directConnectionReady && stage === 'control' && !robotConnectionVisible && !connectionDiagnosticsOpen && !guestMode && !deviceTestMode);
   const directEndpointLabel = directEndpoint
-    ? `${directEndpoint.host.includes(':') ? `[${directEndpoint.host}]` : directEndpoint.host}:${directEndpoint.port}` : 'IP 直连设备';
-  const diagnosticNavigation = useRef({ ownerKey: deviceSettingsIdentity, endpoint: directEndpoint,
+    ? `${directEndpoint.host.includes(':') ? `[${directEndpoint.host}]` : directEndpoint.host}:${directEndpoint.port}` : '机器狗 Wi-Fi';
+  const diagnosticNavigation = useRef({ ownerKey: robotConnectionOwnerKey, endpoint: directEndpoint,
     target: controlTarget, stage, robotConnectionVisible, connectionDiagnosticsOpen, callbacks: brainstemControl.operationCallbacks });
-  if (diagnosticNavigation.current.ownerKey !== deviceSettingsIdentity || diagnosticNavigation.current.endpoint !== directEndpoint
+  if (diagnosticNavigation.current.ownerKey !== robotConnectionOwnerKey || diagnosticNavigation.current.endpoint !== directEndpoint
     || diagnosticNavigation.current.target !== controlTarget || diagnosticNavigation.current.stage !== stage
     || diagnosticNavigation.current.robotConnectionVisible !== robotConnectionVisible
     || diagnosticNavigation.current.connectionDiagnosticsOpen !== connectionDiagnosticsOpen
     || diagnosticNavigation.current.callbacks !== brainstemControl.operationCallbacks) {
-    diagnosticNavigation.current = { ownerKey: deviceSettingsIdentity, endpoint: directEndpoint,
+    diagnosticNavigation.current = { ownerKey: robotConnectionOwnerKey, endpoint: directEndpoint,
       target: controlTarget, stage, robotConnectionVisible, connectionDiagnosticsOpen, callbacks: brainstemControl.operationCallbacks };
   }
   const diagnosticNavigationOwner = diagnosticNavigation.current;
@@ -598,7 +750,7 @@ export default function App() {
     safetyLock,
   });
   commandDeviceRef.current = device;
-  commandAuthorityRef.current = `${user?.id ?? 'signed-out'}:${preparedSessionKey ?? 'no-session'}:${device?.owner_id ?? 'unbound'}`;
+  commandAuthorityRef.current = robotConnectionOwnerKey ?? 'unavailable';
   commandCapabilityAvailabilityRef.current = Object.fromEntries(
     Object.entries(robotCapabilityReadiness).map(([capability, gate]) => [capability, gate.available]),
   );
@@ -721,14 +873,17 @@ export default function App() {
     if (completedDeviceBootstrapKey.current === bootstrapKey) return undefined;
 
     let active = true;
+    const selectionRevision = deviceSelectionRevision.current;
     setDeviceBootstrapBusy(true);
     setDeviceLoadError(null);
-    void deviceRepository
-      .list()
-      .then((devices) => {
-        if (!active || !deviceBootstrapIntent.current.canCommit(user.id)) return;
+    void Promise.all([deviceRepository.list(), selectedDeviceStore.load(user.id)])
+      .then(([loadedDevices, rememberedId]) => {
+        if (!active || !deviceBootstrapIntent.current.canCommit(user.id)
+          || deviceSelectionRevision.current !== selectionRevision) return;
         completedDeviceBootstrapKey.current = bootstrapKey;
-        const primaryDevice = devices[0] ?? null;
+        const ownedDevices = loadedDevices.filter(candidate => candidate.owner_id === user.id && !candidate.is_demo);
+        setAccountDevices(ownedDevices);
+        const primaryDevice = ownedDevices.find(candidate => candidate.id === rememberedId) ?? ownedDevices[0] ?? null;
         setDevice(primaryDevice);
         // An empty list does not revoke this account's newer local model choice.
         if (!primaryDevice && deviceBootstrapIntent.current.preservesNavigation(user.id)) return;
@@ -738,7 +893,8 @@ export default function App() {
         setStage(primaryDevice ? 'main' : 'models');
       })
       .catch((error: unknown) => {
-        if (!active || !deviceBootstrapIntent.current.canCommit(user.id)) return;
+        if (!active || !deviceBootstrapIntent.current.canCommit(user.id)
+          || deviceSelectionRevision.current !== selectionRevision) return;
         completedDeviceBootstrapKey.current = bootstrapKey;
         const message = humanizeAuthError(error);
         setDeviceLoadError(message);
@@ -901,6 +1057,17 @@ export default function App() {
     setStage('main');
   }, []);
 
+  const openBleDiscovery = useCallback((returnStage: 'main' | 'bind-device') => {
+    bleReturnStage.current = returnStage;
+    bleRobotIdRef.current = null;
+    setStage('ble-discovery');
+  }, []);
+
+  const returnFromBleDiscovery = useCallback(() => {
+    if (bleReturnStage.current === 'bind-device') setStage('bind-device');
+    else returnToDeviceSettings();
+  }, [returnToDeviceSettings]);
+
   const openProfileEditor = useCallback(() => {
     if (!user || profile?.id !== user.id || preparedUserId !== user.id || !preparedSessionKey) return;
     setProfileEditError(null);
@@ -960,8 +1127,8 @@ export default function App() {
     }
   }, [notify, refreshProfile, returnToDeviceSettings]);
 
-  const reconcileBoundDevice = useCallback(async (serialNumber: string) => {
-    const normalizedSerial = serialNumber.trim().toUpperCase();
+  const reconcileBoundDevice = useCallback(async (deviceId: string) => {
+    const normalizedDeviceId = deviceId.trim().toLowerCase();
     const expectedUserId = currentUserIdRef.current;
     if (!expectedUserId) return null;
 
@@ -972,7 +1139,7 @@ export default function App() {
         const devices = await deviceRepository.list();
         if (currentUserIdRef.current !== expectedUserId) return null;
         const matchedDevice = devices.find(
-          (device) => device.serial_number?.trim().toUpperCase() === normalizedSerial,
+          (device) => device.id === normalizedDeviceId,
         );
         if (matchedDevice) return matchedDevice;
       } catch {
@@ -983,17 +1150,21 @@ export default function App() {
   }, []);
 
   const cancelBindDeviceAttempt = useCallback(() => {
-    const serialNumber = pendingBindSerialNumberRef.current;
-    pendingBindSerialNumberRef.current = null;
+    bleRobotIdRef.current = null;
+    const deviceId = pendingBindDeviceIdRef.current;
+    pendingBindDeviceIdRef.current = null;
     bindDeviceAbortControllerRef.current?.abort();
     bindDeviceAbortControllerRef.current = null;
     bindDeviceAttemptRef.current += 1;
     setDeviceBusy(false);
     setAuthError(null);
     returnToDeviceSettings();
-    if (serialNumber) {
-      void reconcileBoundDevice(serialNumber).then((boundDevice) => {
-        if (!boundDevice) return;
+    const cancelledAttempt = bindDeviceAttemptRef.current;
+    const expectedContext = deviceSettingsContext.current;
+    if (deviceId) {
+      void reconcileBoundDevice(deviceId).then((boundDevice) => {
+        if (!boundDevice || bindDeviceAttemptRef.current !== cancelledAttempt
+          || deviceSettingsContext.current !== expectedContext) return;
         deviceBootstrapIntent.current.clearLocalEntry();
         setDevice(boundDevice);
         setSelectedModel(getRobotModel(boundDevice.model_code));
@@ -1120,9 +1291,9 @@ export default function App() {
   useEffect(() => {
     if (Platform.OS !== 'android') return undefined;
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (deviceTestMode) return false; // The local test screen owns its stop-before-leave flow.
-      if (robotConnectionVisible) { setRobotConnectionVisible(false); return true; }
-      if (guestMode) { setGuestMode(false); return true; }
+      if (deviceTestMode || localUseMode) return false;
+      if (robotConnectionVisible) { localUseEntry.current.revision++; setRobotConnectionVisible(false); return true; }
+      if (guestMode) { localUseEntry.current.revision++; setGuestMode(false); return true; }
       if (__DEV__ && connectionDiagnosticsOpen) { setConnectionDiagnosticsOpen(false); return true; }
       if (stage === 'edit-profile') {
         if (!profileSaveAttemptRef.current) profileBackRequestRef.current();
@@ -1134,7 +1305,6 @@ export default function App() {
       }
       if (stage === 'joint-status') {
         setStage('control');
-        if (controlTarget === 'direct' && controlEndpoint) setRobotConnectionVisible(true);
         return true;
       }
       if (stage === 'reset-password') {
@@ -1183,7 +1353,11 @@ export default function App() {
         accountSecurityBackRequestRef.current();
         return true;
       }
-      if (stage === 'ble-discovery' || stage === 'provisioning' || stage === 'firmware-update') {
+      if (stage === 'ble-discovery') {
+        returnFromBleDiscovery();
+        return true;
+      }
+      if (stage === 'provisioning' || stage === 'firmware-update') {
         returnToDeviceSettings();
         return true;
       }
@@ -1202,7 +1376,7 @@ export default function App() {
       return false;
     });
     return () => subscription.remove();
-  }, [deviceTestMode, guestMode, accountBusy, activeTab, cancelBindDeviceAttempt, clearRecovery, connectionDiagnosticsOpen, robotConnectionVisible, handleLogout, mfaBusy, passwordNonceRequired, returnToDeviceSettings, stage, controlTarget, controlEndpoint]);
+  }, [deviceTestMode, localUseMode, guestMode, accountBusy, activeTab, cancelBindDeviceAttempt, clearRecovery, connectionDiagnosticsOpen, robotConnectionVisible, handleLogout, mfaBusy, passwordNonceRequired, returnFromBleDiscovery, returnToDeviceSettings, stage, controlTarget, controlEndpoint]);
 
   useEffect(
     () => () => {
@@ -1562,39 +1736,47 @@ export default function App() {
     setDevice(null);
     setActiveTab('home');
     setStage('main');
-    notify('机型已选择', `${model.name} 尚未绑定机器人；请使用序列号和绑定码关联设备。`, 'info');
+    const directConnectionRestored = typeof controlTarget !== 'undefined'
+      && controlTarget === 'direct'
+      && (Boolean(controlEndpoint) || Boolean(rememberedControl?.connection?.endpoint) || Boolean(directConnection?.snapshot));
+    notify('机型已选择', directConnectionRestored
+      ? `${model.name} 已恢复机器狗局域网连接，状态正在读取。`
+      : `${model.name} 尚未绑定机器人；请扫描机身二维码完成绑定。`, 'info');
   };
 
-  const handleBindDevice = async (serialNumber: string, code: string) => {
+  const handleBindDevice = async (deviceId: string, code: string) => {
     bindDeviceAbortControllerRef.current?.abort();
     const controller = new AbortController();
     bindDeviceAbortControllerRef.current = controller;
-    pendingBindSerialNumberRef.current = serialNumber.trim().toUpperCase();
+    pendingBindDeviceIdRef.current = deviceId.trim().toLowerCase();
     const attempt = ++bindDeviceAttemptRef.current;
+    const expectedContext = deviceSettingsContext.current;
+    const isCurrent = () => attempt === bindDeviceAttemptRef.current
+      && deviceSettingsContext.current === expectedContext;
     setDeviceBusy(true);
     setAuthError(null);
     try {
-      const boundDevice = await deviceRepository.claim(serialNumber, code, {
+      const boundDevice = await deviceRepository.claim(deviceId, code, {
         signal: controller.signal,
         timeoutMs: BIND_DEVICE_TIMEOUT_MS,
       });
-      if (attempt !== bindDeviceAttemptRef.current) return;
-      pendingBindSerialNumberRef.current = null;
+      if (!isCurrent()) return;
+      pendingBindDeviceIdRef.current = null;
       deviceBootstrapIntent.current.clearLocalEntry();
       setDevice(boundDevice);
       setSelectedModel(getRobotModel(boundDevice.model_code));
       setActiveTab('profile');
       setStage('main');
-      notify('账户归属已绑定', `${boundDevice.display_name} 已绑定到当前账户；请继续完成“设备身份验证”，暂不会因此开放控制。`, 'info', null);
+      notify('账号绑定已完成', `${boundDevice.display_name} 已绑定到当前账号，云端设备身份仍待验证。远程管理需另行开启。`, 'info', null);
     } catch (error) {
-      if (attempt !== bindDeviceAttemptRef.current) return;
+      if (!isCurrent()) return;
       const ambiguousOutcome = error instanceof Error
         && /edge function|fetch|network|abort|timeout|internal_error|server could not complete|non-2xx/i.test(error.message);
       if (ambiguousOutcome) {
-        const reconciledDevice = await reconcileBoundDevice(serialNumber);
-        if (attempt !== bindDeviceAttemptRef.current) return;
+        const reconciledDevice = await reconcileBoundDevice(deviceId);
+        if (!isCurrent()) return;
         if (reconciledDevice) {
-          pendingBindSerialNumberRef.current = null;
+          pendingBindDeviceIdRef.current = null;
           deviceBootstrapIntent.current.clearLocalEntry();
           setDevice(reconciledDevice);
           setSelectedModel(getRobotModel(reconciledDevice.model_code));
@@ -1616,7 +1798,7 @@ export default function App() {
     } finally {
       if (bindDeviceAbortControllerRef.current === controller) bindDeviceAbortControllerRef.current = null;
       if (attempt === bindDeviceAttemptRef.current) {
-        pendingBindSerialNumberRef.current = null;
+        pendingBindDeviceIdRef.current = null;
         setDeviceBusy(false);
       }
     }
@@ -1643,6 +1825,10 @@ export default function App() {
         || currentUserIdRef.current !== expectedUserId
         || preparedSessionKeyRef.current !== expectedSessionKey
         || deviceSettingsContext.current.deviceId !== currentDevice.id) return;
+      if (next.ownerAccountId.toLowerCase() !== expectedUserId.toLowerCase()) {
+        setDeviceEnrollmentError('设备身份验证服务返回了无法验证的结果。');
+        return;
+      }
       setDeviceEnrollment(next);
     } catch (error) {
       if (attempt !== deviceEnrollmentAttemptRef.current) return;
@@ -1653,21 +1839,53 @@ export default function App() {
     }
   };
 
+  const selectDevice = (next: Device | null) => {
+    directConnection.clear();
+    void brainstemControl.disconnect();
+    setControlEndpoint(null);
+    setControlTarget('account');
+    setRobotConnectionVisible(false);
+    setConnectionDiagnosticsOpen(false);
+    setDevice(next);
+    setSelectedModel(getRobotModel(next?.model_code ?? device?.model_code));
+  };
+
+  const handleSelectDevice = (deviceId: string) => {
+    if (deviceBusy || deviceSettingsContext.current !== deviceSettingsRenderContext) return;
+    const next = devices.find(candidate => candidate.id === deviceId);
+    if (next && next.id !== device?.id) selectDevice(next);
+  };
+
   const handleUnbindDevice = () => {
     if (!device || device.is_demo) {
       notify('没有可解绑的真实设备', '当前尚未绑定真实设备。', 'info');
       return;
     }
+    const expectedContext = deviceSettingsRenderContext;
     const unbind = () => {
+      if (deviceBusy || deviceSettingsContext.current !== expectedContext) return;
+      const attempt = Symbol('unbind-device');
+      unbindDeviceAttemptRef.current = attempt;
       setDeviceBusy(true);
       void deviceRepository.unbind(device.id, 'user_confirmed_unbind')
         .then(() => {
-          setDevice(null);
-          setSelectedModel(getRobotModel(device.model_code));
+          if (deviceSettingsContext.current !== expectedContext) return;
+          const remaining = devices.filter(candidate => candidate.id !== device.id);
+          setAccountDevices(remaining);
+          selectDevice(remaining[0] ?? null);
+          if (!remaining.length && device.owner_id) void selectedDeviceStore.save(device.owner_id, null).catch(() =>
+            notify('设备选择未清除', '设备已解绑，下次加载会重新核对账户设备列表。', 'info'));
           notify('设备已解绑', '设备已返回待认领状态。', 'info');
         })
-        .catch((error: unknown) => notify('解绑失败', humanizeAuthError(error), 'error'))
-        .finally(() => setDeviceBusy(false));
+        .catch((error: unknown) => {
+          if (deviceSettingsContext.current === expectedContext) notify('解绑失败', humanizeAuthError(error), 'error');
+        })
+        .finally(() => {
+          if (unbindDeviceAttemptRef.current === attempt) {
+            unbindDeviceAttemptRef.current = null;
+            setDeviceBusy(false);
+          }
+        });
     };
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       if (window.confirm(`解绑 ${device.display_name}？解绑后设备会立即从此账户移除。`)) unbind();
@@ -1705,10 +1923,18 @@ export default function App() {
     const isCurrent = () => deviceSettingsMountedRef.current
       && deviceSettingsAttemptRef.current === attempt && deviceSettingsContext.current === expectedContext;
     const previous = device;
-    setDevice({ ...device, ...settings });
+    setDevice({ ...device, ...settings }, false);
     try {
       const updated = await deviceRepository.updateSettings(device.id, settings);
-      if (!isCurrent()) return;
+      if (!isCurrent()) {
+        if (deviceSettingsMountedRef.current && deviceSettingsAttemptRef.current === attempt
+          && deviceSettingsContext.current.identity === expectedContext.identity
+          && device.owner_id === currentUserIdRef.current) {
+          setAccountDevices(current => current.map(candidate => candidate === previous ? updated : candidate));
+          setSelectedDevice(current => current === previous ? updated : current);
+        }
+        return;
+      }
       setDevice(updated);
       if (successMessage) notify('设备设置已保存', successMessage);
     } catch (error) {
@@ -1716,7 +1942,7 @@ export default function App() {
       setDevice(previous);
       notify('保存失败', humanizeAuthError(error), 'error');
     } finally {
-      if (isCurrent()) deviceSettingsAttemptRef.current = null;
+      if (deviceSettingsMountedRef.current && deviceSettingsAttemptRef.current === attempt) deviceSettingsAttemptRef.current = null;
     }
   };
 
@@ -1782,20 +2008,31 @@ export default function App() {
   const renderMainScreen = () => {
     switch (activeTab) {
       case 'map':
-        return <MapScreen blockedReason={commandBlockedReason('routeStart', '路线指令')} controlAvailable={routeControlAvailable} executorAvailable={routeExecutorAvailable} robotName={deviceName} onStartRoute={(routeId) => runCommand('routeStart', '路线指令', { routeId })} />;
+        return <MapLibraryScreen key={`${user?.id ?? 'guest'}:${preparedSessionKey ?? ''}`} expectedUserId={user?.id ?? null}>
+          {navigationEndpoint
+            ? <LingtuMapsScreen key={navigationEndpoint} endpoint={navigationEndpoint} allowLocalHttp={isBrainstemLanAvailable()} />
+            : <MapScreen draftScope={(user?.id ?? 'guest') + ':' + (device?.id ?? 'unbound')} gpsContent={user?.id && device?.id ? <RemoteStatePanel key={device.id} expectedUserId={user.id} deviceId={device.id} locationOnly /> : undefined} blockedReason={commandBlockedReason('routeStart', '路线指令')} controlAvailable={routeControlAvailable} executorAvailable={routeExecutorAvailable} robotName={deviceName} onOpenNavigation={() => setRobotConnectionVisible(true)} onStartRoute={(routeId) => runCommand('routeStart', '路线指令', { routeId })} />}
+        </MapLibraryScreen>;
       case 'tasks':
-        return <TasksScreen blockedReason={commandBlockedReason('taskStart', '任务指令')} controlAvailable={taskControlAvailable} executorAvailable={taskExecutorAvailable} robotName={deviceName} onStartTask={(taskId) => runCommand('taskStart', '任务指令', { taskId })} />;
+        if (navigationEndpoint) return <LingtuTaskScreen key={navigationEndpoint} endpoint={navigationEndpoint} allowLocalHttp={isBrainstemLanAvailable()}
+          allowCancel={canOpenRobotAccountActions} cancelAttempts={navigationCancellation.current.attempts} />;
+        return <TasksScreen draftScope={(user?.id ?? 'guest') + ':' + (device?.id ?? 'unbound')} onSelectDevice={() => setActiveTab('profile')} blockedReason={commandBlockedReason('taskStart', '任务指令')} controlAvailable={taskControlAvailable} executorAvailable={taskExecutorAvailable} robotName={deviceName} onStartTask={(taskId) => runCommand('taskStart', '任务指令', { taskId })} />;
       case 'analysis':
-        return <AnalysisScreen previewMode={false} />;
+        return <AnalysisScreen previewMode={false} expectedUserId={user?.id} deviceId={device?.id} />;
       case 'profile':
         return (
           <ProfileScreen
+            initialDeviceOpen={profileDeviceOpen}
             accountEmail={user?.email}
+            devices={devices}
+            selectedDeviceId={device?.id}
+            deviceBusy={deviceBusy}
+            onSelectDevice={handleSelectDevice}
             displayName={profile?.display_name}
             username={profile?.username}
             avatarUrl={profileAvatarUrl}
             onEditProfile={openProfileEditor}
-            onOpenControl={() => { setControlTarget('account'); setStage('control'); }}
+      onOpenControl={() => { rememberedControl.forget(); void brainstemControl.disconnect(); setControlEndpoint(null); setControlTarget('account'); setStage('control'); }}
             onOpenRobotConnection={() => setRobotConnectionVisible(true)}
             onOpenDeviceEnrollment={device && !device.is_demo ? () => {
               setDeviceEnrollmentError(null);
@@ -1804,6 +2041,15 @@ export default function App() {
             deviceEnrollmentStatus={deviceEnrollment?.phase ?? 'not_started'}
             onOpenConnectionDiagnostics={__DEV__ ? () => setConnectionDiagnosticsOpen(true) : undefined}
             onOpenDataPrivacy={openDataPrivacy}
+            remoteStatePanel={canOpenRobotAccountActions && user && device && !device.is_demo
+              ? <View key={`${user.id}:${preparedSessionKey}:${device.id}`} style={{ gap: 12 }}>
+                <RemoteStatePanel expectedUserId={user.id} deviceId={device.id} />
+                <GradientButton label="远程视频" compact onPress={() => {
+                  if (deviceSettingsContext.current !== deviceSettingsRenderContext || AppState.currentState !== 'active') return;
+                  setCloudVideoViewing({ owner: deviceSettingsRenderContext, userId: user.id, deviceId: device.id });
+                }} />
+              </View>
+              : undefined}
             alertsEnabled={alertsEnabled}
             batteryPercent={displayBatteryPercent}
             connected={connected}
@@ -1816,9 +2062,9 @@ export default function App() {
             onConnect={() => setRobotConnectionVisible(true)}
             onDisconnect={() => notify('设备断开请求未发送', '待机器人控制协议接入后，此操作会经过受保护的设备 API。', 'info')}
             onLogout={() => void handleLogout()}
-            onBindDevice={() => { setAuthError(null); setStage('bind-device'); }}
+            onBindDevice={() => { bleRobotIdRef.current = null; setAuthError(null); setStage('bind-device'); }}
             firmwareUpdateBlockedReason={robotCapabilityReadiness.ota.reason}
-            onOpenBleDiscovery={() => setStage('ble-discovery')}
+            onOpenBleDiscovery={() => openBleDiscovery('main')}
             onOpenFirmwareUpdate={() => setStage('firmware-update')}
             onOpenProvisioning={() => setStage('provisioning')}
             provisioningBlockedReason={robotCapabilityReadiness.provisioning.reason}
@@ -1828,30 +2074,65 @@ export default function App() {
             onUnbindDevice={handleUnbindDevice}
             runtimeHours={device?.runtime_hours ?? null}
             safetyLock={trustedSafetyLock}
-            serialNumber={device?.serial_number ?? '待绑定'}
+            deviceId={device?.id ?? '待绑定'}
+            robotVersion={device?.model_code ?? '待同步'}
           />
         );
       case 'home':
       default:
         return (
           <HomeScreen
+            key={(user?.id ?? 'guest') + ':' + (device?.id ?? 'unbound')}
+            updatedAt={homeTelemetry.updatedAt}
+            remoteStatus={canOpenRobotAccountActions && user && device && !device.is_demo ? <RemoteStatePanel key={device.id} expectedUserId={user.id} deviceId={device.id} /> : undefined}
+            displayName={profile?.display_name ?? undefined}
+            hasDevice={Boolean(device) || (controlTarget === 'direct' && Boolean(controlEndpoint || rememberedControl.connection || directConnection.snapshot))}
+            onConnect={() => setRobotConnectionVisible(true)}
+            onOpenDirectVideo={canOpenRobotAccountActions && directEndpoint && videoConfig && (videoConfig.allowLocalHttp || videoConfig.gatewayUrl.startsWith('https://')) ? () => {
+              if (deviceSettingsContext.current !== deviceSettingsRenderContext || AppState.currentState !== 'active'
+                || videoTargetGeneration.current.generation !== navigationVideoGeneration) return;
+              let origin: string;
+              try { origin = validateLingtuOrigin(videoConfig.gatewayUrl, videoConfig.allowLocalHttp); } catch { setRobotConnectionVisible(true); return; }
+              setVideoViewing({ owner: deviceSettingsRenderContext, guest: false, origin, viewerToken: videoConfig.viewerToken,
+                depthHost: origin === lanVideoOrigin && !videoConfig.viewerToken ? directEndpoint.host : undefined, homeGeneration: navigationVideoGeneration });
+            } : undefined}
+            onNotifications={() => notify(notificationUnavailableNotice.title, notificationUnavailableNotice.message, notificationUnavailableNotice.tone, null)}
+            onOpenVideo={canOpenRobotAccountActions && user && device && !device.is_demo ? () => {
+              if (deviceSettingsContext.current !== deviceSettingsRenderContext || AppState.currentState !== 'active') return;
+              setCloudVideoViewing({ owner: deviceSettingsRenderContext, userId: user.id, deviceId: device.id });
+            } : undefined}
             batteryPercent={displayBatteryPercent}
-            canRecall={recallCommandAvailable}
-            connected={connected}
-            onOpenControl={() => { setControlTarget('account'); setStage('control'); }}
+            busVoltageV={homeTelemetry.busVoltageV}
+            transport={homeTelemetry.transport}
+            connected={connected || (controlTarget === 'direct' && (brainstemControl.state.connected || directConnection.presentation?.fresh === true))}
             directConnection={directConnection.presentation ?? undefined}
-            onOpenDirectControl={() => { setControlTarget('direct'); setStage('control'); }}
+            onOpenDirectControl={() => setRobotConnectionVisible(true)}
             onOpenRoutes={() => setActiveTab('map')}
-            onOpenSafety={() => setActiveTab('profile')}
+            onOpenSafety={() => { setProfileDeviceOpen(true); setActiveTab('profile'); }}
             onOpenTasks={() => setActiveTab('tasks')}
-            recallBlockedReason={commandBlockedReason('recall', '召回指令')}
-            onRecall={() => runCommand('recall', '召回指令', { mode: 'return-home' })}
-            robotCompactImage={deviceCompactImage}
+            onOpenAccountSecurity={() => setStage('account-security')}
+            onOpenControl={() => {
+              if (controlTarget === 'direct' && (brainstemControl.state.connected || controlEndpoint)) {
+                setStage('control');
+                return;
+              }
+              if (connected) {
+                rememberedControl.forget();
+                void brainstemControl.disconnect();
+                setControlEndpoint(null);
+                setControlTarget('account');
+                setStage('control');
+                return;
+              }
+              setRobotConnectionVisible(true);
+            }}
+            onRecall={controlTarget === 'direct' ? undefined : () => runCommand('recall', '召回', { mode: 'return-home' })}
+            recallBlockedReason={commandBlockedReason('recall', '召回')}
+            onRename={() => { setProfileDeviceOpen(true); setActiveTab('profile'); }}
+            modelLabel={device?.model_code ?? currentModel.name}
             robotImage={deviceImage}
             robotName={deviceName}
             safetyLock={safetyLock}
-            taskControlAvailable={taskControlAvailable}
-            taskExecutorAvailable={taskExecutorAvailable}
           />
         );
     }
@@ -1860,44 +2141,138 @@ export default function App() {
   const enterGuest = useCallback(() => {
     if (accountBusy || recoveryExitBusy || mfaBusy || mfaVerificationPending
       || accountFlowInFlightRef.current || otpDeliveryInFlightRef.current) return false;
+    localUseEntry.current.revision++;
+    setLocalUseMode(false);
     setRobotConnectionVisible(false);
     setConnectionDiagnosticsOpen(false);
     setGuestMode(true);
     return true;
   }, [accountBusy, recoveryExitBusy, mfaBusy, mfaVerificationPending]);
+  const localUseContext = useRef({ control: brainstemControl, enterGuest });
+  localUseContext.current = { control: brainstemControl, enterGuest };
+  const enterLocalUse = useCallback(async () => {
+    if (accountBusy || recoveryExitBusy || mfaBusy || mfaVerificationPending
+      || accountFlowInFlightRef.current || otpDeliveryInFlightRef.current) return false;
+    const revision = ++localUseEntry.current.revision;
+    try {
+      // A closed channel with an ordinary connection error holds no control authority.
+      // Confirm an active channel before guest mode retires its account-scoped readiness.
+      if (brainstemControl.state.connected || brainstemControl.state.failureCode === 'stop_unconfirmed') {
+        await brainstemControl.operationCallbacks.stop();
+      }
+      await brainstemControl.disconnect();
+      if (localUseContext.current.control.state.failureCode === 'stop_unconfirmed') throw new Error('stop_unconfirmed');
+    } catch {
+      if (localUseEntry.current.mounted && localUseEntry.current.revision === revision) {
+        Alert.alert('本地使用未开启', '上一控制连接的停止请求未确认，请检查机器狗状态并使用硬件急停。');
+      }
+      return false;
+    }
+    if (!localUseEntry.current.mounted || localUseEntry.current.revision !== revision
+      || localUseContext.current.control.operationCallbacks !== brainstemControl.operationCallbacks
+      || AppState.currentState !== 'active' || !localUseContext.current.enterGuest()) return false;
+    setLocalUseMode(true);
+    return true;
+  }, [accountBusy, recoveryExitBusy, mfaBusy, mfaVerificationPending, brainstemControl]);
+  const exitLocalUse = useCallback(() => { localUseEntry.current.revision++; setLocalUseMode(false); }, []);
   const enterDeviceTest = useCallback(() => {
-    if (isBrainstemLanAvailable() && enterGuest()) setDeviceTestMode(true);
+    if (!isBrainstemLanAvailable() || !enterGuest()) return false;
+    setDeviceTestMode(true); return true;
   }, [enterGuest]);
-  const exitDeviceTest = useCallback(() => { setDeviceTestMode(false); setGuestMode(false); }, []);
+  const exitDeviceTest = useCallback(() => {
+    rememberedDeviceTest.forget(); setDeviceTestMode(false); setGuestMode(false);
+  }, [rememberedDeviceTest.forget]);
+  const restoredDeviceTest = useRef(false);
+  useEffect(() => {
+    if (restoredDeviceTest.current || !rememberedDeviceTest.loaded || authLoading) return;
+    if (!rememberedDeviceTest.connection || user || stage !== 'login' || recovery || recoveryLink
+      || guestMode || robotConnectionVisible) { restoredDeviceTest.current = true; return; }
+    if (enterDeviceTest()) restoredDeviceTest.current = true;
+  }, [rememberedDeviceTest.loaded, rememberedDeviceTest.connection, user, stage, recovery, recoveryLink,
+    guestMode, robotConnectionVisible, enterDeviceTest, authLoading]);
   const deviceTestEntry = isBrainstemLanAvailable() ? enterDeviceTest : undefined;
-  const exitGuest = useCallback(() => { setGuestMode(false); }, []);
+  const exitGuest = useCallback(() => {
+    localUseEntry.current.revision++; setLocalUseMode(false); setGuestMode(false);
+  }, []);
   const canOpenRobotAccountActions = Boolean(!guestMode && user && deviceBootstrapIntent.current.canCommit(user.id)
     && preparedSessionKey && preparedUserId === user.id
     && !authLoading && !initializationError && !mfaVerificationPending && !accountBusy && !deviceBootstrapBusy
     && (stage === 'main' || stage === 'control' || stage === 'bind-device' || stage === 'ble-discovery'));
   const canSelectDirectTarget = canOpenRobotAccountActions || Boolean(directConnectionReady && stage === 'models');
-  // This route exposes an explicit read-only local check. Continuing into main
-  // still requires account preparation; it never binds or grants motion authority.
-  if (deviceTestMode && isBrainstemLanAvailable()) return <SafeAreaProvider><DeviceTestScreen onExit={exitDeviceTest} /></SafeAreaProvider>;
+  const canViewReadOnlyVideo = robotConnectionVisible && !videoViewing && (canSelectDirectTarget || guestMode && !deviceTestMode);
+  const navigationSelection = useRef<{ owner: typeof deviceSettingsRenderContext; ready: boolean; viewReady: boolean }>({ owner: deviceSettingsRenderContext, ready: false, viewReady: false });
+  navigationSelection.current = { owner: deviceSettingsRenderContext, ready: canOpenRobotAccountActions, viewReady: canViewReadOnlyVideo };
+  const navigationVideoGeneration = videoTargetGeneration.current.generation;
+  if (localUseMode) return <SafeAreaProvider><LocalRobotScreen onExit={exitLocalUse} /></SafeAreaProvider>;
+  if (deviceTestMode && isBrainstemLanAvailable()) return <SafeAreaProvider><DeviceTestScreen onExit={exitDeviceTest} rememberedConnection={rememberedDeviceTest} /></SafeAreaProvider>;
+
+  if (cloudVideoViewing && canOpenRobotAccountActions && cloudVideoViewing.owner === deviceSettingsRenderContext
+    && cloudVideoViewing.userId === user?.id) return <SafeAreaProvider><ThemePreferenceContext.Provider value={productTheme}><View style={{ flex: 1, backgroundColor: '#1C1C1B' }}>
+    <CloudVideoScreen key={`${user.id}:${preparedSessionKey}`} expectedUserId={user.id}
+      devices={devices.map(candidate => ({ id: candidate.id, label: `${candidate.is_simulated ? '模拟 · ' : ''}${candidate.display_name}` }))}
+      initialDeviceId={cloudVideoViewing.deviceId} onBack={() => setCloudVideoViewing(null)} />
+    <BottomNav active={activeTab} onChange={tab => { setCloudVideoViewing(null); setProfileDeviceOpen(false); setActiveTab(tab); setStage('main'); }} />
+  </View></ThemePreferenceContext.Provider></SafeAreaProvider>;
+
+  if (videoViewing && videoRouteActive && videoViewing.owner === deviceSettingsRenderContext
+    && videoViewing.guest === guestMode && (canSelectDirectTarget || guestMode)) return <SafeAreaProvider>
+    <VideoViewerScreen origin={videoViewing.origin} viewerToken={videoViewing.viewerToken} depthHost={videoViewing.depthHost} allowLocalHttp={isBrainstemLanAvailable()}
+      onBack={() => setVideoViewing(null)} />
+  </SafeAreaProvider>;
 
   if (robotConnectionVisible) return <SafeAreaProvider><RobotConnectionScreen
-    key={guestMode ? 'guest-read-only' : deviceSettingsIdentity ?? 'anonymous-read-only'}
-    initialEndpoint={guestMode ? undefined : controlEndpoint ?? directConnection.snapshot?.endpoint}
-    onBack={() => setRobotConnectionVisible(false)}
+    key={guestMode ? 'guest-read-only' : robotConnectionOwnerKey ?? 'anonymous-read-only'}
+    initialEndpoint={connectionVideoDraft.current?.endpoint ?? (guestMode ? undefined : controlEndpoint ?? directConnection.snapshot?.endpoint)}
+    onBack={() => { localUseEntry.current.revision++; setRobotConnectionVisible(false); }}
+    onOpenLocalUse={enterLocalUse}
+    navigationUseLabel={controlTarget === 'direct' && controlEndpoint ? '用于地图、任务及同主机视频' : undefined}
+    allowViewerToken={canViewReadOnlyVideo || controlTarget === 'direct' && Boolean(controlEndpoint)}
+    onViewVideo={canViewReadOnlyVideo ? (endpoint, viewerToken, directEndpoint) => {
+      if (!navigationSelection.current.viewReady || navigationSelection.current.owner !== deviceSettingsRenderContext
+        || deviceSettingsContext.current !== deviceSettingsRenderContext || AppState.currentState !== 'active') return false;
+      let origin: string;
+      try { origin = validateLingtuOrigin(endpoint, isBrainstemLanAvailable()); } catch { return false; }
+      if (viewerToken && !origin.startsWith('https://')) return false;
+      if (directEndpoint) {
+        if (viewerToken || !isBrainstemLanAvailable() || directVideoOrigin(directEndpoint) !== origin) return false;
+        connectionVideoDraft.current = { owner: deviceSettingsRenderContext, guest: guestMode, endpoint: directEndpoint };
+      }
+      navigationSelection.current.viewReady = false;
+      setVideoViewing({ owner: deviceSettingsRenderContext, guest: guestMode, origin, viewerToken, depthHost: directEndpoint?.host });
+      return true;
+    } : undefined}
+    onUseNavigation={canOpenRobotAccountActions ? (endpoint, viewerToken) => {
+      if (!navigationSelection.current.ready || navigationSelection.current.owner !== deviceSettingsRenderContext
+        || videoTargetGeneration.current.generation !== navigationVideoGeneration
+        || deviceSettingsContext.current !== deviceSettingsRenderContext || AppState.currentState !== 'active') return false;
+      let origin: string;
+      try { origin = validateLingtuOrigin(endpoint, isBrainstemLanAvailable()); } catch { return false; }
+      if (viewerToken && !origin.startsWith('https://')) return false;
+      const videoTarget = controlTarget === 'direct' ? bindVideoOrigin(robotConnectionOwnerKey, controlEndpoint, origin) : null;
+      if (viewerToken && !videoTarget) return false;
+      setNavigationBinding({ owner: deviceSettingsRenderContext, endpoint: origin,
+        videoTarget,
+        videoGeneration: videoTargetGeneration.current.generation, viewerToken });
+      setActiveTab('map'); setStage('main'); setRobotConnectionVisible(false);
+      return true;
+    } : undefined}
     onUseConnection={canSelectDirectTarget ? snapshot => {
       if (!directConnection.select(snapshot)) return false;
       if (stage === 'models' && !deviceBootstrapIntent.current.enter()) { directConnection.clear(); return false; }
-      void brainstemControl.disconnect(); setControlEndpoint(null);
+      setControlEndpoint(snapshot.endpoint);
       setControlTarget('direct'); setActiveTab('home'); setStage('main'); setRobotConnectionVisible(false);
       return true;
     } : undefined}
     onOpenControl={canSelectDirectTarget ? async (endpoint, principal, signal) => {
       if (signal.aborted) return false;
-      const cancelConnection = () => { void brainstemControl.disconnect(); };
+      let committed = false;
+      const cancelConnection = () => { if (!committed) void brainstemControl.disconnect(); };
       signal.addEventListener('abort', cancelConnection, { once: true });
       try {
         if (!(await brainstemControl.connect(endpoint, principal)) || signal.aborted) return false;
         if (stage === 'models' && !deviceBootstrapIntent.current.enter()) { await brainstemControl.disconnect(); return false; }
+        committed = true;
+        rememberedControl.remember(endpoint, principal);
         setControlEndpoint(endpoint); setControlTarget('direct'); setStage('control'); setRobotConnectionVisible(false);
         return true;
       } finally { signal.removeEventListener('abort', cancelConnection); }
@@ -1914,18 +2289,20 @@ export default function App() {
       ? commandBlockedReason('manualControl', '手动控制')
       : undefined}
     onOpenAccountDevice={canOpenRobotAccountActions && device && !device.is_demo ? () => {
+      rememberedControl.forget(); void brainstemControl.disconnect(); setControlEndpoint(null);
       setControlTarget('account'); setRobotConnectionVisible(false); setStage('control');
     } : undefined}
     onOpenDeviceEnrollment={canOpenRobotAccountActions && device && !device.is_demo ? () => {
       setRobotConnectionVisible(false); setDeviceEnrollmentError(null); setStage('device-enrollment');
     } : undefined}
-    onOpenBleDiscovery={canOpenRobotAccountActions ? () => { setRobotConnectionVisible(false); setStage('ble-discovery'); } : undefined}
-    onBindDevice={canOpenRobotAccountActions ? () => { setRobotConnectionVisible(false); setAuthError(null); setStage('bind-device'); } : undefined}
+    onOpenBleDiscovery={canOpenRobotAccountActions ? () => { setRobotConnectionVisible(false); openBleDiscovery('main'); } : undefined}
+    onBindDevice={canOpenRobotAccountActions ? () => { bleRobotIdRef.current = null; setRobotConnectionVisible(false); setAuthError(null); setStage('bind-device'); } : undefined}
   /></SafeAreaProvider>;
 
   if (guestMode) return <SafeAreaProvider><GuestScreen
     onExitGuest={exitGuest}
     onOpenConnection={() => setRobotConnectionVisible(true)}
+    onOpenLocalUse={enterLocalUse}
   /></SafeAreaProvider>;
 
   if (__DEV__ && connectionDiagnosticsOpen) return <SafeAreaProvider><ConnectionDiagnosticsScreen onBack={() => setConnectionDiagnosticsOpen(false)} /></SafeAreaProvider>;
@@ -1974,21 +2351,17 @@ export default function App() {
   }
 
   return (
-    <SafeAreaProvider>
-      <StatusBar style={isDark ? 'light' : 'dark'} />
+    <ThemePreferenceContext.Provider value={stage === 'main' ? productTheme : 'dark'}>
+      <SafeAreaProvider>
+      <StatusBar style={stage === 'main' ? (isDark ? 'light' : 'dark') : 'light'} />
 
       {stage === 'login' ? (
         <LoginScreen
-          error={authError ?? (!isSupabaseConfigured ? '认证服务尚未配置，请先按 README 启动 Supabase。' : null)}
+          error={authError ?? (!isSupabaseConfigured ? '账号服务尚未配置。' : null)}
           loading={accountBusy}
           onCreateAccount={() => { setAuthError(null); setStage('register'); }}
           onForgotPassword={() => { setAuthError(null); setStage('forgot-password'); }}
           onLogin={handleLogin}
-          onEnterGuest={enterGuest}
-          onEnterDeviceTest={deviceTestEntry}
-          onOpenConnectionDiagnostics={__DEV__ ? () => setConnectionDiagnosticsOpen(true) : undefined}
-          onOpenDataPrivacy={openDataPrivacy}
-          onOpenRobotConnection={() => setRobotConnectionVisible(true)}
         />
       ) : null}
 
@@ -2042,7 +2415,7 @@ export default function App() {
       ) : null}
 
       {stage === 'edit-profile' && user && profile?.id === user.id ? (
-        <EditProfileScreen
+        <ThemePreferenceContext.Provider value={productTheme}><EditProfileScreen
           key={user.id}
           avatarUrl={profileAvatarUrl}
           busy={profileEditBusy}
@@ -2051,7 +2424,7 @@ export default function App() {
           onBackRequestChange={registerProfileBackRequest}
           onSave={handleSaveProfile}
           profile={profile}
-        />
+        /></ThemePreferenceContext.Provider>
       ) : null}
 
       {stage === 'account-security' && user ? (
@@ -2119,8 +2492,10 @@ export default function App() {
       {stage === 'bind-device' && user ? (
         <BindDeviceScreen
           busy={deviceBusy}
+          expectedRobotId={bleRobotIdRef.current}
           error={authError}
           onBack={cancelBindDeviceAttempt}
+          onFindNearby={() => openBleDiscovery('bind-device')}
           onBind={handleBindDevice}
         />
       ) : null}
@@ -2129,7 +2504,7 @@ export default function App() {
         <DeviceEnrollmentScreen
           busy={deviceEnrollmentBusy}
           deviceName={device.display_name}
-          serialNumber={device.serial_number}
+          deviceId={device.id}
           enrollment={deviceEnrollment}
           error={deviceEnrollmentError}
           onBack={() => {
@@ -2147,8 +2522,10 @@ export default function App() {
 
       {stage === 'ble-discovery' && user ? (
         <BleDiscoveryScreen
-          deviceName={deviceName}
-          onBack={returnToDeviceSettings}
+          deviceName={bleReturnStage.current === 'bind-device' ? '机器人' : deviceName}
+          fromBinding={bleReturnStage.current === 'bind-device'}
+          onRobotSelected={(robotId) => { bleRobotIdRef.current = robotId; returnFromBleDiscovery(); }}
+          onBack={returnFromBleDiscovery}
         />
       ) : null}
 
@@ -2197,6 +2574,7 @@ export default function App() {
       {stage === 'joint-status' ? (
         <JointStatusScreen
           deviceName={controlTarget === 'direct' ? directEndpointLabel : deviceName}
+          robotDiagram={currentModel.id === 'thunder-01' ? images.thunderJointDiagram : undefined}
           joints={controlTarget === 'direct' ? controlEndpoint ? directTelemetry.presentation?.runtimeState?.joints : directConnection.presentation?.runtimeState?.joints : undefined}
           observedAt={controlTarget === 'direct' ? controlEndpoint ? directTelemetry.snapshot?.observation.observedAt : directConnection.presentation?.fresh ? directConnection.snapshot?.observation.observedAt : undefined : undefined}
           refreshing={controlTarget === 'direct' && directTelemetry.refreshing}
@@ -2209,18 +2587,20 @@ export default function App() {
             motorState: controlEndpoint && brainstemControl.state.connected ? brainstemControl.runtimeState.motorState : controlEndpoint ? directTelemetry.presentation?.runtimeState?.motorState : directConnection.presentation?.runtimeState?.motorState,
             controlAuthority: controlEndpoint && brainstemControl.state.connected ? brainstemControl.runtimeState.controlAuthority : controlEndpoint ? directTelemetry.presentation?.runtimeState?.controlAuthority : directConnection.presentation?.runtimeState?.controlAuthority,
             faultStatus: controlEndpoint && brainstemControl.state.connected ? brainstemControl.runtimeState.faultStatus : controlEndpoint ? (directTelemetry.presentation?.fresh ? (directTelemetry.snapshot?.observation?.status?.criticalMotorFault ? 'active' : directTelemetry.snapshot?.observation?.status ? 'clear' : undefined) : undefined) : (directConnection?.presentation?.fresh ? (directConnection.snapshot?.observation?.status?.criticalMotorFault ? 'active' : directConnection.snapshot?.observation?.status ? 'clear' : undefined) : undefined),
-            controlOwner: controlEndpoint && brainstemControl.state.connected ? brainstemControl.runtimeState.controlOwner : controlEndpoint ? (directTelemetry.presentation?.fresh ? directTelemetry.snapshot?.observation?.status?.owner : undefined) : (directConnection?.presentation?.fresh ? directConnection.snapshot?.observation?.status?.owner : undefined),
+            controlOwner: controlEndpoint && brainstemControl.state.connected ? brainstemControl.state.status?.owner : controlEndpoint ? (directTelemetry.presentation?.fresh ? directTelemetry.snapshot?.observation?.status?.owner : undefined) : (directConnection?.presentation?.fresh ? directConnection.snapshot?.observation?.status?.owner : undefined),
             voltageV: (controlEndpoint ? directTelemetry.presentation?.runtimeState?.battery?.voltageV : directConnection?.presentation?.runtimeState?.battery?.voltageV) ?? null,
             leaseActive: controlEndpoint && brainstemControl.state.connected ? brainstemControl.state.leaseActive : controlEndpoint ? (directTelemetry.presentation?.fresh ? directTelemetry.snapshot?.observation?.status?.grpcLeaseActive ?? null : null) : (directConnection?.presentation?.fresh ? directConnection.snapshot?.observation?.status?.grpcLeaseActive ?? null : null),
           } : undefined}
-          onBack={() => { setStage('control'); if (controlTarget === 'direct' && controlEndpoint) setRobotConnectionVisible(true); }}
+          onBack={() => { setStage('control'); }}
         />
       ) : null}
 
       {stage === 'control' ? (
-        <ControlScreen
+        <ControlScreen landscapeDocksExpanded
           g20Controller={g20Controller}
-          operationTargetKey={JSON.stringify([deviceSettingsIdentity, controlTarget,
+          video={videoConfig && !guestMode ? controlVideo.presentation : undefined}
+          videoSurface={videoConfig && !guestMode ? controlVideo.surface : undefined}
+          operationTargetKey={JSON.stringify([robotConnectionOwnerKey, controlTarget,
             controlTarget === 'direct' ? [directEndpoint?.host, directEndpoint?.port, directEndpoint?.transport, controlEndpoint?.clientIdentityAlias] : device?.id])}
           allowInteractionPreview={controlTarget !== 'direct' && __DEV__}
           batteryPercent={controlTarget === 'direct' ? null : displayBatteryPercent}
@@ -2232,13 +2612,16 @@ export default function App() {
           canUseManualControl={controlTarget === 'direct' ? brainstemControl.canBeginManualControl : manualCommandAvailable}
           productionInput={controlTarget === 'direct' && controlEndpoint ? {
             ready: brainstemControl.canBeginManualControl,
+            touchReady: brainstemControl.canBeginTouchControl,
+            onTouchBegin: brainstemControl.prepareManualControl,
+            onTouchEnd: brainstemControl.endTouchGesture,
             onDrive: brainstemControl.drive,
             onTurn: brainstemControl.turn,
             onSticks: brainstemControl.sticks,
             onInterrupt: brainstemControl.interrupt,
           } : undefined}
           controlSession={controlTarget === 'direct' && controlEndpoint ? {
-            label: brainstemControl.state.status ? `电机${brainstemControl.state.status.motorOutputEnabled ? '已使能' : '未使能'}，${({ zero: '初始化', grounded: '落地', standing: '站立', walking: '行走', transitioning: '姿态切换中' })[brainstemControl.state.status.fsmKind]}` : '尚未建立控制连接',
+            label: brainstemControl.state.status ? `电机${brainstemControl.state.status.motorOutputEnabled ? '已使能' : '未使能'}，${({ zero: '初始化', grounded: '落地', standing: '站立', walking: '行走', transitioning: '姿态切换中' })[brainstemControl.state.status.fsmKind]}` : brainstemControl.state.connected ? '状态待更新' : '尚未建立控制连接',
             canAcquire: brainstemControl.canAcquire,
             leaseActive: brainstemControl.state.leaseActive || brainstemControl.manualPrepared,
             busy: brainstemControl.state.phase === 'operating' || brainstemControl.state.phase === 'connecting',
@@ -2254,13 +2637,13 @@ export default function App() {
           diagnosticsDeviceClass={controlTarget === 'direct' ? 'physical' : lifecycleDemoEnabled ? 'demo' : 'physical'}
           diagnosticsGateway={robotDiagnosticsGateway}
           onBack={() => setStage('main')}
-          onOpenConnection={() => setRobotConnectionVisible(true)}
+          onOpenConnection={() => { void brainstemControl.suspend(); setRobotConnectionVisible(true); }}
           onOpenJointStatus={async () => {
             if (diagnosticNavigation.current !== diagnosticNavigationOwner || AppState.currentState !== 'active') return;
             try { await brainstemControl.operationCallbacks.stop(); } catch { return; }
             if (diagnosticNavigation.current !== diagnosticNavigationOwner || AppState.currentState !== 'active') return;
             diagnosticNavigation.current = { ...diagnosticNavigationOwner };
-            void brainstemControl.disconnect(); setStage('joint-status');
+            void brainstemControl.suspend(); setStage('joint-status');
           }}
           onOpenMap={controlTarget === 'direct' ? undefined : () => { setActiveTab('map'); setStage('main'); }}
           onOpenRoutes={controlTarget === 'direct' ? undefined : () => { setActiveTab('map'); setStage('main'); }}
@@ -2280,13 +2663,14 @@ export default function App() {
             switchPolicy: { ready: false, blockedReason: '未同步策略列表，切换通道未接入。' },
           }}
           onOpenConnectionDiagnostics={__DEV__ ? () => setConnectionDiagnosticsOpen(true) : undefined}
-          manualControlBlockedReason={controlTarget === 'direct' ? brainstemControl.state.error ?? '请先确认电机与姿态，再启用触控。' : commandBlockedReason('manualControl', '手动控制')}
+          manualControlBlockedReason={controlTarget === 'direct' ? brainstemControl.touchBlockedReason ?? undefined : commandBlockedReason('manualControl', '手动控制')}
           routeModeBlockedReason={commandBlockedReason('routeStart', '路线指令')}
           taskModeBlockedReason={commandBlockedReason('taskStart', '任务指令')}
           onNotifications={() => notify('通知服务尚未接入', '当前不能查询真实设备异常；待设备事件与通知服务上线后开放。', 'info')}
           robotImage={deviceImage}
-          robotName={controlTarget === 'direct' ? 'IP 直连设备' : deviceName}
+          robotName={controlTarget === 'direct' ? '机器狗 Wi-Fi' : deviceName}
           robotType={controlTarget === 'direct' ? brainstemControl.state.connected ? '局域网配对控制' : '只读状态，设备归属未核验' : deviceType}
+          videoProbeHost={controlTarget === 'direct' && lanVideoOrigin && isBrainstemLanAvailable() ? directEndpoint?.host ?? null : null}
         />
       ) : null}
 
@@ -2295,23 +2679,21 @@ export default function App() {
           const safeAreaEdges: ('top' | 'left' | 'right' | 'bottom')[] =
             ['top', 'left', 'right', 'bottom'];
           return (
-        <SafeAreaView
+        <AppearanceControlContext.Provider value={{ preference: productTheme, onChange: setProductTheme }}><ThemePreferenceContext.Provider value={productTheme}><SafeAreaView
           edges={safeAreaEdges}
           style={[
             styles.safeArea,
-            { backgroundColor: appColors.background },
+            { backgroundColor: productTheme === 'light' ? '#F5F6F9' : productTheme === 'dark' ? '#1C1C1B' : appColors.background },
             isLandscape && styles.safeAreaLandscape,
           ]}
         >
-          <AppHeader
+          {activeTab !== 'map' && activeTab !== 'home' && activeTab !== 'tasks' && activeTab !== 'profile' && activeTab !== 'analysis' ? <AppHeader
             flow
-            title={activeTab === 'tasks' ? '任务' : undefined}
-            subtitle={activeTab === 'tasks' ? `${deviceName}（${connected ? '已连接' : '离线'}）` : undefined}
             avatarUrl={profileAvatarUrl}
             onProfile={openProfileEditor}
             displayName={profile?.display_name ?? user?.user_metadata.display_name ?? user?.email?.split('@')[0] ?? '用户'}
             onNotifications={() => notify(notificationUnavailableNotice.title, notificationUnavailableNotice.message, notificationUnavailableNotice.tone, null)}
-          />
+          /> : null}
           <AppToast notice={notice} onDismiss={() => setNotice(null)} withinSafeArea />
           {profileAvatarError && activeTab === 'profile' ? (
             <View accessibilityLiveRegion="polite" style={{ paddingHorizontal: 20, paddingVertical: 8, backgroundColor: appColors.dangerSurface }}>
@@ -2321,9 +2703,9 @@ export default function App() {
               </Pressable>
             </View>
           ) : null}
-          <View style={[styles.screen, { backgroundColor: appColors.background }]}>{renderMainScreen()}</View>
-          <BottomNav active={activeTab} onChange={setActiveTab} />
-        </SafeAreaView>
+          <View style={[styles.screen, { backgroundColor: '#1C1C1B' }]}>{renderMainScreen()}</View>
+          <BottomNav active={activeTab} onChange={tab => { setProfileDeviceOpen(false); setActiveTab(tab); }} />
+        </SafeAreaView></ThemePreferenceContext.Provider></AppearanceControlContext.Provider>
           );
         })()
       ) : null}
@@ -2339,20 +2721,18 @@ export default function App() {
       </Modal>
 
       {stage !== 'main' ? <AppToast notice={notice} onDismiss={() => setNotice(null)} /> : null}
-    </SafeAreaProvider>
+      </SafeAreaProvider>
+    </ThemePreferenceContext.Provider>
   );
 }
 
 function LoadingScreen({ label, onEnterGuest, onEnterDeviceTest }: { label: string; onEnterGuest?: () => void; onEnterDeviceTest?: () => void }) {
-  const { colors: appColors } = useAppTheme();
   return (
     <SafeAreaProvider>
-      <SafeAreaView style={[styles.loading, { backgroundColor: appColors.background }]}>
-        <ActivityIndicator color={appColors.greenStrong} size="large" />
-        <Text style={[styles.loadingText, { color: appColors.muted }]}>{label}</Text>
-        {onEnterDeviceTest ? <Pressable accessibilityRole="button" onPress={onEnterDeviceTest} style={styles.errorLogout} testID="loading-device-test"><Text style={[styles.errorLogoutText, { color: appColors.authPrimary }]}>进入设备测试</Text></Pressable> : null}
-        {onEnterGuest ? <Pressable accessibilityRole="button" onPress={onEnterGuest} style={styles.errorLogout} testID="loading-guest"><Text style={[styles.errorLogoutText, { color: appColors.authPrimary }]}>游客使用</Text></Pressable> : null}
-      </SafeAreaView>
+      <PrismaticLoadingScreen label={label}>
+        {onEnterDeviceTest ? <Pressable accessibilityRole="button" onPress={onEnterDeviceTest} style={styles.errorLogout} testID="loading-device-test"><Text style={[styles.errorLogoutText, { color: '#141414' }]}>进入设备测试</Text></Pressable> : null}
+        {onEnterGuest ? <Pressable accessibilityRole="button" onPress={onEnterGuest} style={styles.errorLogout} testID="loading-guest"><Text style={[styles.errorLogoutText, { color: '#141414' }]}>游客使用</Text></Pressable> : null}
+      </PrismaticLoadingScreen>
     </SafeAreaProvider>
   );
 }
@@ -2412,8 +2792,6 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   safeAreaLandscape: { paddingRight: 78 },
   screen: { flex: 1 },
-  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  loadingText: { fontSize: 13, marginTop: 14 },
   errorSafeArea: { flex: 1 },
   errorCard: { flex: 1, justifyContent: 'center', paddingHorizontal: 28 },
   errorEyebrow: { fontSize: 12, fontWeight: '900', letterSpacing: 1.6 },

@@ -87,13 +87,13 @@ async function invokeDeviceBinding(
 }
 
 export async function claimDevice(
-  serialNumber: string,
+  deviceId: string,
   code: string,
   options: DeviceBindingRequestOptions = {},
 ): Promise<Device> {
   const response = await invokeDeviceBinding({
     action: 'claim',
-    serialNumber: serialNumber.trim().toUpperCase(),
+    deviceId: deviceId.trim().toLowerCase(),
     code: code.trim(),
   }, options);
   if (!response.device) throw new Error('设备绑定服务没有返回设备资料。');

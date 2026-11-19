@@ -93,6 +93,7 @@ export function learnG20Axis(calibration: G20Calibration, axis: G20Axis, sample:
   const channel = setting.channelIndex;
   const center = calibration.baseline[channel];
   if (channelUsed(calibration, channel, axis)) throw Error('此通道已用于其他操作');
+  if (!Number.isFinite(center) || !(setting.min < center && center < setting.max)) throw Error('摇杆未回中：中心必须位于两端之间，请重新校验');
   if (Math.abs(center - setting.middle) > (setting.max - setting.min) * 0.1) throw Error('摇杆未回中，请重新开始校验');
   const direction = axis === 'leftY' || axis === 'rightY' ? -1 : 1;
   const sign = Math.sign(sample.channels[channel] - center) * direction as 1 | -1;
@@ -115,9 +116,14 @@ export function projectG20Input(calibration: G20Calibration, sample: G20Sample) 
   const vector = {} as Record<G20Axis, number>;
   for (const axis of G20_AXES) {
     const mapping = calibration.axes[axis]!;
+    if (!integer(mapping.channel) || mapping.channel < 0 || mapping.channel > 15
+      || ![mapping.min, mapping.center, mapping.max].every(Number.isFinite)
+      || !(mapping.min < mapping.center && mapping.center < mapping.max)
+      || mapping.sign !== 1 && mapping.sign !== -1) throw Error('摇杆校验数据无效，请重新校验');
     const delta = sample.channels[mapping.channel] - mapping.center;
     const travel = delta >= 0 ? mapping.max - mapping.center : mapping.center - mapping.min;
     const raw = Math.max(-1, Math.min(1, delta / travel)) * mapping.sign;
+    if (!Number.isFinite(raw)) throw Error('摇杆输入无效，请重新校验');
     vector[axis] = Math.abs(raw) <= 0.1 ? 0 : Math.sign(raw) * (Math.abs(raw) - 0.1) / 0.9;
   }
   // Only the drive stick is two-dimensional. Right Y currently has no robot action.

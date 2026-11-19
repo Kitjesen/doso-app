@@ -3,6 +3,7 @@ import { Platform, StyleSheet, View, type AccessibilityActionEvent, type Gesture
 import { Text } from './AppText';
 import { useAppTheme } from '../theme';
 import { getProductAppearance } from '../appearance';
+import { controlSetupAppearance } from './ControlSetupSurface';
 
 type Props = Readonly<{
   value: number;
@@ -13,6 +14,7 @@ type Props = Readonly<{
   accessibilityLabel: string;
   testID: string;
   disabled?: boolean;
+  glass?: boolean;
   formatValue?: (value: number) => string;
   onValueChange?: (value: number) => void;
   onSlidingComplete: (value: number) => void;
@@ -41,9 +43,9 @@ function validIdentifier(value: unknown): value is TouchIdentifier {
 
 /** Layout-only input. Preview moves are separate from the one release commit. */
 export function ControlSlider({ value, minimumValue, maximumValue, step = 0.01, label, accessibilityLabel,
-  testID, disabled = false, formatValue = String, onValueChange, onSlidingComplete }: Props) {
+  testID, disabled = false, glass = false, formatValue = String, onValueChange, onSlidingComplete }: Props) {
   const { isDark } = useAppTheme();
-  const appearance = getProductAppearance(isDark);
+  const appearance = glass ? { ...getProductAppearance(true), ...controlSetupAppearance, canvas: '#FCFCFD' } : getProductAppearance(isDark);
   const validRange = Number.isFinite(minimumValue) && Number.isFinite(maximumValue) && maximumValue > minimumValue
     && Number.isFinite(step) && step > 0;
   const min = validRange ? minimumValue : 0, max = validRange ? maximumValue : 1;
@@ -208,7 +210,7 @@ const styles = StyleSheet.create({
   container: { gap: 0 },
   labelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   label: { fontSize: 14, lineHeight: 22 },
-  value: { fontSize: 12, lineHeight: 18, fontVariant: ['tabular-nums'] },
+  value: { fontSize: 12, lineHeight: 18, fontWeight: '500', fontVariant: ['tabular-nums'] },
   touchArea: { height: 44, minHeight: 44, justifyContent: 'center' },
   track: { position: 'absolute', top: 20, left: RADIUS, right: RADIUS, height: 4, borderRadius: 2 },
   fill: { position: 'absolute', top: 20, left: RADIUS, height: 4, borderRadius: 2 },

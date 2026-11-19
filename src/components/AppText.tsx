@@ -1,34 +1,27 @@
-import { createContext, useContext, type Ref } from 'react';
+import { useContext, type Ref } from 'react';
 import {
-  StyleSheet,
-  Text as NativeText,
-  TextInput as NativeTextInput,
-  type TextProps,
-  type TextInputProps,
-  type TextStyle,
+  Platform, StyleSheet, Text as NativeText, TextInput as NativeTextInput,
+  type TextProps, type TextInputProps, type TextStyle,
 } from 'react-native';
+import { ProductFontContext, productFont } from '../fonts/home';
 
-import { FontReadyContext } from '../fonts/FontProvider';
-import { getFontWeight, resolveFontStyle } from '../fonts/font-family';
+const webFont: TextStyle = {
+  fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif',
+};
 
-const TextWeightContext = createContext<TextStyle['fontWeight']>(undefined);
+function systemFont(style: TextProps['style']) {
+  // Native text inherits platform fonts; explicit icon and monospace faces stay intact.
+  return Platform.OS === 'web' && !StyleSheet.flatten(style)?.fontFamily ? webFont : undefined;
+}
 
-// React 19 forwards ref as a regular prop. Export the instance type as well so
-// existing useRef<TextInput>() callers retain the real native focus API.
 export type Text = NativeText;
-export function Text({ style, children, ...props }: TextProps & { ref?: Ref<NativeText> }) {
-  const ready = useContext(FontReadyContext);
-  const inheritedWeight = useContext(TextWeightContext);
-  const flatStyle = StyleSheet.flatten(style);
-  return (
-    <NativeText {...props} style={[style, resolveFontStyle(flatStyle, ready, inheritedWeight)]}>
-      <TextWeightContext.Provider value={getFontWeight(flatStyle, inheritedWeight)}>{children}</TextWeightContext.Provider>
-    </NativeText>
-  );
+export function Text({ style, ...props }: TextProps & { ref?: Ref<NativeText> }) {
+  const productReady = useContext(ProductFontContext);
+  return <NativeText {...props} style={[productReady ? productFont(style) : systemFont(style), style]} />;
 }
 
 export type TextInput = NativeTextInput;
 export function TextInput({ style, ...props }: TextInputProps & { ref?: Ref<NativeTextInput> }) {
-  const ready = useContext(FontReadyContext);
-  return <NativeTextInput {...props} style={[style, resolveFontStyle(StyleSheet.flatten(style), ready)]} />;
+  const productReady = useContext(ProductFontContext);
+  return <NativeTextInput {...props} style={[productReady ? productFont(style) : systemFont(style), style]} />;
 }

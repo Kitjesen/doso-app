@@ -1,3 +1,4 @@
+import { useFonts } from 'expo-font';
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -11,7 +12,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Text, TextInput } from '../components/AppText';
+import { Text } from '../components/HomeText';
+import { TextInput } from '../components/AppText';
 import { UserAvatar } from '../components/UserAvatar';
 import { pickProfileAvatar } from '../services/avatarPicker';
 import type { ProfileEditInput } from '../services/profileEditing';
@@ -43,7 +45,9 @@ export function EditProfileScreen({
   onSave,
   profile,
 }: Props) {
-  const { colors, isDark } = useAppTheme();
+  useFonts({ HomeRegular: require('../../assets/fonts/MiSans-Regular.otf'), HomeBold: require('../../assets/fonts/MiSans-Bold.otf') });
+  const { colors: baseColors, isDark } = useAppTheme();
+  const colors = { ...baseColors, background: isDark ? '#1C1C1B' : '#F5F6F9', surface: isDark ? '#242423' : '#FFFFFF', ink: isDark ? '#E8E8E6' : '#181B20', muted: isDark ? '#92928F' : '#6D727B', authPrimary: isDark ? '#E8E8E6' : '#181B20' };
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
   const isLandscape = width > height;
@@ -318,8 +322,8 @@ function createStyles(
   insets: { bottom: number; left: number; right: number; top: number },
 ) {
   const p = getProductAppearance(isDark);
-  const card = p.surface;
-  const input = 'transparent';
+  const card = isDark ? '#242423' : '#FFFFFF';
+  const input = isDark ? '#1C1C1B' : '#F5F6F9';
   return StyleSheet.create({
     screen: { backgroundColor: colors.background, flex: 1 },
     content: {
@@ -331,11 +335,11 @@ function createStyles(
       paddingTop: Math.max(12, insets.top + 4),
     },
     header: { alignItems: 'center', flexDirection: 'row', minHeight: 48 },
-    iconButton: { alignItems: 'center', backgroundColor: colors.surface, borderRadius: 22, height: 44, justifyContent: 'center', width: 44 },
+    iconButton: { alignItems: 'center', backgroundColor: isDark ? 'transparent' : colors.surface, borderRadius: 22, height: 44, justifyContent: 'center', width: 44 },
     headerTitle: { color: colors.ink, flex: 1, fontSize: 20, fontWeight: '600', textAlign: 'center' },
     headerSpacer: { width: 44 },
     layout: { alignSelf: 'center', flexDirection: isLandscape ? 'row' : 'column', gap: 18, maxWidth: 760, width: '100%' },
-    avatarPanel: { alignItems: isLandscape ? 'flex-start' : 'center', backgroundColor: card, borderRadius: cardLayout.radius, flexDirection: isLandscape ? 'column' : 'row', gap: cardLayout.gap, padding: cardLayout.inset, width: isLandscape ? 250 : '100%' },
+    avatarPanel: { alignItems: isLandscape ? 'flex-start' : 'center', backgroundColor: card, boxShadow: isDark ? 'none' : '0 2px 3px rgba(28,38,55,.025), 0 6px 16px rgba(28,38,55,.06)', borderRadius: isDark ? 10 : 18, flexDirection: isLandscape ? 'column' : 'row', gap: cardLayout.gap, padding: cardLayout.inset, width: isLandscape ? 250 : '100%' },
     avatarCopy: { alignItems: isLandscape ? 'flex-start' : undefined, flex: 1, minWidth: 0 },
     avatarTitle: { ...typography.label, color: colors.ink },
     avatarHint: { color: colors.muted, fontSize: 13, lineHeight: 20, marginTop: 4 },
@@ -346,12 +350,12 @@ function createStyles(
     removeAvatarText: { color: colors.dangerText, fontSize: 13, fontWeight: '600' },
     pendingBadge: { alignItems: 'center', backgroundColor: p.action, borderRadius: 12, bottom: -4, minHeight: 24, paddingHorizontal: 8, position: 'absolute', right: -8 },
     pendingText: { ...typography.supporting, color: p.actionInk },
-    form: { backgroundColor: card, borderRadius: cardLayout.radius, flex: 1, gap: 16, padding: cardLayout.inset },
+    form: { backgroundColor: card, boxShadow: isDark ? 'none' : '0 2px 3px rgba(28,38,55,.025), 0 6px 16px rgba(28,38,55,.06)', borderRadius: isDark ? 10 : 18, flex: 1, gap: 16, padding: cardLayout.inset },
     fieldBlock: { gap: 7 },
     fieldLabelRow: { alignItems: 'center', flexDirection: 'row' },
     fieldLabel: { color: colors.ink, flex: 1, fontSize: 15, fontWeight: '600' },
     fieldCount: { ...typography.supporting, color: colors.muted, fontVariant: ['tabular-nums'] },
-    input: { backgroundColor: input, borderColor: colors.line, borderRadius: 16, borderWidth: 1, color: colors.ink, fontSize: 16, minHeight: 52, paddingHorizontal: 15, paddingVertical: 12 },
+    input: { backgroundColor: input, borderColor: isDark ? '#41413F' : '#E1E4EB', borderRadius: 8, borderWidth: 1, color: colors.ink, fontSize: 16, minHeight: 52, paddingHorizontal: 15, paddingVertical: 12 },
     inputError: { borderColor: colors.dangerText },
     fieldError: { ...typography.supporting, color: colors.dangerText },
     help: { ...typography.supporting, color: colors.muted },
@@ -366,9 +370,9 @@ function createStyles(
     keepEditingText: { color: colors.authPrimary, fontSize: 13, fontWeight: '600' },
     discardButton: { alignItems: 'center', backgroundColor: colors.dangerSurface, borderRadius: 16, justifyContent: 'center', minHeight: 44, paddingHorizontal: 14 },
     discardButtonText: { color: colors.dangerText, fontSize: 13, fontWeight: '600' },
-    saveButton: { alignItems: 'center', alignSelf: 'center', backgroundColor: p.action, borderRadius: 18, justifyContent: 'center', maxWidth: 760, minHeight: 52, width: '100%' },
+    saveButton: { alignItems: 'center', alignSelf: 'center', backgroundColor: isDark ? '#E8E8E6' : '#101113', borderRadius: 10, justifyContent: 'center', maxWidth: 760, minHeight: 52, width: '100%' },
     saveButtonDisabled: { backgroundColor: colors.surfaceStrong },
-    saveText: { ...typography.label, color: p.actionInk },
+    saveText: { ...typography.label, color: isDark ? '#181B20' : '#FFFFFF' },
     saveTextDisabled: { color: colors.muted },
     pressed: { opacity: 0.7, transform: [{ scale: 0.99 }] },
   });

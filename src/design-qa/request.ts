@@ -24,6 +24,10 @@ export const DESIGN_QA_STAGES = [
 export type DesignQaStage = (typeof DESIGN_QA_STAGES)[number];
 export type DesignQaState =
   | 'default'
+  | 'device'
+  | 'reference'
+  | 'connection'
+  | 'input'
   | 'loading'
   | 'error'
   | 'nonce'
@@ -46,12 +50,12 @@ const allowedStates: Record<DesignQaStage, readonly DesignQaState[]> = {
   'auth-display-name': ['default', 'loading', 'error'],
   'auth-mfa': ['unavailable', 'loading'],
   'model-select': ['default', 'loading'],
-  'main-home': ['default'],
-  'main-routes': ['default'],
-  'main-tasks': ['default'],
+  'main-home': ['default', 'empty'],
+  'main-routes': ['default', 'empty'],
+  'main-tasks': ['default', 'empty'],
   'main-analysis': ['default', 'trusted-empty'],
-  'main-profile': ['default'],
-  'robot-control': ['default', 'connected'],
+  'main-profile': ['default', 'device'],
+  'robot-control': ['default', 'connected', 'reference', 'connection', 'input'],
   'device-bind': ['default', 'loading', 'error'],
   'device-ble-discovery': ['default', 'permission-denied', 'bluetooth-off', 'scanning', 'empty'],
   'device-provisioning': ['unavailable'],

@@ -56,7 +56,13 @@ export interface FirmwareUpdatePresentation {
   currentVersion: string | null;
   targetVersion: string | null;
   eligibility: FirmwareEligibility;
-  progress: { label: string; percent: number | null };
+  progress: {
+    label: string;
+    percent: number | null;
+    downloadedBytes: number | null;
+    totalBytes: number | null;
+    remainingBytes: number | null;
+  };
   diagnosticCode: string | null;
 }
 
@@ -78,6 +84,12 @@ export interface FirmwareUpdateGateway {
 const ARTIFACT_SIZE_BYTES = 18_600_000;
 const DOWNLOAD_CHUNK_BYTES = ARTIFACT_SIZE_BYTES / 4;
 const MANIFEST_ISSUED_AT_MS = 1_700_000_000_000;
+
+function formatBytes(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} MB`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)} KB`;
+  return `${value} B`;
+}
 
 function nextPatchVersion(version: string): string {
   const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(version);
@@ -347,7 +359,7 @@ function createGateway(available: boolean): FirmwareUpdateGateway {
           currentVersion: null,
           targetVersion: null,
           eligibility: { checks: [], eligible: false },
-          progress: { label: '硬件连接尚未开放', percent: null },
+          progress: { label: '硬件连接尚未开放', percent: null, downloadedBytes: null, totalBytes: null, remainingBytes: null },
           diagnosticCode: null,
         };
       }
@@ -397,8 +409,13 @@ function createGateway(available: boolean): FirmwareUpdateGateway {
         targetVersion: manifest.version,
         eligibility: evaluateEligibility(profile, manifest),
         progress: {
-          label: percent === null ? FIRMWARE_PHASE_LABELS[domain.phase] : `下载进度 ${percent}%`,
+          label: percent === null
+            ? FIRMWARE_PHASE_LABELS[domain.phase]
+            : `已下载 ${formatBytes(domain.downloadOffset)} / ${formatBytes(manifest.sizeBytes)}，剩余 ${formatBytes(Math.max(0, manifest.sizeBytes - domain.downloadOffset))}`,
           percent,
+          downloadedBytes: domain.downloadOffset,
+          totalBytes: manifest.sizeBytes,
+          remainingBytes: Math.max(0, manifest.sizeBytes - domain.downloadOffset),
         },
         diagnosticCode: domain.phase === 'recovery_required' ? 'DOSO-OTA-••••-7A2C' : null,
       };

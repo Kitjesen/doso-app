@@ -30,7 +30,7 @@ export type RobotCapabilityContext = Readonly<{
 export const ROBOT_CAPABILITY_UNAVAILABLE_REASONS: Readonly<Record<RobotCapability, string>> = Object.freeze({
   diagnosticsHealth: '真实设备 diagnostics.health_check 的认证 ACK 与硬件健康协议尚未接入。',
   provisioning: '当前仅有模拟配网 gateway；真实 GATT 身份验证与一次性 Wi-Fi 写入尚未接入。',
-  ota: '当前仅有离线 OTA 生命周期模拟；生产签名制品、托管作业与机器人回滚尚未接入。',
+  ota: '生产 OTA 还缺签名发布服务、机器人更新代理和可验证回滚；当前不会执行或伪造升级成功。',
   routeStart: '实体机器人路线协议、可信定位与路线执行 ACK 尚未接入。',
   taskStart: '实体机器人任务协议、可信任务状态与执行 ACK 尚未接入。',
   recall: '实体机器人召回协议、可信定位与安全返航 ACK 尚未接入。',

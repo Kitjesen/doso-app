@@ -12,6 +12,7 @@ export type BrainstemControlReply = Readonly<{
   leaseOwnerMatched?: boolean;
   sequence?: number;
   profile?: BrainstemGrpcProfile;
+  profileUnavailable?: boolean;
 }>;
 export type BrainstemControlOpenReply = BrainstemControlReply & Readonly<{ sessionId: string; transport: 'grpc-mtls' | 'grpc-lan'; mutualTlsVerified: boolean; clientIdentitySelected?: boolean; sessionPrincipal?: string }>;
 export interface BrainstemControlTransport {
@@ -43,13 +44,16 @@ const errorMessages: Record<string, string> = {
   timeout: '机器狗响应超时，停止状态待确认，请重新连接。',
   stop_unconfirmed: '停止请求未确认，请检查机器狗状态并使用硬件急停。',
   cancelled: '控制已中断，请重新申请控制权。',
+  stale_input: '输入已过期，控制已中断，请重新申请控制权。',
+  not_armed: '控制权已失效，请重新申请控制权。',
+  command_rejected: '机器狗未确认控制指令，请检查状态。',
+  unimplemented: '机器狗服务尚不支持此操作。',
   unavailable: '无法连接机器狗，请检查局域网、服务地址及配对证书。',
-  unimplemented: '机器人尚未提供摔倒恢复服务',
 };
 export function safeBrainstemControlError(error: unknown): BrainstemControlError {
   if (error instanceof BrainstemControlError) return error;
   const raw = error && typeof error === 'object' && 'code' in error ? String(error.code).toLowerCase().replace(/^err_/, '') : '';
-  const code = raw in errorMessages ? raw : 'unavailable';
+  const code = Object.prototype.hasOwnProperty.call(errorMessages, raw) ? raw : 'unavailable';
   return new BrainstemControlError(code, errorMessages[code]);
 }
 function invalid(): never { throw new BrainstemControlError('invalid_response', errorMessages.invalid_response); }
@@ -116,6 +120,7 @@ export function projectBrainstemControlReply(value: unknown): BrainstemControlRe
   if (v.leaseActive && (!s.grpcLeaseActive || s.owner !== 'grpc' || !leaseOwnerMatched || v.transport !== 'grpc-lan' && !v.principalVerified)) invalid();
   if (v.sequence !== undefined && (!Number.isSafeInteger(v.sequence) || Number(v.sequence) <= 0)) invalid();
   let profile: BrainstemGrpcProfile | undefined;
+  if (v.profileUnavailable !== undefined && typeof v.profileUnavailable !== 'boolean') invalid();
   if (v.profile !== undefined) {
     if (!v.profile || typeof v.profile !== 'object') invalid();
     const p = v.profile as Record<string, unknown>;
@@ -140,6 +145,7 @@ export function projectBrainstemControlReply(value: unknown): BrainstemControlRe
     ...(v.transport !== undefined ? { transport: v.transport as 'grpc-mtls' | 'grpc-lan' } : {}),
     leaseOwnerMatched: leaseOwnerMatched as boolean,
     ...(v.sequence !== undefined ? { sequence: Number(v.sequence) } : {}), ...(profile ? { profile } : {}),
+    ...(v.profileUnavailable === true ? { profileUnavailable: true } : {}),
   };
 }
 

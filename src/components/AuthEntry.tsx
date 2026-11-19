@@ -1,38 +1,41 @@
 import { FontAwesome, Ionicons } from '@expo/vector-icons';
 import { useState, type ReactNode, type RefObject } from 'react';
-import { ActivityIndicator, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, type TextInputProps, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, type TextInputProps, useWindowDimensions, View } from 'react-native';
 import { Text, TextInput } from './AppText';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { images } from '../assets';
 import { useProductAppearance } from '../appearance';
 import { getSocialLoginReadiness, type SocialLoginProvider } from '../services/socialAuthService';
 import { useAppTheme } from '../theme';
-import { getRegistrationLayout } from '../screens/registrationLayout';
+import { officialDark } from '../officialPalette';
 import { SocialLoginFeedback, useSocialLoginAction } from './SocialLoginFeedback';
+import { LoginSurface } from './LoginSurface';
 
 export function useAuthEntryPalette() {
-  const { colors, isDark } = useAppTheme();
-  const appearance = useProductAppearance();
+  // Official auth 01-08 is always the black canvas and light pill CTA.
+  useAppTheme();
+  useProductAppearance();
   return {
-    ...colors, isDark,
-    background: appearance.canvas,
-    surface: appearance.surface,
-    input: appearance.surface,
-    ink: appearance.ink,
-    inkSoft: appearance.secondary,
-    secondary: appearance.secondary,
-    muted: appearance.secondary,
-    placeholder: appearance.secondary,
-    border: appearance.border,
-    accent: appearance.blueInk,
-    authFocus: appearance.blueInk,
-    button: appearance.action,
-    buttonInk: appearance.actionInk,
-    authPrimary: appearance.action,
-    authPrimaryInk: appearance.actionInk,
-    quiet: appearance.surface,
-    surfaceStrong: appearance.surface,
+    isDark: true,
+    background: officialDark.canvas,
+    surface: officialDark.surface,
+    input: officialDark.field,
+    ink: officialDark.ink,
+    inkSoft: officialDark.muted,
+    secondary: officialDark.muted,
+    muted: officialDark.muted,
+    placeholder: officialDark.placeholder,
+    border: officialDark.line,
+    accent: officialDark.ink,
+    authFocus: officialDark.cta,
+    button: officialDark.cta,
+    buttonInk: officialDark.ctaInk,
+    authPrimary: officialDark.cta,
+    authPrimaryInk: officialDark.ctaInk,
+    quiet: officialDark.surface,
+    surfaceStrong: officialDark.surface,
+    dangerText: '#FF9BA4',
+    dangerSurface: '#381D23',
   };
 }
 
@@ -50,44 +53,8 @@ function useCompactWideAuthLayout() {
 }
 
 export function AuthEntry({ mode, busy, onSwitch, children }: AuthEntryProps) {
-  const palette = useAuthEntryPalette();
-  const insets = useSafeAreaInsets();
-  const { width, fontScale } = useWindowDimensions();
-  const [containerWidth, setContainerWidth] = useState<number>();
-  const layout = getRegistrationLayout(containerWidth ?? width - insets.left - insets.right, fontScale);
-  const portraitWidth = Math.min(480, containerWidth ?? width - insets.left - insets.right);
-  const narrow = !layout.wide && portraitWidth < 360;
   const register = mode === 'register';
-  return (
-    <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={[entryStyles.safe, { backgroundColor: palette.background }]}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} onLayout={({ nativeEvent }) => setContainerWidth(nativeEvent.layout.width)} style={entryStyles.safe}>
-          <ScrollView bounces={false} contentContainerStyle={entryStyles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-            <View style={[entryStyles.page, { width: layout.wide ? layout.contentWidth : portraitWidth }]}>
-              <View style={[entryStyles.header, layout.wide && entryStyles.headerWide]} testID="auth-entry-header">
-                <Image accessibilityLabel="DOSO 大算机器人" resizeMode="contain" source={require('../../assets/brand/doso-auth-lockup-sky-v2.png')} style={[entryStyles.logo, palette.isDark && entryStyles.logoDark]} />
-                <Pressable accessibilityLabel={register ? '返回登录' : '创建账户'} accessibilityRole="button" accessibilityState={{ disabled: busy || !onSwitch }} disabled={busy || !onSwitch} onPress={onSwitch} style={({ pressed }) => [entryStyles.switchAction, pressed && entryStyles.pressed]} testID={register ? 'register-login' : 'login-register'}>
-                  <Text style={[entryStyles.switchLabel, { color: palette.ink }]}>{register ? '登录' : '注册'}</Text>
-                  <Ionicons color={palette.ink} name="chevron-forward" size={20} />
-                </Pressable>
-              </View>
-              <View style={[layout.wide && entryStyles.wideBody, layout.wide && { gap: layout.gap }]}>
-                <View style={[entryStyles.hero, { width: layout.wide ? layout.introWidth : portraitWidth }, layout.wide && entryStyles.heroWide, narrow && entryStyles.heroNarrow, fontScale > 1.35 && entryStyles.heroLargeText]} testID={`${mode}-intro`}>
-                  {/* The robot export is already transparent. Keep its stage the same as the page
-                      so the product cutout reads as a real Figma export instead of sitting in a
-                      tinted rectangle (especially on the white light theme). */}
-                  <View pointerEvents="none" style={[entryStyles.productPlate, layout.wide && entryStyles.productPlateWide, narrow && entryStyles.productPlateNarrow, fontScale > 1.35 && entryStyles.decorativeHidden]} />
-                  <Image accessible={false} resizeMode="contain" source={images.thunderHero} style={[entryStyles.robot, { width: portraitWidth * 0.57, height: portraitWidth * 0.43, right: 6 }, layout.wide && entryStyles.robotWide, narrow && entryStyles.robotNarrow, fontScale > 1.35 && entryStyles.decorativeHidden]} />
-                  <Text accessibilityRole="header" style={[entryStyles.headline, { color: palette.ink }, layout.wide && entryStyles.headlineWide, fontScale > 1.35 && entryStyles.headlineLargeText]}>{'与你一起，\n向前探索。'}</Text>
-                </View>
-                <View style={[entryStyles.form, { backgroundColor: palette.background, width: layout.wide ? layout.formWidth : portraitWidth }, layout.wide && entryStyles.formWide]} testID={`${mode}-form`}>
-                  {children(layout.inlineIdentity)}
-                </View>
-              </View>
-            </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
-    </SafeAreaView>
-  );
+  return <LoginSurface mode={register ? 'register' : 'login'} busy={busy} onRegister={onSwitch}>{children(false)}</LoginSurface>;
 }
 
 type EntryFieldProps = TextInputProps & {
@@ -98,23 +65,27 @@ type EntryFieldProps = TextInputProps & {
   secure?: boolean;
   hint?: string;
   visibilityTestID?: string;
+  variant?: 'glass';
 };
 
-export function AuthEntryField({ label, icon, inputRef, error, hint, secure = false, editable = true, visibilityTestID, ...inputProps }: EntryFieldProps) {
+export function AuthEntryField({ label, icon, inputRef, error, hint, secure = false, editable = true, visibilityTestID, variant, ...inputProps }: EntryFieldProps) {
   const [focused, setFocused] = useState(false);
   const [visible, setVisible] = useState(false);
   const palette = useAuthEntryPalette();
+  const glass = variant === 'glass';
+  const ink = glass ? (officialDark.ink) : palette.ink;
+  const secondary = glass ? (officialDark.muted) : palette.secondary;
   return (
     <View style={entryStyles.fieldGroup}>
       <View style={entryStyles.labelRow}>
-        <Text nativeID={inputProps.testID + '-label'} style={[entryStyles.label, { color: palette.ink }]}>{label}</Text>
+        <Text nativeID={inputProps.testID + '-label'} style={[entryStyles.label, glass && entryStyles.glassLabel, { color: ink }]}>{label}</Text>
         {hint ? <Text style={[entryStyles.hint, { color: palette.secondary }]}>{hint}</Text> : null}
       </View>
-      <View style={[entryStyles.inputFrame, { backgroundColor: palette.input, borderColor: error ? palette.dangerText : focused ? palette.accent : 'transparent' }, focused && !error && entryStyles.focused]}>
-        <Ionicons color={palette.secondary} name={icon} size={21} style={entryStyles.fieldIcon} />
-        <TextInput {...inputProps} accessibilityLabel={inputProps.accessibilityLabel ?? label} accessibilityLabelledBy={inputProps.testID + '-label'} accessibilityHint={error ?? hint} editable={editable} multiline={false} numberOfLines={1} onBlur={event => { setFocused(false); inputProps.onBlur?.(event); }} onFocus={event => { setFocused(true); inputProps.onFocus?.(event); }} placeholderTextColor={palette.placeholder} ref={inputRef} secureTextEntry={secure && !visible} style={[entryStyles.input, { color: palette.ink }]} />
+      <View style={[entryStyles.inputFrame, glass && entryStyles.glassField, { backgroundColor: glass ? (officialDark.field) : palette.input, borderColor: error ? palette.dangerText : focused ? palette.accent : 'transparent' }, focused && !error && entryStyles.focused]}>
+        <Ionicons color={secondary} name={icon} size={glass ? 18 : 21} style={entryStyles.fieldIcon} />
+        <TextInput {...inputProps} accessibilityLabel={inputProps.accessibilityLabel ?? label} accessibilityLabelledBy={inputProps.testID + '-label'} accessibilityHint={error ?? hint} editable={editable} multiline={false} numberOfLines={1} onBlur={event => { setFocused(false); inputProps.onBlur?.(event); }} onFocus={event => { setFocused(true); inputProps.onFocus?.(event); }} placeholderTextColor={glass ? secondary : palette.placeholder} ref={inputRef} secureTextEntry={secure && !visible} style={[entryStyles.input, glass && entryStyles.glassInput, { color: ink }]} />
         {secure ? <Pressable accessibilityLabel={visible ? '隐藏密码' : '显示密码'} accessibilityRole="button" accessibilityState={{ disabled: !editable, selected: visible }} disabled={!editable} onPress={() => { if (editable) setVisible(value => !value); }} style={entryStyles.eye} testID={visibilityTestID}>
-          <Ionicons color={palette.secondary} name={visible ? 'eye-off-outline' : 'eye-outline'} size={22} />
+          <Ionicons color={secondary} name={visible ? 'eye-off-outline' : 'eye-outline'} size={glass ? 20 : 22} />
         </Pressable> : null}
       </View>
       {error ? <Text selectable accessibilityLiveRegion="polite" style={[entryStyles.hint, { color: palette.dangerText }]}>{error}</Text> : null}
@@ -127,12 +98,13 @@ export function AuthEntryError({ message }: { message?: string | null }) {
   return message ? <Text accessibilityLiveRegion="polite" selectable style={[entryStyles.error, { color: palette.dangerText, backgroundColor: palette.dangerSurface }]}>{message}</Text> : null;
 }
 
-export function AuthEntryButton({ busy, loading = busy, label, onPress, testID }: { busy: boolean; loading?: boolean; label: string; onPress: () => void; testID: string }) {
+export function AuthEntryButton({ busy, loading = busy, label, onPress, testID, variant }: { busy: boolean; loading?: boolean; label: string; onPress: () => void; testID: string; variant?: 'glass' }) {
   const palette = useAuthEntryPalette();
   const compactWide = useCompactWideAuthLayout();
-  return <Pressable accessibilityLabel={label} accessibilityRole="button" accessibilityState={{ disabled: busy, busy: loading }} disabled={busy} onPress={() => { if (!busy) return onPress(); }} style={({ pressed }) => [entryStyles.primary, compactWide && entryStyles.primaryWide, { backgroundColor: busy ? palette.quiet : palette.button }, pressed && !busy && entryStyles.pressed]} testID={testID}>
+  const glass = variant === 'glass';
+  return <Pressable accessibilityLabel={label} accessibilityRole="button" accessibilityState={{ disabled: busy, busy: loading }} disabled={busy} onPress={() => { if (!busy) return onPress(); }} style={({ pressed }) => [entryStyles.primary, compactWide && entryStyles.primaryWide, glass && entryStyles.glassButton, { backgroundColor: busy ? palette.quiet : glass ? ('#F0F4FE') : palette.button }, pressed && !busy && entryStyles.pressed]} testID={testID}>
     {loading ? <ActivityIndicator color={palette.accent} size="small" /> : null}
-    <Text accessibilityLiveRegion={loading ? 'polite' : 'none'} style={[entryStyles.primaryLabel, { color: busy ? palette.accent : palette.buttonInk }]}>{label}</Text>
+    <Text accessibilityLiveRegion={loading ? 'polite' : 'none'} style={[entryStyles.primaryLabel, glass && entryStyles.glassButtonLabel, { color: busy ? palette.accent : glass ? ('#1C1C1B') : palette.buttonInk }]}>{label}</Text>
   </Pressable>;
 }
 
@@ -190,6 +162,11 @@ export const entryStyles = StyleSheet.create({
   headlineWide: { paddingLeft: 0, marginTop: 8 },
   form: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 24 }, formWide: { paddingHorizontal: 0, paddingTop: 0 },
   fieldGroup: { gap: 6 }, labelRow: { alignItems: 'center', justifyContent: 'space-between', flexDirection: 'row', gap: 8 },
+  glassLabel: { fontSize: 18, lineHeight: 28 },
+  glassField: { minHeight: 52, borderRadius: 14 },
+  glassInput: { fontSize: 16, lineHeight: 24 },
+  glassButton: { borderRadius: 14, marginTop: 8 },
+  glassButtonLabel: { fontSize: 16, lineHeight: 24 },
   label: { fontSize: 15, lineHeight: 21, fontWeight: '500' }, hint: { fontSize: 13, lineHeight: 20 },
   inputFrame: { minHeight: 48, borderWidth: 1, borderRadius: 16, alignItems: 'center', flexDirection: 'row' },
   focused: { borderWidth: 2 }, fieldIcon: { marginLeft: 12, marginRight: 10 },

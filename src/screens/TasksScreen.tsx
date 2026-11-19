@@ -1,7 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useFonts } from 'expo-font';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
-import { Text } from '../components/AppText';
+import { Text } from '../components/HomeText';
+import { TaskAgenda, type AgendaItem } from '../components/TaskAgenda';
+import type { TaskDraft, TaskRoute } from '../components/TaskEditor';
 
 import { cardLayout, useProductAppearance } from '../appearance';
 import { typography } from '../typography';
@@ -13,12 +16,17 @@ import {
 } from '../features/tasks/taskStartPolicy';
 
 type Props = {
+  routes?: readonly TaskRoute[];
   blockedReason?: string;
   controlAvailable: boolean;
   executorAvailable: boolean;
   onStartTask: (trustedTaskId: string) => void;
   referenceDate?: Date;
   robotName: string;
+  items?: readonly AgendaItem[];
+  onSelectDevice?: () => void;
+  draftScope?: string;
+  onPublishDraft?: (draft: TaskDraft) => Promise<void>;
 };
 
 type TaskTemplate = {
@@ -31,7 +39,9 @@ type TaskTemplate = {
   title: string;
 };
 
-type Appearance = ReturnType<typeof useProductAppearance>;
+type Appearance = Omit<ReturnType<typeof useProductAppearance>, 'action' | 'actionInk' | 'selectionSurface' | 'selectionInk'> & {
+  action: string; actionInk: string; selectionSurface: string; selectionInk: string;
+};
 type Styles = ReturnType<typeof createStyles>;
 
 const weekLabels = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -102,10 +112,10 @@ function TemplateSummary({ appearance, styles }: { appearance: Appearance; style
     <View style={styles.summaryCard}>
       <Ionicons accessible={false} color={appearance.secondary} name="reader-outline" size={24} />
       <View style={styles.summaryCopy}>
-        <Text style={styles.summaryTitle}>尚未同步可信任务</Text>
-        <Text style={styles.summarySubtitle}>当前可查看通用模板</Text>
+        <Text style={styles.summaryTitle}>暂无已同步任务</Text>
+        <Text style={styles.summarySubtitle}>浏览下方流程模板</Text>
       </View>
-      <Text style={styles.summarySubtitle}>只读</Text>
+      <Ionicons accessible={false} color={appearance.secondary} name="calendar-outline" size={20} />
     </View>
   );
 }
@@ -136,14 +146,20 @@ function TaskCard({ active, appearance, index, onSelect, styles, task }: {
         <Text style={[styles.taskDescription, active && styles.taskDescriptionActive]}>{task.description}</Text>
       </View>
       <View style={styles.selectionMark}>
-        <Ionicons color={active ? appearance.selectionInk : appearance.secondary} name={active ? 'radio-button-on' : 'radio-button-off'} size={20} />
+        <Ionicons color={active ? appearance.selectionInk : appearance.secondary} name={active ? 'checkmark-circle' : 'chevron-forward'} size={20} />
       </View>
     </Pressable>
   );
 }
 
-export function TasksScreen({ blockedReason, controlAvailable, executorAvailable, onStartTask, referenceDate: referenceDateProp, robotName }: Props) {
-  const appearance = useProductAppearance();
+export function TasksScreen(props: Props) {
+  return <TaskAgenda draftScope={props.draftScope} routes={props.routes} key={props.draftScope ?? props.robotName} robotName={props.robotName} items={props.items} referenceDate={props.referenceDate} onSelectDevice={props.onSelectDevice} onPublishDraft={props.onPublishDraft} />;
+}
+
+export function TaskTemplates({ blockedReason, controlAvailable, executorAvailable, onStartTask, referenceDate: referenceDateProp, robotName }: Props) {
+  useFonts({ HomeRegular: require('../../assets/fonts/MiSans-Regular.otf'), HomeBold: require('../../assets/fonts/MiSans-Bold.otf') });
+  const theme = useProductAppearance();
+  const appearance = { ...theme, canvas: theme.isDark ? theme.canvas : '#F5F6F9', surface: theme.isDark ? theme.surface : '#FFFFFF', action: theme.isDark ? '#E8E8E6' : '#202329', actionInk: theme.isDark ? '#1C1C1B' : '#FFFFFF', selectionSurface: theme.isDark ? '#30302F' : '#F0F2F5', selectionInk: theme.ink };
   const { fontScale, height, width } = useWindowDimensions();
   const isLandscape = width > height;
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
@@ -191,13 +207,13 @@ export function TasksScreen({ blockedReason, controlAvailable, executorAvailable
     if (!nextTask) return;
     setSelectedTask(index);
     setPreviewExpanded(null);
-    setTaskFeedback(`已选择${nextTask.title}模板。仅供查看，不会发送控制指令。`);
+    setTaskFeedback(null);
   };
 
   const selectDate = (key: string) => {
     setSelectedDate(key);
     const day = dates.find((date) => date.key === key);
-    if (day) setTaskFeedback(`${day.week}${day.day}日尚未同步可信任务。当前展示通用模板，不会发送控制指令。`);
+    if (day) setTaskFeedback(`${day.week}${day.day}日 · 暂无已同步任务`);
   };
 
   const calendar = <WeekStrip appearance={appearance} referenceDate={referenceDate} selectedDate={selectedDate} setSelectedDate={selectDate} styles={styles} />;
@@ -206,7 +222,7 @@ export function TasksScreen({ blockedReason, controlAvailable, executorAvailable
     <View style={styles.headingBlock}>
       <View style={styles.headingRow}>
         <Text style={styles.heading}>任务模板</Text>
-        <Text style={styles.subheading}>{compactLandscape ? '只读，' : ''}{taskTemplates.length} 个模板</Text>
+        <Text style={styles.subheading}>{taskTemplates.length} 个模板</Text>
       </View>
       {taskFeedback ? (
         <View style={styles.taskFeedback} testID="task-feedback">
@@ -214,7 +230,7 @@ export function TasksScreen({ blockedReason, controlAvailable, executorAvailable
           <Text accessibilityLiveRegion="polite" style={styles.taskFeedbackText}>{taskFeedback}</Text>
         </View>
       ) : null}
-      {!taskFeedback || compactLandscape ? <Text style={styles.subheading}>{robotName} 尚未同步可信任务</Text> : null}
+
     </View>
   );
   const templateList = (
@@ -236,10 +252,10 @@ export function TasksScreen({ blockedReason, controlAvailable, executorAvailable
       <View style={styles.detailCard} testID="task-detail-card">
         <View style={styles.detailHeader}>
           <View style={styles.detailCopy}>
-            <Text style={styles.detailTitle}>{task.title}，流程说明</Text>
-            <Text style={styles.detailDescription}>通用模板，不是已同步的任务计划</Text>
+            <Text style={styles.detailTitle}>{task.title}流程</Text>
+            <Text style={styles.detailDescription}>流程模板</Text>
           </View>
-          <Text style={styles.detailDescription}>只读</Text>
+          <Ionicons accessible={false} color={appearance.secondary} name="list-outline" size={20} />
         </View>
         {previewVisible ? (
           <View style={styles.steps} testID="task-preview-steps">
@@ -250,14 +266,14 @@ export function TasksScreen({ blockedReason, controlAvailable, executorAvailable
               </View>
             ))}
           </View>
-        ) : <Text style={styles.detailSummary}>可查看流程，不会发送指令</Text>}
-        <View style={styles.executionRow}>
+        ) : <Text style={styles.detailSummary}>查看步骤与准备事项</Text>}
+        {previewVisible ? <View style={styles.executionRow}>
           <Ionicons color={appearance.secondary} name="information-circle-outline" size={17} />
           <Text accessibilityLiveRegion="polite" style={styles.blockedReason}>
-            {unavailableReason ?? '可信任务已就绪。'}
+            {unavailableReason ?? '任务已就绪。'}
           </Text>
-        </View>
-        {!taskCanStart ? <Text style={styles.detailDescription}>仅可查看流程，开始保持锁定</Text> : null}
+        </View> : null}
+
         <View style={styles.detailSection}>
           <View style={styles.actionRow}>
             <Pressable
@@ -327,25 +343,25 @@ function createStyles(appearance: Appearance, padding: number, gap: number, stac
     weekText: { ...typography.supporting, color: appearance.secondary },
     dayCircle: { alignItems: 'center', justifyContent: 'center', minHeight: compact ? 24 : 36, minWidth: 36, borderRadius: 18, marginTop: compact ? 0 : 3 },
     dayText: { ...typography.label, color: appearance.ink },
-    summaryCard: { alignItems: 'center', backgroundColor: appearance.surface, borderRadius: 16, flexDirection: 'row', minHeight: 76, padding: cardLayout.inset, gap: cardLayout.gap },
+    summaryCard: { alignItems: 'center', backgroundColor: appearance.surface, borderRadius: 16, flexDirection: 'row', minHeight: 64, padding: cardLayout.inset, gap: cardLayout.gap },
     summaryCopy: { flex: 1, justifyContent: 'center', minWidth: 0, gap: 2 },
     summaryTitle: { ...typography.label, fontSize: 16, lineHeight: 24, color: appearance.ink },
     summarySubtitle: { ...typography.secondary, color: appearance.secondary },
     headingBlock: { paddingTop: compact ? 0 : 4, gap: compact ? 2 : 6 },
     headingRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 },
-    heading: { ...typography.compactTitle, fontWeight: '500', color: appearance.ink },
+    heading: { ...typography.compactTitle, fontWeight: '600', color: appearance.ink },
     subheading: { ...typography.secondary, color: appearance.secondary },
     taskRow: { flexDirection: 'column', alignItems: 'stretch', gap: compact ? 8 : 12 },
-    taskCard: { flexDirection: 'row', alignItems: 'center', minWidth: 0, minHeight: compact ? 64 : 78, borderRadius: 16, backgroundColor: appearance.surface, paddingHorizontal: compact ? 12 : 16, paddingVertical: compact ? 6 : 12, gap: compact ? 8 : 12 },
-    taskCardActive: { backgroundColor: appearance.selectionSurface },
-    taskIcon: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+    taskCard: { borderWidth: 1, borderColor: 'transparent', boxShadow: appearance.isDark ? 'none' : '0 3px 12px rgba(25,35,50,.045)', flexDirection: 'row', alignItems: 'center', minWidth: 0, minHeight: compact ? 64 : 76, borderRadius: 16, backgroundColor: appearance.surface, paddingHorizontal: compact ? 12 : 16, paddingVertical: compact ? 6 : 12, gap: compact ? 8 : 12 },
+    taskCardActive: { backgroundColor: appearance.selectionSurface, borderColor: appearance.isDark ? '#7795AA' : '#BDC4CE' },
+    taskIcon: { backgroundColor: appearance.isDark ? '#30302F' : '#F3F5F8', borderRadius: 13, width: 42, height: 42, alignItems: 'center', justifyContent: 'center' },
     taskCopy: { flex: 1, minWidth: 0, gap: compact ? 2 : 4 },
     taskTitle: { ...typography.label, fontSize: 18, lineHeight: 26, color: appearance.ink },
     taskTitleActive: { color: appearance.selectionInk },
     taskDescription: { ...typography.secondary, color: appearance.secondary },
     taskDescriptionActive: { color: appearance.selectionInk },
     selectionMark: { alignItems: 'center', justifyContent: 'center', minHeight: 28, minWidth: 28, borderRadius: 14 },
-    detailCard: { backgroundColor: appearance.surface, borderRadius: 20, padding: 20, gap: 12 },
+    detailCard: { boxShadow: appearance.isDark ? 'none' : '0 4px 16px rgba(25,35,50,.05)', backgroundColor: appearance.surface, borderRadius: appearance.isDark ? 10 : 20, padding: 20, gap: 12 },
     detailHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
     detailCopy: { flex: 1, minWidth: 0, gap: 4 },
     detailTitle: { ...typography.compactTitle, fontWeight: '500', color: appearance.ink },

@@ -13,6 +13,7 @@ export type ControlTerrainModeState = Readonly<{
 export type ControlOperationStatus = 'idle' | 'blocked' | 'submitted' | 'accepted' | 'executing' | 'completed' | 'failed' | 'timeout';
 export type ControlOperationState = Readonly<{ status: ControlOperationStatus; detail?: string; updatedAt?: string }>;
 export type ControlInputSource = 'touch' | 'physical';
+export type ControlOwner = 'unknown' | 'none' | 'this-device' | 'remote' | 'robot-remote';
 export type ControlSpeedState = Readonly<{
   linearMps: number | null;
   lateralMps: number | null;
@@ -59,8 +60,10 @@ export type ControlJointState = Readonly<{
   updatedAt?: string | null;
 }>;
 export type ControlRuntimeState = Readonly<{
+  recoveryMode?: Readonly<{ status: 'unknown' | 'available' | 'unavailable'; selected: boolean }>;
   controlLink?: 'unknown' | 'disconnected' | 'connected';
   controlAuthority?: 'unknown' | 'not-held' | 'held';
+  controlOwner?: ControlOwner;
   posture?: 'unknown' | 'standing' | 'sitting';
   motorState?: 'unknown' | 'enabled' | 'disabled';
   deviceIdentity?: 'unknown' | 'unbound' | 'bound-unverified' | 'verified';
@@ -73,7 +76,6 @@ export type ControlRuntimeState = Readonly<{
   /** Present only while a fresh ListenImu sample is held. */
   imu?: ControlImuReading;
   /** ControlStatus.owner. Omitted until a fresh status read. */
-  controlOwner?: 'none' | 'grpc' | 'yunzhuo';
   inputSource?: ControlInputSource;
   currentPolicy?: ControlPolicyOption | null;
   policyCatalogStatus?: 'unknown' | 'unavailable' | 'synced';

@@ -3,6 +3,7 @@ import { Text } from './AppText';
 import { useAppTheme } from '../theme';
 import { getProductAppearance } from '../appearance';
 import { ControlSlider } from './ControlSlider';
+import { controlSetupAppearance } from './ControlSetupSurface';
 import {
   JOYSTICK_SIZE_MAX, JOYSTICK_SIZE_MIN,
   type JoystickLayout, type JoystickOrientation, type JoystickPlacement, type JoystickSide,
@@ -20,8 +21,8 @@ type Props = Readonly<{
 
 export function JoystickLayoutSettings({ orientation, layout, onChange, onPreview, onReset, onClose, storageError }: Props) {
   const { colors, isDark } = useAppTheme();
-  const appearance = getProductAppearance(isDark);
-  return <View accessibilityViewIsModal style={[styles.panel, { backgroundColor: appearance.canvas }]} testID="joystick-layout-settings">
+  const appearance = { ...getProductAppearance(isDark), ...controlSetupAppearance };
+  return <View accessibilityViewIsModal style={[styles.panel, { backgroundColor: appearance.surface, borderColor: appearance.border }]} testID="joystick-layout-settings">
     <View style={styles.header}>
       <View style={styles.heading}>
         <Text accessibilityRole="header" style={[styles.title, { color: appearance.ink }]}>摇杆布局</Text>
@@ -32,6 +33,7 @@ export function JoystickLayoutSettings({ orientation, layout, onChange, onPrevie
       </Pressable>
     </View>
     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content} style={styles.scroll}>
+      <View style={[styles.sections, orientation === 'landscape' && styles.sectionsWide]}>
       {(['left', 'right'] as const).map(side => {
         const value = layout[side], name = side === 'left' ? '移动摇杆' : '转向摇杆';
         return <View key={side} style={styles.section} testID={`joystick-layout-${side}`}>
@@ -39,7 +41,7 @@ export function JoystickLayoutSettings({ orientation, layout, onChange, onPrevie
           {(['sizeScale', 'x', 'y'] as const).map(field => {
             const id = field === 'sizeScale' ? 'size' : field;
             const title = field === 'sizeScale' ? '大小' : field === 'x' ? '水平' : '垂直';
-            return <ControlSlider key={`${orientation}-${side}-${field}`} value={value[field]} label={title}
+            return <ControlSlider glass key={`${orientation}-${side}-${field}`} value={value[field]} label={title}
               minimumValue={field === 'sizeScale' ? JOYSTICK_SIZE_MIN : 0}
               maximumValue={field === 'sizeScale' ? JOYSTICK_SIZE_MAX : 1} step={0.01}
               formatValue={current => `${Math.round(current * 100)}%`}
@@ -49,25 +51,28 @@ export function JoystickLayoutSettings({ orientation, layout, onChange, onPrevie
           })}
         </View>;
       })}
+      </View>
       {storageError ? <Text accessibilityLiveRegion="polite" style={[styles.caption, { color: colors.dangerText }]} testID="joystick-layout-storage-error">{storageError}</Text> : null}
+    </ScrollView>
       <Pressable accessibilityRole="button" accessibilityLabel="恢复当前方向的默认摇杆布局" onPress={onReset} style={styles.reset} testID="joystick-layout-reset">
         <Text style={[styles.body, { color: appearance.blueInk }]}>恢复默认</Text>
       </Pressable>
-    </ScrollView>
   </View>;
 }
 
 const styles = StyleSheet.create({
-  panel: { borderRadius: 16, maxHeight: '100%', maxWidth: 380, width: '100%', overflow: 'hidden' },
+  panel: { flex: 1, borderRadius: 20, borderWidth: .5, maxHeight: '100%', maxWidth: 380, width: '100%', overflow: 'hidden' },
   header: { alignItems: 'center', flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
   heading: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  title: { fontSize: 16, lineHeight: 24, fontWeight: '600' },
+  title: { fontSize: 18, lineHeight: 26, fontWeight: '500' },
   body: { fontSize: 14, lineHeight: 22 },
   caption: { fontSize: 12, lineHeight: 18 },
-  weight: { fontWeight: '600' },
+  weight: { fontWeight: '500' },
   textButton: { alignItems: 'center', justifyContent: 'center', minHeight: 44, minWidth: 48 },
-  scroll: { flexShrink: 1 },
-  content: { gap: 16, paddingHorizontal: 16, paddingBottom: 16 },
-  section: { gap: 4 },
+  scroll: { flex: 1 },
+  content: { gap: 16, paddingHorizontal: 16, paddingBottom: 8 },
+  sections: { gap: 16 },
+  sectionsWide: { flexDirection: 'row' },
+  section: { flex: 1, minWidth: 0, gap: 4 },
   reset: { alignItems: 'center', justifyContent: 'center', minHeight: 44 },
 });

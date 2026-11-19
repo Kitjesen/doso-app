@@ -14,7 +14,7 @@ import { AppState } from 'react-native';
 import * as authService from '../services/authService';
 import { getAuthSessionOperationSnapshot, runAuthSessionOperation, subscribeAuthSessionOperations } from '../services/authSessionOperation';
 import { getSessionIngestionBlock } from '../services/sessionIngestionFence';
-import { heartbeatCurrentTerminal, parseAuthSessionId, registerCurrentTerminal } from '../services/sessionService';
+import { captureLoginRecord, heartbeatCurrentTerminal, parseAuthSessionId, registerCurrentTerminal } from '../services/sessionService';
 import { clearLocalAuthSession, getSupabaseClient, isSupabaseConfigured } from '../services/supabaseClient';
 import type { AuthResult, LoginInput, Profile, RegisterInput } from '../types/api';
 import {
@@ -70,6 +70,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const recoveryIdentityRef = useRef<{ userId: string; sessionId: string | null } | null>(null);
   const retiredRecoveryRevisionRef = useRef<number | null>(null);
   const localExitRef = useRef(false);
+  const loginCaptureRef = useRef<string | null>(null);
 
   const logoutLocalSession = useCallback(async () => {
     localExitRef.current = true;
@@ -77,6 +78,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     liveSessionRef.current = null;
     livePreparedSessionRef.current = null;
     recoveryIdentityRef.current = null;
+    loginCaptureRef.current = null;
     setPreparedSession(null);
     setSession(null);
     setProfile(null);
@@ -146,6 +148,16 @@ export function AuthProvider({ children }: PropsWithChildren) {
         && !getSessionIngestionBlock(nextSession);
       await registerCurrentTerminal(lease, isCurrentPreparation);
       if (!isCurrentPreparation()) return;
+      const sessionId = parseAuthSessionId(nextSession.access_token);
+      if (sessionId && loginCaptureRef.current === sessionId) {
+        try {
+          await lease.retain(() => captureLoginRecord());
+          loginCaptureRef.current = null;
+        } catch {
+          // Keep login usable when the audit write is temporarily unavailable;
+          // the next explicit sign-in will attempt a fresh capture.
+        }
+      }
       const nextProfile = await lease.retain(() => authService.getProfile(nextSession.user.id));
       if (!isCurrentPreparation()) return;
       setProfile(nextProfile);
@@ -284,12 +296,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
     const { data } = client.auth.onAuthStateChange((event, nextSession) => {
       if (!active || localExitRef.current) return;
       // Keep only non-secret recovery identity, never replay a captured session.
-      if (event === 'PASSWORD_RECOVERY' && nextSession) {
+      if (event === 'SIGNED_IN' && nextSession) {
+        loginCaptureRef.current = parseAuthSessionId(nextSession.access_token);
+      } else if (event === 'PASSWORD_RECOVERY' && nextSession) {
         const operation = getAuthSessionOperationSnapshot();
         if (!operation.busy || operation.revision !== retiredRecoveryRevisionRef.current) {
           recoveryIdentityRef.current = { userId: nextSession.user.id, sessionId: parseAuthSessionId(nextSession.access_token) };
         }
-      } else if (event === 'SIGNED_OUT') recoveryIdentityRef.current = null;
+      } else if (event === 'SIGNED_OUT') {
+        recoveryIdentityRef.current = null;
+        loginCaptureRef.current = null;
+      }
       invalidate();
       scheduleFresh();
     });
