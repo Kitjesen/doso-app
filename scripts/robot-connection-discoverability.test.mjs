@@ -19,30 +19,30 @@ const home = props => mountAuthScreen({
   onOpenRoutes() {}, onOpenTasks() {}, onOpenSafety() {}, ...props,
 });
 
-test('Home omits the connection banner and retains the control entry', () => {
+test('Home omits the connection banner and handlerless Wi-Fi entry', () => {
   for (const dimensions of [{ width: 390, height: 844 }, { width: 844, height: 390, fontScale: 1.6 }]) {
     let opened = false;
     const screen = home({ ...dimensions, onOpenRobotConnection: () => { opened = true; } });
     const entry = screen.action('home-robot-connection');
     assert.equal(entry, undefined);
     assert.equal(opened, false);
-    assert.equal(screen.action('home-control').props.accessibilityLabel, '控制中心');
+    assert.equal(screen.action('home-direct-control'), undefined);
   }
   assert.equal(home().action('home-robot-connection'), undefined);
 });
 
-test('Home shows a separately identified direct-IP target without claiming the account device is online', () => {
+test('Home shows a separately identified robot Wi-Fi target without claiming the account device is online', () => {
   let opened = 0;
   const screen = home({
     directConnection: { endpointLabel: '192.0.2.64:13145', fresh: true, summary: '只读状态已读取 · 操作未开放' },
     onOpenDirectControl: () => opened++,
   });
-  const summary = screen.nodes.find(node => node.props?.testID === 'home-direct-connection');
-  assert.match(copy(summary), /IP 直连设备.*192\.0\.2\.64:13145.*只读状态已读取/);
-  assert.match(copy(screen.nodes.find(node => node.props?.testID === 'home-connection-state')), /离线/);
+  const summary = screen.nodes.find(node => node.props?.testID === 'home-direct-control');
+  assert.match(copy(summary), /机器狗 Wi-Fi.*192\.0\.2\.64:13145.*只读状态已读取/);
+  assert.match(copy(screen.nodes.find(node => node.props?.testID === 'home-connection-state')), /未连接/);
   const action = screen.action('home-direct-control');
-  assert.match(copy(action), /查看状态/);
-  assert.ok(flatten(action.props.style({ pressed: false })).minHeight >= 48);
+  assert.equal(action.props.accessibilityLabel, '搜索机器狗 Wi-Fi');
+  assert.ok(flatten(action.props.style).padding >= 12);
   action.props.onPress();
   assert.equal(opened, 1);
   screen.render({ directConnection: { endpointLabel: '192.0.2.64:13145', fresh: false, summary: '需要重新检查连接' } });
@@ -50,7 +50,7 @@ test('Home shows a separately identified direct-IP target without claiming the a
   screen.action('home-direct-control').props.onPress();
   assert.equal(opened, 2, 'expired target remains reachable for inspection');
   screen.render({ directConnection: undefined });
-  assert.equal(screen.nodes.some(node => node.props?.testID === 'home-direct-connection'), false);
+  assert.equal(screen.nodes.some(node => node.props?.testID === 'home-direct-control'), false);
   assert.equal(screen.action('home-direct-control'), undefined);
 });
 
@@ -61,10 +61,10 @@ test('direct-IP status wraps on large-text screens and never offers a handlerles
   });
   assert.equal(screen.action('home-direct-control'), undefined);
   assert.match(copy(screen.nodes.find(node => node.props?.testID === 'home-connection-state')), /已连接/);
-  const summary = screen.nodes.find(node => node.props?.testID === 'home-direct-connection');
-  assert.match(copy(summary), /状态已过期/);
-  assert.equal(flatten(summary.props.style).height, undefined);
-  assert.equal(screen.nodes.filter(node => node.type === 'Text' && node.props.numberOfLines != null).length, 0);
+  assert.equal(screen.nodes.some(node => node.props?.testID === 'home-direct-control'), false);
+  const constrained = screen.nodes.filter(node => node.type === 'Text' && node.props.numberOfLines != null);
+  assert.equal(constrained.length, 4);
+  assert.equal(constrained.every(node => node.props.numberOfLines === 1), true);
 });
 
 // Run the real Profile tree against host React/Native boundaries; this does not
@@ -91,6 +91,10 @@ function profile(overrides = {}) {
       if (name === 'react-native') return native;
       if (name === '@expo/vector-icons') return { Ionicons: 'Ionicons' };
       if (name === '../components/AppText') return { Text: 'Text' };
+      if (name === '../components/HomeText') return { Text: 'Text' };
+      if (name === '../components/ProductHeader') return { ProductHeader: 'ProductHeader' };
+      if (name === '../components/ControlPanelMotion') return { ControlPanelMotion: 'ControlPanelMotion' };
+      if (name === '../fonts/home') return { productType: { caption: {} } };
       if (name === '../components/FontLicenseNotice') return { FontLicenseNotice: 'FontLicenseNotice' };
       if (name === '../theme') return tokens.theme;
       if (name === '../appearance') return tokens.appearance;
@@ -118,16 +122,17 @@ function profile(overrides = {}) {
   return nodes;
 }
 
-test('Profile exposes IP connection as a real callback and does not turn a direct connection into online account status', () => {
+test('Profile exposes robot Wi-Fi connection as a real callback and does not turn a direct connection into online account status', () => {
   let opened = false;
   const nodes = profile({ onOpenRobotConnection: () => { opened = true; } });
-  const entry = nodes.find(node => node.type === 'Pressable' && /IP 连接 \/ 添加机器狗/.test(copy(node)));
-  assert.ok(entry, 'IP is visible in the device connection title');
-  assert.match(copy(entry), /输入机器狗 IP/);
-  assert.ok(flatten(entry.props.style({ pressed: false })).minHeight >= 48);
+  const entry = nodes.find(node => node.type === 'Pressable' && /搜索机器狗 Wi-Fi/.test(copy(node)));
+  assert.ok(entry, 'robot Wi-Fi search is visible in the device connection title');
+  assert.equal(entry.props.accessibilityHint, '打开搜索机器狗 Wi-Fi');
+  const entryStyle = typeof entry.props.style === 'function' ? entry.props.style({ pressed: false }) : entry.props.style;
+  assert.ok(flatten(entryStyle).minHeight >= 48);
   assert.equal(nodes.filter(node => node.type === 'Text' && node.props.numberOfLines != null).length, 0);
   assert.ok(nodes.some(node => node.type === 'Text' && copy(node) === '离线'));
   entry.props.onPress();
   assert.equal(opened, true);
-  assert.equal(profile().some(node => node.type === 'Pressable' && /IP 连接 \/ 添加机器狗/.test(copy(node))), false);
+  assert.equal(profile().some(node => node.type === 'Pressable' && /搜索机器狗 Wi-Fi/.test(copy(node))), false);
 });

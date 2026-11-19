@@ -32,6 +32,7 @@ function runtime(initial = {}) {
   const module = { exports: {} };
   const dependencies = {
     react, 'react/jsx-runtime': require('react/jsx-runtime'),
+    './ControlSetupSurface': { ControlSetupBackground: 'ControlSetupBackground', ControlSetupPage: 'ControlSetupPage', controlSetupColors: {}, controlSetupAppearance: {} },
     'react-native': { View: 'View', Platform: { OS: 'web' }, StyleSheet: { create: value => value } },
     './AppText': { Text: 'Text' }, '../theme': { useAppTheme: () => ({ isDark: false }) },
     '../appearance': { getProductAppearance: () => ({ border: '#ddd', action: '#98d1ff', canvas: '#fff', ink: '#111', secondary: '#555', blueInk: '#258' }) },

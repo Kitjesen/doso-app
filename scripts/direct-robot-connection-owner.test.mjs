@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
+import * as modes from '../src/features/control/robotModeCapabilities.ts';
 
 function mount({ scope = 'account-a:session-a', ready = true } = {}) {
   const slots = [], effects = [], listeners = new Set(), timers = new Map();
@@ -29,6 +30,7 @@ function mount({ scope = 'account-a:session-a', ready = true } = {}) {
       setTimeout: (callback, delay) => { timers.set(++timerId, { callback, due: now + delay }); return timerId; },
       clearTimeout: id => timers.delete(id),
       require(name) {
+        if (name === '../features/control/robotModeCapabilities.ts') return modes;
         if (name === 'react') return react;
         if (name === 'react-native') return { AppState: appState };
         if (name === '../../services/directRobotConnection') return load('../src/services/directRobotConnection.ts');
@@ -118,3 +120,4 @@ test('clear and unmount revoke old callbacks and pending expiration without late
   assert.equal(host.timers.size, 0); assert.equal(current(candidate(host.now)), false);
   assert.equal(host.lateUpdates, 0);
 });
+

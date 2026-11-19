@@ -3,9 +3,9 @@ param(
   [switch]$Wait,
   [ValidateRange(1, 600)]
   [int]$StartupTimeoutSeconds = 90,
-  [string]$BrainstemRoot = '',
-  [string]$Dart = '',
-  [string]$Python = ''
+  [string]$BrainstemRoot = 'D:\inovxio\brain\brainstem',
+  [string]$Dart = 'D:\DOSO\toolchains\dart-3.10.1\dart-sdk\bin\dart.exe',
+  [string]$Python = 'C:\Users\99563\miniconda3\python.exe'
 )
 
 $ErrorActionPreference = 'Stop'

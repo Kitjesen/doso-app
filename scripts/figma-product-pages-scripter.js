@@ -14,7 +14,7 @@ await (async () => {
   const pages = [
     { id: 'auth-email-otp', title: '输入验证码', subtitle: '验证邮箱，完成 DOSO 账户注册', status: '等待输入邮件中的验证码', tone: 'Neutral', fields: [['验证码', '••••••']], action: '验证并继续', disabled: true },
     { id: 'auth-forgot-password', title: '找回密码', subtitle: '输入注册邮箱，我们会发送邮箱验证码', status: '等待填写邮箱', tone: 'Neutral', fields: [['邮箱', '请输入注册邮箱']], action: '发送验证码', disabled: false },
-    { id: 'auth-reset-password', title: '重置密码', subtitle: '设置一个新的安全密码', status: '等待有效的恢复会话', tone: 'Warning', fields: [['新密码', '至少 10 位，含大小写字母和数字'], ['确认新密码', '再次输入新密码']], action: '更新密码', disabled: false },
+    { id: 'auth-reset-password', title: '重置密码', subtitle: '设置一个新的安全密码', status: '等待有效的恢复会话', tone: 'Warning', fields: [['新密码', '至少 8 位，含大小写字母和数字'], ['确认新密码', '再次输入新密码']], action: '更新密码', disabled: false },
     { id: 'auth-username', title: '设置用户名', subtitle: '用于 DOSO 设备与账户识别，设置后不可修改', status: '尚未认领用户名', tone: 'Neutral', fields: [['用户名', '3-24 位小写字母、数字或下划线']], action: '确认用户名', disabled: false },
     { id: 'auth-display-name', title: '确认显示名称', subtitle: '显示名称用于个人资料展示，可与不可修改的 DOSO 用户名不同', status: 'Apple 首次登录资料待确认', tone: 'Neutral', fields: [['显示名称', '请输入用于展示的名称']], action: '保存显示名称', disabled: false },
     { id: 'auth-mfa', title: '管理员双重验证', subtitle: '为 DOSO 管理端准备 TOTP AAL2 验证', status: '正在读取账户安全状态', tone: 'Neutral', fields: [], action: '读取中', disabled: true, loading: true },
@@ -297,14 +297,14 @@ await (async () => {
         if (landscape) {
           text(root, 'Title', page.title, 30, 'bold', t.ink, 72, 130, 240, 38);
           text(root, 'Subtitle', page.subtitle, 16, 'regular', t.inkSoft, 72, 174, 240, 24);
-          addPasswordField('新密码', '至少 10 位，含大小写字母和数字', 352, 54, 440, true);
+          addPasswordField('新密码', '至少 8 位，含大小写字母和数字', 352, 54, 440, true);
           addPasswordField('确认新密码', '再次输入新密码', 352, 124, 440, true);
           const button = instance(root, families.button, scheme, 'State=Default', 'Primary Button', 352, 208, 440, 56);
           overrideText(button, 'ButtonLabel', page.action);
         } else {
           text(root, 'Title', page.title, 30, 'bold', t.ink, 24, 150, 342, 38);
           text(root, 'Subtitle', page.subtitle, 16, 'regular', t.inkSoft, 24, 194, 342, 24);
-          addPasswordField('新密码', '至少 10 位，含大小写字母和数字', 24, 251, 342);
+          addPasswordField('新密码', '至少 8 位，含大小写字母和数字', 24, 251, 342);
           addPasswordField('确认新密码', '再次输入新密码', 24, 349, 342);
           const button = instance(root, families.button, scheme, 'State=Default', 'Primary Button', 24, 445, 342, 56);
           overrideText(button, 'ButtonLabel', page.action);

@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mountAuthScreen as mount } from './helpers/auth-screen-harness.mjs';
+
+test('registration rejects seven characters and accepts eight with the required character classes', async () => {
+  const payloads = [];
+  const screen = mount({ onRegister: value => { payloads.push(value); } });
+  screen.fill('robot_user', 'demo@example.com', 'Aa12345');
+  await screen.action('register-submit').props.onPress();
+  assert.equal(payloads.length, 0);
+  screen.fill('robot_user', 'demo@example.com', 'Aa123456');
+  await screen.action('register-submit').props.onPress();
+  assert.equal(payloads.length, 1);
+  assert.equal(payloads[0].password, 'Aa123456');
+});
 test('empty submission focuses the first invalid field and sends nothing', async () => {
   let calls = 0;
   const screen = mount({ onRegister: () => { calls += 1; } });
@@ -9,7 +21,7 @@ test('empty submission focuses the first invalid field and sends nothing', async
   assert.equal(calls, 0);
   assert.ok(screen.focusCount > 0);
   assert.match(screen.copy, /请输入邮箱地址/);
-  assert.match(screen.copy, /密码至少 10 位/);
+  assert.match(screen.copy, /密码至少 8 位/);
 });
 
 test('valid submission normalizes identity, preserves password, and locks same-tick duplicates/back', async () => {
@@ -78,9 +90,8 @@ for (const dark of [false, true]) {
     assert.doesNotMatch(screen.copy, /暂不可用|暂未开放|下一步/);
     assert.deepEqual(Array.from(screen.nodes.find(node => node.type === 'SafeAreaView').props.edges), ['top', 'left', 'right', 'bottom']);
     const images = screen.nodes.filter(node => node.type === 'Image' && node.props.source !== 'doso-soft-air');
-    assert.equal(images.length, 2);
-    assert.equal(images[0].props.source, 'doso-auth-lockup-sky-v2');
-    assert.equal(images[1].props.source, 'figma-thunder-robot');
+    assert.equal(images.length, 1);
+    assert.equal(images[0].props.source, 'doso-robotics-wordmark');
     assert.ok(images.every(image => image.props.resizeMode === 'contain'));
   });
 }

@@ -4,6 +4,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { createDeviceBootstrapIntent } from '../src/services/deviceBootstrapIntent.ts';
+import { BrainstemControlSession } from '../src/features/control/brainstemControlSession.ts';
 
 // Evaluate the actual composition-root gates/callbacks without mounting its
 // unrelated account, cloud and hardware effects. These fixtures never use an
@@ -21,7 +22,8 @@ function visit(node) {
 visit(ast);
 const evaluate = (node, context) => vm.runInNewContext(ts.transpileModule(`(${node.getText(ast)})`, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-}).outputText, context);
+}).outputText, { localUseMode: false, localUseEntry: { current: { mounted: true, revision: 0 } },
+  setLocalUseMode: () => {}, ...context });
 function initializer(name, context) {
   const node = variables.get(name)?.initializer;
   assert.ok(node, `App must define ${name}`);
@@ -58,8 +60,9 @@ test('QA entry is rendered before account restoration errors, has no fabricated 
   assert.doesNotMatch(branch.thenStatement.getText(ast), /user=|profile=|session=|onLogin/);
   const exit = variables.get('exitDeviceTest').initializer.arguments[0];
   const changes = [];
-  evaluate(exit, { setDeviceTestMode: value => changes.push(['test', value]), setGuestMode: value => changes.push(['guest', value]) })();
-  assert.deepEqual(changes, [['test', false], ['guest', false]]);
+  evaluate(exit, { rememberedDeviceTest: { forget: () => changes.push(['forget']) },
+    setDeviceTestMode: value => changes.push(['test', value]), setGuestMode: value => changes.push(['guest', value]) })();
+  assert.deepEqual(changes, [['forget'], ['test', false], ['guest', false]]);
 });
 function screen(name) {
   const node = elements.find(node => node.tagName.getText(ast) === name);
@@ -135,7 +138,7 @@ test('guest shell precedes account errors/loading and receives only local naviga
   const authLoading = conditionals.find(node => node.expression.getText(ast).includes('authLoading || mfaVerificationPending'));
   assert.ok(connection.pos < guest.pos && guest.pos < authError.pos && guest.pos < authLoading.pos);
   const component = screen('GuestScreen');
-  assert.deepEqual(component.attributes.properties.map(item => item.name?.getText(ast)).sort(), ['onExitGuest', 'onOpenConnection']);
+  assert.deepEqual(component.attributes.properties.map(item => item.name?.getText(ast)).sort(), ['onExitGuest', 'onOpenConnection', 'onOpenLocalUse']);
   const calls = [];
   const exit = variables.get('exitGuest')?.initializer;
   assert.ok(exit && ts.isCallExpression(exit));
@@ -227,17 +230,22 @@ function bootstrapHarness({ faultAccountBusyForRead = false } = {}) {
     user: { id: 'cached-user' }, profile: { id: 'cached-user' }, recovery: false, recoveryLink: false,
     appleRecoveryProbeResolved: true, pendingAppleDisplayName: null, preparedUserId: 'cached-user',
     hasClaimedUsername: () => true, deviceLoadAttempt: 0, completedDeviceBootstrapKey,
+    deviceSelectionRevision: { current: 0 }, selectedDeviceStore: { load: () => Promise.resolve(null) },
+    localUseEntry: { current: { mounted: true, revision: 0 } }, setLocalUseMode: () => {},
     accountBusy: false, recoveryExitBusy: false, mfaBusy: false, mfaProbeFailed: false,
     accountFlowInFlightRef: { current: false }, otpDeliveryInFlightRef: { current: false },
     deviceBootstrapIntent: { current: { ...intent,
       clearLocalEntry: () => { events.push(['clear-local-entry']); intent.clearLocalEntry(); },
     } },
-    deviceRepository: { list: () => new Promise((resolve, reject) => { requests.push({ resolve, reject }); }) },
+    deviceRepository: { list: () => new Promise((resolve, reject) => {
+      requests.push({ resolve: devices => resolve(devices.map(device => ({ owner_id: 'cached-user', is_demo: false, ...device }))), reject });
+    }) },
     getRobotModel: code => ({ code }), humanizeAuthError: () => 'fixed fixture error',
     setAccountBusy: value => { values.accountBusy = state.accountBusy = value; events.push(['accountBusy', value]); },
     setDeviceBootstrapBusy: value => { values.deviceBootstrapBusy = state.deviceBootstrapBusy = value; events.push(['bootstrapBusy', value]); },
     setGuestMode: value => { values.guestMode = state.guestMode = value; events.push(['guestMode', value]); },
     setDevice: value => { state.device = value; events.push(['device', value]); },
+    setAccountDevices: value => events.push(['devices', value]),
     setSelectedModel: value => { state.model = value; events.push(['model', value]); },
     setDeviceLoadError: value => { state.deviceLoadError = value; events.push(['error', value]); },
     setStage: value => { state.stage = value; events.push(['stage', value]); },
@@ -395,4 +403,118 @@ test('guest entry refuses to interrupt account writes, recovery logout and MFA v
       setGuestMode: reject, setRobotConnectionVisible: reject, setConnectionDiagnosticsOpen: reject, ...blocked });
     enter();
   }
+});
+
+function localEntryHarness({ stop, disconnect, state = { connected: true, failureCode: null }, onGuest } = {}) {
+  const changes = [], entry = { current: { mounted: true, revision: 0 } }, appState = { currentState: 'active' };
+  const values = { accountBusy: false, recoveryExitBusy: false, mfaBusy: false, mfaVerificationPending: false,
+    accountFlowInFlightRef: { current: false }, otpDeliveryInFlightRef: { current: false },
+    localUseEntry: entry, AppState: appState,
+    setLocalUseMode: value => changes.push(['local', value]), setGuestMode: value => { changes.push(['guest', value]); onGuest?.(); },
+    setRobotConnectionVisible: value => changes.push(['connection', value]),
+    setConnectionDiagnosticsOpen: value => changes.push(['diagnostics', value]),
+    Alert: { alert: (...args) => changes.push(['notice', ...args]) },
+    brainstemControl: { get state() { return typeof state === 'function' ? state() : state; },
+      operationCallbacks: { stop: async () => { changes.push(['stop']); await stop?.(); } },
+      disconnect: async () => { changes.push(['disconnect']); await disconnect?.(); } },
+  };
+  values.enterGuest = evaluate(variables.get('enterGuest').initializer.arguments[0], values);
+  values.localUseContext = { current: { control: values.brainstemControl, enterGuest: values.enterGuest } };
+  return { changes, entry, appState,
+    context: values.localUseContext,
+    enter: evaluate(variables.get('enterLocalUse').initializer.arguments[0], values),
+    exitGuest: evaluate(variables.get('exitGuest').initializer.arguments[0], values),
+  };
+}
+
+test('local use renders before cloud gates and opens only after previous control stops and closes', async () => {
+  const branch = conditionals.find(node => node.expression.getText(ast) === 'localUseMode');
+  assert.ok(branch && branch.thenStatement.getText(ast).includes('<LocalRobotScreen'));
+  assert.ok(branch.pos < conditionals.find(node => node.expression.getText(ast) === 'robotConnectionVisible'
+    && node.thenStatement.getText(ast).includes('<RobotConnectionScreen')).pos);
+  assert.ok(branch.pos < conditionals.find(node => node.expression.getText(ast) === 'guestMode'
+    && node.thenStatement.getText(ast).includes('<GuestScreen')).pos);
+  let confirmStop, confirmClose;
+  const stopped = new Promise(resolve => { confirmStop = resolve; });
+  const closed = new Promise(resolve => { confirmClose = resolve; });
+  const app = localEntryHarness({ stop: () => stopped, disconnect: () => closed });
+  const opening = app.enter();
+  assert.equal(app.changes.some(([name]) => name === 'guest'), false, 'guest readiness must stay active until stop is confirmed');
+  assert.equal(app.changes.some(([name, value]) => name === 'local' && value), false);
+  confirmStop(); await settle();
+  assert.ok(app.changes.some(([name]) => name === 'disconnect'));
+  assert.equal(app.changes.some(([name, value]) => name === 'local' && value), false);
+  confirmClose(); assert.equal(await opening, true);
+  assert.deepEqual(app.changes.at(-1), ['local', true]);
+  const callback = () => {};
+  assert.equal(prop(screen('GuestScreen'), 'onOpenLocalUse', { enterLocalUse: callback }), callback);
+  assert.equal(prop(screen('RobotConnectionScreen'), 'onOpenLocalUse', { enterLocalUse: callback }), callback);
+});
+
+test('an unconfirmed previous stop blocks local entry', async () => {
+  const app = localEntryHarness({ stop: async () => { throw Error('stop unconfirmed'); } });
+  assert.equal(await app.enter(), false);
+  assert.equal(app.changes.some(([name]) => name === 'disconnect'), false);
+  assert.equal(app.changes.some(([name, value]) => name === 'local' && value), false);
+  assert.match(app.changes.find(([name]) => name === 'notice')[2], /停止请求未确认/);
+});
+
+test('closed ordinary connection errors are cleared without blocking independent local use', async () => {
+  const app = localEntryHarness({ state: { connected: false, failureCode: 'unavailable', error: 'old account timeout' },
+    stop: async () => { throw Error('must not stop an already closed ordinary failure'); } });
+  assert.equal(await app.enter(), true);
+  assert.equal(app.changes.some(([name]) => name === 'stop'), false);
+  assert.ok(app.changes.some(([name]) => name === 'disconnect'));
+});
+
+test('a latched unconfirmed stop remains blocked with no active session and shows local feedback', async () => {
+  const app = localEntryHarness({ state: { connected: false, failureCode: 'stop_unconfirmed' },
+    stop: async () => { throw Error('stop_unconfirmed'); } });
+  assert.equal(await app.enter(), false);
+  assert.equal(app.changes.some(([name, value]) => name === 'local' && value), false);
+  assert.match(app.changes.find(([name]) => name === 'notice')[2], /机器狗状态.*硬件急停/);
+});
+
+test('a real previous control session validates stop before guest can retire its readiness', async () => {
+  let allowed = true, interruptReply;
+  const status = { fsmKind: 'standing', transition: 'none', motorOutputEnabled: true,
+    owner: 'none', criticalMotorFault: false, grpcLeaseActive: false, readyForWalk: true };
+  const reply = { status, leaseActive: false, principalVerified: false };
+  const session = new BrainstemControlSession({
+    open: async () => ({ ...reply, sessionId: 'old-account', transport: 'grpc-mtls', mutualTlsVerified: true,
+      profile: { current: 'flat', available: ['flat'], descriptions: [], currentDescription: '' } }),
+    acquire: async () => ({ ...reply, status: { ...status, owner: 'grpc', grpcLeaseActive: true },
+      leaseActive: true, leaseOwnerMatched: true, principalVerified: true, sequence: 1 }),
+    interrupt: () => new Promise(resolve => { interruptReply = resolve; }), close: async () => {},
+  }, () => allowed);
+  await session.connect({ host: '192.0.2.1', port: 13145, clientIdentityAlias: 'fixture' }, 'operator');
+  await session.acquire();
+  const app = localEntryHarness({ state: () => session.state, stop: () => session.interrupt(),
+    disconnect: () => session.disconnect(), onGuest: () => { allowed = false; } });
+  const opening = app.enter();
+  assert.equal(allowed, true);
+  interruptReply({ ...reply, leaseActive: true, leaseOwnerMatched: true });
+  assert.equal(await opening, false);
+  assert.equal(session.state.failureCode, 'stop_unconfirmed');
+  assert.equal(allowed, true);
+  assert.equal(app.changes.some(([name, value]) => name === 'local' && value), false);
+});
+
+test('a changed account control owner retires delayed local entry', async () => {
+  let confirmStop;
+  const app = localEntryHarness({ stop: () => new Promise(resolve => { confirmStop = resolve; }) });
+  const opening = app.enter();
+  app.context.current.control = { operationCallbacks: {}, state: {} };
+  confirmStop(); assert.equal(await opening, false);
+});
+
+for (const interruption of ['guest-exit', 'background', 'unmount']) test(`${interruption} retires a delayed local entry`, async () => {
+  let confirmStop;
+  const app = localEntryHarness({ stop: () => new Promise(resolve => { confirmStop = resolve; }) });
+  const opening = app.enter();
+  if (interruption === 'guest-exit') app.exitGuest();
+  else if (interruption === 'background') app.appState.currentState = 'background';
+  else app.entry.current.mounted = false;
+  confirmStop(); assert.equal(await opening, false);
+  assert.equal(app.changes.some(([name, value]) => name === 'local' && value), false);
 });

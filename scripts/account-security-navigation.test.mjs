@@ -79,6 +79,7 @@ async function mountSecurity({ services = {}, sessionSdk, after = () => {}, busy
     isAccountSessionOutcomeError: () => false,
     registerCurrentTerminal: async () => {}, heartbeatCurrentTerminal: async () => {},
     listAccountTerminals: async () => terminals,
+    listLoginRecords: async () => [],
     revokeAccountTerminal: async () => 1, revokeOtherTerminals: async () => 1, revokeAllTerminals: async () => 2,
     ...services,
   };
@@ -169,7 +170,7 @@ test('terminal read errors show safe recovery copy instead of SDK or server deta
 
   assert.doesNotMatch(screen.copy, new RegExp(sentinel));
   assert.match(screen.copy, /登录终端暂时无法读取.*检查网络后刷新/);
-  assert.equal(screen.action('刷新', 1).disabled, false);
+  assert.equal(screen.action('刷新', 2).disabled, false);
   screen.registeredBack();
   assert.equal(screen.backCalls, 1);
 });
@@ -183,7 +184,7 @@ test('mount and terminal reload only list Provider-prepared terminals without re
   } });
   assert.deepEqual({ registerCalls, listCalls }, { registerCalls: 0, listCalls: 1 });
 
-  screen.action('刷新', 1).onPress();
+  screen.action('刷新', 2).onPress();
   await flush();
   screen.render();
   assert.deepEqual({ registerCalls, listCalls }, { registerCalls: 0, listCalls: 2 });
@@ -200,6 +201,20 @@ test('login-method read errors show safe recovery copy instead of RPC details', 
   assert.equal(screen.action('刷新').disabled, false);
   screen.registeredBack();
   assert.equal(screen.backCalls, 1);
+});
+
+test('account security shows the server-projected login IP without internal session data', async () => {
+  const screen = await mountSecurity({ services: {
+    listLoginRecords: async () => [{
+      id: 1,
+      loggedInAt: '2026-11-12T01:02:03Z',
+      ipAddress: '198.51.100.20',
+      method: null,
+    }],
+  } });
+  assert.match(screen.copy, /198\.51\.100\.20/);
+  assert.match(screen.copy, /登录/);
+  assert.doesNotMatch(screen.copy, /private-session-id|user-agent/);
 });
 
 async function assertUnknownRevocationIsLocked(rejection) {
@@ -232,8 +247,8 @@ async function assertUnknownRevocationIsLocked(rejection) {
   assert.equal(screen.action('退出其他终端').disabled, true);
   assert.equal(screen.action('退出全部终端').disabled, true);
   assert.equal(screen.action('禁用').disabled, true);
-  assert.equal(screen.action('刷新', 1).disabled, false);
-  screen.action('刷新', 1).onPress(); await flush(); screen.render();
+  assert.equal(screen.action('刷新', 2).disabled, false);
+  screen.action('刷新', 2).onPress(); await flush(); screen.render();
   assert.equal(screen.action('退出其他终端').disabled, true);
   confirm(); await flush();
   assert.equal(mutationCalls, 1);
@@ -264,7 +279,7 @@ test('a typed preflight read timeout remains retryable when no revocation was co
   assert.match(screen.copy, /终端信息读取超时/);
   assert.doesNotMatch(screen.copy, /不要重复提交撤销/);
   assert.equal(screen.action('退出其他终端').disabled, false);
-  assert.equal(screen.action('刷新', 1).disabled, false);
+  assert.equal(screen.action('刷新', 2).disabled, false);
   confirm(); await flush(); screen.render();
   assert.equal(calls, 2);
   assert.match(screen.copy, /已退出其他登录终端/);
@@ -381,8 +396,8 @@ test('unknown revocation prevents same-tick replay but keeps refresh and back av
   assert.equal(screen.action('退出全部终端').disabled, true);
   assert.equal(screen.action('禁用').disabled, true);
   assert.match(screen.copy, /不要重复提交撤销/);
-  assert.equal(screen.action('刷新', 1).disabled, false);
-  screen.action('刷新', 1).onPress(); await flush(); screen.render();
+  assert.equal(screen.action('刷新', 2).disabled, false);
+  screen.action('刷新', 2).onPress(); await flush(); screen.render();
   assert.equal(reads, 2);
   assert.match(screen.copy, /不要重复提交撤销/, 'a list read cannot prove an in-flight mutation has settled');
   assert.equal(screen.action('退出其他终端').disabled, true);
@@ -410,8 +425,8 @@ test('confirmed revocation followed by refresh failure cannot be submitted again
     assert.equal(screen.action('退出其他终端').disabled, true);
     assert.match(screen.copy, /撤销已确认.*状态更新/);
     assert.doesNotMatch(screen.copy, /private refresh error/);
-    assert.equal(screen.action('刷新', 1).disabled, false);
-    screen.action('刷新', 1).onPress(); await flush(); screen.render();
+    assert.equal(screen.action('刷新', 2).disabled, false);
+    screen.action('刷新', 2).onPress(); await flush(); screen.render();
     assert.equal(screen.action('退出其他终端').disabled, true);
     screen.registeredBack(); assert.equal(screen.backCalls, 1);
   }
@@ -445,7 +460,9 @@ test('the production App Android handler delegates security back and always cons
     for (const otp of [false, true]) {
       let delegated = 0, escaped = 0;
       const onBack = vm.runInNewContext(`(${handler.getText(file)})`, {
-        __DEV__: false, stage: 'account-security', accountBusy: busy,
+        __DEV__: false, deviceTestMode: false, localUseMode: false,
+        robotConnectionVisible: false, guestMode: false, connectionDiagnosticsOpen: false,
+        stage: 'account-security', accountBusy: busy,
         otpDeliveryInFlightRef: { current: otp },
         accountSecurityBackRequestRef: { current: () => { delegated++; } },
         returnToDeviceSettings: () => { escaped++; },

@@ -237,7 +237,6 @@ async function removeCaptureGuards(session) {
 async function normalizeViewport(session, width, height) {
   const result = await session.command('Runtime.evaluate', {
     expression: `(() => {
-      document.querySelector('[data-testid="design-qa-disclosure"]')?.setAttribute('style', 'display:none');
       for (const child of document.body.children) {
         if (child.id !== 'root') child.style.display = 'none';
       }

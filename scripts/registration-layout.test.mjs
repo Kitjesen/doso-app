@@ -38,7 +38,9 @@ test('wide desktop stays bounded; invalid transitional measurements never produc
 test('password hint reports actual requirements, not a simulated strength score', () => {
   const valid = password => registrationPasswordChecks(password).every(check => check.met);
   assert.equal(valid(''), false);
-  assert.equal(valid('Strong123'), false);
+  assert.equal(valid('Aa12345'), false);
+  assert.equal(valid('Aa123456'), true);
+  assert.equal(valid('Strong123'), true);
   assert.equal(valid('lowercase1234'), false);
   assert.equal(valid('UPPERCASE1234'), false);
   assert.equal(valid('StrongWithoutDigits'), false);

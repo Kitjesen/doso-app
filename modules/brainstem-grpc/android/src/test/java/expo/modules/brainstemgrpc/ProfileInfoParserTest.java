@@ -50,10 +50,10 @@ public final class ProfileInfoParserTest {
     encoded.write(42); encoded.write(mode.size()); encoded.writeBytes(mode.toByteArray());
     field(encoded, 6, "recovery");
     parsed = ProfileInfoParser.parse(encoded.toByteArray());
-    Map<?, ?> capability = (Map<?, ?>)((List<?>)parsed.get("modeCapabilities")).get(0);
+    Map<?, ?> recoveryMode = (Map<?, ?>)((List<?>)parsed.get("modeCapabilities")).get(0);
     check("recovery".equals(parsed.get("activeModeId")), "active recovery");
-    check(Integer.valueOf(2).equals(capability.get("kind")), "action kind");
-    check(Integer.valueOf(1).equals(capability.get("availability")), "unavailable recovery");
+    check("recovery-action".equals(recoveryMode.get("kind")), "action kind");
+    check("unavailable".equals(recoveryMode.get("availability")), "unavailable recovery");
     try { ProfileInfoParser.parse(new byte[]{42, 2, 16, (byte)128}); throw new AssertionError("truncated mode accepted"); }
     catch (java.io.IOException expected) { }
 

@@ -51,3 +51,4 @@ export function summarizeConfig(config, pathExists = () => true) {
     }),
   });
 }
+

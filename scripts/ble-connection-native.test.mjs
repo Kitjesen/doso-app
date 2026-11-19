@@ -8,7 +8,8 @@ const transpile = (source, module = ts.ModuleKind.ESNext) => ts.transpileModule(
 const url = source => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 const sessionUrl = url(transpile(read('bleConnectionSession.ts')) + '\n//# sourceURL=bleConnectionSession-native-fixture.js');
 const session = await import(sessionUrl);
-const native = await import(url(transpile(read('bleConnectionNative.ts')).replace("from './bleConnectionSession'", `from '${sessionUrl}'`) + '\n//# sourceURL=bleConnectionNative-fixture.js'));
+const modelUrl = url(transpile(read('bleDiscoveryModel.ts')));
+const native = await import(url(transpile(read('bleConnectionNative.ts')).replace("from './bleConnectionSession'", `from '${sessionUrl}'`).replace("from './bleDiscoveryModel'", `from '${modelUrl}'`) + '\n//# sourceURL=bleConnectionNative-fixture.js'));
 function manager() {
   const calls = [], listeners = new Set();
   const emit = event => { for (const fn of [...listeners]) fn(event); };
@@ -16,6 +17,7 @@ function manager() {
     async isStarted() { return true; }, async checkState() { return 'on'; },
     async connect(...args) { calls.push(['connect', ...args]); },
     async retrieveServices(id) { calls.push(['discover', id]); return { id, services: [{ uuid: 'fixture-only' }], characteristics: [] }; },
+    async read(...args) { calls.push(['read', ...args]); return [...Buffer.from('8f7e1c620a4d4b8996e26c47b03db1a5', 'hex')]; },
     async disconnect(...args) { calls.push(['disconnect', ...args]); emit({ peripheral: args[0], status: 0 }); },
     onDisconnectPeripheral(fn) { listeners.add(fn); return { remove() { listeners.delete(fn); } }; },
   } };
@@ -96,7 +98,8 @@ test('the native adapter invokes installed API connect with autoconnect off, ret
   const state = await adapter.connect('fixture-peripheral', () => {});
   assert.equal(state.serviceCount, 1);
   await adapter.disconnect();
-  assert.deepEqual(f.calls, [['connect', 'fixture-peripheral', { autoconnect: false }], ['discover', 'fixture-peripheral'], ['disconnect', 'fixture-peripheral', false]]);
+  assert.deepEqual(f.calls, [['connect', 'fixture-peripheral', { autoconnect: false }], ['discover', 'fixture-peripheral'],
+    ['read', 'fixture-peripheral', '81343a98-47b3-4a0b-af0c-d42d87c7070f', '44cecaf8-0fab-4594-96f9-6e864f1dedf2'], ['disconnect', 'fixture-peripheral', false]]);
   assert.equal(f.listeners.size, 0);
 });
 test('native readiness failure never connects or starts a second manager', async () => {
@@ -105,6 +108,22 @@ test('native readiness failure never connects or starts a second manager', async
     const adapter = native.createBleNativeConnectionAdapter(f.api);
     await assert.rejects(adapter.connect('fixture-peripheral', () => {}), { code: 'preparation_failed' });
     assert.deepEqual(f.calls, []);
+  }
+});
+
+test('native robot ID reads use the configured discovery service', async () => {
+  const previous = process.env.EXPO_PUBLIC_DOSO_BLE_SERVICE_UUID;
+  const configured = '67cf35ba-9905-4acc-9712-044bd6d6f13a';
+  process.env.EXPO_PUBLIC_DOSO_BLE_SERVICE_UUID = ` ${configured} `;
+  try {
+    const f = manager(), adapter = native.createBleNativeConnectionAdapter(f.api);
+    await adapter.connect('fixture-peripheral', () => {});
+    assert.deepEqual(f.calls.find(call => call[0] === 'read'),
+      ['read', 'fixture-peripheral', configured, '44cecaf8-0fab-4594-96f9-6e864f1dedf2']);
+    await adapter.disconnect();
+  } finally {
+    if (previous === undefined) delete process.env.EXPO_PUBLIC_DOSO_BLE_SERVICE_UUID;
+    else process.env.EXPO_PUBLIC_DOSO_BLE_SERVICE_UUID = previous;
   }
 });
 function android(manager, granted) {

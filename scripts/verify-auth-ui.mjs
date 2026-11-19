@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const entry = await readFile(new URL('../src/components/AuthEntry.tsx', import.meta.url), 'utf8');
+const loginSurface = await readFile(new URL('../src/components/LoginSurface.tsx', import.meta.url), 'utf8');
 const [login, register, forgot, otp, reset, username, displayName, button, social, socialNative, socialWeb, app] = await Promise.all([
   readFile(new URL('../src/screens/LoginScreen.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/screens/RegisterScreen.tsx', import.meta.url), 'utf8'),
@@ -19,13 +20,14 @@ const [login, register, forgot, otp, reset, username, displayName, button, socia
 
 assert.match(login, /<AuthEntry mode="login"/);
 assert.match(register, /<AuthEntry mode="register"/);
-assert.match(entry, /getRegistrationLayout\(containerWidth/);
 assert.match(entry, /useAppTheme/);
-assert.match(entry, /wideBody:[\s\S]*flexDirection: 'row'/);
-assert.match(entry, /headline: \{ fontSize: 24, lineHeight: 32/);
+assert.match(entry, /LoginSurface mode=\{register \? 'register' : 'login'\}/);
+assert.match(entry, /children\(false\)/);
+assert.match(loginSurface, /mode === 'register' \? '已有账户？' : '还没有账户？'/);
+assert.match(loginSurface, /mode === 'register' \? '登录' : '注册'/);
 assert.match(entry, /minHeight: 48/);
 assert.match(entry, /borderRadius: 16/);
-assert.match(entry, /focused \? palette.accent : 'transparent'/);
+assert.match(entry, /focused \? palette.accent :/);
 assert.match(entry, /eye: \{ minHeight: 48, width: 44/);
 assert.doesNotMatch(login, /AuthEntrySocial|onSocialLogin|activeSocialProvider/);
 assert.doesNotMatch(register, /AuthEntrySocial|onSocialLogin|activeSocialProvider/);

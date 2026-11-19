@@ -14,7 +14,7 @@ const SYSTEM_ERROR_MARKERS = new Set(['android:id/aerr_wait', 'android:id/aerr_c
 const LOGIN = ['auth-entry-header', 'login-form', 'login-email', 'login-password', 'login-submit', 'login-register'];
 const REGISTER = ['auth-entry-header', 'register-form', 'register-username', 'register-email', 'register-password', 'register-submit', 'register-login'];
 export const NATIVE_UI_MARKER_IDS = Object.freeze([...new Set([...LOGIN, ...REGISTER,
-  'login-intro', 'register-intro', 'font-loading', 'app-font-misans', 'app-font-system-fallback',
+  'login-intro', 'register-intro', 'font-loading', 'app-font-system', 'app-font-misans', 'app-font-system-fallback',
   'design-qa-disclosure', 'design-qa-preview', 'home-device-card', 'home-control', 'main-navigation'])].sort());
 export function invalidNativeUi() {
   return { state: 'invalid-input', scope: 'invalid', nodeCount: 0, appNodeCount: 0,
@@ -54,7 +54,7 @@ function classifyValidated(input) {
   // Only diagnostic, never sufficient for authorizing an action. Merged labels may be comma/newline separated.
   const segments = new Set(app.filter(node => !isInput(node)).flatMap(node => [node.text, node.description])
     .filter(value => typeof value === 'string').flatMap(value => value.split(/[,，\r\n]+/u).map(segment => segment.trim())));
-  const fontReady = has('app-font-misans') || has('app-font-system-fallback');
+  const fontReady = has('app-font-system') || has('app-font-misans') || has('app-font-system-fallback');
   if (!safe && input.expectedPackage === QA_PACKAGE && input.expectedActivityResumed === true) {
     if (foreign.some(node => ['com.android.permissioncontroller', 'com.google.android.permissioncontroller'].includes(node.packageName))) state = 'permission-dialog';
     else if (foreign.some(node => node.packageName === 'com.android.systemui')) state = 'system-ui';

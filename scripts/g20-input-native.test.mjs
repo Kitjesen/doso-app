@@ -52,7 +52,7 @@ test('real G20 session lifecycle runs without vendor JNI; actual Expo adapter co
       '-classpath', classpath.join(path.delimiter), '-d', classes, ...files]);
     const coreClasspath = [classes, compiler[1], compiler[5]];
     compile(coreClasspath, [source('G20InputSession.kt'), path.join(native, 'test/kotlin/expo/modules/g20input/G20InputSessionTest.kt')]);
-    assert.match(run('java', ['-cp', coreClasspath.join(path.delimiter), 'expo.modules.g20input.G20InputSessionTestKt']), /PASS: 29 G20 read-only input lifecycle cases/);
+    assert.match(run('java', ['-cp', coreClasspath.join(path.delimiter), 'expo.modules.g20input.G20InputSessionTestKt']), /PASS: 42 G20 read-only input lifecycle cases/);
 
     const sdk = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT || 'D:/Android/Sdk';
     const android = path.join(sdk, 'platforms/android-36/android.jar');
@@ -84,7 +84,7 @@ test('actual G20 adapter cuts SDK-retained callbacks on close and rejects prior-
       '-no-stdlib', '-no-reflect', '-jvm-target', '17', '-classpath', classpath, '-d', classes,
       source('G20InputSession.kt'), source('SkydroidG20Source.kt'), ...files]);
     assert.match(run('java', ['-cp', classpath, 'expo.modules.g20input.SkydroidG20SourceTestKt']),
-      /PASS: 7 actual G20 adapter callback ownership cases without vendor JNI/);
+      /PASS: 12 actual G20 adapter callback ownership cases without vendor JNI/);
   } finally { await rm(output, { recursive: true, force: true }); }
 });
 
@@ -105,7 +105,8 @@ test('SDK bytes and read-only adapter boundary stay pinned; RC-only initializati
   assert.match(module, /OnActivityEntersBackground[\s\S]*?session\.stop\("background"\)/);
   assert.match(module, /Function\("isSampleFresh"\)/);
   assert.match(module, /Function\("captureInputFence"\)/);
-  assert.match(module, /!destroyed && !paused && isForeground\(\) && session\.getStatus\(\)\["status"\] == "reading"[\s\S]*?SystemClock\.elapsedRealtime\(\) else null/);
+  assert.match(module, /AsyncFunction\("observe"\)[\s\S]*?destroyed \|\| paused \|\| !isForeground\(\)[\s\S]*?session\.observe\(requestId\)/);
+  assert.match(module, /!destroyed && !paused && isForeground\(\) && session\.getStatus\(\)\["status"\] == "reading"\s*&& session\.getStatus\(\)\["configurationReady"\] == true[\s\S]*?SystemClock\.elapsedRealtime\(\) else null/);
   assert.match(module, /OnDestroy[\s\S]*?session\.destroy\(\)/);
   const gradle = await readFile(path.join(root, 'modules/g20-input/android/build.gradle'), 'utf8');
   assert.match(gradle, /rootProject\.allprojects/);

@@ -5,8 +5,8 @@ import { mountAuthScreen } from './helpers/auth-screen-harness.mjs';
 
 const flatten = value => Object.assign({}, ...(Array.isArray(value) ? value.flat(Infinity).filter(Boolean) : [value]));
 
-for (const screen of ['login', 'register']) {
-  test(`${screen} 844x390 keeps the full-size email form without secondary login choices`, () => {
+for (const screen of ['register']) {
+test(`${screen} 844x390 keeps the current glass auth surface without secondary login choices`, () => {
     const app = mountAuthScreen({ screen, width: 844, height: 390 });
     const socialSection = app.nodes.find(node => node.props?.testID === 'auth-social-options');
     const socialRow = app.nodes.find(node => node.props?.testID === 'auth-social-row');
@@ -17,11 +17,9 @@ for (const screen of ['login', 'register']) {
     assert.equal(socialSection, undefined);
     assert.equal(socialRow, undefined);
     assert.doesNotMatch(app.copy, /其他方式|Apple|微信|QQ/);
-    assert.equal(flatten(header.props.style).paddingBottom, 4);
-    assert.equal(flatten(header.props.style).minHeight, 44);
-    assert.equal(flatten(form.props.style).paddingTop, 0);
+    assert.equal(flatten(header.props.style).alignItems, 'center');
+    assert.equal(flatten(form.props.style).borderRadius, 28);
     assert.equal(flatten(submit.props.style({ pressed: false })).minHeight, 52);
-    assert.equal(flatten(submit.props.style({ pressed: false })).marginTop, 12);
 
     const inputs = app.nodes.filter(node => node.type === 'TextInput');
     assert.equal(inputs.length, screen === 'login' ? 2 : 3);
@@ -31,12 +29,31 @@ for (const screen of ['login', 'register']) {
   });
 }
 
+for (const [width, height, fontScale] of [[390, 844, 1], [844, 390, 1], [844, 390, 1.5]]) {
+  test(`login form remains available at ${width}x${height} with font scale ${fontScale}`, () => {
+    const app = mountAuthScreen({ screen: 'login', width, height, fontScale });
+    assert.ok(app.nodes.find(node => node.props?.testID === 'login-form'));
+    const scroll = app.nodes.find(node => node.type === 'ScrollView');
+    assert.equal(flatten(scroll.props.contentContainerStyle).flexGrow, 1);
+    const inputs = app.nodes.filter(node => node.type === 'TextInput');
+    assert.equal(inputs.length, 2);
+    assert.ok(inputs.every(input => input.props.editable !== false));
+    assert.ok(inputs.every(input => flatten(input.props.style).fontSize >= 16));
+    const submit = app.action('login-submit');
+    assert.equal(typeof submit.props.onPress, 'function');
+    assert.ok(flatten(submit.props.style({ pressed: false })).minHeight >= 44);
+    assert.ok(app.action('login-forgot-password'));
+    assert.equal(app.nodes.some(node => node.props?.testID === 'auth-social-options'), false);
+    assert.doesNotMatch(app.copy, /其他方式|Apple|微信|QQ|连接机器狗|游客使用/);
+  });
+}
+
 test('portrait keeps a full-width email form without a provider row', () => {
   const app = mountAuthScreen({ screen: 'register', width: 390, height: 844 });
   const socialSection = app.nodes.find(node => node.props?.testID === 'auth-social-options');
   const form = app.nodes.find(node => node.props?.testID === 'register-form');
   assert.equal(socialSection, undefined);
-  assert.equal(flatten(form.props.style).paddingTop, 8);
+  assert.equal(flatten(form.props.style).borderRadius, 28);
   assert.doesNotMatch(app.copy, /其他方式|Apple|微信|QQ/);
 });
 

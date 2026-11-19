@@ -68,7 +68,7 @@ function mountModelSelect({ busy = false, fontScale = 1, height = 844, width = 3
       if (name === 'react/jsx-runtime') return require('react/jsx-runtime');
       if (name === 'react-native') return host;
       if (name === '@expo/vector-icons') return { Ionicons: 'Ionicons' };
-      if (name === 'react-native-safe-area-context') return { SafeAreaView: 'SafeAreaView' };
+      if (name === 'react-native-safe-area-context') return { SafeAreaView: 'SafeAreaView', useSafeAreaInsets: () => ({top:0,right:0,bottom:0,left:0}) };
       if (name === '../models') return { robotModels };
       if (name === '../appearance') return load('src/appearance.ts');
       if (name === '../typography') return load('src/typography.ts');

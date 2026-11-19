@@ -28,6 +28,7 @@ function mountSharedAuth({ dark = false, width = 390, height = 844, fontScale = 
     useEffect() { cursor += 1; },
   };
   const host = {
+    Animated: { View: 'View' },
     ActivityIndicator: 'ActivityIndicator', Image: 'Image', KeyboardAvoidingView: 'KeyboardAvoidingView',
     Pressable: 'Pressable', ScrollView: 'ScrollView', Text: 'Text', TextInput: 'TextInput', View: 'View',
     StyleSheet: { create: value => value, hairlineWidth: 1 },
@@ -45,6 +46,8 @@ function mountSharedAuth({ dark = false, width = 390, height = 844, fontScale = 
       useSafeAreaInsets: () => ({ left: width > 700 ? 24 : 0, right: width > 700 ? 24 : 0, top: 24, bottom: 24 }),
     },
     'expo-linear-gradient': { LinearGradient: 'LinearGradient' },
+    'expo-blur': { BlurView: 'BlurView', BlurTargetView: 'BlurTargetView' },
+    './loginMotion': { useLoginMotion: () => ({ intro: {}, glow: {} }) },
     'expo-system-ui': { setBackgroundColorAsync: async () => {} },
     '../assets': { images: {} },
     '../services/socialAuthService': { getSocialLoginReadiness: () => ({ ready: false }) },
@@ -65,9 +68,11 @@ function mountSharedAuth({ dark = false, width = 390, height = 844, fontScale = 
       if (name === '../screens/registrationLayout') return load('src/screens/registrationLayout.ts');
       if (name === '../components/AuthEntry') return load('src/components/AuthEntry.tsx');
       if (name === './AuthEntry') return load('src/components/AuthEntry.tsx');
+      if (name === './LoginSurface') return load('src/components/LoginSurface.tsx');
       if (name === './SocialLoginFeedback') return load('src/components/SocialLoginFeedback.tsx');
       if (name === '../components/GradientButton') return load('src/components/GradientButton.tsx');
       if (name === '../../assets/brand/doso-auth-lockup-sky-v2.png' || name === '../../assets/brand/doso-soft-air.png') return name;
+      if (name === '../../assets/brand/doso-robotics-wordmark-email-03526d27c6b4.png') return 'doso-robotics-wordmark';
       throw new Error(`Unexpected auth appearance dependency: ${name}`);
     };
     vm.runInNewContext(code, { exports: module.exports, module, require: localRequire, Error }, { filename: relative });
@@ -113,9 +118,9 @@ for (const dark of [false, true]) {
   test(`shared auth page renders the ${dark ? 'dark graphite' : 'light white'} palette`, () => {
     const app = mountSharedAuth({ dark });
     const canvas = nodeByType(app, 'SafeAreaView');
-    assert.equal(flatten(canvas.props.style).backgroundColor, dark ? '#17191D' : '#FFFFFF');
+    assert.equal(flatten(canvas.props.style).backgroundColor, dark ? '#1C1C1B' : '#FFFFFF');
     const field = nodeByType(app, 'View', node => flatten(node.props.style).minHeight === 48);
-    assert.equal(flatten(field.props.style).backgroundColor, dark ? '#24272D' : '#F4F7FA');
+    assert.equal(flatten(field.props.style).backgroundColor, dark ? '#242423' : '#F4F7FA');
   });
 }
 

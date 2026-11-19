@@ -15,6 +15,7 @@ function render(layout = createDefaultJoystickLayoutPreferences().landscape, err
   }).outputText;
   const dependencies = {
     'react/jsx-runtime': require('react/jsx-runtime'),
+    './ControlSetupSurface': { ControlSetupBackground: 'ControlSetupBackground', ControlSetupPage: 'ControlSetupPage', controlSetupColors: {}, controlSetupAppearance: {} },
     'react-native': { Pressable: 'Pressable', ScrollView: 'ScrollView', View: 'View', StyleSheet: { create: value => value } },
     './AppText': { Text: 'Text' },
     './ControlSlider': { ControlSlider: 'ControlSlider' },

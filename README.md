@@ -1,5 +1,15 @@
 # DOSO App
 
+## G20 源码基线
+
+本次整合的 Android QA 源码使用 `versionCode 53`，包名为 `com.doso.robot.qa`。此前在 G20 核实安装的是 code52。代码合并和设备安装分别记录。
+
+- 用户从首页的远程画面进入视频。已有授权的局域网目标时可直接进入只读查看页，也可在连接页输入目标并选择「仅看画面」。云端设备仍使用账号授权。
+- 主视频使用 WebRTC/WHEP。明确选择同源局域网视频时，深度卡片从同一机器狗读取 JPEG。卡片默认收起，展开后可解锁调整大小。
+- 运动控制、状态读取与仅看视频分别校验连接和权限。视频可达不能证明机器人已授予控制权。
+
+新构建的 Android 点云模块需要单独的 DOSO-SDK 源码。用环境变量 `DOSO_SDK_ROOT` 或 Gradle 项目属性 `-PdosoSdkRoot=<SDK 路径>` 指向包含 `Cargo.toml`、`android/build.ps1` 和 `android/build.sh` 的 SDK 根目录。准备下文的字体、RCSDK 与本地调试签名后，可在 `android` 目录运行 `gradlew.bat :app:assembleQa -PreactNativeArchitectures=arm64-v8a` 生成 QA 包。
+
 DOSO 是用于管理和控制机器人的 React Native / Expo Android 应用。本仓库包含该应用、原生连接模块和相关后端。实机控制使用 Android 原生 Brainstem gRPC 模块 [`modules/brainstem-grpc`](modules/brainstem-grpc)。网页预览不能代替这条实机控制链路。对接背景见 [Brainstem 与 App 的对接清单](docs/BRAINSTEM_APP_INTEGRATION.md)。
 
 对外合同是独立仓库 <https://github.com/Kitjesen/brainstem_api>，包名 `brainstem.api.v1`。`RobotControl.GetProfile` 与 `RobotControl.SwitchProfile` 定义在该仓库的 [`brainstem_api/cms.proto`](https://github.com/Kitjesen/brainstem_api/blob/main/brainstem_api/cms.proto)。本仓库在 [`contracts/brainstem_api`](contracts/brainstem_api) 保留一份副本。

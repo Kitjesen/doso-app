@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
+import * as modes from '../src/features/control/robotModeCapabilities.ts';
 import { BrainstemControlSession } from '../src/features/control/brainstemControlSession.ts';
 
 const source = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
@@ -16,7 +17,7 @@ visit(ast);
 const pure = { exports: {} };
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/services/directRobotConnection.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-}).outputText, { module: pure, exports: pure.exports, Date, URL });
+}).outputText, { module: pure, exports: pure.exports, Date, URL, require: name => { assert.equal(name, '../features/control/robotModeCapabilities.ts'); return modes; } });
 function attribute(screen, name, context = {}) {
   const attr = elements.get(screen)?.attributes.properties.find(item => item.name?.getText(ast) === name);
   assert.ok(attr?.initializer && ts.isJsxExpression(attr.initializer), screen + ' explicit ' + name);
@@ -26,7 +27,8 @@ function attribute(screen, name, context = {}) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, { describeDirectRobotConnection: pure.exports.describeDirectRobotConnection,
     diagnosticNavigationOwner, diagnosticNavigation: { current: diagnosticNavigationOwner }, AppState: { currentState: 'active' },
-    directTelemetry: { presentation: null }, controlEndpoint: null, directEndpointLabel: 'IP 直连设备', ...context });
+    directTelemetry: { presentation: null }, controlEndpoint: null, directEndpointLabel: '机器狗 Wi-Fi', guestMode: false,
+    rememberedControl: { remember() {}, forget() {} }, ...context });
 }
 const snapshot = () => pure.exports.createDirectRobotConnectionSnapshot({ host: 'robot.example.test', port: 13145 }, {
   source: 'brainstem.grpc.direct', transport: 'grpc-tls', observedAt: new Date().toISOString(),
@@ -39,6 +41,30 @@ const dormantControl = () => ({ state: { connected: false, leaseActive: false, s
   operationReadiness: Object.fromEntries(['stop', 'stand', 'sit', 'enableMotor', 'disableMotor', 'switchPolicy'].map(key => [key, { ready: false }])),
   operationCallbacks: {}, runtimeState: {} });
 
+test('video binding is retired synchronously on a target change, including A to B to A', () => {
+  let rotation, config;
+  function find(node) {
+    if (ts.isIfStatement(node) && node.expression.getText(ast) === 'videoTargetGeneration.current.target !== currentVideoTarget') rotation = node;
+    if (ts.isVariableDeclaration(node) && node.name.getText(ast) === 'videoConfig') config = node.initializer;
+    ts.forEachChild(node, find);
+  }
+  find(ast); assert.ok(rotation); assert.ok(config);
+  const run = (code, context) => vm.runInNewContext(ts.transpileModule(code, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, context);
+  const ref = { current: { target: 'A', generation: 0 } };
+  const selection = { videoTarget: 'A', videoGeneration: 0 };
+  const getConfig = target => run(`(${config.getText(ast)})`, { navigationEndpoint: 'https://robot.example', currentVideoTarget: target,
+    navigationBinding: selection, videoTargetGeneration: ref, isBrainstemLanAvailable: () => false,
+    lanVideoOrigin: null, directEndpoint: null, controlEndpoint: { transport: 'tls' } });
+  assert.equal(getConfig('A').deviceId, 'A');
+  run(rotation.getText(ast), { videoTargetGeneration: ref, currentVideoTarget: 'B' });
+  assert.equal(getConfig('B'), null);
+  run(rotation.getText(ast), { videoTargetGeneration: ref, currentVideoTarget: 'A' });
+  assert.equal(getConfig('A'), null, 'returning to A cannot resurrect an earlier selection');
+  assert.equal(attribute('ControlScreen', 'videoSurface', { videoConfig: null, controlVideo: { surface: 'old-frame' } }), undefined);
+});
+
 test('an explicitly selected IP target projects its own observed state, never a cloud identity or command grant', () => {
   const observed = snapshot();
   const context = { controlTarget: 'direct', directConnection: { snapshot: observed, presentation: pure.exports.describeDirectRobotConnection(observed) }, connected: true,
@@ -48,7 +74,7 @@ test('an explicitly selected IP target projects its own observed state, never a 
   assert.equal(state.posture, 'standing');
   assert.equal(state.controlAuthority, 'not-held');
   assert.notEqual(state.controlLink, 'connected');
-  assert.equal(attribute('ControlScreen', 'robotName', context), 'IP 直连设备');
+  assert.equal(attribute('ControlScreen', 'robotName', context), '机器狗 Wi-Fi');
   assert.equal(attribute('ControlScreen', 'connected', context), false);
   assert.equal(attribute('ControlScreen', 'batteryPercent', context), null);
 });
@@ -72,7 +98,7 @@ test('expired direct status cannot inherit the account battery, identity or stat
   const state = attribute('ControlScreen', 'runtimeState', context);
   assert.equal(state.motorState, 'unknown'); assert.equal(state.posture, 'unknown');
   assert.equal(state.controlAuthority, 'not-held');
-  assert.equal(attribute('ControlScreen', 'robotName', context), 'IP 直连设备');
+  assert.equal(attribute('ControlScreen', 'robotName', context), '机器狗 Wi-Fi');
   assert.equal(attribute('ControlScreen', 'connected', context), false);
 });
 
@@ -83,7 +109,8 @@ test('production props use only the explicit live core, never the read-only snap
     motorOutputEnabled: true, criticalMotorFault: false, grpcLeaseActive: held, readyForWalk: true });
   const reply = () => ({ status: status(), leaseActive: held, principalVerified: held, ...(held ? { sequence } : {}) });
   const session = new BrainstemControlSession({
-    open: async () => ({ ...reply(), sessionId: 'fixture', transport: 'grpc-mtls', mutualTlsVerified: true }),
+    open: async () => ({ ...reply(), sessionId: 'fixture', transport: 'grpc-mtls', mutualTlsVerified: true,
+      profile: { current: 'flat', available: ['flat'], descriptions: [], currentDescription: '' } }),
     read: async () => reply(),
     acquire: async () => { calls.push('acquire'); held = true; sequence = 1; return reply(); },
     input: async () => { calls.push('input'); sequence++; return reply(); },
@@ -121,6 +148,7 @@ test('control opening requires the prepared-account gate and abort prevents late
   let resolve, opens = 0, closes = 0;
   const calls = [], signal = new AbortController();
   const open = attribute('RobotConnectionScreen', 'onOpenControl', { canSelectDirectTarget: true, stage: 'main',
+    rememberedControl: { remember: () => calls.push('remember') },
     brainstemControl: { connect: () => { opens++; return new Promise(yes => { resolve = yes; }); }, disconnect: async () => { closes++; } },
     setControlEndpoint: value => calls.push(['endpoint', value]), setControlTarget: value => calls.push(['target', value]),
     setStage: value => calls.push(['stage', value]), setRobotConnectionVisible: value => calls.push(['visible', value]) });
@@ -130,17 +158,84 @@ test('control opening requires the prepared-account gate and abort prevents late
   assert.equal(await open({}, '', signal.signal), false); assert.equal(opens, 1, 'pre-aborted request never opens');
 });
 
-test('successful live control opening navigates only after connect and bootstrap acceptance', async () => {
+test('successful live control opening persists only after connect and bootstrap acceptance', async () => {
   for (const permitted of [false, true]) {
     const calls = [];
     const open = attribute('RobotConnectionScreen', 'onOpenControl', { canSelectDirectTarget: true, stage: 'models',
       deviceBootstrapIntent: { current: { enter: () => permitted } },
+      rememberedControl: { remember: (endpoint, principal) => calls.push(['remember', endpoint, principal]) },
       brainstemControl: { connect: async () => true, disconnect: async () => calls.push('closed') },
       setControlEndpoint: () => calls.push('endpoint'), setControlTarget: () => calls.push('target'),
       setStage: value => calls.push(value), setRobotConnectionVisible: () => calls.push('visible') });
     assert.equal(await open({ host: 'robot.example.test', port: 13145 }, 'doso-g20@robot', new AbortController().signal), permitted);
     assert.equal(calls.includes('control'), permitted); assert.equal(calls.includes('closed'), !permitted);
+    const saved = calls.find(value => Array.isArray(value) && value[0] === 'remember');
+    assert.equal(Boolean(saved), permitted);
+    if (saved) { assert.equal(saved[1].host, 'robot.example.test'); assert.equal(saved[2], 'doso-g20@robot'); }
   }
+});
+
+test('failed or rejected live opens never persist or change the current route', async () => {
+  for (const outcome of ['false', 'throw']) {
+    const calls = [];
+    const open = attribute('RobotConnectionScreen', 'onOpenControl', {
+      canSelectDirectTarget: true, stage: 'main',
+      rememberedControl: { remember: () => calls.push('remember') },
+      brainstemControl: { connect: async () => { if (outcome === 'throw') throw Error('unavailable'); return false; } },
+      setControlEndpoint: () => calls.push('endpoint'), setControlTarget: () => calls.push('target'),
+      setStage: () => calls.push('stage'), setRobotConnectionVisible: () => calls.push('visible'),
+    });
+    const pending = open({ host: 'robot.example.test', port: 13145 }, 'doso-g20@robot', new AbortController().signal);
+    if (outcome === 'throw') await assert.rejects(pending); else assert.equal(await pending, false);
+    assert.deepEqual(calls, []);
+  }
+});
+
+test('account auto-connect options carry a remembered read target only through the prepared direct gate', () => {
+  let declaration;
+  function find(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(ast) === 'brainstemControl') declaration = node;
+    ts.forEachChild(node, find);
+  }
+  find(ast); assert.ok(declaration);
+  const endpoint = { host: 'robot.example.test', port: 13145, transport: 'tls', clientIdentityAlias: 'chosen' };
+  const evaluate = patch => vm.runInNewContext(ts.transpileModule('(' + declaration.initializer.arguments[0].getText(ast) + ')', {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, { robotConnectionOwnerKey: 'account-a:session-a', directConnectionReady: true,
+    stage: 'main', controlTarget: 'direct', robotConnectionVisible: false,
+    rememberedControl: { connection: { endpoint, principal: 'doso-g20@robot' } }, ...patch });
+  const options = evaluate();
+  assert.equal(options.autoConnectEndpoint, endpoint); assert.equal(options.autoConnectPrincipal, 'doso-g20@robot');
+  assert.equal(options.ready, true); assert.equal(options.ownerKey, 'account-a:session-a');
+  assert.equal(options.autoReconnectEnabled, true);
+  assert.deepEqual(Object.keys(options).sort(), ['autoConnectEndpoint', 'autoConnectPrincipal', 'autoReconnectEnabled', 'ownerKey', 'ready']);
+  assert.equal(evaluate({ directConnectionReady: false }).ready, false);
+  assert.equal(evaluate({ stage: 'joint-status' }).ready, false);
+  assert.equal(evaluate({ controlTarget: 'account' }).autoConnectEndpoint, null);
+  assert.equal(evaluate({ controlTarget: 'account' }).autoReconnectEnabled, false);
+  assert.equal(evaluate({ robotConnectionVisible: true }).autoConnectEndpoint, null);
+  assert.equal(evaluate({ robotConnectionVisible: true }).autoReconnectEnabled, false, 'editing IP cannot revive the old desired target');
+  assert.equal(evaluate({ rememberedControl: { connection: null } }).autoConnectEndpoint, undefined);
+});
+
+test('switching prepared accounts immediately hides the previous owned control endpoint', () => {
+  let declaration;
+  function find(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(ast) === 'controlEndpoint') declaration = node;
+    ts.forEachChild(node, find);
+  }
+  find(ast); assert.ok(declaration);
+  const expression = ts.transpileModule('(' + declaration.initializer.getText(ast) + ')', {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const endpoint = { host: 'robot-a.example.test', port: 13145 };
+  const selection = { ownerKey: 'account-a:session-a', endpoint };
+  const evaluate = ownerKey => vm.runInNewContext(expression, {
+    controlSelection: selection, robotConnectionOwnerKey: ownerKey, directConnectionReady: true,
+  });
+  assert.equal(evaluate('account-a:session-a'), endpoint);
+  assert.equal(evaluate('account-b:session-b'), null, 'both accounts may be ready, but B must not inherit A');
+  assert.equal(evaluate(null), null);
 });
 
 test('continuation is absent outside the account gate and commits only after owner validation', () => {
@@ -191,26 +286,36 @@ test('direct diagnostics keep the selected endpoint identity and use its fresh t
   assert.equal(attribute('JointStatusScreen', 'joints', context), undefined);
 });
 
-test('opening diagnostics waits for stop confirmation before navigation and never reacquires', async () => {
+test('the Thunder model diagram is never reused for a different selected model', () => {
+  const diagram = { uri: 'fixture://thunder-v4-top-line' };
+  const context = { images: { thunderJointDiagram: diagram }, currentModel: { id: 'thunder-01' } };
+  assert.equal(attribute('JointStatusScreen', 'robotDiagram', context), diagram);
+  for (const id of ['thunder-mini', 'thunder-pro', 'scout']) {
+    context.currentModel = { id };
+    assert.equal(attribute('JointStatusScreen', 'robotDiagram', context), undefined);
+  }
+});
+
+test('opening diagnostics waits for stop confirmation then suspends without forgetting or reacquiring', async () => {
   const calls = [];
   const open = attribute('ControlScreen', 'onOpenJointStatus', {
-    brainstemControl: { disconnect: () => { calls.push('disconnect'); return Promise.resolve(); },
+    brainstemControl: { suspend: () => { calls.push('suspend'); return Promise.resolve(); },
       operationCallbacks: { stop: async () => { calls.push('stop'); } },
       acquire: () => calls.push('acquire'), prepareManualControl: () => calls.push('prepare') },
     setStage: value => calls.push(value),
   });
   await open();
-  assert.deepEqual(calls, ['stop', 'disconnect', 'joint-status']);
+  assert.deepEqual(calls, ['stop', 'suspend', 'joint-status']);
 });
 
-test('returning from direct diagnostics requests explicit reconnection, never automatic control', () => {
+test('returning from direct diagnostics returns to control without reopening the connection form', () => {
   const calls = [];
   const back = attribute('JointStatusScreen', 'onBack', {
     controlTarget: 'direct', controlEndpoint: { host: 'robot-a.example.test', port: 13145 },
     setStage: value => calls.push(value), setRobotConnectionVisible: value => calls.push(['connection', value]),
   });
   back();
-  assert.deepEqual(calls, ['control', ['connection', true]]);
+  assert.deepEqual(calls, ['control']);
   calls.length = 0;
   attribute('ControlScreen', 'onBack', {
     setControlTarget: value => calls.push(['target', value]), setStage: value => calls.push(value),
@@ -218,17 +323,39 @@ test('returning from direct diagnostics requests explicit reconnection, never au
   assert.deepEqual(calls, ['main'], 'returning home preserves the selected direct target');
 });
 
-test('choosing a read-only target retires a previous live target before selecting the new route', () => {
+test('choosing a read-only target keeps the selected endpoint while returning home', () => {
   const calls = [];
   const use = attribute('RobotConnectionScreen', 'onUseConnection', {
     canSelectDirectTarget: true, stage: 'main', directConnection: { select: () => true },
+    rememberedControl: { forget: () => calls.push('forget') },
     brainstemControl: { disconnect: () => { calls.push('disconnect'); return Promise.resolve(); } },
     setControlEndpoint: value => calls.push(['endpoint', value]), setControlTarget: value => calls.push(['target', value]),
     setActiveTab: value => calls.push(['tab', value]), setStage: value => calls.push(['stage', value]),
     setRobotConnectionVisible: value => calls.push(['visible', value]),
   });
   assert.equal(use(snapshot()), true);
-  assert.deepEqual(calls.slice(0, 2), ['disconnect', ['endpoint', null]]);
+  assert.deepEqual(calls, [
+    ['endpoint', snapshot().endpoint],
+    ['target', 'direct'],
+    ['tab', 'home'],
+    ['stage', 'main'],
+    ['visible', false],
+  ]);
+});
+
+test('choosing an account device forgets and disconnects the direct target before switching routes', () => {
+  const calls = [];
+  const open = attribute('RobotConnectionScreen', 'onOpenAccountDevice', {
+    canOpenRobotAccountActions: true, device: { is_demo: false },
+    rememberedControl: { forget: () => calls.push('forget') },
+    brainstemControl: { disconnect: () => { calls.push('disconnect'); return Promise.resolve(); } },
+    setControlEndpoint: value => calls.push(['endpoint', value]),
+    setControlTarget: value => calls.push(['target', value]),
+    setRobotConnectionVisible: value => calls.push(['visible', value]), setStage: value => calls.push(['stage', value]),
+  });
+  open();
+  assert.deepEqual(calls, ['forget', 'disconnect', ['endpoint', null], ['target', 'account'], ['visible', false], ['stage', 'control']]);
+  assert.equal(attribute('RobotConnectionScreen', 'onOpenAccountDevice', { canOpenRobotAccountActions: false }), undefined);
 });
 
 test('live control retains its authority while showing only fresh telemetry from its own reader', () => {
@@ -255,7 +382,8 @@ test('a retained joystick callback cannot send after diagnostics retires a real 
     motorOutputEnabled: true, criticalMotorFault: false, grpcLeaseActive: held, readyForWalk: true },
     leaseActive: held, principalVerified: held, ...(held ? { sequence } : {}) });
   const session = new BrainstemControlSession({
-    open: async () => ({ ...reply(), sessionId: 'diagnostics-fixture', transport: 'grpc-mtls', mutualTlsVerified: true }),
+    open: async () => ({ ...reply(), sessionId: 'diagnostics-fixture', transport: 'grpc-mtls', mutualTlsVerified: true,
+      profile: { current: 'flat', available: ['flat'], descriptions: [], currentDescription: '' } }),
     read: async () => reply(), acquire: async () => { calls.push('acquire'); held = true; sequence = 1; return reply(); },
     input: async () => { calls.push('input'); sequence++; return reply(); },
     interrupt: async () => { calls.push('interrupt'); held = false; return reply(); }, close: async () => { calls.push('close'); },
@@ -264,11 +392,11 @@ test('a retained joystick callback cannot send after diagnostics retires a real 
   const endpoint = { host: 'robot-a.example.test', port: 13145, clientIdentityAlias: 'chosen' };
   await session.connect(endpoint, 'doso-g20@robot');
   session.prepareManualControl();
-  await session.drive({ x: 0, y: 0 });
+  await session.drive({ x: 0, y: -0.5 });
   assert.equal(session.state.leaseActive, true);
   const staleDrive = vector => session.drive(vector);
   await attribute('ControlScreen', 'onOpenJointStatus', { brainstemControl: {
-    operationCallbacks: { stop: () => session.interrupt() }, disconnect: () => session.disconnect() }, setStage() {} })();
+    operationCallbacks: { stop: () => session.interrupt() }, suspend: () => session.disconnect() }, setStage() {} })();
   assert.equal(session.state.connected, false); assert.equal(session.state.leaseActive, false);
   await staleDrive({ x: 0, y: -1 });
   for (let i = 0; i < 5; i++) await Promise.resolve();
@@ -280,7 +408,7 @@ test('a retained joystick callback cannot send after diagnostics retires a real 
 test('stop failure, background or a retired diagnostic request cannot navigate or clear its error', async () => {
   const calls = [];
   const base = { brainstemControl: { operationCallbacks: { stop: async () => { throw Error('stop_unconfirmed'); } },
-    disconnect: () => calls.push('disconnect') }, setStage: value => calls.push(value) };
+    suspend: () => calls.push('suspend') }, setStage: value => calls.push(value) };
   await attribute('ControlScreen', 'onOpenJointStatus', base)();
   assert.deepEqual(calls, []);
   let resolveStop;
@@ -288,7 +416,7 @@ test('stop failure, background or a retired diagnostic request cannot navigate o
   const open = attribute('ControlScreen', 'onOpenJointStatus', { ...base,
     diagnosticNavigationOwner: owner, diagnosticNavigation: navigation, AppState: appState,
     brainstemControl: { operationCallbacks: { stop: () => new Promise(resolve => { resolveStop = resolve; }) },
-      disconnect: () => calls.push('disconnect') },
+      suspend: () => calls.push('suspend') },
   });
   const pending = open();
   navigation.current = {}; resolveStop(); await pending;
@@ -311,7 +439,7 @@ test('opening a connection overlay retires an awaiting diagnostics continuation'
   const navigation = { current: owner };
   vm.runInNewContext(ts.transpileModule(rotation.getText(ast), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText, { diagnosticNavigation: navigation, deviceSettingsIdentity: 'account-a', directEndpoint: endpoint,
+  }).outputText, { diagnosticNavigation: navigation, robotConnectionOwnerKey: 'account-a', directEndpoint: endpoint,
     controlTarget: 'direct', stage: 'control', robotConnectionVisible: true, connectionDiagnosticsOpen: false,
     brainstemControl: { operationCallbacks: callbacks } });
   assert.notEqual(navigation.current, owner);
@@ -334,10 +462,11 @@ test('a background then foreground cycle retires a delayed diagnostics continuat
   const calls = [];
   const pending = attribute('ControlScreen', 'onOpenJointStatus', {
     diagnosticNavigationOwner: owner, diagnosticNavigation: navigation, AppState: appState,
-    brainstemControl: { operationCallbacks: { stop: () => new Promise(resolve => { resolveStop = resolve; }) }, disconnect: () => calls.push('disconnect') },
+    brainstemControl: { operationCallbacks: { stop: () => new Promise(resolve => { resolveStop = resolve; }) }, suspend: () => calls.push('suspend') },
     setStage: value => calls.push(value),
   })();
   appState.currentState = 'background'; onState('background');
   appState.currentState = 'active'; onState('active'); resolveStop(); await pending;
   assert.deepEqual(calls, []);
 });
+

@@ -25,7 +25,7 @@ test('home removes decorative borders and white-backed functional PNGs in both t
     for (const name of ['pulse-outline', 'thermometer-outline', 'hardware-chip-outline', 'navigate-outline', 'reader-outline', 'shield-checkmark-outline']) assert.ok(icons.includes(name));
     for (const index of [0, 1, 2]) {
       const quick = styleOf(screen.action(`home-quick-${index}`));
-      assert.equal(quick.minHeight, 88);
+      assert.equal(quick.minHeight, 64);
       assert.equal(quick.backgroundColor, dark ? '#24272D' : '#F4F7FA');
     }
   }

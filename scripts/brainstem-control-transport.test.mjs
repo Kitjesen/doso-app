@@ -43,6 +43,20 @@ test('old native packages cannot silently refresh a physical sample by falling b
   assert.equal(sent, 0);
 });
 
+test('control errors retain known codes without exposing native details or inherited keys', async () => {
+  const api = await load(good());
+  for (const code of ['stale_input', 'not_armed', 'command_rejected', 'unimplemented']) {
+    const error = api.safeBrainstemControlError({ code: `ERR_${code}`, message: 'private native detail' });
+    assert.equal(error.code, code);
+    assert.doesNotMatch(error.message, /private/);
+  }
+  for (const code of ['constructor', '__proto__', 'unknown']) {
+    const error = api.safeBrainstemControlError({ code });
+    assert.equal(error.code, 'unavailable');
+    assert.equal(typeof error.message, 'string');
+  }
+});
+
 test('invalid physical timestamps never enter either native input method', async () => {
   let sent = 0;
   const api = await load(good({ sendControlInput: async () => { sent++; return opened(); }, sendControlInputAt: async () => { sent++; return opened(); } }));
@@ -132,10 +146,10 @@ test('LAN uses an independent native open with generated identity and preserves 
   const api = await load(good({ openControl: async () => { throw new Error('LAN cannot use TLS open'); },
     openLanControl: async (...args) => { calls.push(args); return { ...opened(), transport: 'grpc-lan', mutualTlsVerified: false,
       clientIdentitySelected: false, leaseOwnerMatched: false, sessionPrincipal: principal }; } }));
-  const result = await api.brainstemControlTransport.open({ host: '192.168.42.64', port: 13145, transport: 'lan-dev' }, 'ignored-user-identity');
+  const result = await api.brainstemControlTransport.open({ host: '192.168.66.64', port: 13145, transport: 'lan-dev' }, 'ignored-user-identity');
   assert.equal(result.transport, 'grpc-lan'); assert.equal(result.mutualTlsVerified, false); assert.equal(result.clientIdentitySelected, false);
   assert.equal(result.principalVerified, false); assert.equal(result.sessionPrincipal, principal);
-  assert.equal(calls.length, 1); assert.equal(calls[0].length, 3); assert.equal(calls[0][0], '192.168.42.64');
+  assert.equal(calls.length, 1); assert.equal(calls[0].length, 3); assert.equal(calls[0][0], '192.168.66.64');
   const reply = api.projectBrainstemControlReply({ status: { ...status(), owner: 'grpc', grpcLeaseActive: true },
     leaseActive: true, principalVerified: false, leaseOwnerMatched: true, transport: 'grpc-lan', sequence: 1 });
   assert.equal(reply.leaseOwnerMatched, true); assert.equal(reply.principalVerified, false);
@@ -150,7 +164,7 @@ test('LAN open rejects missing native method and forged authenticated evidence w
     const api = await load(good({ openControl: async () => { tls++; return opened(); }, openLanControl: async () => ({ ...opened(),
       transport: 'grpc-lan', mutualTlsVerified: false, clientIdentitySelected: false, leaseOwnerMatched: false,
       sessionPrincipal: `lan-${'a'.repeat(32)}@dev`, ...patch }) }));
-    await assert.rejects(api.brainstemControlTransport.open({ host: '192.168.42.64', port: 13145, transport: 'lan-dev' }, ''), error => error.code === 'invalid_response');
+    await assert.rejects(api.brainstemControlTransport.open({ host: '192.168.66.64', port: 13145, transport: 'lan-dev' }, ''), error => error.code === 'invalid_response');
     assert.equal(tls, 0);
   }
 });

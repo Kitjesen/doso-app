@@ -12,3 +12,4 @@ try {
   process.stdout.write(`${JSON.stringify({ ok: false, reason: 'configuration_invalid' })}\n`);
   process.exitCode = 2;
 }
+

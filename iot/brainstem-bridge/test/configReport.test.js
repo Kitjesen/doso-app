@@ -32,3 +32,4 @@ test('missing certificate or proto paths blocks preflight while keeping the repo
   assert.equal(report.grpc.filesPresent, false);
   assert.equal(report.control.productionExecutor, false);
 });
+

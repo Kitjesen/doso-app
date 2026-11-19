@@ -4,6 +4,7 @@ import { createHash, generateKeyPairSync, randomBytes } from 'node:crypto';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { performance } from 'node:perf_hooks';
 
 const require = createRequire(import.meta.url);
 const forge = require('node-forge');
@@ -249,6 +250,173 @@ export async function runLocalGrpcSimulation() {
       limitation: 'Not the Dart FSM, robot hardware, CAN, or G20 App end-to-end verification',
     };
   } finally { await fixture.close(); }
+}
+
+/** PC receiver simulation only; no robot connection, FSM, CAN, or forwarding. */
+export async function createLocalControlFixture({ protoPath = DEFAULT_PROTO_PATH, leaseDurationMs = 300, maxRecords = 5_000, ...extra } = {}) {
+  if (Object.keys(extra).length) throw new Error('Fixture has no configurable bind address or port');
+  if (!Number.isInteger(leaseDurationMs) || leaseDurationMs < 50 || leaseDurationMs > 10_000) throw new Error('Invalid leaseDurationMs');
+  if (!Number.isInteger(maxRecords) || maxRecords < 1 || maxRecords > 100_000) throw new Error('Invalid maxRecords');
+  const grpc = require('@grpc/grpc-js');
+  const protocol = await loadProtocol(protoPath);
+  const service = protocol.root.lookupService(SERVICE);
+  const reasons = protocol.root.lookupEnum('brainstem.api.v1.CommandRejectReason').values;
+  const rpcCounts = Object.fromEntries(Object.keys(service.methods).map((name) => [name, 0]));
+  const countRpc = (name) => { rpcCounts[name] = Math.min(Number.MAX_SAFE_INTEGER, rpcCounts[name] + 1); };
+  const reason = (name) => reasons[`COMMAND_REJECT_REASON_${name}`];
+  const started = performance.now();
+  const records = [];
+  const intervals = [];
+  let received = 0, accepted = 0, rejected = 0, lastReceived = null, firstReceived = null;
+  let acceptedCommands = 0;
+  let token = '', principal = '', expires = 0, leaseTimer, lastSequence = '0', lastPayload = '', lastWalkAt = null;
+  let enabled = false, standing = false, initialZero = false, moving = false, decision = 0;
+  let stopCount = 0, lastStop = null, fault = {};
+  const now = () => performance.now() - started;
+  function revoke(why) {
+    if (token) { stopCount++; lastStop = { monoMs: now(), reason: why }; }
+    clearTimeout(leaseTimer);
+    token = ''; principal = ''; expires = 0; moving = false;
+    lastSequence = '0'; lastPayload = ''; initialZero = false;
+    decision = why;
+  }
+  function renew() {
+    clearTimeout(leaseTimer);
+    expires = now() + leaseDurationMs;
+    leaseTimer = setTimeout(() => revoke(reason('LEASE_EXPIRED')), leaseDurationMs);
+  }
+  function status() {
+    if (token && now() >= expires) revoke(reason('LEASE_EXPIRED'));
+    return { fsm: { kind: moving ? 3 : standing ? 2 : 1, transition: 0 }, motorOutputEnabled: enabled,
+      owner: token ? 1 : 0, grpcLeaseActive: !!token, leaseRemainingMs: Math.max(0, Math.floor(expires - now())),
+      lastAcceptedSequence: lastSequence, lastDecision: decision, readyForWalk: enabled && standing,
+      ownerId: token ? principal : 'SIMULATION', acceptedCount: acceptedCommands, rejectedCount: rejected };
+  }
+  const precondition = () => !enabled ? reason('MOTORS_DISABLED') : !standing ? reason('FSM_NOT_READY') : 0;
+  function leaseReply(ok, why = 0) {
+    decision = why;
+    return { accepted: ok, token: ok ? token : '', leaseDurationMs, reason: why, status: status() };
+  }
+  function validToken(value) { status(); return !!token && value === token; }
+  const handlers = {
+    GetControlStatus: () => status(),
+    GetProfile: () => ({ current: 'SIMULATION', available: ['SIMULATION'], currentDescription: 'PC receiver simulation; no robot or motors' }),
+    GetVoltage: () => ({ values: Array(16).fill(0) }),
+    GetMotorStatus: () => ({ motors: Array.from({ length: 16 }, (_, id) => ({ id, online: false, statusCode: 0 })) }),
+    Enable: () => { enabled = true; return {}; },
+    Disable: () => { revoke(0); enabled = false; standing = false; return {}; },
+    StandUp: () => { if (!enabled) throw new Error('precondition'); standing = true; return {}; },
+    SitDown: () => { revoke(0); standing = false; return {}; },
+    AcquireControl: (request, call) => {
+      const caller = call.metadata.get('x-doso-dev-client');
+      if (!/^[a-z][a-z0-9-]{0,63}@[a-z][a-z0-9-]{0,63}$/.test(request.clientId) || caller.length !== 1 || caller[0] !== request.clientId) throw new Error('principal');
+      status();
+      if (token || precondition()) return leaseReply(false, token ? reason('CONTROL_BUSY') : precondition());
+      token = randomBytes(24).toString('hex'); principal = request.clientId;
+      lastSequence = '0'; lastPayload = ''; lastWalkAt = null; initialZero = false;
+      renew(); return leaseReply(true);
+    },
+    RenewControlLease: (request) => {
+      if (!validToken(request.token)) return leaseReply(false, reason(request.token ? 'LEASE_EXPIRED' : 'LEASE_MISSING'));
+      renew(); return leaseReply(true);
+    },
+    ReleaseControl: (request) => { if (validToken(request.token)) revoke(0); return status(); },
+    WalkChecked: (request) => {
+      const at = now();
+      const intervalMs = lastReceived === null ? null : at - lastReceived;
+      firstReceived ??= at; lastReceived = at; received++;
+      if (intervalMs !== null) { intervals.push(intervalMs); if (intervals.length > maxRecords) intervals.shift(); }
+      const sequence = String(request.sequence);
+      const vector = request.direction && { x: request.direction.x, y: request.direction.y, z: request.direction.z };
+      const payload = JSON.stringify(vector);
+      const duplicate = sequence === lastSequence && payload === lastPayload;
+      let why = !validToken(request.token) ? reason(request.token ? 'LEASE_EXPIRED' : 'LEASE_MISSING') : 0;
+      if (!why && (!vector || !Object.values(vector).every(Number.isFinite) || Math.abs(vector.x) > .3 || Math.abs(vector.y) > .3 || Math.abs(vector.z) > .5)) why = reason('INVALID_VECTOR');
+      if (!why) why = precondition();
+      if (!why && (sequence === '0' || !duplicate && lastSequence !== '0' && BigInt(sequence) !== BigInt(lastSequence) + 1n)) why = reason('RATE_LIMITED');
+      if (!why && !duplicate && lastWalkAt !== null && at - lastWalkAt < 18) why = reason('RATE_LIMITED');
+      if (!why && !initialZero && Object.values(vector).some((value) => value !== 0)) why = reason('CONTROL_BUSY');
+      if (!why && fault.rejectReason) why = fault.rejectReason;
+      if (why) { rejected++; if (why !== reason('CONTROL_BUSY')) revoke(why); }
+      else {
+        accepted++; renew();
+        if (!duplicate) { acceptedCommands++; lastSequence = sequence; lastPayload = payload; lastWalkAt = at; }
+        if (Object.values(vector).every((value) => value === 0)) initialZero = true;
+        moving = Object.values(vector).some((value) => value !== 0);
+      }
+      decision = why;
+      const ackSequence = (BigInt(sequence) + BigInt(fault.ackSequenceOffset ?? 0)).toString();
+      records.push({ source: 'SIMULATION', monoMs: at, sequence, intervalMs, vector, accepted: !why, reason: why, ackSequence });
+      if (records.length > maxRecords) records.shift();
+      return { accepted: !why, reason: why, sequence: ackSequence, status: status() };
+    },
+  };
+  const definition = {}, implementation = {};
+  for (const method of Object.values(service.methods)) {
+    const requestType = method.resolvedRequestType, responseType = method.resolvedResponseType;
+    definition[method.name] = {
+      path: `/${SERVICE}/${method.name}`, requestStream: !!method.requestStream, responseStream: !!method.responseStream,
+      requestSerialize: (value) => Buffer.from(requestType.encode(requestType.fromObject(value)).finish()),
+      requestDeserialize: (bytes) => requestType.toObject(requestType.decode(bytes), { longs: String, defaults: true }),
+      responseSerialize: (value) => Buffer.from(responseType.encode(responseType.fromObject(value)).finish()),
+      responseDeserialize: (bytes) => responseType.toObject(responseType.decode(bytes), { longs: String, defaults: true }),
+    };
+    if (method.responseStream) implementation[method.name] = (call) => {
+      countRpc(method.name);
+      call.destroy({ code: grpc.status.UNIMPLEMENTED, details: 'SIMULATION unsupported' });
+    };
+    else implementation[method.name] = (call, callback) => {
+      countRpc(method.name);
+      const metadata = new grpc.Metadata(); metadata.set('x-doso-simulation', 'true'); call.sendMetadata(metadata);
+      if (!handlers[method.name]) { callback({ code: grpc.status.UNIMPLEMENTED, details: 'SIMULATION unsupported' }); return; }
+      let result;
+      try {
+        if (!['GetControlStatus', 'GetProfile', 'GetVoltage', 'GetMotorStatus'].includes(method.name)) {
+          status();
+          const callers = call.metadata.get('x-doso-dev-client');
+          if (callers.length !== 1 || !/^[a-z][a-z0-9-]{0,63}@[a-z][a-z0-9-]{0,63}$/.test(callers[0])
+            || token && ['WalkChecked', 'RenewControlLease', 'ReleaseControl'].includes(method.name) && callers[0] !== principal) throw new Error('principal');
+        }
+        result = handlers[method.name](call.request, call);
+      }
+      catch (error) { callback({ code: error.message === 'principal' ? grpc.status.PERMISSION_DENIED : grpc.status.FAILED_PRECONDITION, details: 'SIMULATION rejected' }); return; }
+      if (method.name === 'WalkChecked' && fault.disconnect) { server.forceShutdown(); return; }
+      const reply = () => { if (!call.cancelled) callback(null, result); };
+      if (method.name === 'WalkChecked' && fault.delayMs) { const timer = setTimeout(reply, fault.delayMs); call.once('cancelled', () => clearTimeout(timer)); }
+      else reply();
+    };
+  }
+  const server = new grpc.Server({ 'grpc.max_receive_message_length': MAX_MESSAGE_BYTES, 'grpc.max_send_message_length': MAX_MESSAGE_BYTES });
+  server.addService(definition, implementation);
+  const port = await new Promise((resolve, reject) => server.bindAsync('127.0.0.1:0', grpc.ServerCredentials.createInsecure(), (error, value) => error ? reject(error) : resolve(value)));
+  let closed = false;
+  return {
+    source: 'SIMULATION', simulation: true, host: '127.0.0.1', port, protocol, definition,
+    setFault(value = {}) {
+      if (Object.keys(value).some((key) => !['rejectReason', 'ackSequenceOffset', 'delayMs', 'disconnect'].includes(key))
+        || value.rejectReason !== undefined && (!Number.isInteger(value.rejectReason) || value.rejectReason < 0 || value.rejectReason > 9)
+        || value.ackSequenceOffset !== undefined && ![0, 1].includes(value.ackSequenceOffset)
+        || value.delayMs !== undefined && (!Number.isInteger(value.delayMs) || value.delayMs < 0 || value.delayMs > 10_000)
+        || value.disconnect !== undefined && typeof value.disconnect !== 'boolean') throw new Error('Invalid simulation fault');
+      fault = { ...value };
+    },
+    snapshot() {
+      const state = status(); state.ownerId = 'SIMULATION';
+      return { source: 'SIMULATION', simulation: true, limitation: 'PC protocol receiver only; no robot, motor, CAN or Dart FSM verification',
+        rpcCounts: { ...rpcCounts }, received, accepted, rejected, acceptanceRate: received ? accepted / received : null,
+        receivedHz: received > 1 ? (received - 1) * 1000 / (lastReceived - firstReceived) : null,
+        intervalMs: summarizeSamples(intervals), retainedRecords: records.length, droppedRecords: received - records.length,
+        maxRecords, stopCount, lastStop, moving, status: state, records: records.map((record) => ({ ...record, vector: record.vector && { ...record.vector } })) };
+    },
+    async close() { if (closed) return; closed = true; revoke(0); server.forceShutdown(); },
+  };
+}
+
+export function summarizeSamples(values) {
+  if (!values.length) return { count: 0, min: null, p50: null, p95: null, max: null, mean: null };
+  const sorted = [...values].sort((a, b) => a - b);
+  return { count: values.length, min: sorted[0], p50: sorted[Math.ceil(sorted.length * .5) - 1],
+    p95: sorted[Math.ceil(sorted.length * .95) - 1], max: sorted.at(-1), mean: values.reduce((sum, value) => sum + value, 0) / values.length };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

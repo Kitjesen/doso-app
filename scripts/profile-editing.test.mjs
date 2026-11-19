@@ -57,7 +57,7 @@ transpiledService = transpiledService
   .replace("from './supabaseClient'", `from '${clientModuleUrl}'`)
   .replace("from './authSessionOperation'", `from '${coordinatorModuleUrl}'`)
   .replace('const PROFILE_EDIT_TIMEOUT_MS = 20_000;', 'const PROFILE_EDIT_TIMEOUT_MS = 15;')
-  .replace('const PROFILE_AVATAR_CLEANUP_TIMEOUT_MS = 3_000;', 'const PROFILE_AVATAR_CLEANUP_TIMEOUT_MS = 15;');
+  .replace('const PROFILE_AVATAR_CLEANUP_TIMEOUT_MS = 3_000;', 'const PROFILE_AVATAR_CLEANUP_TIMEOUT_MS = 150;');
 const profileEditing = await import(
   `data:text/javascript;base64,${Buffer.from(transpiledService).toString('base64')}`
 );

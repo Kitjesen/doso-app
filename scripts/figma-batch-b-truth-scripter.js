@@ -11,7 +11,7 @@ const frames = {
 const replacements = new Map(Object.entries({
   'Forgot password?': '忘记密码？',
   'Email ': '邮箱',
-  'person@example.invalid': '请输入邮箱',
+  'sidanda@gmail.com': '请输入邮箱',
   'Log in': '登录',
   'Password': '密码',
   '**************': '请输入密码',

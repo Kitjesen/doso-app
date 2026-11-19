@@ -4,6 +4,9 @@ import { createRequire } from 'node:module';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
+import * as modes from '../src/features/control/robotModeCapabilities.ts';
+import { directVideoOrigin } from '../src/features/video/videoBinding.ts';
+import * as officialPalette from '../src/officialPalette.ts';
 
 const require = createRequire(import.meta.url);
 const source = readFileSync(new URL('../src/screens/RobotConnectionScreen.tsx', import.meta.url), 'utf8');
@@ -15,16 +18,39 @@ const snapshotSource = readFileSync(new URL('../src/services/directRobotConnecti
 const snapshotModule = { exports: {} };
 vm.runInNewContext(ts.transpileModule(snapshotSource, { compilerOptions: {
   module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022,
-} }).outputText, { module: snapshotModule, exports: snapshotModule.exports, Date, URL });
+} }).outputText, { module: snapshotModule, exports: snapshotModule.exports, Date, URL, require: name => { assert.equal(name, '../features/control/robotModeCapabilities.ts'); return modes; } });
+const grpcModule = { exports: {} };
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/services/brainstemGrpc.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText, { module: grpcModule, exports: grpcModule.exports, URL, require: name => ({
+  expo: { requireOptionalNativeModule: () => null }, 'react-native': { Platform: { OS: 'android' } },
+  '../features/control/robotModeCapabilities': modes,
+})[name] });
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
+const LingtuStatusScreen = () => null;
 const observation = observedAt => ({ source: 'brainstem.grpc.direct', transport: 'grpc-tls',
   observedAt: observedAt ?? new Date().toISOString(), motionAuthorized: false, cloudBindingVerified: false,
   status: { fsmKind: 'grounded', transition: 'none', owner: 'none', motorOutputEnabled: false,
     criticalMotorFault: false, grpcLeaseActive: false, readyForWalk: false } });
 
+test('explicit local use retires this connection page without binding or opening control', async () => {
+  let opened = 0;
+  const host = mount({ onOpenLocalUse: () => { opened++; } });
+  assert.equal(host.reads.length, 0);
+  assert.equal(opened, 0);
+  await host.element('robot-connect').props.onPress(); host.render();
+  assert.equal(host.reads.length, 1);
+  host.element('connection-local-use').props.onPress(); host.render();
+  assert.equal(opened, 1);
+  assert.equal(host.reads.length, 1);
+  assert.equal(host.timers.size, 0);
+  assert.match(host.copy, /无需绑定到当前账号/);
+  host.unmount();
+});
+
 // Actual TSX handlers, with native transport/React scheduling/timers as explicit
 // fixtures. This verifies UI ownership and late results, not Yoga, TLS or hardware.
-function mount({ available = true, controlAvailable = false, lanAvailable = false, localIdentityAvailable = false, getLocalIdentity, prepareLocalIdentity, completeLocalIdentity, cancelLocalIdentity, read, choose, readProfile, readVoltage, readMotors, ...props } = {}) {
+function mount({ available = true, controlAvailable = false, lanAvailable = false, localIdentityAvailable = false, getLocalIdentity, prepareLocalIdentity, completeLocalIdentity, cancelLocalIdentity, read, choose, readProfile, readVoltage, readMotors, strictEndpoints = false, ...props } = {}) {
   const slots = [], cleanups = [], timers = new Map(), listeners = new Set(), reads = [];
   let cursor = 0, timerId = 0, unmounted = false, lateUpdates = 0, nodes = [];
   const react = {
@@ -35,27 +61,37 @@ function mount({ available = true, controlAvailable = false, lanAvailable = fals
     useEffect(effect) { const i = cursor++; if (!(i in slots)) { slots[i] = true; cleanups.push(effect()); } },
   };
   class BrainstemGrpcError extends Error { constructor(code = 'config', message = 'invalid endpoint fixture') { super(message); this.code = code; } }
+  const appState = { currentState: 'active', addEventListener: (_event, callback) => {
+    listeners.add(callback); return { remove: () => listeners.delete(callback) };
+  } };
   const allowed = {
     react, 'react/jsx-runtime': require('react/jsx-runtime'),
-    'react-native': { AppState: { currentState: 'active', addEventListener: (_event, callback) => {
-      listeners.add(callback); return { remove: () => listeners.delete(callback) };
-    } }, Pressable: 'Pressable', ScrollView: 'ScrollView', View: 'View', StyleSheet: { create: value => value },
+    '../components/ControlSetupSurface': { ControlSetupBackground: 'ControlSetupBackground', ControlSetupPage: 'ControlSetupPage', controlSetupColors: {}, controlSetupAppearance: {} },
+    'react-native': { AppState: appState, Pressable: 'Pressable', ScrollView: 'ScrollView', View: 'View', StyleSheet: { create: value => value },
     useWindowDimensions: () => ({ width: 753, height: 471, fontScale: 1 }) },
     'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView' },
     '@expo/vector-icons': { Ionicons: 'Ionicons' }, 'expo-crypto': { randomUUID: () => 'fixture-request' },
     '../components/AppText': { Text: 'Text', TextInput: 'TextInput' },
+    '../components/OfficialSheet': { OfficialSheet: 'OfficialSheet' },
+    '../components/RobotHotspotPanel': { RobotHotspotPanel: 'RobotHotspotPanel' },
+    '../officialPalette': officialPalette,
+    '../features/video/videoBinding': { directVideoOrigin },
     '../theme': { useAppTheme: () => ({ colors: { background: '#fff' }, isDark: false }) },
     '../appearance': { cardLayout: { radius: 24 }, getProductAppearance: () => ({ surface: '#f4f7fa', ink: '#123', secondary: '#567', blue: '#98d1ff', blueInk: '#123' }) },
-    '../typography': { typography: {} },
+    '../typography': { typography: {}, controlTypography: {} },
     '../services/directRobotConnection': snapshotModule.exports,
+    './LingtuStatusScreen': { LingtuStatusScreen },
     '../services/brainstemControl': { isBrainstemControlAvailable: () => controlAvailable },
-    '../services/brainstemGrpc': { BrainstemGrpcError, isBrainstemGrpcAvailable: () => available, isBrainstemLanAvailable: () => lanAvailable,
+    '../services/brainstemGrpc': { BrainstemGrpcError: strictEndpoints ? grpcModule.exports.BrainstemGrpcError : BrainstemGrpcError,
+      isBrainstemGrpcAvailable: () => available, isBrainstemLanAvailable: () => lanAvailable,
       isBrainstemLocalIdentityAvailable: () => localIdentityAvailable,
       getBrainstemLocalClientIdentity: getLocalIdentity ?? (async () => null),
       prepareBrainstemLocalClientIdentity: prepareLocalIdentity ?? (async () => { throw new Error('local fixture not configured'); }),
       completeBrainstemLocalClientIdentity: completeLocalIdentity ?? (async () => { throw new Error('local fixture not configured'); }),
       cancelBrainstemLocalClientIdentity: cancelLocalIdentity ?? (async () => {}),
-      validateBrainstemEndpoint: (host, port) => { if (!host || !Number(port)) throw new BrainstemGrpcError(); return { host, port: Number(port) }; },
+      validateBrainstemEndpoint: strictEndpoints ? grpcModule.exports.validateBrainstemEndpoint : (host, port) => {
+        if (!host || !Number(port)) throw new BrainstemGrpcError(); return { host, port: Number(port) };
+      },
       chooseBrainstemClientIdentity: choose ?? (async () => null),
       readBrainstemGrpcStatus: options => { reads.push(options); return read ? read(options) : Promise.resolve(observation()); },
       ...(readProfile ? { readBrainstemGrpcProfile: readProfile } : {}),
@@ -87,23 +123,156 @@ function mount({ available = true, controlAvailable = false, lanAvailable = fals
   }
   render();
   return { render, reads, timers, BrainstemGrpcError, get lateUpdates() { return lateUpdates; },
+    get lingtuProps() { return nodes.find(node => node.type === LingtuStatusScreen)?.props; },
     get copy() { return nodes.filter(n => n.type === 'copy').map(n => n.value).join(' '); },
     element: id => nodes.find(n => n.props?.testID === id),
     advanced() { if (!this.element('connection-advanced-settings')) { this.element('connection-details-toggle').props.onPress(); render(); } },
     fill(value = 'robot.example.test') { this.element('robot-grpc-host').props.onChangeText(value); render(); },
-    background() { for (const callback of listeners) callback('background'); render(); },
-    foreground() { for (const callback of listeners) callback('active'); render(); },
+    background() { appState.currentState = 'background'; for (const callback of listeners) callback('background'); render(); },
+    foreground() { appState.currentState = 'active'; for (const callback of listeners) callback('active'); render(); },
     unmount() { unmounted = true; for (const cleanup of cleanups) cleanup?.(); },
   };
 }
 
 function mountAdvanced(options) { const host = mount(options); host.advanced(); return host; }
 
+test('local video uses the entered address after a failed control connection and keeps the form usable', async () => {
+  const viewing = [];
+  let controlAttempts = 0;
+  const host = mountAdvanced({ lanAvailable: true, strictEndpoints: true, controlAvailable: true,
+    onOpenControl: async () => { controlAttempts++; return false; },
+    onViewVideo: (...args) => { viewing.push(args); return viewing.length > 1; } });
+  host.fill('192.168.66.82');
+  host.element('robot-grpc-port').props.onChangeText('15443'); host.render();
+  await host.element('robot-connect').props.onPress(); host.render();
+  assert.match(host.copy, /局域网连接未建立/);
+  host.element('robot-lan-view-video').props.onPress(); host.render();
+  assert.match(host.copy, /暂时无法打开画面/);
+  host.element('robot-lan-view-video').props.onPress(); host.render();
+  assert.equal(viewing.length, 2);
+  for (const [origin, token, endpoint] of viewing) {
+    assert.equal(origin, 'http://192.168.66.82:5050');
+    assert.equal(token, undefined);
+    assert.deepEqual({ ...endpoint }, { host: '192.168.66.82', port: 15443, transport: 'lan-dev' });
+  }
+  assert.equal(host.element('robot-grpc-host').props.value, '192.168.66.82');
+  assert.equal(host.element('robot-grpc-port').props.value, '15443');
+  assert.equal(controlAttempts, 1); assert.equal(host.reads.length, 0);
+  host.unmount();
+});
+
+test('local video requires a current valid LAN form and never attempts a video request during connection work', async () => {
+  const viewing = [];
+  const onViewVideo = (...args) => { viewing.push(args); return true; };
+  const pending = deferred();
+  const host = mountAdvanced({ lanAvailable: true, strictEndpoints: true, read: () => pending.promise, onViewVideo });
+  const oldPress = host.element('robot-lan-view-video').props.onPress;
+  for (const address of ['8.8.8.8', '192.168.66.064', 'robot.example.test', '::1']) {
+    host.fill(address);
+    host.element('robot-lan-view-video').props.onPress(); host.render();
+  }
+  host.fill('10.20.30.40');
+  oldPress();
+  host.element('robot-grpc-port').props.onChangeText('0'); host.render();
+  host.element('robot-lan-view-video').props.onPress(); host.render();
+  assert.deepEqual(viewing, []);
+  host.element('robot-grpc-port').props.onChangeText('13145'); host.render();
+  const reading = host.element('robot-connect').props.onPress(); host.render();
+  const busyButton = host.element('robot-lan-view-video');
+  assert.equal(busyButton.props.disabled, true);
+  busyButton.props.onPress();
+  host.element('robot-grpc-cancel').props.onPress(); host.render();
+  host.element('robot-wire-transport').props.onPress(); host.render();
+  assert.equal(host.element('robot-lan-view-video'), undefined);
+  oldPress();
+  host.element('robot-wire-transport').props.onPress(); host.render();
+  host.background(); host.element('robot-lan-view-video').props.onPress(); host.foreground();
+  const afterUnmount = host.element('robot-lan-view-video').props.onPress;
+  host.unmount(); afterUnmount();
+  pending.resolve(observation()); await reading;
+  assert.deepEqual(viewing, []);
+  for (const props of [{ lanAvailable: false, onViewVideo }, { lanAvailable: true },
+    { lanAvailable: true, readOnlyPreview: true, onViewVideo }]) {
+    const gated = mount(props);
+    assert.equal(gated.element('robot-lan-view-video'), undefined);
+    gated.unmount();
+  }
+});
+
+test('navigation service is reachable from the shared connection center without starting control', () => {
+  for (const lanAvailable of [false, true]) {
+    let opened = 0;
+    const host = mountAdvanced({ lanAvailable, onOpenControl: async () => { opened++; return true; } });
+    const entry = host.element('connection-transport-navigation');
+    assert.ok(entry);
+    entry.props.onPress(); host.render();
+    assert.ok(host.lingtuProps);
+    assert.equal(host.lingtuProps.allowLocalHttp, lanAvailable);
+    assert.equal(host.reads.length, 0); assert.equal(opened, 0);
+    host.lingtuProps.onBack(); host.render();
+    assert.ok(host.element('robot-connect'));
+    assert.equal(host.element('connection-transport-ip').props.accessibilityState.selected, true);
+    assert.equal(host.reads.length, 0); assert.equal(opened, 0);
+    host.unmount();
+  }
+});
+
+test('design preview cannot read, open navigation or cancel a native pairing request', () => {
+  let cancelled = 0, opened = 0;
+  const host = mount({ readOnlyPreview: true, available: true, controlAvailable: true, localIdentityAvailable: true,
+    cancelLocalIdentity: async () => { cancelled++; }, onOpenControl: async () => { opened++; return true; } });
+  assert.equal(host.element('robot-connect').props.disabled, true);
+  host.element('robot-connect').props.onPress(); host.render();
+  host.advanced(); host.element('connection-transport-navigation').props.onPress(); host.render();
+  assert.equal(host.lingtuProps, undefined);
+  host.unmount();
+  assert.equal(host.reads.length, 0); assert.equal(opened, 0); assert.equal(cancelled, 0);
+});
+
+test('navigation binding is forwarded only when the caller explicitly exposes it', () => {
+  for (const enabled of [false, true]) {
+    const onUseNavigation = enabled ? () => true : undefined;
+    const host = mountAdvanced({ onUseNavigation });
+    host.element('connection-transport-navigation').props.onPress(); host.render();
+    assert.equal(host.lingtuProps.onUseNavigation, onUseNavigation);
+    assert.equal(host.reads.length, 0); host.unmount();
+  }
+});
+
+test('entering navigation clears the old gRPC observation and its expiry without reconnecting', async () => {
+  const host = mountAdvanced(); host.fill();
+  await host.element('robot-connect').props.onPress(); host.render();
+  assert.ok(host.element('robot-grpc-observation'));
+  assert.equal(host.timers.size, 1);
+  host.element('connection-transport-navigation').props.onPress(); host.render();
+  assert.equal(host.timers.size, 0);
+  host.lingtuProps.onBack(); host.render();
+  assert.equal(host.element('robot-grpc-observation'), undefined);
+  assert.equal(host.reads.length, 1);
+  host.unmount();
+});
+
+test('a cancelled gRPC reply cannot restore its observation after navigation was opened', async () => {
+  const pending = deferred(), host = mountAdvanced({ read: () => pending.promise }); host.fill();
+  const reading = host.element('robot-connect').props.onPress(); host.render();
+  const entry = host.element('connection-transport-navigation');
+  entry.props.onPress(); host.render();
+  assert.equal(host.lingtuProps, undefined, 'an active native operation must be cancelled first');
+  host.element('robot-grpc-cancel').props.onPress(); host.render();
+  host.element('connection-transport-navigation').props.onPress(); host.render();
+  assert.equal(host.reads[0].signal.aborted, true);
+  pending.resolve(observation()); await reading; host.render();
+  assert.ok(host.lingtuProps); assert.equal(host.timers.size, 0);
+  host.lingtuProps.onBack(); host.render();
+  assert.equal(host.element('robot-grpc-observation'), undefined);
+  host.unmount();
+});
+
 test('LAN capability failures preserve the safe service message instead of blaming the network', async () => {
   const host = mountAdvanced({ lanAvailable: true, read: async () => {
     throw new host.BrainstemGrpcError('unimplemented', '机器人服务尚未提供此项查询，请检查服务配置与版本。');
   } });
-  host.fill('192.168.42.64');
+  host.fill('192.168.66.64');
   await host.element('robot-grpc-read').props.onPress(); host.render();
   assert.match(host.copy, /机器人服务尚未提供此项查询/);
   assert.doesNotMatch(host.copy, /局域网连接检查失败/);
@@ -275,8 +444,9 @@ test('old package keeps connection unavailable and cannot expose account-only ac
   assert.equal(host.element('robot-open-ble'), undefined);
   assert.equal(host.reads.length, 0);
 });
-test('empty address fails without dispatch and with no hardcoded physical address', async () => {
+test('clearing the suggested address fails without dispatch', async () => {
   const host = mountAdvanced();
+  host.fill('');
   assert.equal(host.element('robot-grpc-host').props.value, '');
   await host.element('robot-connect').props.onPress(); host.render();
   assert.equal(host.reads.length, 0); assert.match(host.copy, /invalid endpoint fixture/);
@@ -442,6 +612,18 @@ test('a new page can refill a transient selected address without automatically r
   assert.equal(host.reads.length, 0); assert.equal(host.element('robot-use-connection'), undefined);
 });
 
+test('suggested IP stays editable and never replaces a caller-provided target', () => {
+  const suggested = mount();
+  assert.equal(suggested.element('robot-grpc-host').props.value, '192.168.66.64');
+  assert.equal(suggested.reads.length, 0);
+  suggested.fill('192.168.66.65');
+  assert.equal(suggested.element('robot-grpc-host').props.value, '192.168.66.65');
+  assert.equal(suggested.reads.length, 0);
+  const explicitEmpty = mount({ initialEndpoint: { host: '', port: 13145 } });
+  assert.equal(explicitEmpty.element('robot-grpc-host').props.value, '');
+  assert.equal(explicitEmpty.reads.length, 0);
+});
+
 test('editing, expiry and a declined continuation never publish a replacement device', async () => {
   let selected = 0;
   const host = mountAdvanced({ onUseConnection: () => { selected++; return false; } }); host.fill();
@@ -542,13 +724,14 @@ test('QA LAN primary action needs only private IP and opens a channel without id
   const host = mount({ lanAvailable: true, controlAvailable: true,
     choose: async () => { identities++; throw new Error('LAN must not select a certificate'); },
     onOpenControl: async (...args) => { opened.push(args); return true; } });
-  host.fill('192.168.42.64');
+  assert.equal(host.element('robot-grpc-host').props.value, '192.168.66.64');
   assert.ok(host.element('robot-lan-mode'));
+  assert.equal(opened.length, 0); assert.equal(host.reads.length, 0);
   assert.equal(host.element('robot-grpc-certificate'), undefined);
   assert.doesNotMatch(host.copy, /握手|待授权|CSR|生成连接申请/);
   await host.element('robot-connect').props.onPress(); host.render();
   assert.equal(opened.length, 1);
-  assert.deepEqual(JSON.parse(JSON.stringify(opened[0][0])), { host: '192.168.42.64', port: 13145, transport: 'lan-dev' });
+  assert.deepEqual(JSON.parse(JSON.stringify(opened[0][0])), { host: '192.168.66.64', port: 13145, transport: 'lan-dev' });
   assert.equal(opened[0][1], '', 'native generates the temporary session identity');
   assert.equal(identities, 0); assert.equal(host.reads.length, 0);
   assert.match(host.copy, /连接已建立/);

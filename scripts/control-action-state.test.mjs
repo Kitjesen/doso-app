@@ -67,3 +67,4 @@ test('blocked UI can return to idle or submit only after readiness changes', () 
   const submitted = transitionControlOperationState(idle.state, 'submitted');
   assert.equal(submitted.accepted, true);
 });
+

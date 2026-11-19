@@ -43,6 +43,7 @@ vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/co
     if (name === 'react-native') return { Platform: { OS: 'ios' }, Pressable: 'Pressable', StyleSheet: { create: value => value, absoluteFillObject: { position: 'absolute' } }, View: 'View' };
     if (name === '@expo/vector-icons') return { Ionicons: 'Ionicons' };
     if (name === './AppText') return { Text: 'Text' };
+    if (name === '../officialPalette') return { officialDark: { cta: '#F0F4FE', ctaInk: '#1C1C1B', ink: '#E8E8E6', muted: '#A0A09B' } };
     throw new Error(`Unexpected landscape HUD dependency: ${name}`);
   },
 });
@@ -145,16 +146,26 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     useWindowDimensions: () => viewport,
   };
   const dependencies = {
+    '../features/control/useControlRobotVideo': { useControlRobotVideo: () => ({}) },
+    '../components/DepthSnapshotView': { DepthSnapshotView: 'DepthSnapshotView' },
     react,
     'react/jsx-runtime': require('react/jsx-runtime'),
+    '../components/ControlSetupSurface': { ControlSetupBackground: 'ControlSetupBackground', ControlSetupPage: 'ControlSetupPage', controlSetupColors: {}, controlSetupAppearance: {} },
     'react-native': host,
     '@expo/vector-icons': { Ionicons: 'Ionicons' },
-    'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView' },
+    'expo-linear-gradient': { LinearGradient: 'LinearGradient' },
+    '../components/ControlPanelMotion': { ControlPanelMotion: 'ControlPanelMotion' },
+    './ControlPanelMotion': { ControlPanelMotion: 'ControlPanelMotion' },
+    'react-native-safe-area-context': { useSafeAreaInsets: () => ({top:0,left:0,right:0,bottom:0}), SafeAreaView: 'SafeAreaView' },
     '../components/ControlJoystick': { ControlJoystickPair },
     '../components/controlLandscapeHud': landscapeHudModule.exports,
     '../components/RobotRecoveryControls': recoveryPanelModule.exports,
     '../features/control/robotRecovery': { beginRobotRecovery, presentRobotRecovery },
     '../components/ControlVideoSurface': { ControlVideoSurface },
+    '../components/ControlGlass': { ControlGlassTarget: 'GlassTarget', useControlGlass: () => ({
+      target: { current: null }, canvas: '#F9F9FB', surface: 'rgba(255,255,255,0.86)', ink: '#1C2024', muted: '#60646C',
+      border: 'rgba(255,255,255,0.78)', backdrop: () => ({ type: 'BlurBackdrop', props: { pointerEvents: 'none' } }),
+    }) },
     '../components/JoystickLayoutSettings': { JoystickLayoutSettings },
     '../features/control/joystickLayoutPreferences': { ...joystickLayoutModule.exports,
       loadJoystickLayoutPreferences: layoutLoad, saveJoystickLayoutPreferences: layoutSave },
@@ -175,6 +186,11 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
       navigationCalls.push(hidden); return Promise.resolve(navigationInset(hidden));
     } },
   };
+  const referenceUi = { exports: {} };
+  vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/ControlReferenceUi.tsx', import.meta.url), 'utf8'), {
+    compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, { module: referenceUi, exports: referenceUi.exports, require: name => name === './AppText' ? { Text: 'Text' } : dependencies[name] });
+  dependencies['../components/ControlReferenceUi'] = referenceUi.exports;
   const module = { exports: {} };
   vm.runInNewContext(compiled, {
     module,
@@ -221,6 +237,7 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
           return;
         }
         nodes.push(node);
+        walk(node.props?.header);
         walk(node.props?.children);
       }
       walk(root);
@@ -243,6 +260,7 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
       return nodes.filter(node => node.type === 'copy').map(node => node.value).join(' ').replace(/\s+/g, ' ').trim();
     },
     get pair() { return nodes.find(node => node.type === ControlJoystickPair)?.props; },
+    get pairKey() { return nodes.find(node => node.type === ControlJoystickPair)?.key; },
     get videoStage() { return nodes.find(node => node.type === ControlVideoSurface)?.props; },
     get joystickSettings() { return nodes.find(node => node.type === JoystickLayoutSettings)?.props; },
     async settle() { await new Promise(resolve => setImmediate(resolve)); render(); },
@@ -290,6 +308,33 @@ function capableProps() {
   };
 }
 
+test('landscape shows the current control owner without guessing', () => {
+  const screen = mount({ dev: false, dimensions: { fontScale: 1, width: 800, height: 480 } });
+  for (const [owner, label] of [['none', '无人控制'], ['this-device', '本设备控制'],
+    ['remote', '远程控制中'], ['robot-remote', '机器人侧遥控中'], ['unknown', '控制状态未知']]) {
+    screen.render({ connected: true, runtimeState: { controlLink: 'connected', controlOwner: owner } });
+    assert.equal(screen.find('control-owner').props.accessibilityLabel, label);
+    assert.ok(screen.find('control-open-connection').props.accessibilityLabel.includes(label));
+  }
+  screen.unmount();
+});
+
+function openSettings(screen, id) {
+  if (id === 'control-open-policy' && screen.find('control-mode-menu')) {
+    screen.find('control-mode-dismiss').props.onPress(); screen.render(); return;
+  }
+  const more = screen.find('control-open-more');
+  if (more && !screen.find(id)) { more.props.onPress(); screen.render(); }
+  if (!screen.find(id) && screen.find('control-settings-tab-通用')) { screen.find('control-settings-tab-通用').props.onPress(); screen.render(); }
+  assert.ok(screen.find(id), `missing settings action ${id}`);
+  screen.find(id).props.onPress();
+}
+
+function motorToggle(screen) {
+  if (!screen.find('control-motor-toggle')) { openSettings(screen, 'control-open-gestures'); screen.render(); }
+  return screen.find('control-motor-toggle');
+}
+
 function physicalFixture() {
   const subscribers = new Set();
   let sequence = 0;
@@ -297,9 +342,9 @@ function physicalFixture() {
   let fenceAt = 0;
   const controller = {
     state: { reading: true, calibrated: true, calibrating: false, available: true, status: 'reading',
-      message: null, sample: { channels: Array(16).fill(1500) }, axes: {}, buttons: {}, vector: null },
+      message: null, sample: { channels: Array(16).fill(1500), configurationReady: true }, axes: {}, buttons: {}, vector: null },
     subscribe(listener) { subscribers.add(listener); return () => subscribers.delete(listener); },
-    isFresh() { return fresh; }, start() {}, stop() {}, beginCalibration() {}, learnAxis() {}, learnButton() {},
+    isFresh() { return fresh; }, start() {}, observe() {}, stop() {}, beginCalibration() {}, learnAxis() {}, learnButton() {},
     captureFence() { return fenceAt; },
     finishCalibration() {}, clearCalibration() {},
   };
@@ -311,6 +356,232 @@ function physicalFixture() {
       for (const listener of subscribers) listener({ sample, frame });
     } };
 }
+
+test('offline touch preview never dispatches and is retired before live control', () => {
+  const calls = [];
+  const input = { ready: true, touchReady: true, onTouchBegin() { calls.push('begin'); },
+    onTouchEnd() { calls.push('end'); }, onDrive() { calls.push('drive'); },
+    onTurn() { calls.push('turn'); }, onInterrupt() { calls.push('interrupt'); } };
+  const screen = mount({ dev: false, connected: false, runtimeState: { controlLink: 'disconnected' }, productionInput: input });
+  const preview = screen.pair, previewKey = screen.pairKey;
+  assert.equal(preview.disabled, false);
+  assert.equal(preview.left.onSample, undefined); assert.equal(preview.right.onSample, undefined);
+  preview.left.onActiveChange(true); preview.left.onChange({ x: 1, y: 1 });
+  preview.right.onActiveChange(true); preview.right.onChange({ x: 1, y: 0 });
+  preview.left.onActiveChange(false); preview.right.onActiveChange(false); preview.onCancel();
+  assert.deepEqual(calls, []);
+  screen.render({ connected: true, runtimeState: { controlLink: 'connected' } });
+  assert.notEqual(screen.pairKey, previewKey, 'a held preview must not survive connection');
+  preview.left.onChange({ x: 1, y: 1 }); preview.left.onActiveChange(true); preview.onCancel();
+  assert.deepEqual(calls, []);
+  const live = screen.pair;
+  live.left.onActiveChange(true); live.left.onSample({ x: .2, y: 0 });
+  assert.deepEqual(calls, ['begin', 'drive']);
+  screen.render({ connected: false, runtimeState: { controlLink: 'disconnected' } });
+  live.left.onSample({ x: 1, y: 0 }); live.left.onActiveChange(true);
+  assert.deepEqual(calls, ['begin', 'drive'], 'stale live input must not resume offline');
+  screen.unmount();
+});
+
+test('disconnected preview cannot choose a real executor when a debug simulator is also present', () => {
+  let sent = 0;
+  const input = { ready: true, touchReady: true, onTouchBegin() { sent++; }, onDrive() { sent++; },
+    onTurn() { sent++; }, onInterrupt() {} };
+  const simulation = { ready: true, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() {} };
+  const screen = mount({ dev: true, connected: false, runtimeState: { controlLink: 'disconnected' },
+    productionInput: input, developmentInput: simulation });
+  assert.equal(screen.pair.disabled, false);
+  assert.equal(screen.pair.left.onSample, undefined);
+  screen.pair.left.onActiveChange(true); screen.pair.left.onChange({ x: 1, y: 1 });
+  assert.equal(sent, 0);
+  screen.unmount();
+});
+
+test('contradictory connection states cannot grant movement', () => {
+  let sent = 0;
+  const input = { ready: true, touchReady: true, onTouchBegin() { sent++; },
+    onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() {} };
+  for (const state of [{ connected: false, controlLink: 'connected' }, { connected: true, controlLink: 'disconnected' }]) {
+    const screen = mount({ dev: false, connected: state.connected, runtimeState: { controlLink: state.controlLink }, productionInput: input });
+    assert.equal(screen.pair.disabled, true);
+    screen.pair.left.onActiveChange(true); screen.pair.left.onChange({ x: 1, y: 1 });
+    assert.equal(sent, 0);
+    screen.unmount();
+  }
+});
+
+test('settings menu cancels touch, blocks old input and keeps the stop action available', async () => {
+  let sent = 0, interrupted = 0, stops = 0, sits = 0;
+  const screen = mount({ dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, ...capableProps(),
+    productionInput: { ready: true, onDrive() { sent++; }, onTurn() {}, onInterrupt() { interrupted++; } },
+    runtimeState: { controlLink: 'connected', controlAuthority: 'held', posture: 'standing' },
+    operationReadiness: { stop: { ready: true }, sit: { ready: true } },
+    operationCallbacks: { stop: async () => { stops++; }, sit: async () => { sits++; } },
+  });
+  const oldInput = screen.pair.left.onSample;
+  oldInput({ x: .2, y: 0 }); assert.equal(sent, 1);
+  screen.find('control-open-more').props.onPress();
+  oldInput({ x: 1, y: 0 }); assert.equal(sent, 1);
+  screen.render();
+  assert.ok(screen.find('control-settings-menu')); assert.equal(screen.pair.disabled, true);
+  assert.ok(screen.find('control-immersive-surface').props.children.includes(screen.find('control-settings-menu')));
+  assert.ok(interrupted > 0); assert.equal(screen.find('control-action-sit'), undefined);
+  assert.equal(screen.find('control-action-stop').props.disabled, false);
+  screen.find('control-action-stop').props.onPress(); await screen.settle();
+  assert.equal(stops, 1); assert.equal(sits, 0); assert.equal(screen.find('control-settings-menu'), undefined);
+  screen.unmount();
+});
+
+test('layout editor keeps the shared stop action operational', async () => {
+  let stops = 0;
+  const screen = mount({ dev: false, dimensions: { width: 844, height: 390, fontScale: 1 },
+    runtimeState: { controlLink: 'connected' }, operationReadiness: { stop: { ready: true } },
+    operationCallbacks: { stop: async () => { stops++; } } });
+  openSettings(screen, 'control-open-joystick-layout'); screen.render();
+  assert.equal(screen.find('control-action-stop').props.disabled, false);
+  screen.find('control-action-stop').props.onPress(); await screen.settle();
+  assert.equal(stops, 1);
+  assert.ok(screen.joystickSettings);
+  screen.unmount();
+});
+
+test('stop cancels a mode picker or its confirmation without dispatching the old choice', async () => {
+  for (const confirm of [false, true]) {
+    let stops = 0, switches = 0;
+    const screen = mount({ dev: false, dimensions: { width: 1280, height: 720, fontScale: 1 }, connected: true,
+      runtimeState: { controlLink: 'connected', policyCatalogStatus: 'synced',
+        currentPolicy: { id: 'flat', label: '平地' }, policyOptions: [{ id: 'flat', label: '平地' }, { id: 'stairs', label: '楼梯' }] },
+      operationReadiness: { stop: { ready: true }, switchPolicy: { ready: true } },
+      operationCallbacks: { stop: async () => { stops++; }, switchPolicy: async () => { switches++; } } });
+    openSettings(screen, 'control-open-policy'); screen.render();
+    const oldChoice = screen.find('control-mode-stairs').props.onPress;
+    let oldConfirm;
+    if (confirm) { oldChoice(); screen.render(); oldConfirm = screen.find('control-immersive-confirm').props.onPress; }
+    assert.equal(screen.find('control-action-stop').props.disabled, false);
+    screen.find('control-action-stop').props.onPress(); await screen.settle();
+    assert.equal(stops, 1); assert.equal(switches, 0);
+    assert.equal(screen.find('control-mode-menu'), undefined);
+    assert.equal(screen.find('control-immersive-confirm'), undefined);
+    oldChoice(); oldConfirm?.(); await screen.settle();
+    assert.equal(switches, 0);
+    assert.equal(screen.find('control-immersive-confirm'), undefined);
+    screen.unmount();
+  }
+});
+
+test('physical stop remains available immediately while opening settings', () => {
+  const hardware = physicalFixture(); let sent = 0, interrupted = 0;
+  const screen = mount({ dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, ...capableProps(),
+    g20Controller: hardware.controller, inputSource: 'physical',
+    productionInput: { ready: true, onDrive() {}, onTurn() {}, onSticks() { sent++; }, onInterrupt() { interrupted++; } },
+  });
+  hardware.sample(); hardware.sample({ moving: true }); assert.equal(sent, 1);
+  screen.find('control-open-more').props.onPress();
+  const afterOpen = interrupted;
+  hardware.sample({ moving: true, pressed: ['stop'] });
+  assert.ok(interrupted > afterOpen); assert.equal(sent, 1);
+  screen.render(); assert.equal(screen.find('control-settings-menu'), undefined);
+  screen.unmount();
+});
+
+test('physical stop remains available while opening posture menu', () => {
+  const hardware = physicalFixture(); let sent = 0, interrupted = 0;
+  const screen = mount({ dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, ...capableProps(),
+    g20Controller: hardware.controller, inputSource: 'physical',
+    productionInput: { ready: true, onDrive() {}, onTurn() {}, onSticks() { sent++; }, onInterrupt() { interrupted++; } },
+  });
+  hardware.sample(); hardware.sample({ moving: true }); assert.equal(sent, 1);
+  openSettings(screen, 'control-open-gestures');
+  const afterOpen = interrupted;
+  hardware.sample({ moving: true, pressed: ['stop'] });
+  assert.ok(interrupted > afterOpen); assert.equal(sent, 1);
+  screen.render(); assert.equal(screen.find('control-posture-menu'), undefined);
+  screen.unmount();
+});
+
+test('settings links open real connection and diagnostics handlers', () => {
+  let connections = 0, diagnostics = 0;
+  const screen = mount({ dev: false, dimensions: { width: 844, height: 390, fontScale: 1 },
+    onOpenConnection: () => { connections++; }, onOpenJointStatus: () => { diagnostics++; } });
+  screen.find('control-open-more').props.onPress(); screen.render();
+  screen.find('control-settings-tab-网络').props.onPress(); screen.render();
+  screen.find('control-settings-connection').props.onPress(); screen.render();
+  assert.equal(connections, 1);
+  screen.find('control-open-more').props.onPress(); screen.render();
+  screen.find('control-settings-tab-机器人').props.onPress(); screen.render();
+  screen.find('control-open-diagnostics').props.onPress();
+  assert.equal(diagnostics, 1);
+  screen.unmount();
+});
+
+test('reference settings do not invent capabilities and overlay visibility grants no motion', () => {
+  let sent = 0;
+  const screen = mount({ dev: false, dimensions: { width: 753, height: 447, fontScale: 1 },
+    productionInput: { ready: false, onDrive() { sent++; }, onTurn() {}, onInterrupt() {} } });
+  assert.equal(screen.find('control-action-prone').props.disabled, true);
+  assert.equal(screen.find('control-action-recovery').props.disabled, true);
+  screen.find('control-open-more').props.onPress(); screen.render();
+  assert.equal(screen.find('control-setting-mirror').props.disabled, true);
+  screen.find('control-settings-tab-视频').props.onPress(); screen.render();
+  assert.equal(screen.find('control-setting-recording').props.disabled, true);
+  screen.find('control-setting-overlay').props.onPress(); screen.render();
+  screen.find('control-settings-tab-音频').props.onPress(); screen.render();
+  assert.equal(screen.find('control-setting-volume').props.accessibilityState.disabled, true);
+  screen.find('control-settings-tab-安全').props.onPress(); screen.render();
+  assert.equal(screen.find('control-setting-stop-confirm').props.disabled, true);
+  assert.equal(screen.find('control-setting-stop-confirm').props['aria-checked'], false);
+  screen.find('control-close-settings').props.onPress(); screen.render();
+  assert.equal(screen.find('control-telemetry-speed'), undefined);
+  assert.equal(screen.find('control-telemetry-battery'), undefined);
+  assert.ok(screen.find('control-action-stop'));
+  assert.equal(sent, 0);
+  screen.unmount();
+});
+
+test('all eight settings pages show distinct content without granting control or sending motion', () => {
+  let sent = 0, acquired = 0, released = 0;
+  const screen = mount({ dev: false, dimensions: { width: 753, height: 447, fontScale: 1.25 },
+    inputSource: 'physical',
+    productionInput: { ready: false, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() {} },
+    controlSession: { label: '无人控制', canAcquire: true, leaseActive: false, busy: false,
+      onAcquire() { acquired++; }, onRelease() { released++; } } });
+  screen.find('control-open-more').props.onPress(); screen.render();
+  const pages = [
+    ['通用', '显示设置'], ['操控', '摇杆设置'], ['视频', '录像设置'], ['音频', '对讲服务'],
+    ['网络', '机器狗连接'], ['机器人', '机器人状态'], ['安全', '输入保护'], ['关于', '界面素材'],
+  ];
+  for (const [page, heading] of pages) {
+    screen.find(`control-settings-tab-${page}`).props.onPress(); screen.render();
+    assert.ok(screen.find(`control-settings-page-${page}`));
+    assert.ok(screen.copy.includes(heading));
+    for (const [other] of pages) if (other !== page) assert.equal(screen.find(`control-settings-page-${other}`), undefined);
+    assert.ok(screen.find('control-action-stop'));
+    assert.ok(screen.find('control-close-settings'));
+    assert.equal(screen.find(`control-settings-tab-${page}`).props.accessibilityState.selected, true);
+    assert.equal(Boolean(screen.find('control-lease')), page === '网络');
+    assert.equal(screen.pair.disabled, true);
+  }
+  assert.equal(sent, 0); assert.equal(acquired, 0); assert.equal(released, 0);
+  screen.unmount();
+});
+
+test('settings keep robot authority separate from input source and retire disconnected observations', () => {
+  const runtimeState = { controlLink: 'connected', controlOwner: 'robot-remote', posture: 'standing', motorState: 'enabled',
+    currentPolicy: { id: 'stairs', label: '楼梯' } };
+  const screen = mount({ dev: false, dimensions: { width: 1280, height: 720, fontScale: 1 },
+    connected: true, inputSource: 'physical', runtimeState });
+  screen.find('control-open-more').props.onPress(); screen.render();
+  screen.find('control-settings-tab-网络').props.onPress(); screen.render();
+  assert.match(screen.copy, /机器人侧遥控中/); assert.match(screen.copy, /G20 实体摇杆/);
+  screen.find('control-settings-tab-机器人').props.onPress(); screen.render();
+  assert.match(screen.copy, /已使能/); assert.match(screen.copy, /楼梯/);
+  screen.render({ connected: false, runtimeState: { ...runtimeState, controlLink: 'disconnected' } });
+  const panel = screen.find('control-settings-page-机器人');
+  const panelText = JSON.stringify(panel);
+  assert.doesNotMatch(panelText, /已使能|楼梯|本设备控制/);
+  assert.match(panelText, /未读取/);
+  screen.unmount();
+});
 
 test('physical input needs neutral after motion permission and sends a coherent pair; stale input interrupts', () => {
   const hardware = physicalFixture(); const sent = []; let stopped = 0;
@@ -327,6 +598,15 @@ test('physical input needs neutral after motion permission and sends a coherent 
   hardware.setFresh(false); const before = stopped; hardware.sample({ moving: true });
   assert.equal(sent.length, 1); assert.ok(stopped > before);
   screen.unmount();
+});
+test('unverified observation cannot use stale calibration to send physical input', () => {
+  const hardware = physicalFixture(), sent = [];
+  hardware.controller.state.sample.configurationReady = false;
+  const screen = mount({ dev: false, ...capableProps(), g20Controller: hardware.controller,
+    inputSource: 'physical', productionInput: { ready: true, onDrive() {}, onTurn() {},
+      onSticks(...values) { sent.push(values); }, onInterrupt() {} } });
+  hardware.sample(); hardware.sample({ moving: true });
+  assert.deepEqual(sent, []); screen.unmount();
 });
 
 test('physical source and motion grants reject neutral frames whose requests predate the Android fence', () => {
@@ -364,7 +644,7 @@ test('input settings interrupts control and never routes physical frames or keys
   const screen = mount({ dev: false, ...capableProps(), g20Controller: hardware.controller, inputSource: 'physical',
     productionInput: { ready: true, onDrive() {}, onTurn() {}, onSticks() { sent++; }, onInterrupt() { stopped++; } } });
   hardware.sample(); hardware.sample({ moving: true }); assert.equal(sent, 1);
-  screen.find('control-open-input').props.onPress(); screen.render();
+  openSettings(screen, 'control-open-input'); screen.render();
   assert.ok(screen.inputPanel); const before = sent; const interrupts = stopped;
   hardware.sample(); hardware.sample({ moving: true, pressed: ['stand'] });
   assert.equal(sent, before); assert.ok(stopped > 0);
@@ -412,7 +692,7 @@ test('both settings surfaces permanently retire saved touch callbacks even after
     const screen = mount({ dev: false, ...capableProps(), g20Controller: hardware.controller,
       productionInput: { ready: true, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() {} } });
     const oldDrive = screen.pair.left.onSample, oldTurn = screen.pair.right.onSample;
-    screen.find(kind === 'input' ? 'control-open-input' : 'control-open-joystick-layout').props.onPress();
+    openSettings(screen, kind === 'input' ? 'control-open-input' : 'control-open-joystick-layout');
     oldDrive({ x: 1, y: 0 }); oldTurn({ x: 1, y: 0 });
     assert.equal(sent, 0, `${kind} settings must synchronously reject previous input`);
     screen.render();
@@ -493,19 +773,21 @@ test('direct IP status is labelled as one read and cannot be mistaken for cloud-
   assert.ok(screen.find('control-direct-connection'));
   assert.match(screen.copy, /状态已读取/); assert.match(screen.copy, /当前站立/); assert.match(screen.copy, /电机已使能/);
   assert.doesNotMatch(screen.copy, /设备在线|已取得控制权/);
-  assert.equal(screen.pair.disabled, true);
+  assert.equal(screen.pair.disabled, false);
+  assert.equal(screen.pair.left.onSample, undefined);
   screen.find('control-open-connection').props.onPress(); assert.equal(opened, 1);
   screen.render({ directConnection: { endpointLabel: 'robot.example.test:13145', fresh: false, summary: '状态已过期 · 请重新检查' },
     runtimeState: { controlLink: 'unknown', controlAuthority: 'not-held', posture: 'unknown', motorState: 'unknown' } });
   assert.match(screen.copy, /需重新检查/); assert.doesNotMatch(screen.copy, /当前站立|电机已使能/);
 });
 
-test('production control center exposes truthful status, map availability and labeled disabled sticks', () => {
+test('production control center exposes truthful status and offline preview sticks', () => {
   const screen = mount({ dev: false });
-  for (const copy of ['THUNDER 01', '室外四足机器人', '设备离线', '电量未知', '手动控制未开放', '地图未接入']) {
+  for (const copy of ['THUNDER 01', '室外四足机器人', '设备离线', '电量未知', '本地试用', '地图未接入']) {
     assert.ok(screen.copy.includes(copy), copy);
   }
-  assert.equal(screen.pair.disabled, true);
+  assert.equal(screen.pair.disabled, false);
+  assert.equal(screen.pair.left.onSample, undefined);
   assert.equal(screen.pair.showLabels, true);
   assert.equal(screen.pair.left.testID, 'control-drive-stick');
   assert.equal(screen.pair.right.testID, 'control-turn-stick');
@@ -514,6 +796,7 @@ test('production control center exposes truthful status, map availability and la
   assert.equal(screen.find('control-recall').props.disabled, true);
   assert.ok(screen.find('control-terrain-mode'));
   for (const mode of ['flat', 'stairs', 'platform']) assert.equal(screen.find(`control-terrain-mode-${mode}`).props.disabled, true);
+  assert.equal(typeof screen.find('control-terrain-mode-recovery').props.onPress, 'function');
   assert.equal(screen.find('control-preview-toggle'), undefined);
   assert.equal(screen.find('control-stop-disabled'), undefined);
   assert.equal(screen.find('control-developer-toggle'), undefined);
@@ -539,8 +822,33 @@ test('complete action surface keeps stop visible, supports collapse, and reports
   assert.ok(screen.find('control-action-collapse'));
   screen.find('control-action-collapse').props.onPress();
   screen.render();
-  assert.ok(screen.find('control-action-collapsed'));
+  assert.equal(screen.find('control-action-collapse').props.accessibilityLabel, '展开动作区');
+  assert.doesNotMatch(screen.copy, /动作区已折叠/);
+  screen.find('control-action-collapse').props.onPress(); screen.render();
+  assert.ok(screen.find('control-action-stop'));
   screen.unmount();
+});
+
+test('portrait hides repeated readiness details but keeps them available on demand', () => {
+  const screen = mount({ dev: false });
+  assert.equal(screen.find('control-status-grid'), undefined);
+  assert.equal(screen.find('control-action-status-stand'), undefined);
+  assert.equal(screen.find('control-action-stand').props.disabled, true);
+  assert.ok(screen.find('control-action-stand').props.accessibilityHint);
+  screen.find('control-status-details').props.onPress(); screen.render();
+  assert.ok(screen.find('control-status-grid'));
+  screen.find('control-action-reasons').props.onPress(); screen.render();
+  assert.ok(screen.find('control-action-status-stand'));
+  screen.unmount();
+});
+
+test('ordinary G20 landscape keeps the status in one row and room for both discs', () => {
+  for (const dimensions of [{ width: 753, height: 447, fontScale: 1 }, { width: 844, height: 390, fontScale: 1 }]) {
+    const screen = mount({ dev: false, dimensions });
+    assert.equal(screen.find('control-compact-telemetry'), undefined);
+    for (const side of ['left', 'right']) assert.ok(screen.pair.layout[side].size >= 110 && screen.pair.layout[side].size <= 140);
+    screen.unmount();
+  }
 });
 
 test('landscape keeps the four real action controls on the glass video surface', () => {
@@ -559,16 +867,17 @@ test('landscape keeps the four real action controls on the glass video surface',
   assert.equal(screen.find('control-brainstem-details'), undefined);
   assert.equal(screen.find('control-secondary-actions-toggle'), undefined);
   assert.ok(screen.find('control-telemetry'));
-  assert.ok(screen.find('control-telemetry-speed'));
+  assert.equal(screen.find('control-telemetry-speed'), undefined);
   assert.ok(screen.find('control-telemetry-signal'));
   assert.ok(screen.find('control-telemetry-battery'));
   assert.ok(screen.pair);
   assert.equal(screen.pair.variant, 'glass');
   assert.equal(screen.pair.showLabels, false);
-  assert.equal(screen.pair.disabled, true);
+  assert.equal(screen.pair.disabled, false);
+  assert.equal(screen.pair.left.onSample, undefined);
   assert.match(screen.copy, /THUNDER-01/);
-  assert.match(screen.copy, /速度|信号|电量/);
-  assert.doesNotMatch(screen.copy, /手动控制|输入来源|地图|任务|路线|Brainstem|更多/);
+  assert.match(screen.find('control-telemetry-battery').props.accessibilityLabel, /电量/);
+  assert.doesNotMatch(screen.copy, /手动控制|输入来源|任务|路线|Brainstem|更多/);
   screen.unmount();
 });
 
@@ -580,17 +889,18 @@ test('landscape canvas remains measured and bounded across system bars and input
   await screen.settle();
   assert.equal(screen.scroll, undefined, 'the control surface cannot grow inside a percentage-height ScrollView');
   assert.equal(screen.navigationCalls.at(-1), true);
-  assert.equal(canvasHeight(), 352);
+  assert.equal(canvasHeight(), 400, 'SafeAreaView has already excluded any visible system bar');
   screen.layout(753, 448);
-  assert.equal(canvasHeight(), 400, 'reserve the stable navigation height even while the bar is hidden');
-  screen.find('control-open-input').props.onPress(); screen.render(); await screen.settle();
+  assert.equal(canvasHeight(), 448, 'use reclaimed space when the measured safe viewport expands');
+  openSettings(screen, 'control-open-input'); screen.render(); await screen.settle();
   assert.ok(screen.inputPanel);
   assert.equal(screen.navigationCalls.at(-1), false);
   screen.inputPanel.onClose(); screen.render(); await screen.settle();
   assert.equal(screen.navigationCalls.at(-1), true);
   screen.layout(753, 400);
-  assert.equal(canvasHeight(), 352);
-  assert.equal(screen.pair.disabled, true, 'window changes must not acquire input authority');
+  assert.equal(canvasHeight(), 400);
+  assert.equal(screen.pair.disabled, false);
+  assert.equal(screen.pair.left.onSample, undefined, 'window changes must not acquire input authority');
   screen.background(); await screen.settle();
   assert.equal(screen.navigationCalls.at(-1), false);
   screen.background('active'); await screen.settle();
@@ -619,36 +929,75 @@ test('large text keeps its scrollable layout and a retired navigation reply cann
 
 test('landscape diagnostics retires held touch before navigation', () => {
   const order = []; let sent = 0;
-  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(), connected: false,
+  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(), connected: true,
     productionInput: { ready: true, onDrive() { sent++; }, onTurn() {}, onInterrupt() { order.push('interrupt'); } },
     onOpenJointStatus() { order.push('diagnostics'); } });
   const oldInput = screen.pair.left.onSample;
   oldInput({ x: .2, y: .2 });
   const before = sent;
-  screen.find('control-open-diagnostics').props.onPress();
+  openSettings(screen, 'control-open-diagnostics');
   assert.deepEqual(order.slice(-2), ['interrupt', 'diagnostics']);
   oldInput({ x: .3, y: .3 });
   assert.equal(sent, before);
   screen.unmount();
 });
 
-test('gesture library opens unavailable state and retires old touch without replay on return', () => {
+test('posture menu retires old touch and keeps recovery unavailable', () => {
   let sent = 0, interrupted = 0;
-  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(), connected: false,
+  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(), connected: true,
     productionInput: { ready: true, onDrive() { sent++; }, onTurn() {}, onInterrupt() { interrupted++; } } });
   const oldInput = screen.pair.left.onSample;
   oldInput({ x: .2, y: .2 });
   const sentBefore = sent, interruptedBefore = interrupted;
-  screen.find('control-open-gestures').props.onPress(); screen.render();
-  assert.ok(screen.find('control-gesture-library'));
-  assert.match(screen.copy, /动作库暂不可用/);
-  assert.equal(screen.find('control-action-stand'), undefined);
+  openSettings(screen, 'control-open-gestures'); screen.render();
+  assert.ok(screen.find('control-posture-menu'));
+  assert.match(screen.copy, /摔倒恢复/);
+  const recovery = screen.find('control-posture-recovery');
+  assert.equal(recovery.props.disabled, true);
+  assert.match(recovery.props.accessibilityHint, /当前版本暂不支持恢复操作/);
+  assert.equal(screen.find('control-action-stand').props.disabled, true);
+  assert.ok(screen.find('control-action-stop'));
   assert.ok(interrupted > interruptedBefore);
   oldInput({ x: .4, y: .4 }); assert.equal(sent, sentBefore);
-  screen.find('control-close-gestures').props.onPress(); screen.render();
-  assert.equal(screen.find('control-gesture-library'), undefined);
-  assert.ok(screen.find('control-open-gestures'));
+  screen.find('control-posture-dismiss').props.onPress(); screen.render();
+  assert.equal(screen.find('control-posture-menu'), undefined);
+  assert.ok(screen.find('control-open-more')); 
   oldInput({ x: .4, y: .4 }); assert.equal(sent, sentBefore);
+  screen.unmount();
+});
+
+test('posture menu sends the chosen operation once and waits for observed state', async () => {
+  let stands = 0;
+  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(),
+    runtimeState: { controlLink: 'connected', posture: 'sitting' },
+    operationReadiness: { stand: { ready: true }, sit: { ready: true } },
+    operationCallbacks: { stand: async () => { stands++; }, sit: async () => {} } });
+  openSettings(screen, 'control-open-gestures'); screen.render();
+  assert.equal(screen.find('control-posture-sit').props.accessibilityState.selected, true);
+  assert.equal(screen.find('control-posture-sit').props.disabled, true);
+  const stand = screen.find('control-posture-stand');
+  assert.equal(stand.props.disabled, false);
+  stand.props.onPress(); stand.props.onPress(); await screen.settle();
+  assert.equal(stands, 1);
+  openSettings(screen, 'control-open-gestures'); screen.render();
+  assert.equal(screen.find('control-posture-stand').props.accessibilityState.selected, false);
+  screen.render({ runtimeState: { controlLink: 'connected', posture: 'standing' } });
+  assert.equal(screen.find('control-posture-stand').props.accessibilityState.selected, true);
+  screen.render({ runtimeState: { controlLink: 'disconnected', posture: 'standing' } });
+  assert.equal(screen.find('control-posture-stand').props.accessibilityState.selected, false);
+  screen.unmount();
+});
+
+test('stop stays available while posture menu is open', async () => {
+  let stops = 0;
+  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(),
+    runtimeState: { controlLink: 'connected', posture: 'standing' },
+    operationReadiness: { stop: { ready: true } }, operationCallbacks: { stop: async () => { stops++; } } });
+  openSettings(screen, 'control-open-gestures'); screen.render();
+  assert.equal(screen.find('control-action-stop').props.disabled, false);
+  screen.find('control-action-stop').props.onPress(); await screen.settle();
+  assert.equal(stops, 1);
+  assert.equal(screen.find('control-posture-menu'), undefined);
   screen.unmount();
 });
 
@@ -659,7 +1008,7 @@ test('landscape exposes actual robot policy IDs without guessing terrain names o
       currentPolicy: { id: 'w5_current', label: 'W5' }, policyOptions: [{ id: 'w5_current', label: 'W5' }, { id: 'robot_candidate', label: '候选策略' }] },
     operationReadiness: { switchPolicy: { ready: true } },
     operationCallbacks: { switchPolicy() { called++; } } });
-  screen.find('control-open-policy').props.onPress(); screen.render();
+  openSettings(screen, 'control-open-policy'); screen.render();
   assert.equal(screen.find('control-mode-w5_current').props.accessibilityState.selected, true);
   assert.equal(screen.find('control-mode-w5_current').props.disabled, true);
   assert.equal(screen.find('control-mode-robot_candidate').props.disabled, false);
@@ -693,7 +1042,7 @@ test('real control session feeds slot buttons and dispatches the advertised ID i
       runtimeState: session.runtimeState,
       operationReadiness: session.operationReadiness,
       operationCallbacks: { switchPolicy: id => session.action('switch-profile', id) } });
-    if (landscape) { screen.find('control-open-policy').props.onPress(); screen.render(); }
+    if (landscape) { openSettings(screen, 'control-open-policy'); screen.render(); }
     const prefix = landscape ? 'control-mode-' : 'control-terrain-mode-';
     assert.equal(screen.find(`${prefix}flat`).props.disabled, true);
     assert.equal(screen.find(`${prefix}platform`).props.disabled, true);
@@ -713,7 +1062,7 @@ test('landscape mode entry explains unavailable capability and never sends an ac
   const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 },
     operationReadiness: { switchPolicy: { ready: false, blockedReason: '先连接机器人' } },
     operationCallbacks: { switchPolicy() { called++; } } });
-  screen.find('control-open-policy').props.onPress(); screen.render();
+  openSettings(screen, 'control-open-policy'); screen.render();
   assert.doesNotMatch(screen.copy, /先连接机器人|待同步|未配置/);
   assert.equal(screen.find('control-mode-flat').props.accessibilityHint, '先连接机器人');
   assert.equal(called, 0);
@@ -726,20 +1075,21 @@ test('landscape mode entry opens real policy selection without executing a polic
   const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(), connected: false,
     runtimeState: { policyCatalogStatus: 'synced', policyOptions: [{ id: 'flat', label: '标准行走' }] },
     operationReadiness: { switchPolicy: { ready: true } }, operationCallbacks: { switchPolicy() { called++; } } });
-  screen.find('control-open-policy').props.onPress(); screen.render();
+  openSettings(screen, 'control-open-policy'); screen.render();
   assert.match(screen.copy, /平地/);
   assert.doesNotMatch(screen.copy, /待同步|未配置/);
   assert.equal(screen.find('control-mode-flat').props.disabled, false);
   assert.equal(screen.find('control-mode-stairs').props.disabled, true);
   assert.equal(screen.find('control-mode-platform').props.disabled, true);
+  assert.equal(screen.find('control-mode-recovery'), undefined);
   assert.equal(called, 0);
   assert.equal(screen.pair.disabled, true);
   assert.ok(screen.find('control-mode-menu'));
   screen.find('control-mode-dismiss').props.onPress(); screen.render();
   assert.equal(screen.find('control-mode-menu'), undefined);
-  screen.find('control-open-policy').props.onPress(); screen.render();
+  openSettings(screen, 'control-open-policy'); screen.render();
   assert.ok(screen.find('control-mode-menu'));
-  screen.find('control-open-policy').props.onPress(); screen.render();
+  openSettings(screen, 'control-open-policy'); screen.render();
   assert.equal(screen.find('control-mode-menu'), undefined);
   assert.equal(called, 0);
   screen.unmount();
@@ -750,7 +1100,8 @@ test('landscape removes the crossed joint shortcut without changing the controll
   const screen = mount({ dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, onOpenJointStatus: () => { opened += 1; } });
   assert.equal(screen.find('control-open-joints'), undefined);
   assert.equal(opened, 0);
-  assert.equal(screen.pair.disabled, true);
+  assert.equal(screen.pair.disabled, false);
+  assert.equal(screen.pair.left.onSample, undefined);
   screen.unmount();
 });
 
@@ -875,7 +1226,12 @@ test('insufficient or invalid viewport removes undersized pads while keeping ret
   }
   screen.layout(675, 390);
   assert.equal(screen.pair.disabled, false);
-  assert.ok(screen.pair.size >= 48 && screen.pair.size <= 144);
+  assert.ok(screen.pair.size >= 48 && screen.pair.size <= 250);
+  for (const side of ['left', 'right']) {
+    const disc = screen.pair.layout[side];
+    assert.ok(disc.size <= screen.pair.touchAreaHeight && disc.left >= 0);
+    assert.ok(disc.left + disc.size <= screen.pair.touchAreaWidth);
+  }
   screen.unmount();
 });
 
@@ -883,7 +1239,8 @@ test('development session must be ready before input reaches its callbacks', () 
   const drive = [], turn = [];
   const input = { ready: false, onDrive: value => drive.push(value), onTurn: value => turn.push(value), onInterrupt() {} };
   const screen = mount({ developmentInput: input, allowInteractionPreview: true });
-  assert.equal(screen.pair.disabled, true, 'an offline preview cannot bypass the session readiness gate');
+  assert.equal(screen.pair.disabled, false);
+  assert.equal(screen.pair.left.onSample, undefined);
   screen.pair.left.onChange({x:1,y:-1});
   assert.equal(drive.length, 0);
   screen.render({ developmentInput: {...input, ready:true} });
@@ -898,7 +1255,8 @@ test('production never invokes an injected development control session', () => {
   let inputs=0, interrupts=0;
   const input={ready:true,onDrive(){inputs++;},onTurn(){inputs++;},onInterrupt(){interrupts++;}};
   const screen=mount({dev:false,developmentInput:input,allowInteractionPreview:true});
-  assert.equal(screen.pair.disabled,true);
+  assert.equal(screen.pair.disabled,false);
+  assert.equal(screen.pair.left.onSample,undefined);
   screen.pair.left.onChange({x:1,y:1}); screen.pair.right.onChange({x:1,y:0});
   screen.background();screen.rotate();screen.back();screen.unmount();
   assert.equal(inputs,0);assert.equal(interrupts,0);
@@ -907,7 +1265,7 @@ test('production never invokes an injected development control session', () => {
 test('production input uses the explicit real channel and cancels on lifecycle changes', () => {
   let samples = 0, interrupts = 0;
   const input = { ready: true, onDrive() { samples++; }, onTurn() { samples++; }, onInterrupt() { interrupts++; } };
-  const screen = mount({ dev: false, canUseManualControl: true, productionInput: input });
+  const screen = mount({ dev: false, connected: true, canUseManualControl: true, productionInput: input });
   assert.equal(screen.pair.disabled, false);
   screen.pair.left.onSample({ x: .2, y: -.2 });
   screen.pair.right.onSample({ x: .2, y: 0 });
@@ -1118,7 +1476,8 @@ test('background, rotation, return and unmount interrupt a development control s
   const screen=mount({developmentInput:input});
   screen.background();assert.equal(interrupted,1);assert.equal(screen.pair.disabled,true);
   screen.render({developmentInput:{...input,ready:false}});screen.background('active');
-  assert.equal(screen.pair.disabled,true,'foreground does not reactivate a disconnected session');
+  assert.equal(screen.pair.disabled,false);
+  assert.equal(screen.pair.left.onSample,undefined,'foreground only offers local preview');
   screen.rotate();assert.equal(interrupted,2);
   screen.back();assert.equal(interrupted,3);
   screen.unmount();assert.equal(interrupted,4);
@@ -1158,7 +1517,7 @@ test('joystick layout is editable offline, persists per side and orientation, an
     layoutSave: async value => { saved.push(JSON.parse(JSON.stringify(value))); } });
   await screen.settle();
   const original = JSON.parse(JSON.stringify(screen.pair.layout));
-  screen.find('control-open-joystick-layout').props.onPress(); screen.render();
+  openSettings(screen, 'control-open-joystick-layout'); screen.render();
   assert.equal(screen.pair, undefined, 'editing surface must not mount motion responders');
   screen.joystickSettings.onChange('left', { sizeScale: 1.5, x: .3, y: .8 }); screen.render();
   assert.equal(screen.joystickSettings.layout.left.sizeScale, 1.5);
@@ -1168,7 +1527,7 @@ test('joystick layout is editable offline, persists per side and orientation, an
   await screen.settle();
   assert.equal(saved.at(-1).landscape.left.x, .3);
   assert.equal(saved.at(-1).portrait.left.sizeScale, 1);
-  screen.find('control-open-joystick-layout').props.onPress(); screen.render();
+  openSettings(screen, 'control-open-joystick-layout'); screen.render();
   screen.joystickSettings.onReset(); screen.render();
   assert.equal(screen.joystickSettings.layout.left.sizeScale, 1.35);
   screen.unmount();
@@ -1180,7 +1539,7 @@ test('opening layout editing synchronously cancels input and rejects an old touc
   const screen = mount({ dev: false, ...capableProps(), productionInput: input });
   const oldSample = screen.pair.left.onSample;
   oldSample({ x: .2, y: -.2 }); assert.equal(sent, 1);
-  screen.find('control-open-joystick-layout').props.onPress();
+  openSettings(screen, 'control-open-joystick-layout');
   assert.equal(interrupted, 1, 'transport is interrupted before the editor renders');
   oldSample({ x: 1, y: -1 }); assert.equal(sent, 1);
   screen.render(); assert.ok(screen.joystickSettings); assert.equal(screen.pair, undefined);
@@ -1189,12 +1548,12 @@ test('opening layout editing synchronously cancels input and rejects an old touc
 
 test('slider previews update the layout without storage or motion, then commit once on release', async () => {
   const saved = []; let sent = 0;
-  const screen = mount({ dev: false, ...capableProps(), connected: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
+  const screen = mount({ dev: false, ...capableProps(), connected: true, dimensions: { width: 1100, height: 600, fontScale: 1 },
     productionInput: { ready: true, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() {} },
     layoutSave: async value => { saved.push(JSON.parse(JSON.stringify(value))); } });
   await screen.settle();
   const oldSample = screen.pair.left.onSample;
-  screen.find('control-open-joystick-layout').props.onPress(); screen.render();
+  openSettings(screen, 'control-open-joystick-layout'); screen.render();
   for (const sizeScale of [1.1, 1.2, 1.3]) {
     screen.joystickSettings.onPreview('left', { sizeScale }); screen.render();
     assert.equal(screen.joystickSettings.layout.left.sizeScale, sizeScale);
@@ -1209,12 +1568,24 @@ test('slider previews update the layout without storage or motion, then commit o
   screen.unmount();
 });
 
+test('shared header closes the layout editor and flushes its preview without leaving control', async () => {
+  const saved = [];
+  const screen = mount({ dev: false, dimensions: { width: 1000, height: 600, fontScale: 1 },
+    layoutSave: async value => { saved.push(JSON.parse(JSON.stringify(value))); } });
+  await screen.settle(); openSettings(screen, 'control-open-joystick-layout'); screen.render();
+  screen.joystickSettings.onPreview('left', { sizeScale: 1.2 }); screen.render();
+  screen.find('control-back').props.onPress(); await screen.settle();
+  assert.equal(screen.backCalls, 0); assert.equal(screen.joystickSettings, undefined);
+  assert.equal(saved.length, 1); assert.equal(saved[0].landscape.left.sizeScale, 1.2);
+  assert.ok(screen.find('control-immersive-surface')); screen.unmount();
+});
+
 test('closing flushes the latest slider preview and rejects late editor callbacks', async () => {
   const saved = [];
   const screen = mount({ dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
     layoutSave: async value => { saved.push(JSON.parse(JSON.stringify(value))); } });
   await screen.settle();
-  screen.find('control-open-joystick-layout').props.onPress(); screen.render();
+  openSettings(screen, 'control-open-joystick-layout'); screen.render();
   const oldEditor = screen.joystickSettings;
   oldEditor.onPreview('right', { x: .4, y: .8 }); screen.render();
   assert.equal(saved.length, 0);
@@ -1223,7 +1594,7 @@ test('closing flushes the latest slider preview and rejects late editor callback
   oldEditor.onPreview('right', { x: .9 }); oldEditor.onChange('right', { y: .1 });
   oldEditor.onReset(); await screen.settle();
   assert.equal(saved.length, 1, 'a retired editor cannot overwrite persisted placement');
-  screen.find('control-open-joystick-layout').props.onPress(); screen.render();
+  openSettings(screen, 'control-open-joystick-layout'); screen.render();
   assert.equal(screen.joystickSettings.layout.right.x, .4);
   assert.equal(screen.joystickSettings.layout.right.y, .8);
   screen.unmount();
@@ -1234,7 +1605,7 @@ test('reset retires slider callbacks before they can overwrite the defaults', as
   const screen = mount({ dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
     layoutSave: async value => { saved.push(JSON.parse(JSON.stringify(value))); } });
   await screen.settle();
-  screen.find('control-open-joystick-layout').props.onPress(); screen.render();
+  openSettings(screen, 'control-open-joystick-layout'); screen.render();
   const heldEditor = screen.joystickSettings;
   heldEditor.onPreview('left', { sizeScale: 1.4, x: .3 }); screen.render();
   heldEditor.onReset();
@@ -1256,7 +1627,7 @@ test('layout editing blocks physical frames and keys and requires neutral after 
   const screen = mount({ dev: false, ...capableProps(), g20Controller: hardware.controller, inputSource: 'physical',
     productionInput: { ready: true, onDrive() {}, onTurn() {}, onSticks() { sent++; }, onInterrupt() { interrupted++; } } });
   hardware.sample(); hardware.sample({ moving: true }); assert.equal(sent, 1);
-  screen.find('control-open-joystick-layout').props.onPress();
+  openSettings(screen, 'control-open-joystick-layout');
   hardware.sample({ moving: true, pressed: ['stand'] }); assert.equal(sent, 1);
   screen.render(); hardware.sample(); hardware.sample({ moving: true }); assert.equal(sent, 1);
   screen.joystickSettings.onClose(); screen.render();
@@ -1269,7 +1640,7 @@ test('a late preferences read cannot overwrite a layout already edited locally',
   let finishLoad;
   const pending = new Promise(resolve => { finishLoad = resolve; });
   const screen = mount({ dev: false, layoutLoad: () => pending });
-  screen.find('control-open-joystick-layout').props.onPress(); screen.render();
+  openSettings(screen, 'control-open-joystick-layout'); screen.render();
   screen.joystickSettings.onChange('left', { sizeScale: 1.5 }); screen.render();
   const old = joystickLayoutModule.exports.createDefaultJoystickLayoutPreferences();
   old.portrait.left.sizeScale = .75;
@@ -1281,7 +1652,7 @@ test('a late preferences read cannot overwrite a layout already edited locally',
 test('layout save failure stays visible and a retry preserves the edited value', async () => {
   let attempts = 0;
   const screen = mount({ dev: false, layoutSave: async () => { if (++attempts === 1) throw Error('fixture storage unavailable'); } });
-  screen.find('control-open-joystick-layout').props.onPress(); screen.render();
+  openSettings(screen, 'control-open-joystick-layout'); screen.render();
   screen.joystickSettings.onChange('right', { y: .75 }); screen.render(); await screen.settle();
   assert.match(screen.joystickSettings.storageError, /暂未保存/);
   screen.find('joystick-layout-retry').props.onPress(); await screen.settle();
@@ -1307,7 +1678,7 @@ test('landscape removes the crossed policy row and only shows actionable feedbac
 test('portrait bottom placement reserves the complete scaled label below the disc', () => {
   for (const fontScale of [1, 1.5, 2]) {
     const screen = mount({ dev: false, dimensions: { width: 430, height: 900, fontScale } });
-    screen.find('control-open-joystick-layout').props.onPress(); screen.render();
+    openSettings(screen, 'control-open-joystick-layout'); screen.render();
     screen.joystickSettings.onChange('left', { y: 1 }); screen.render();
     screen.joystickSettings.onClose(); screen.render();
     const disc = screen.pair.layout.left;
@@ -1325,34 +1696,83 @@ test('one motor switch follows observed state through confirmation, ACK and the 
     operationCallbacks: { enableMotor: async () => { enables++; }, disableMotor: async () => { disables++; } } });
   assert.equal(screen.find('control-action-enableMotor'), undefined);
   assert.equal(screen.find('control-action-disableMotor'), undefined);
-  const original = screen.find('control-motor-toggle');
+  const original = motorToggle(screen);
   assert.equal(original.props.accessibilityState.checked, false);
-  assert.equal(original.props.disabled, false, 'dark represents observed off, not an unavailable action');
-  assert.equal(screen.find('control-motor-toggle-circle').props.style[1].backgroundColor, '#111827');
+  assert.equal(original.props.disabled, false, 'observed off does not mean the action is unavailable');
+  const motorSurface = () => Object.assign({}, ...screen.find('control-motor-toggle-circle').props.style).backgroundColor;
+  const disabledSurface = motorSurface();
   original.props.onPress(); original.props.onPress(); screen.render();
   assert.equal(enables, 0, 'opening a confirmation must not operate the device');
-  assert.equal(screen.find('control-motor-toggle').props.accessibilityState.checked, false);
+  assert.equal(motorToggle(screen).props.accessibilityState.checked, false);
   const enableConfirm = screen.find('control-immersive-confirm').props.onPress;
   enableConfirm(); enableConfirm(); await screen.settle();
   assert.equal(enables, 1); assert.equal(disables, 0);
-  assert.equal(screen.find('control-motor-toggle').props.accessibilityState.checked, false, 'ACK is not observed enabled state');
-  assert.equal(screen.find('control-motor-toggle').props.disabled, true);
+  assert.equal(motorToggle(screen).props.accessibilityState.checked, false, 'ACK is not observed enabled state');
+  assert.equal(motorToggle(screen).props.disabled, true);
   assert.ok(screen.find('control-operation-feedback'));
   screen.render({ runtimeState: { controlLink: 'connected', motorState: 'enabled' } });
-  assert.equal(screen.find('control-motor-toggle').props.accessibilityState.checked, true);
-  assert.equal(screen.find('control-motor-toggle-circle').props.style[1].backgroundColor, '#98D1FF');
+  assert.equal(motorToggle(screen).props.accessibilityState.checked, true);
+  assert.notEqual(motorSurface(), disabledSurface, 'observed enable changes the motor surface');
   assert.equal(screen.find('control-operation-feedback'), undefined, 'an observed terminal state ends pending feedback');
   original.props.onPress(); enableConfirm(); screen.render();
   assert.equal(enables, 1, 'old press and confirmation cannot cross the observed state change');
-  screen.find('control-motor-toggle').props.onPress(); screen.render();
+  motorToggle(screen).props.onPress(); screen.render();
   assert.match(screen.copy, /确认\s*失能电机/);
   screen.find('control-immersive-confirm').props.onPress(); await screen.settle();
   assert.equal(disables, 1);
-  assert.equal(screen.find('control-motor-toggle').props.accessibilityState.checked, true, 'disable ACK alone cannot paint off');
+  assert.equal(motorToggle(screen).props.accessibilityState.checked, true, 'disable ACK alone cannot paint off');
   screen.render({ runtimeState: { controlLink: 'connected', motorState: 'disabled' } });
-  assert.equal(screen.find('control-motor-toggle').props.accessibilityState.checked, false);
-  assert.equal(screen.find('control-motor-toggle').props.disabled, false);
+  assert.equal(motorToggle(screen).props.accessibilityState.checked, false);
+  assert.equal(motorToggle(screen).props.disabled, false);
   screen.unmount();
+});
+
+test('motor feedback preserves the measured stick area while a real session waits for its status read', async () => {
+  let enabled = false, finishRead, screen;
+  const calls = [];
+  const reply = () => ({ transport: 'grpc-lan', leaseActive: false, principalVerified: false, leaseOwnerMatched: false,
+    status: { fsmKind: 'grounded', transition: 'none', motorOutputEnabled: enabled, owner: 'none',
+      criticalMotorFault: false, grpcLeaseActive: false, readyForWalk: false } });
+  const session = new BrainstemControlSession({
+    async open() { return { ...reply(), sessionId: 'motor-layout', mutualTlsVerified: false, clientIdentitySelected: false,
+      profile: { current: 'flat', available: ['flat'], descriptions: [], currentDescription: '' } }; },
+    async read() { return new Promise(resolve => { finishRead = () => resolve(reply()); }); },
+    async action(_id, action) { calls.push(action); enabled = true; return reply(); },
+    async interrupt() { calls.push('interrupt'); return reply(); }, async close() {},
+  });
+  const callbacks = { enableMotor: () => session.action('enable') };
+  const props = () => ({ runtimeState: session.runtimeState, operationReadiness: session.operationReadiness,
+    operationCallbacks: callbacks, productionInput: { ready: false, onDrive() {}, onTurn() {},
+      onInterrupt: () => { void session.interrupt().catch(() => undefined); } } });
+  const unsubscribe = session.subscribe(() => queueMicrotask(() => { if (screen) screen.render(props()); }));
+  const reportStickArea = () => {
+    const node = screen.find('control-immersive-sticks');
+    const style = Object.assign({}, ...node.props.style);
+    const area = { width: 1100 - style.left - style.right, height: 600 - style.top - style.bottom };
+    // Deliver the layout event Fabric emits when the actual absolute bounds change.
+    node.props.onLayout({ nativeEvent: { layout: area } }); screen.render();
+    return area;
+  };
+  try {
+    assert.equal(await session.connect({ host: '127.0.0.1', port: 12345, transport: 'lan-dev' }, ''), true);
+    screen = mount({ dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 }, ...props() });
+    await screen.settle();
+    const before = reportStickArea();
+    const reading = session.refresh();
+    motorToggle(screen).props.onPress(); screen.render();
+    screen.find('control-immersive-confirm').props.onPress(); await screen.settle();
+    assert.ok(screen.find('control-operation-feedback'));
+    const submitted = reportStickArea();
+    finishRead(); await reading; await screen.settle();
+    assert.deepEqual(submitted, before, 'operation feedback must not resize the active input surface');
+    assert.deepEqual(calls, ['enable'], 'a feedback layout must not interrupt the queued protected action');
+    assert.equal(motorToggle(screen).props.accessibilityState.checked, true);
+    assert.equal(screen.find('control-operation-feedback'), undefined);
+    assert.deepEqual(reportStickArea(), before, 'removing confirmed feedback must not resize the surface either');
+    assert.doesNotMatch(screen.copy, /操作结果未确认/);
+  } finally {
+    finishRead?.(); unsubscribe(); screen?.unmount(); screen = null; await session.disconnect();
+  }
 });
 
 test('motor switch remains unknown for missing/disconnected state and respects the target permission', () => {
@@ -1362,14 +1782,14 @@ test('motor switch remains unknown for missing/disconnected state and respects t
     operationCallbacks: { enableMotor() { actions++; }, disableMotor() { actions++; } } });
   for (const runtimeState of [undefined, { controlLink: 'connected', motorState: 'unknown' }, { controlLink: 'disconnected', motorState: 'enabled' }]) {
     screen.render({ runtimeState });
-    const toggle = screen.find('control-motor-toggle');
+    const toggle = motorToggle(screen);
     assert.equal(toggle.props.disabled, true); assert.equal(toggle.props.accessibilityState.checked, undefined);
     assert.equal(toggle.props.accessibilityValue.text, '状态未知'); toggle.props.onPress();
   }
   assert.equal(actions, 0);
   screen.render({ runtimeState: { controlLink: 'connected', motorState: 'enabled' },
     operationReadiness: { enableMotor: { ready: true }, disableMotor: { ready: false, blockedReason: '执行器未就绪' } } });
-  const toggle = screen.find('control-motor-toggle');
+  const toggle = motorToggle(screen);
   assert.equal(toggle.props.disabled, true); assert.equal(toggle.props.accessibilityState.checked, true);
   toggle.props.onPress(); assert.equal(actions, 0, 'enabled state cannot bypass disable readiness');
   screen.unmount();
@@ -1381,12 +1801,12 @@ test('observed motor change cancels an open confirmation without dispatching the
     runtimeState: { controlLink: 'connected', motorState: 'disabled' },
     operationReadiness: { enableMotor: { ready: true }, disableMotor: { ready: true } },
     operationCallbacks: { enableMotor() { actions++; }, disableMotor() { actions++; } } });
-  screen.find('control-motor-toggle').props.onPress(); screen.render();
+  motorToggle(screen).props.onPress(); screen.render();
   const previousConfirm = screen.find('control-immersive-confirm').props.onPress;
   screen.render({ runtimeState: { controlLink: 'connected', motorState: 'enabled' } });
   assert.equal(screen.find('control-immersive-confirm'), undefined);
   previousConfirm(); screen.render(); assert.equal(actions, 0);
-  assert.equal(screen.find('control-motor-toggle').props.accessibilityState.checked, true);
+  assert.equal(motorToggle(screen).props.accessibilityState.checked, true);
   screen.unmount();
 });
 
@@ -1395,13 +1815,56 @@ test('a rejected motor operation keeps observed off and exposes failure after re
     runtimeState: { controlLink: 'connected', motorState: 'disabled' },
     operationReadiness: { enableMotor: { ready: true } },
     operationCallbacks: { enableMotor: async () => { throw Error('fixture denied'); } } });
-  screen.find('control-motor-toggle').props.onPress(); screen.render();
+  motorToggle(screen).props.onPress(); screen.render();
   screen.find('control-immersive-confirm').props.onPress(); await screen.settle();
   assert.equal(screen.find('control-policy-strip'), undefined);
-  assert.equal(screen.find('control-motor-toggle').props.accessibilityState.checked, false);
+  assert.equal(motorToggle(screen).props.accessibilityState.checked, false);
   assert.ok(screen.find('control-operation-feedback'));
   assert.match(screen.copy, /未能确认操作结果/);
   assert.doesNotMatch(screen.copy, /fixture denied|已使能/);
+  screen.unmount();
+});
+
+test('explicit motor refusals show fixed rejection copy without exposing server text', async () => {
+  for (const [code, message] of [['precondition', '机器人当前状态不允许此操作。'], ['unimplemented', '机器人服务未开放此操作。']]) {
+    const screen = mount({ dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
+      runtimeState: { controlLink: 'connected', motorState: 'disabled' },
+      operationReadiness: { enableMotor: { ready: true } },
+      operationCallbacks: { enableMotor: async () => { throw { code, message: 'private server details' }; } } });
+    motorToggle(screen).props.onPress(); screen.render();
+    screen.find('control-immersive-confirm').props.onPress(); await screen.settle();
+    assert.equal(motorToggle(screen).props.accessibilityState.checked, false);
+    assert.ok(screen.copy.includes(message));
+    assert.doesNotMatch(screen.copy, /private server details|执行器未确认本次请求|请求已接受|已使能/);
+    screen.unmount();
+  }
+});
+
+test('other motor errors keep generic failure copy even when their text claims a business refusal', async () => {
+  const screen = mount({ dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
+    runtimeState: { controlLink: 'connected', motorState: 'disabled' },
+    operationReadiness: { enableMotor: { ready: true } },
+    operationCallbacks: { enableMotor: async () => { throw { code: 'unavailable', message: '机器人当前状态不允许此操作。 private server details' }; } } });
+  motorToggle(screen).props.onPress(); screen.render();
+  screen.find('control-immersive-confirm').props.onPress(); await screen.settle();
+  assert.match(screen.copy, /未能确认操作结果/);
+  assert.doesNotMatch(screen.copy, /private server details|机器人当前状态不允许此操作/);
+  screen.unmount();
+});
+
+test('a late business refusal cannot overwrite the result of a replacement target', async () => {
+  let reject;
+  let calls = 0;
+  const screen = mount({ dev: false, operationTargetKey: 'robot-a',
+    runtimeState: { controlLink: 'connected', posture: 'standing' },
+    operationReadiness: { sit: { ready: true } },
+    operationCallbacks: { sit: () => ++calls === 1 ? new Promise((_, fail) => { reject = fail; }) : Promise.resolve() } });
+  screen.find('control-action-sit').props.onPress(); screen.render();
+  screen.render({ operationTargetKey: 'robot-b' });
+  screen.find('control-action-sit').props.onPress(); await screen.settle();
+  reject({ code: 'precondition', message: 'private server details' }); await screen.settle();
+  assert.match(screen.copy, /已接受/);
+  assert.doesNotMatch(screen.copy, /机器人当前状态不允许此操作|private server details/);
   screen.unmount();
 });
 
@@ -1419,8 +1882,9 @@ test('video HUD forwards the actual media surface without granting motion or inv
   assert.equal(screen.videoStage.active, true);
   assert.equal(screen.pair.variant, 'glass');
   assert.equal(screen.pair.right.label, '转向');
-  assert.equal(screen.pair.disabled, true);
-  screen.pair.left.onSample({ x: 1, y: -1 }); screen.pair.right.onSample({ x: 1, y: 0 });
+  assert.equal(screen.pair.disabled, false);
+  assert.equal(screen.pair.left.onSample, undefined); assert.equal(screen.pair.right.onSample, undefined);
+  screen.pair.left.onChange({ x: 1, y: -1 }); screen.pair.right.onChange({ x: 1, y: 0 });
   assert.equal(sent, 0); assert.equal(acquired, 0);
   assert.doesNotMatch(screen.copy, /0\.8\s*m\/s|78%|信号强|图传已连接/);
   const before = interrupted;
@@ -1430,15 +1894,50 @@ test('video HUD forwards the actual media surface without granting motion or inv
   assert.equal(screen.videoStage.active, false);
   screen.background('active');
   assert.equal(screen.videoStage.active, true);
-  assert.equal(screen.pair.disabled, true);
+  assert.equal(screen.pair.disabled, false);
   assert.equal(sent, 0); assert.equal(acquired, 0);
+  screen.unmount();
+});
+
+test('landscape keeps one full media surface without an unavailable point cloud panel', () => {
+  const screen = mount({ dev: false, dimensions: { width: 753, height: 471, fontScale: 1 } });
+  const background = node => Object.assign({}, ...node.props.style).backgroundColor;
+  assert.equal(background(screen.find('control-video-pane')), '#F9F9FB');
+  assert.equal(screen.find('control-pointcloud-unavailable'), undefined);
+  assert.doesNotMatch(screen.copy, /点云未接入/);
+  screen.render({ video: { phase: 'receiving', id: 'camera' } });
+  assert.equal(screen.find('control-pointcloud-unavailable'), undefined);
+  assert.equal(screen.videoStage.surface, undefined);
+  screen.render({ videoSurface: { type: 'FixtureVideo', props: {} } });
+  assert.equal(screen.find('control-pointcloud-unavailable'), undefined);
+  screen.render({ video: { phase: 'stalled', id: 'camera' } });
+  assert.equal(screen.find('control-pointcloud-unavailable'), undefined);
+  screen.unmount();
+});
+
+test('compact landscape keeps the stop visible and moves lease management into settings', () => {
+  for (const dimensions of [{ width: 660, height: 430, fontScale: 1 }, { width: 753, height: 471, fontScale: 1.25 }]) {
+    const screen = mount({ dev: false, dimensions });
+    assert.ok(screen.find('control-action-stop'));
+    assert.ok(screen.find('control-telemetry-battery'));
+    assert.equal(screen.find('control-compact-telemetry'), undefined);
+    screen.unmount();
+  }
+  const hardware = physicalFixture();
+  const screen = mount({ dev: false, dimensions: { width: 753, height: 471, fontScale: 1 },
+    inputSource: 'physical', g20Controller: hardware.controller,
+    controlSession: { label: '未连接', canAcquire: false, leaseActive: false, busy: false, onAcquire() {}, onRelease() {} } });
+  screen.find('control-open-more').props.onPress(); screen.render();
+  screen.find('control-settings-tab-网络').props.onPress(); screen.render();
+  assert.ok(screen.find('control-lease'));
+  assert.ok(screen.find('control-action-stop'));
   screen.unmount();
 });
 
 test('video HUD loss retires the old touch context and recovery does not replay it', () => {
   let sent = 0;
   const screen = mount({ dev: false, dimensions: { width: 1250, height: 650, fontScale: 1 },
-    ...capableProps(), connected: false, video: { phase: 'receiving', id: 'fixture-camera' },
+    ...capableProps(), connected: true, video: { phase: 'receiving', id: 'fixture-camera' },
     productionInput: { ready: true, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() {} } });
   const held = screen.pair.left.onSample;
   held({ x: .2, y: -.2 }); assert.equal(sent, 1);
@@ -1456,32 +1955,68 @@ test('video HUD keeps an offline connection entry and three unknown metrics at n
     const screen = mount({ dev: false, dimensions, onOpenConnection() { opened++; } });
     assert.ok(screen.videoStage);
     assert.equal(screen.videoStage.presentation, undefined);
-    for (const id of ['speed', 'battery', 'signal']) assert.ok(screen.find(`control-telemetry-${id}`));
+    for (const id of ['battery', 'signal']) assert.ok(screen.find(`control-telemetry-${id}`));
     assert.match(screen.copy, /未连接/);
     assert.match(screen.copy, /—/);
     assert.ok(screen.find('control-action-stop'));
     assert.ok(screen.find('control-action-stand'));
     assert.ok(screen.find('control-action-sit'));
-    assert.ok(screen.find('control-motor-toggle'));
+    assert.equal(screen.find('control-motor-toggle'), undefined);
     screen.find('control-open-connection').props.onPress(); assert.equal(opened, 1);
-    assert.equal(screen.pair.disabled, true);
+    assert.equal(screen.pair.disabled, false);
+    assert.equal(screen.pair.left.onSample, undefined);
     screen.unmount();
   }
 });
 
-test('video HUD only displays measured speed and identified telemetry sources', () => {
+test('video HUD omits speed and keeps only identified signal and battery sources', () => {
   const screen = mount({ dev: false, dimensions: { width: 1250, height: 650, fontScale: 1 },
     runtimeState: {
       speed: { linearMps: .8, lateralMps: 0, yawRps: 0, source: 'command' },
       signal: { qualityPercent: 78, source: 'unknown' }, battery: { percent: null, voltageV: 48.1, source: 'unknown' },
     } });
-  assert.doesNotMatch(screen.copy, /0\.8\s*m\/s|78%|48\.1\s*V/);
+  assert.equal(screen.find('control-telemetry-speed'), undefined);
+  assert.doesNotMatch(screen.copy, /78%|48\.1\s*V/);
   screen.render({ runtimeState: {
     speed: { linearMps: .2, lateralMps: 0, yawRps: 0, source: 'device' },
     signal: { qualityPercent: 71, source: 'controller' }, battery: { percent: null, voltageV: 48.1, source: 'device' },
   } });
-  assert.match(screen.copy, /0\.2\s*m\/s/); assert.match(screen.copy, /71%/); assert.match(screen.copy, /48\.1\s*V/);
-  assert.equal(screen.pair.disabled, true, 'receiving telemetry is not an actuator permission');
+  assert.equal(screen.find('control-telemetry-speed'), undefined);
+  assert.match(screen.find('control-telemetry-signal').props.accessibilityLabel, /71%/); assert.match(screen.copy, /48\.1\s*V/);
+  assert.equal(screen.pair.left.onSample, undefined, 'receiving telemetry is not an actuator permission');
+  screen.unmount();
+});
+
+test('touch starts permission from a new press and stops only after both discs release', () => {
+  let begins = 0, stops = 0;
+  const screen = mount({ dev: false, connected: true, canUseManualControl: false,
+    productionInput: { ready: false, touchReady: true, onTouchBegin() { begins++; }, onDrive() {}, onTurn() {}, onInterrupt() { stops++; } },
+    controlSession: { canAcquire: true, leaseActive: false, busy: false, onAcquire() {}, onRelease() {} } });
+  assert.equal(screen.pair.disabled, false);
+  assert.doesNotMatch(screen.copy, /启用控制/);
+  const before = stops;
+  screen.pair.left.onActiveChange(true); screen.render();
+  screen.pair.right.onActiveChange(true); screen.render();
+  assert.equal(begins, 1);
+  screen.pair.left.onActiveChange(false); screen.render();
+  assert.equal(stops, before);
+  screen.pair.right.onActiveChange(false); screen.render();
+  assert.equal(stops, before + 1);
+  screen.pair.left.onActiveChange(true);
+  assert.equal(begins, 2);
+  screen.unmount();
+});
+
+test('touch release uses the neutral callback and blocked posture has a visible reason', () => {
+  let ends = 0;
+  const input = { ready: false, touchReady: true, onTouchBegin() {}, onTouchEnd() { ends++; }, onDrive() {}, onTurn() {}, onInterrupt() {} };
+  const screen = mount({ dev: false, connected: true, canUseManualControl: false, productionInput: input });
+  screen.pair.left.onActiveChange(true); screen.render();
+  screen.pair.left.onActiveChange(false); screen.render();
+  assert.equal(ends, 1);
+  screen.render({ productionInput: { ...input, touchReady: false }, manualControlBlockedReason: '请先站立' });
+  assert.equal(screen.pair.disabled, true);
+  assert.match(screen.copy, /请先站立/);
   screen.unmount();
 });
 
@@ -1507,7 +2042,7 @@ test('receiving landscape video paints the connected HUD and blocks terrain whil
       ],
     },
   };
-  const screen = mount({
+  const screen = mount({ landscapeDocksExpanded: true,
     dev: true, dimensions: { width: 844, height: 390, fontScale: 1 }, allowInteractionPreview: true,
     connected: true, batteryPercent: 80, safetyLock: false,
     runtimeState: terrainRuntime,
@@ -1515,7 +2050,7 @@ test('receiving landscape video paints the connected HUD and blocks terrain whil
     operationCallbacks: { stand() {}, sit() {}, stop() {}, switchPolicy() {} },
   });
   const flat = style => Object.assign({}, ...(Array.isArray(style) ? style : [style]));
-  const officialSize = Math.min(170, Math.floor(Math.min(844 * 0.15, 390 * 0.32)));
+  const officialSize = Math.min(240, Math.floor(Math.min(844 * .18, 390 * .30) / 1.42));
   assert.ok(screen.find('control-landscape-hud'));
   assert.equal(screen.find('control-action-dock'), undefined);
   assert.equal(screen.videoStage, undefined);
@@ -1525,16 +2060,14 @@ test('receiving landscape video paints the connected HUD and blocks terrain whil
   assert.equal(screen.pair.size, officialSize);
   assert.ok(screen.pair.layout);
   const stickFrame = flat(screen.find('control-immersive-sticks').props.style);
-  assert.equal(stickFrame.top, 172);
-  assert.equal(stickFrame.bottom, 56);
-  assert.equal(stickFrame.left, 20);
-  assert.equal(stickFrame.right, 20);
+  assert.ok(stickFrame.top > 0 && stickFrame.bottom > 0 && stickFrame.top + stickFrame.bottom < 390);
+  assert.equal(stickFrame.left, 16); assert.equal(stickFrame.right, 16);
   assert.equal(screen.pair.right.axis, 'x');
   assert.equal(screen.pair.left.axis, 'xy');
-  assert.match(screen.copy, /THUNDER-01 · 已连接/);
+  assert.match(screen.copy, /THUNDER-01/); assert.match(screen.copy, /已连接/);
   assert.match(screen.copy, /本设备控制/);
   assert.match(screen.copy, /设备已解锁/);
-  assert.match(screen.copy, /电量 80%/);
+  assert.match(screen.copy, /电压/); assert.doesNotMatch(screen.copy, /80%/);
   assert.match(screen.copy, /信号 72%/);
   assert.match(screen.copy, /速度 0\.00 m\/s/);
   assert.match(screen.copy, /平地/);
@@ -1557,7 +2090,7 @@ test('receiving landscape video paints the connected HUD and blocks terrain whil
   assert.ok(screen.videoStage);
   assert.equal(screen.videoStage.presentation.phase, 'receiving');
   assert.equal(screen.pair.size, officialSize);
-  assert.equal(flat(screen.find('control-immersive-sticks').props.style).bottom, 56);
+  assert.equal(flat(screen.find('control-immersive-sticks').props.style).bottom, stickFrame.bottom);
   const beforeFold = flat(screen.find('control-immersive-sticks').props.style);
   screen.find('control-hud-docks-toggle').props.onPress();
   screen.render();
@@ -1582,7 +2115,7 @@ test('receiving landscape video paints the connected HUD and blocks terrain whil
 test('connected landscape stand, sit, and stop call the live operation callbacks', async () => {
   const calls = [];
   const runtime = { controlLink: 'connected', controlAuthority: 'held', motorState: 'enabled', posture: 'sitting' };
-  const screen = mount({
+  const screen = mount({ landscapeDocksExpanded: true,
     dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, connected: true,
     runtimeState: runtime,
     operationReadiness: {
@@ -1628,7 +2161,7 @@ test('connected landscape stand, sit, and stop call the live operation callbacks
 test('landscape emergency stop still sends while a posture command is in flight', async () => {
   const calls = [];
   let finishSit;
-  const screen = mount({
+  const screen = mount({ landscapeDocksExpanded: true,
     dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, connected: true,
     runtimeState: { controlLink: 'connected', controlAuthority: 'held', motorState: 'enabled', posture: 'standing' },
     operationReadiness: { sit: { ready: true }, stop: { ready: true } },
@@ -1731,7 +2264,7 @@ test('one confirmed press enters recovery and a stable stand returns through Exi
 
 test('portrait recovery offers one button and does not open when the channel is absent', () => {
   const standing = { controlLink: 'connected', controlAuthority: 'held', posture: 'sitting', motorState: 'disabled', speed: { linearMps: 0, lateralMps: 0, yawRps: 0, source: 'device' } };
-  const screen = mount({
+  const screen = mount({ landscapeDocksExpanded: true,
     dev: false, connected: true, runtimeState: standing,
     recovery: { status: recoveryStatus(), profile: recoveryProfile, onCommand: async () => { throw new Error('未确认，不应调用'); } },
   });
@@ -1740,7 +2273,7 @@ test('portrait recovery offers one button and does not open when the channel is 
   assert.equal(screen.find('control-hud-posture-recover'), undefined);
   assert.doesNotMatch(screen.copy, /进入恢复|使能恢复|摔倒起立|退出并回到运动/);
   screen.unmount();
-  const closed = mount({ dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, connected: true, runtimeState: standing });
+  const closed = mount({ landscapeDocksExpanded: true, dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, connected: true, runtimeState: standing });
   assert.equal(closed.find('control-hud-posture-recover').props.accessibilityState.disabled, true);
   assert.match(closed.find('control-hud-posture-recover').props.accessibilityHint, /恢复指令尚未接通/);
   closed.unmount();

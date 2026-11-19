@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
+import * as modes from '../src/features/control/robotModeCapabilities.ts';
 
 const endpoint = { host: 'robot.example.test', port: 13145, clientIdentityAlias: 'selected-identity' };
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
@@ -44,6 +45,7 @@ function mount(initial = {}) {
       setInterval(callback, delay) { const id = ++timerId; timers.set(id, { callback, due: now + delay, interval: delay }); return id; },
       clearInterval: id => timers.delete(id),
       require(name) {
+        if (name === '../features/control/robotModeCapabilities.ts') return modes;
         if (name === 'react') return react;
         if (name === 'react-native') return { AppState: appState };
         if (name === '../../services/brainstemGrpc') return services;

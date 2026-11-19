@@ -7,7 +7,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
 const require = createRequire(import.meta.url);
-function fixture() {
+function fixture({ connectable = true, fromBinding = false } = {}) {
   const slots = [], cleanups = [], appListeners = new Set(), calls = [], cache = new Map();
   let cursor = 0, tree, nodes, dead = false, updatesAfterUnmount = 0;
   const react = {
@@ -18,10 +18,11 @@ function fixture() {
   const AppState = { currentState: 'active', addEventListener(_, fn) { appListeners.add(fn); return { remove() { appListeners.delete(fn); } }; } };
   const host = { AppState, Linking: {}, Pressable: 'Pressable', ScrollView: 'ScrollView', View: 'View',
     StyleSheet: { create: s => s }, useWindowDimensions: () => ({ width: 753, height: 471 }) };
-  const candidate = { id: 'fixture-peripheral', displayName: 'Fixture robot', rssi: -60, serviceUUIDs: [], matchBasis: 'unverified' };
+  const candidate = { id: 'fixture-peripheral', displayName: 'Fixture robot', rssi: -60, serviceUUIDs: [], matchBasis: 'unverified', connectable };
   const scanner = { supported: true, async scan({ onCandidates }) { calls.push('scan'); onCandidates([candidate]); return [candidate]; }, async stop() { calls.push('stop-scan'); } };
   const native = { async prepare() {}, async connect(id) { calls.push(['connect', id]); },
     async retrieveServices(id) { return { id, services: [{ uuid: 'fixture-service' }], characteristics: [] }; },
+    async readRobotId() { return [...Buffer.from('8f7e1c620a4d4b8996e26c47b03db1a5', 'hex')]; },
     async disconnect(id) { calls.push(['disconnect', id]); }, onDisconnect() { return { remove() {} }; } };
   let adapter;
   const load = path => {
@@ -52,7 +53,7 @@ function fixture() {
   adapter = session.createBleConnectionSession(native);
   const Screen = load('src/screens/BleDiscoveryScreen.tsx').BleDiscoveryScreen;
   const render = () => {
-    cursor = 0; tree = Screen({ deviceName: 'THUNDER 01', onBack() { calls.push('back'); } }); nodes = [];
+    cursor = 0; tree = Screen({ deviceName: 'THUNDER 01', fromBinding, onBack() { calls.push('back'); }, onRobotSelected(id) { calls.push(['selected', id]); } }); nodes = [];
     const visit = value => { if (!value || typeof value !== 'object') return; if (Array.isArray(value)) return value.forEach(visit); nodes.push(value); visit(value.props?.children); };
     visit(tree); return nodes;
   };
@@ -65,6 +66,44 @@ function fixture() {
   };
 }
 const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+test('discovery broadcasts offer a return to scanning the QR without attempting a connection', async () => {
+  const f = fixture({ connectable: false, fromBinding: true });
+  await f.scan();
+  assert.equal(f.action('ble-connect-0'), undefined);
+  assert.ok(f.action('ble-return-to-bind'));
+  f.action('ble-return-to-bind').props.onPress();
+  assert.ok(f.calls.includes('back'));
+  assert.ok(!f.calls.some(row => Array.isArray(row) && row[0] === 'connect'));
+  f.unmount(); await settle();
+});
+
+test('unknown connectability has no connection action or binding return from settings', async () => {
+  const f = fixture({ connectable: null });
+  await f.scan();
+  assert.equal(f.action('ble-connect-0'), undefined);
+  assert.equal(f.action('ble-return-to-bind'), undefined);
+  f.unmount(); await settle();
+});
+
+test('a read robot ID is selected only after confirmed disconnect and never marked signature verified', async () => {
+  const f = fixture({ fromBinding: true }); await f.scan();
+  await f.action('ble-connect-0').props.onPress(); await settle(); f.render();
+  assert.ok(f.action('ble-select-robot'));
+  await f.action('ble-select-robot').props.onPress(); await settle(); f.render();
+  assert.deepEqual(f.calls.at(-1), ['selected', '8f7e1c62-0a4d-4b89-96e2-6c47b03db1a5']);
+  assert.ok(f.calls.findIndex(row => Array.isArray(row) && row[0] === 'disconnect') < f.calls.length - 1);
+  f.unmount(); await settle();
+});
+
+test('unconfirmed disconnect prevents handing the robot ID to binding', async () => {
+  const f = fixture({ fromBinding: true }); await f.scan();
+  await f.action('ble-connect-0').props.onPress(); await settle(); f.render();
+  f.native.disconnect = async () => { throw new Error('disconnect failed'); };
+  await f.action('ble-select-robot').props.onPress(); await settle();
+  assert.ok(!f.calls.some(row => Array.isArray(row) && row[0] === 'selected'));
+  f.unmount(); await settle();
+});
+
 test('only an explicit scanned-candidate action connects and shows service discovery with identity and Wi-Fi still blocked', async () => {
   const f = fixture();
   assert.deepEqual(f.calls, []);
@@ -76,6 +115,9 @@ test('only an explicit scanned-candidate action connects and shows service disco
   assert.ok(f.nodes.some(node => node.props?.testID === 'ble-connection-status'));
   assert.equal(f.action('ble-identity-blocked').props.disabled, true);
   assert.equal(f.action('ble-wifi-blocked').props.disabled, true);
+  const copy = f.nodes.filter(node => node.type === 'Text').flatMap(node => node.props.children).join(' ');
+  assert.match(copy, /身份确认尚未接通/);
+  assert.doesNotMatch(copy, /发现 \d+ 个服务|个特征|GATT/);
   assert.ok(!f.nodes.some(node => node.type === 'TextInput'));
   f.unmount(); await settle();
 });

@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 const entry = await readFile(new URL('../src/components/AuthEntry.tsx', import.meta.url), 'utf8');
 const loginScreen = await readFile(new URL('../src/screens/LoginScreen.tsx', import.meta.url), 'utf8');
+const loginSurface = await readFile(new URL('../src/components/LoginSurface.tsx', import.meta.url), 'utf8');
 
 function styleBlock(name) {
   const match = loginScreen.match(new RegExp(`${name}: \\{([^}]*)\\}`));
@@ -17,20 +18,16 @@ function numericStyle(block, property) {
   return Number(match[1]);
 }
 
-test('selected auth entry measures cutout-safe width before calculating landscape columns', () => {
-  assert.match(entry, /edges=\{\['top', 'left', 'right', 'bottom'\]\}/);
-  assert.match(entry, /getRegistrationLayout\(containerWidth \?\? width - insets.left - insets.right, fontScale\)/);
-  assert.match(entry, /setContainerWidth\(nativeEvent.layout.width\)/);
-  assert.match(entry, /width: layout.wide \? layout.contentWidth : portraitWidth/);
-  assert.match(entry, /width: layout.wide \? layout.formWidth : portraitWidth/);
-  assert.match(entry, /width: layout.wide \? layout.introWidth : portraitWidth/);
-  assert.match(entry, /layout.wide && \{ gap: layout.gap \}/);
+test('registration and login share the same responsive auth surface', () => {
+  assert.match(entry, /LoginSurface mode=\{register \? 'register' : 'login'\}/);
+  assert.match(entry, /children\(false\)/);
+  assert.match(loginSurface, /<KeyboardAvoidingView/);
+  assert.match(loginSurface, /<ScrollView[\s\S]*keyboardShouldPersistTaps="handled"/);
+  assert.match(loginSurface, /mode === 'register' \? '已有账户？' : '还没有账户？'/);
 });
 test('portrait auth fields remain scrollable real controls with keyboard-safe layout', () => {
-  assert.match(entry, /<KeyboardAvoidingView/);
-  assert.match(entry, /<ScrollView[\s\S]*keyboardShouldPersistTaps="handled"/);
-  assert.match(entry, /identityField: \{ flex: 1, minWidth: 0 \}/);
-  assert.doesNotMatch(entry, /resizeMode="stretch"/);
+  assert.match(loginSurface, /<KeyboardAvoidingView/);
+  assert.match(loginSurface, /<ScrollView[\s\S]*keyboardShouldPersistTaps="handled"/);
   assert.match(entry, /<TextInput/);
 });
 

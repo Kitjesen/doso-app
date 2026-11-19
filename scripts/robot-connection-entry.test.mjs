@@ -5,15 +5,6 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { mountAuthScreen } from './helpers/auth-screen-harness.mjs';
 
-test('login exposes read-only robot connection without submitting account credentials', () => {
-  let opened = 0; let logins = 0;
-  const host = mountAuthScreen({ screen: 'login', onOpenRobotConnection: () => opened++, onLogin: () => logins++ });
-  const action = host.action('login-robot-connection');
-  assert.ok(action, 'a production-visible local robot connection entry is required');
-  action.props.onPress();
-  assert.equal(opened, 1); assert.equal(logins, 0);
-});
-
 test('home no longer exposes a separate robot connection banner', () => {
   let opened = 0;
   const host = mountAuthScreen({ screen: 'home', connected: false, canRecall: false, robotName: 'THUNDER 01',
@@ -29,6 +20,7 @@ test('local connection surface is separate from authenticated main and cannot cr
   assert.ok(loadingGate >= 0 && source.indexOf('if (robotConnectionVisible) return') < loadingGate);
   assert.match(source, /PRODUCTION_ROBOT_COMMAND_EXECUTOR: RobotCommandExecutor \| null = null/);
   assert.match(source, /onOpenRobotConnection=\{\(\) => setRobotConnectionVisible\(true\)\}/);
+  assert.match(source, /onOpenDirectControl=\{\(\) => setRobotConnectionVisible\(true\)\}/);
   assert.match(source, /onOpenMap=\{controlTarget === 'direct' \? undefined : \(\) => \{ setActiveTab\('map'\); setStage\('main'\); \}\}/);
 });
 

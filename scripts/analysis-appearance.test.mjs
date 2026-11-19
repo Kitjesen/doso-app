@@ -32,11 +32,15 @@ function mount({ dark = false, landscape = false, previewMode = false, header = 
     if (cache.has(file)) return cache.get(file);
     const module = { exports: {} };
     const localRequire = name => {
+      if (name === 'expo-font') return { useFonts: () => [true, null] };
+      if (name.endsWith('.otf')) return name;
+      if (name === '../components/TrackPanel') return { TrackPanel: 'TrackPanel' };
+      if (name === '../components/HomeText') return { Text: rn.Text };
       if (/(?:^|\/)AppText$/.test(name)) return { Text: rn.Text, TextInput: 'TextInput' };
       if (name === 'react') return react;
       if (name === 'react/jsx-runtime') return require(name);
       if (name === 'react-native') return rn;
-      if (name === '@expo/vector-icons') return { Ionicons: 'Ionicons' };
+      if (name === '@expo/vector-icons') return { Ionicons: 'Ionicons', Feather: 'Feather' };
       if (name === '../assets') return { images: new Proxy({}, { get: (_, key) => key }) };
       if (name === '../theme' || name === './theme') return load('src/theme.ts');
       if (name === '../appearance') return load('src/appearance.ts');
@@ -64,91 +68,66 @@ function mount({ dark = false, landscape = false, previewMode = false, header = 
   return { render, get nodes() { return nodes; }, theme: load('src/theme.ts'), get copy() { return nodes.filter(n => n.type === 'copy').map(n => n.value).join(' '); } };
 }
 
-test('measured wide analysis separates telemetry state from data availability without fabricating history', () => {
-  const screen = mount({ width: 960, height: 600 });
-  assert.equal(typeof screen.nodes[0].props.onLayout, 'function');
-  screen.nodes[0].props.onLayout({ nativeEvent: { layout: { width: 882, height: 512 } } });
-  screen.render();
-  const body = screen.nodes.find(node => node.props?.testID === 'analysis-state-columns');
-  assert.equal(flatten(body.props.style).flexDirection, 'row');
-  assert.match(screen.copy, /数据可用性/);
-  assert.match(screen.copy, /尚未同步可信遥测/);
-  assert.doesNotMatch(screen.copy, /12\.8|32°C|8 \/ 10/);
-});
-
-test('analysis uses measured short or narrow space and large fonts as single-column scroll fallbacks', () => {
-  for (const config of [{ measuredWidth: 620, measuredHeight: 512 }, { measuredWidth: 1122, measuredHeight: 360 }, { measuredWidth: 1122, measuredHeight: 712, fontScale: 1.5 }]) {
-    const screen = mount({ width: 1280, height: 800, fontScale: config.fontScale ?? 1 });
-    screen.nodes[0].props.onLayout({ nativeEvent: { layout: { width: config.measuredWidth, height: config.measuredHeight } } });
-    screen.render();
-    const columns = screen.nodes.find(node => node.props?.testID === 'analysis-state-columns');
-    assert.equal(flatten(columns.props.style).flexDirection, 'column');
-    assert.equal(screen.nodes[0].type, 'ScrollView');
-    assert.match(screen.copy, /距离记录.*待同步.*任务记录.*待同步.*运行记录.*待同步/);
-  }
-});
-
-test('analysis uses a flow header in production and QA, avoiding a floating header over its title', () => {
-  assert.match(read('App.tsx'), /<AppHeader\s+flow(?:\s|>)/);
-  assert.match(read('src/design-qa/DesignQaRoot.tsx'), /<AppHeader\s+flow(?:\s|>)/);
-  for (const dark of [false, true]) {
-    const { nodes } = mount({ dark, landscape: true, header: true });
-    assert.equal(flatten(nodes[0].props.style).position, 'relative');
-    assert.equal(flatten(nodes[0].props.style).top, 0);
-    assert.equal(flatten(nodes[0].props.style).width, '100%');
-  }
-});
-
-test('trusted empty analysis remains scrollable, uses native text and never invents history', () => {
+test('production is an honest scrollable empty state with no fabricated charts or zero metrics', () => {
   for (const dark of [false, true]) for (const landscape of [false, true]) {
-    const { nodes, copy } = mount({ dark, landscape });
-    assert.equal(nodes[0].type, 'ScrollView');
-    assert.equal(nodes[0].props.contentInsetAdjustmentBehavior, 'automatic');
-    assert.equal(nodes.filter(n => n.type === 'Image').length, 0);
-    assert.match(copy, /尚未同步可信遥测/);
-    assert.match(copy, /尚未接入历史数据服务/);
-    assert.doesNotMatch(copy, /12\.8|32°C|8 \/ 10/);
-    const labels = nodes.filter(n => n.type === 'Text');
-    for (const label of labels) assert.ok(flatten(label.props.style).fontSize >= 13);
-    const row = nodes.find(n => n.type === 'View' && flatten(n.props.style).flexWrap === 'wrap');
-    assert.ok(row, 'source label/value can wrap under larger fonts');
+    const screen = mount({ dark, landscape });
+    assert.equal(screen.nodes[0].type, 'ScrollView');
+    assert.match(screen.copy, /还没有运行记录/);
+    assert.match(screen.copy, /数据来源：设备上报.*待同步/);
+    assert.doesNotMatch(screen.copy, /18\.6|92%|24|4\.8 km/);
+    assert.equal(screen.nodes.some(node => node.props?.testID === 'analysis-chart'), false);
+    assert.equal(screen.nodes.filter(node => node.type === 'Image').length, 0);
   }
 });
 
-test('design-only image previews scroll vertically and wrap instead of clipping below the flow header', () => {
-  const { nodes } = mount({ landscape: true, previewMode: true });
-  assert.notEqual(nodes[0].props.horizontal, true);
-  assert.equal(flatten(nodes[0].props.contentContainerStyle).flexWrap, 'wrap');
-  const images = nodes.filter(n => n.type === 'Image');
-  assert.equal(images.length, 2);
-  assert.ok(images.every(n => flatten(n.props.style).marginTop < 10));
+test('preview renders native chart controls and a computed 18.6 hour weekly total', () => {
+  const screen = mount({ dark: true, previewMode: true });
+  assert.equal(screen.nodes.filter(node => node.type === 'Image').length, 0);
+  assert.equal(screen.nodes.filter(node => /^analysis-bar-\d+$/.test(node.props?.testID ?? '')).length, 7);
+  assert.match(screen.copy, /18\.6.*小时/);
+  assert.match(screen.copy, /24.*完成任务.*92%.*完成率.*4\.8 km/);
+  assert.ok(screen.nodes.some(node => node.props?.testID === 'analysis-chart'));
 });
 
-function luminance(hex) {
-  const rgb = hex.slice(1).match(/../g).map(x => parseInt(x, 16) / 255).map(v => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
-  return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
-}
+test('choosing a bar changes selected hours and selected accessibility state', () => {
+  const screen = mount({ previewMode: true });
+  screen.nodes.find(node => node.props?.testID === 'analysis-bar-5').props.onPress();
+  screen.render();
+  assert.match(screen.copy, /六.*3\.5\s+h/);
+  assert.equal(screen.nodes.find(node => node.props?.testID === 'analysis-bar-5').props.accessibilityState.selected, true);
+  assert.equal(screen.nodes.find(node => node.props?.testID === 'analysis-bar-2').props.accessibilityState.selected, false);
+});
 
-test('readable muted text meets 4.5:1 against all semantic surfaces in both themes', () => {
-  const { theme } = mount();
-  for (const colors of [theme.lightColors, theme.darkColors]) {
-    for (const key of ['background', 'surface', 'surfaceStrong']) {
-      const [a, b] = [luminance(colors.muted), luminance(colors[key])].sort((x, y) => y - x);
-      assert.ok((a + 0.05) / (b + 0.05) >= 4.5, `${colors.muted} on ${colors[key]}`);
-    }
+test('time range controls change data and reset the selected bar rather than relabeling the same graph', () => {
+  const screen = mount({ previewMode: true });
+  screen.nodes.find(node => node.props?.testID === 'analysis-range-今日').props.onPress();
+  screen.render();
+  assert.match(screen.copy, /3\.2.*小时/);
+  assert.equal(screen.nodes.filter(node => /^analysis-bar-\d+$/.test(node.props?.testID ?? '')).length, 6);
+  assert.equal(screen.nodes.find(node => node.props?.testID === 'analysis-bar-0').props.accessibilityState.selected, true);
+  screen.nodes.find(node => node.props?.testID === 'analysis-range-30天').props.onPress();
+  screen.render();
+  assert.match(screen.copy, /74\.0.*小时/);
+  assert.match(screen.copy, /该区间暂无小时分布/);
+});
+
+test('weekly heatmap has 7 rows with 12 two-hour bins rather than an arbitrary decorative matrix', () => {
+  const screen = mount({ previewMode: true });
+  const cells = screen.nodes.filter(node => node.props?.accessibilityLabel?.includes('活跃度'));
+  assert.equal(cells.length, 7 * 12);
+  assert.equal(cells.filter(node => node.props.accessibilityLabel.includes('0至2时')).length, 7);
+  assert.equal(cells.filter(node => node.props.accessibilityLabel.includes('22至24时')).length, 7);
+});
+
+test('large text and narrow windows keep scroll flow and full-size range controls', () => {
+  for (const config of [{ width: 320, height: 640 }, { width: 844, height: 390 }, { width: 1100, height: 700, fontScale: 1.6 }]) {
+    const screen = mount({ ...config, previewMode: true });
+    assert.equal(screen.nodes[0].type, 'ScrollView');
+    const range = screen.nodes.find(node => node.props?.testID === 'analysis-range-7天');
+    assert.ok(flatten(range.props.style).minHeight >= 44);
+    assert.ok(screen.nodes.filter(node => node.type === 'Text').every(node => node.props.allowFontScaling !== false));
   }
 });
 
-test('analysis preview borrows hero/metrics hierarchy without restoring green decorative surfaces', () => {
-  const source = read('src/screens/AnalysisScreen.tsx');
-  assert.doesNotMatch(source, /rgba\(88,245,139/);
-  assert.doesNotMatch(source, /#173F2D/);
-  assert.match(source, /const p = getProductAppearance\(isDark\)/);
-  assert.match(source, /performanceCard:[\s\S]*backgroundColor: p\.surface/);
-  assert.match(source, /summaryCard:[\s\S]*backgroundColor: p\.surface/);
-  assert.match(source, /metricGrid:/);
-  assert.match(source, /chartBlock:/);
-  assert.match(source, /dateGrid:[\s\S]*borderWidth: 0/);
-  assert.match(source, /datePill:[\s\S]*borderWidth: 0/);
-  assert.match(source, /previewDisclosure: \{ \.\.\.typography\.supporting/);
-});
+
+

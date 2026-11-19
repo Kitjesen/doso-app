@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const TEMPLATE_DIR = resolve(ROOT, 'supabase/templates');
-const LOGO_URL = 'https://vchvqfdlkomlrjenkdhj.supabase.co/storage/v1/object/public/email-assets/doso-robotics-wordmark-email-29dea10fd204.png';
+const LOGO_URL = 'https://vchvqfdlkomlrjenkdhj.supabase.co/storage/v1/object/public/email-assets/doso-robotics-wordmark-email-03526d27c6b4.png';
 const CHECK = process.argv.includes('--check');
 
 const files = new Map();
@@ -77,22 +77,21 @@ function shell({ title, preheader, intro, body, after = '', titleColor }) {
   <!--[if mso]><noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript><![endif]-->
   <style>
     @media screen and (max-width:680px) {
-      .outer-pad{padding:14px 8px!important}.email-shell{width:100%!important}.main-pad{padding-left:24px!important;padding-right:24px!important}.top-pad{padding-top:28px!important}.title{font-size:30px!important;line-height:39px!important}.otp-panel{padding:26px 14px 22px!important}.otp-code{font-size:39px!important;line-height:48px!important;letter-spacing:2px!important}.notice-copy{font-size:14px!important;line-height:24px!important}.footer-left,.footer-right{display:block!important;width:100%!important;text-align:left!important}.footer-right{padding-top:16px!important}
+      .outer-pad{padding:12px 8px!important}.email-shell{width:100%!important}.main-pad{padding-left:24px!important;padding-right:24px!important}.top-pad{padding-top:24px!important}.title{font-size:30px!important;line-height:39px!important}.otp-panel{padding:26px 14px 22px!important}.otp-code{font-size:39px!important;line-height:48px!important;letter-spacing:2px!important}.notice-copy{font-size:14px!important;line-height:24px!important}
     }
   </style>
 </head>
 <body style="margin:0;padding:0;background:#f3f7fc;background-image:linear-gradient(135deg,#f3f7fc 0%,#eef5ff 50%,#f3f7fc 100%);color:#0a1831;font-family:Arial,'PingFang SC','Microsoft YaHei',sans-serif">
   <div style="display:none!important;width:0;height:0;max-height:0;overflow:hidden;opacity:0;color:transparent;font-size:1px;line-height:1px;mso-hide:all">${preheader}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f3f7fc" style="width:100%;border-collapse:collapse;background:#f3f7fc;background-image:linear-gradient(135deg,#f3f7fc 0%,#eef5ff 50%,#f3f7fc 100%)"><tr><td class="outer-pad" align="center" valign="top" style="padding:28px 12px">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#f3f7fc" style="width:100%;border-collapse:collapse;background:#f3f7fc;background-image:linear-gradient(135deg,#f3f7fc 0%,#eef5ff 50%,#f3f7fc 100%)"><tr><td class="outer-pad" align="center" valign="top" style="padding:12px 12px">
   <!--[if mso]><table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
   <table class="email-shell" role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="width:100%;max-width:640px;border-collapse:separate;table-layout:fixed;background:#ffffff;border:1px solid #d8e5f6;border-radius:12px">
-    <tr><td class="main-pad top-pad" style="padding:38px 48px 0"><img src="${LOGO_URL}" width="180" height="60" alt="DOSO robotics" style="display:block;width:180px;height:60px;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic" /></td></tr>
-    <tr><td class="main-pad" style="padding:30px 48px 0">${heading(title, titleColor)}<div style="height:24px;line-height:24px">&nbsp;</div>${intro}</td></tr>
+    <tr><td class="main-pad top-pad" style="padding:24px 48px 0"><img src="${LOGO_URL}" width="200" height="20" alt="DOSO robotics" style="display:block;width:200px;height:auto;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic" /></td></tr>
+    <tr><td class="main-pad" style="padding:16px 48px 0">${heading(title, titleColor)}<div style="height:24px;line-height:24px">&nbsp;</div>${intro}</td></tr>
     ${body}
     ${after}
-    <tr><td class="main-pad" style="padding:38px 48px 34px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;border-top:1px solid #d8e5f6"><tr>
-      <td class="footer-left" width="50%" valign="bottom" style="width:50%;padding-top:26px;text-align:left"><img src="${LOGO_URL}" width="120" height="40" alt="" style="display:block;width:120px;height:40px;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic" /><p style="margin:7px 0 0;font-size:12px;line-height:20px;color:#526581">Robotics for the real world.</p></td>
-      <td class="footer-right" width="50%" valign="bottom" align="right" style="width:50%;padding-top:26px;text-align:right"><p style="margin:0;font-size:12px;line-height:21px;color:#526581">© 2026 DOSO Robotics<br />此邮件由系统自动发送，请勿回复。</p></td>
+    <tr><td class="main-pad" style="padding:24px 48px 24px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;border-top:1px solid #d8e5f6"><tr>
+      <td style="padding-top:16px;text-align:left"><p style="margin:0;font-size:12px;line-height:20px;color:#526581">© 2026 DOSO Robotics</p></td>
     </tr></table></td></tr>
   </table>
   <!--[if mso]></td></tr></table><![endif]-->

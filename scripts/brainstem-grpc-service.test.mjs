@@ -8,7 +8,8 @@ const moduleUrl = code => `data:text/javascript;base64,${Buffer.from(code).toStr
 const expo = moduleUrl('export const requireOptionalNativeModule = () => globalThis.__dosoGrpcNative;');
 const rn = moduleUrl('export const Platform = globalThis.__dosoGrpcPlatform; export const AppState = globalThis.__dosoGrpcAppState;');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 } }).outputText
-  .replace("from 'expo'", `from '${expo}'`).replace("from 'react-native'", `from '${rn}'`);
+  .replace("from 'expo'", `from '${expo}'`).replace("from 'react-native'", `from '${rn}'`)
+  .replace('../features/control/robotModeCapabilities', new URL('../src/features/control/robotModeCapabilities.ts', import.meta.url).href);
 let generation = 0;
 async function load(native = {}, platform = 'android') {
   const listeners = new Set();
@@ -33,7 +34,7 @@ test('LAN profile capability errors remain distinct from connectivity failures a
   const { api } = await load(good({ lanDevAvailable: true, readLanStatus: async () => {}, readLanProfile: async () => {
     throw Object.assign(new Error('private server exception'), { code: 'unimplemented' });
   } }));
-  await assert.rejects(api.readBrainstemGrpcProfile({ endpoint: { host: '192.168.42.64', port: 13145, transport: 'lan-dev' }, requestId }), error => {
+  await assert.rejects(api.readBrainstemGrpcProfile({ endpoint: { host: '192.168.66.64', port: 13145, transport: 'lan-dev' }, requestId }), error => {
     assert.equal(error.code, 'unimplemented');
     assert.equal(error.message, '机器人服务尚未提供此项查询，请检查服务配置与版本。');
     return true;
@@ -73,19 +74,19 @@ const localNative = overrides => good({
   ...overrides,
 });
 
-test('LAN is explicit, private IPv4 only, alias-free, and never masquerades as TLS evidence', async () => {
+test('QA LAN accepts private IPv4 and exact USB-test loopback, alias-free, without TLS claims', async () => {
   const calls = [];
   const { api } = await load(good({ lanDevAvailable: true,
     readLanStatus: async (...args) => { calls.push(args); return { requestId: args[2], status: status(), transport: 'grpc-lan', mutualTlsVerified: false, clientIdentitySelected: false }; } }));
-  for (const host of ['10.0.0.1', '172.16.0.1', '172.31.255.254', '192.168.42.64']) {
+  for (const host of ['10.0.0.1', '172.16.0.1', '172.31.255.254', '192.168.66.64', '127.0.0.1']) {
     const result = await api.readBrainstemGrpcStatus({ endpoint: { host, port: 13145, transport: 'lan-dev' }, requestId });
     assert.equal(result.transport, 'grpc-lan'); assert.equal(result.mutualTlsVerified, false); assert.equal(result.clientIdentitySelected, false);
   }
-  for (const host of ['8.8.8.8', '127.0.0.1', '172.15.0.1', '172.32.0.1', 'robot.test', '::1', '::ffff:192.168.42.64', '192.168.066.64']) {
+  for (const host of ['8.8.8.8', '127.0.0.2', '127.1', '2130706433', '172.15.0.1', '172.32.0.1', 'robot.test', '::1', '::ffff:192.168.66.64', '192.168.066.64']) {
     await assert.rejects(api.readBrainstemGrpcStatus({ endpoint: { host, port: 13145, transport: 'lan-dev' }, requestId }), code('config'));
   }
-  await assert.rejects(api.readBrainstemGrpcStatus({ endpoint: { host: '192.168.42.64', port: 13145, transport: 'lan-dev', clientIdentityAlias: 'chosen' }, requestId }), code('config'));
-  assert.equal(calls.length, 4);
+  await assert.rejects(api.readBrainstemGrpcStatus({ endpoint: { host: '192.168.66.64', port: 13145, transport: 'lan-dev', clientIdentityAlias: 'chosen' }, requestId }), code('config'));
+  assert.equal(calls.length, 5);
   assert.ok(calls.every(args => args.length === 3));
 });
 
@@ -95,7 +96,7 @@ test('LAN fails closed on unavailable QA capability or fabricated TLS/identity f
     let tls = 0;
     const { api } = await load(good({ lanDevAvailable: true, readStatus: async () => { tls++; throw new Error('no fallback'); },
       readLanStatus: async () => ({ requestId, status: status(), transport: 'grpc-lan', mutualTlsVerified: false, clientIdentitySelected: false }), ...patch }));
-    await assert.rejects(api.readBrainstemGrpcStatus({ endpoint: { host: '192.168.42.64', port: 13145, transport: 'lan-dev' }, requestId }));
+    await assert.rejects(api.readBrainstemGrpcStatus({ endpoint: { host: '192.168.66.64', port: 13145, transport: 'lan-dev' }, requestId }));
     assert.equal(tls, 0);
   }
 });

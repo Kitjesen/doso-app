@@ -12,7 +12,7 @@ const code = ts.transpileModule(source, { compilerOptions: {
 } }).outputText;
 
 function mount(dimensions = { width: 390, height: 844 }) {
-  const slots = []; let cursor = 0, nodes = [], connectionCalls = 0, exitCalls = 0;
+  const slots = []; let cursor = 0, nodes = [], connectionCalls = 0, exitCalls = 0, localUseCalls = 0;
   const BottomNav = () => null;
   const TasksScreen = () => null;
   const AnalysisScreen = () => null;
@@ -43,7 +43,7 @@ function mount(dimensions = { width: 390, height: 844 }) {
       if (typeof node !== 'object') { nodes.push({ type: 'copy', value: String(node) }); return; }
       nodes.push(node); walk(node.props?.children);
     }
-    walk(module.exports.GuestScreen({ onOpenConnection: () => connectionCalls++, onExitGuest: () => exitCalls++ }));
+    walk(module.exports.GuestScreen({ onOpenConnection: () => connectionCalls++, onExitGuest: () => exitCalls++, onOpenLocalUse: () => localUseCalls++ }));
   }
   render();
   return {
@@ -54,6 +54,7 @@ function mount(dimensions = { width: 390, height: 844 }) {
     get analysis() { return nodes.find(node => node.type === AnalysisScreen)?.props; },
     get copy() { return nodes.filter(node => node.type === 'copy').map(node => node.value).join(' '); },
     get connectionCalls() { return connectionCalls; }, get exitCalls() { return exitCalls; },
+    get localUseCalls() { return localUseCalls; },
   };
 }
 
@@ -66,6 +67,15 @@ test('guest starts locally with the existing five-tab navigation and an unconnec
   assert.equal(guest.connectionCalls, 0); assert.equal(guest.exitCalls, 0);
   guest.element('guest-open-connection').props.onPress();
   assert.equal(guest.connectionCalls, 1); assert.equal(guest.exitCalls, 0);
+});
+
+test('guest local use is an explicit separate action', () => {
+  const guest = mount();
+  assert.equal(guest.localUseCalls, 0);
+  guest.element('guest-open-local-use').props.onPress();
+  assert.equal(guest.localUseCalls, 1);
+  assert.equal(guest.connectionCalls, 0);
+  assert.equal(guest.exitCalls, 0);
 });
 
 test('task browsing uses actual templates with both execution gates closed', () => {

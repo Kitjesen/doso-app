@@ -82,7 +82,18 @@ test('gateway reports deterministic 25/50/75/100 download progress before verifi
     if (view.phase === 'downloading') percentages.push(view.progress.percent);
   }
   assert.deepEqual(percentages, [25, 50, 75, 100]);
+  assert.equal(simulatedFirmwareUpdateGateway.present(state).progress.remainingBytes, 0);
   assert.equal(simulatedFirmwareUpdateGateway.present(state).progress.percent, null);
+});
+
+test('gateway exposes live downloaded, total, and remaining byte counts during download', () => {
+  let state = simulatedFirmwareUpdateGateway.start(simulatedFirmwareUpdateGateway.create());
+  state = simulatedFirmwareUpdateGateway.advance(state);
+  const progress = simulatedFirmwareUpdateGateway.present(state).progress;
+  assert.equal(progress.downloadedBytes, 4_650_000);
+  assert.equal(progress.totalBytes, 18_600_000);
+  assert.equal(progress.remainingBytes, 13_950_000);
+  assert.match(progress.label, /已下载 .*剩余/);
 });
 
 test('gateway cancellation is allowed only while scheduled or downloading', () => {

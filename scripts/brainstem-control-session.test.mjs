@@ -15,7 +15,8 @@ function fixture(profile = { current: 'flat', available: ['flat', 'stairs'], des
   const calls = [];
   const reply = extra => ({ status: { ...current }, leaseActive: lease, principalVerified: verified, ...extra });
   const transport = {
-    async open(endpoint, principal) { calls.push(['open', endpoint.host, principal]); return { ...reply(), sessionId: 's1', transport: 'grpc-mtls', mutualTlsVerified: true, profile }; },
+    async open(endpoint, principal) { calls.push(['open', endpoint.host, principal]); return { ...reply(), leaseActive: false, principalVerified: false,
+      sessionId: 's1', transport: 'grpc-mtls', mutualTlsVerified: true, profile }; },
     async read() { calls.push(['read']); return reply(); },
     async action(id, action, profile) {
       calls.push(['action', action, profile]); lease = false; verified = true;
@@ -37,66 +38,520 @@ function fixture(profile = { current: 'flat', available: ['flat', 'stairs'], des
 const endpoint = { host: '192.0.2.1', port: 13145, clientIdentityAlias: 'fixture' };
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 
-function slotProfile(version = 'v1', activeModeId = 'flat') {
-  return { current: `flat_${version}`, available: [`flat_${version}`, `stairs_${version}`],
-    descriptions: ['stairs: misleading', 'flat: misleading'], currentDescription: 'diagnostics', activeModeId,
-    modeCapabilities: ['flat', 'stairs'].map(id => ({ id, kind: 'locomotion', available: true,
-      availability: 'available', label: '', unavailableReason: '', profileId: `${id}_${version}` })) };
-}
+test('control owner follows fresh device state and matched lease', async () => {
+  const f = fixture();
+  try {
+    assert.equal(f.session.runtimeState.controlOwner, 'unknown');
+    await f.session.connect(endpoint, 'fixture');
+    assert.equal(f.session.runtimeState.controlOwner, 'none');
+    f.set({ owner: 'yunzhuo' }); await f.session.refresh();
+    assert.equal(f.session.runtimeState.controlOwner, 'robot-remote');
+    f.set({ owner: 'grpc', grpcLeaseActive: true }); await f.session.refresh();
+    assert.equal(f.session.runtimeState.controlOwner, 'remote');
+    f.set({ owner: 'grpc', grpcLeaseActive: false }); await f.session.refresh();
+    assert.equal(f.session.runtimeState.controlOwner, 'unknown');
+    f.set({ owner: 'none', grpcLeaseActive: true }); await f.session.refresh();
+    assert.equal(f.session.runtimeState.controlOwner, 'unknown');
+    f.set({ owner: 'none', grpcLeaseActive: false, fsmKind: 'standing', motorOutputEnabled: true });
+    await f.session.refresh(); await f.session.acquire();
+    assert.equal(f.session.runtimeState.controlOwner, 'this-device');
+    f.advance(1501);
+    assert.equal(f.session.runtimeState.controlOwner, 'unknown');
+  } finally { await f.session.disconnect(); }
+});
 
-test('motion slot commands and UI selection remain unchanged after robot model replacement', async () => {
-  for (const version of ['v1', 'replacement']) {
-    const profile = slotProfile(version);
-    const f = fixture(profile);
-    f.transport.action = async (id, action, slot) => {
-      f.calls.push(['action', action, slot]);
-      return f.reply({ profile: { ...profile, current: `${slot}_${version}`, activeModeId: slot } });
-    };
+test('conflicting lease and owner observations remain unknown', async () => {
+  const f = fixture();
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    f.set({ owner: 'yunzhuo', grpcLeaseActive: true });
+    await f.session.refresh();
+    assert.equal(f.session.runtimeState.controlOwner, 'unknown');
+    f.set({ owner: 'none', grpcLeaseActive: false });
+    f.transport.read = async () => f.reply({ leaseActive: true, principalVerified: true, leaseOwnerMatched: true });
+    await f.session.refresh();
+    assert.equal(f.session.runtimeState.controlOwner, 'unknown');
+    f.set({ owner: 'grpc', grpcLeaseActive: true });
+    f.transport.read = async () => f.reply({ leaseActive: true, principalVerified: true, leaseOwnerMatched: false });
+    await f.session.refresh();
+    assert.equal(f.session.runtimeState.controlOwner, 'unknown');
+  } finally { await f.session.disconnect(); }
+});
+
+test('status polling cannot renew old profile freshness and fresh profile replaces its gates', async () => {
+  const f = fixture();
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    const first = f.session.state.profileObservedAt;
+    for (let i = 0; i < 40; i++) { f.advance(500); await f.session.refresh(); }
+    assert.equal(f.session.state.connected, true);
+    assert.equal(f.session.state.profile, null);
+    assert.equal(f.session.operationReadiness.switchPolicy.ready, false);
+    assert.equal(f.session.runtimeState.policyCatalogStatus, 'unknown');
+    assert.equal(f.session.operationReadiness.enableMotor.ready, false, 'unknown mode cannot authorize normal mode actions');
+    const profile = { current: 'stairs', available: ['flat', 'stairs'], descriptions: [], currentDescription: 'stairs' };
+    f.transport.read = async () => ({ ...f.reply(), profile });
+    await f.session.refresh();
+    assert.equal(f.session.state.profile.current, 'stairs');
+    assert.ok(f.session.state.profileObservedAt > first);
+    assert.equal(f.session.operationReadiness.switchPolicy.ready, true);
+    f.transport.read = async () => ({ ...f.reply(), profileUnavailable: true });
+    await f.session.refresh();
+    assert.equal(f.session.state.profile, null);
+    assert.equal(f.session.operationReadiness.switchPolicy.ready, false);
+  } finally { await f.session.disconnect(); }
+});
+
+test('selected recovery blocks normal enable, locomotion and policy actions but keeps disable', async () => {
+  const f = fixture({ current: 'flat', available: ['flat'], descriptions: [], currentDescription: '', activeModeId: 'recovery' });
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    assert.equal(f.session.operationReadiness.enableMotor.ready, false);
+    assert.equal(f.session.operationReadiness.switchPolicy.ready, false);
+    f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh();
+    assert.equal(f.session.canAcquire, false);
+    assert.equal(f.session.operationReadiness.disableMotor.ready, true);
+    assert.equal(f.session.runtimeState.recoveryMode.selected, true);
+  } finally { await f.session.disconnect(); }
+});
+
+test('recovery capability cannot be dispatched as a normal profile switch', async () => {
+  const f = fixture({ current: 'flat-id', available: ['flat-id', 'recovery-id'],
+    descriptions: ['flat: W5', 'recovery: 自起'], currentDescription: 'flat: W5' });
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    await assert.rejects(f.session.action('switch-profile', 'recovery-id'), /策略已不可用/);
+    assert.equal(f.calls.some(call => call[0] === 'action'), false);
+  } finally { await f.session.disconnect(); }
+});
+
+test('explicit action rejections retire intent and retain a freshly verified channel', async t => {
+  t.mock.method(console, 'info', () => {});
+  for (const [code, message] of [['unimplemented', /未开放此操作/], ['precondition', /状态不允许/]]) {
+    const f = fixture();
     try {
-      await f.session.connect(endpoint, 'doso-g20@robot');
-      assert.equal(f.session.runtimeState.currentPolicy.id, 'flat');
-      assert.deepEqual(getControlTerrainPolicies(f.session.runtimeState).map(mode => mode.profileId), ['flat', 'stairs', null]);
-      for (const target of ['stairs', 'flat']) {
-        await f.session.action('switch-profile', target);
-        assert.equal(f.session.runtimeState.currentPolicy.id, target);
-        assert.equal(f.session.runtimeState.terrainMode.current, target);
-      }
-      assert.deepEqual(f.calls.filter(call => call[0] === 'action'), [
-        ['action', 'switch-profile', 'stairs'], ['action', 'switch-profile', 'flat'],
+      await f.session.connect(endpoint, 'fixture');
+      f.transport.action = async () => { throw { code, message: 'private details' }; };
+      await assert.rejects(f.session.action('enable'), error => {
+        assert.equal(error.code, code); assert.match(error.message, message);
+        assert.doesNotMatch(error.message, /private details/); return true;
+      });
+      assert.match(f.session.state.error, message);
+      assert.doesNotMatch(f.session.state.error, /private|断开|中断/);
+      assert.equal(f.session.state.connected, true);
+      assert.equal(f.session.state.phase, 'ready');
+      assert.equal(f.session.state.leaseActive, false);
+      assert.equal(f.session.state.manualPrepared, false);
+      assert.equal(f.calls.filter(call => call[0] === 'interrupt').length, 1);
+      assert.equal(f.calls.filter(call => call[0] === 'read').length, 1);
+      assert.equal(f.calls.some(call => call[0] === 'close'), false);
+    } finally { await f.session.disconnect(); }
+  }
+});
+
+test('action timeout still closes an uncertain transport without retrying the action', async t => {
+  t.mock.method(console, 'info', () => {});
+  const f = fixture();
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    let attempts = 0;
+    f.transport.action = async () => { attempts++; throw { code: 'timeout' }; };
+    await assert.rejects(f.session.action('enable'), /请求超时/);
+    assert.equal(attempts, 1);
+    assert.equal(f.session.state.connected, false);
+    assert.equal(f.calls.filter(call => call[0] === 'close').length, 1);
+  } finally { await f.session.disconnect(); }
+});
+
+test('rejected action cannot revive an armed movement or its pending target', async () => {
+  const f = fixture();
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh(); await f.session.acquire();
+    await f.session.drive({ x: 0, y: -.8 });
+    let attempts = 0;
+    f.transport.action = async () => { attempts++; throw { code: 'precondition' }; };
+    await assert.rejects(f.session.action('sit-down'), /状态不允许/);
+    const count = f.calls.filter(call => call[0] === 'input').length;
+    await f.session.drive({ x: 0, y: -.8 }); await f.session.refresh();
+    assert.equal(f.session.state.connected, true);
+    assert.equal(f.session.state.leaseActive, false);
+    assert.equal(f.session.state.manualPrepared, false);
+    assert.equal(f.session.canUseManualControl, false);
+    assert.equal(f.calls.filter(call => call[0] === 'input').length, count);
+    assert.equal(f.calls.filter(call => call[0] === 'acquire').length, 1);
+    assert.equal(attempts, 1);
+  } finally { await f.session.disconnect(); }
+});
+
+test('rejection recovery fails closed on unconfirmed stop, read failure or residual own authority', async t => {
+  t.mock.method(console, 'info', () => {});
+  for (const scenario of ['stop', 'read', 'lease']) {
+    const f = fixture();
+    try {
+      await f.session.connect(endpoint, 'fixture');
+      f.transport.action = async () => { throw { code: 'precondition' }; };
+      if (scenario === 'stop') f.transport.interrupt = async () => { throw { code: 'stop_unconfirmed' }; };
+      if (scenario === 'read') f.transport.read = async () => { throw { code: 'unavailable' }; };
+      if (scenario === 'lease') f.transport.read = async () => f.reply({ leaseActive: true, leaseOwnerMatched: true });
+      await assert.rejects(f.session.action('enable'), error => {
+        assert.equal(error.code, scenario === 'read' ? 'unavailable' : 'stop_unconfirmed');
+        assert.match(error.message, scenario === 'read' ? /连接已中断/ : /停止请求未确认/); return true;
+      });
+      assert.equal(f.session.state.connected, false, scenario);
+      assert.equal(f.session.state.leaseActive, false, scenario);
+      assert.equal(f.calls.filter(call => call[0] === 'close').length, 1, scenario);
+    } finally { await f.session.disconnect(); }
+  }
+});
+
+test('action errors expose only whitelisted codes and fixed messages', async t => {
+  t.mock.method(console, 'info', () => {});
+  const f = fixture();
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    f.transport.action = async () => { throw { code: 'private\ncode', message: 'private-message' }; };
+    await assert.rejects(f.session.action('enable'), error => {
+      assert.equal(error.code, 'unknown');
+      assert.equal(error.message, '控制连接已中断，请重新连接并申请控制权。'); return true;
+    });
+  } finally { await f.session.disconnect(); }
+});
+
+test('late rejection status cannot publish into a replacement connection', async () => {
+  const f = fixture();
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    f.transport.action = async () => { throw { code: 'precondition' }; };
+    let finishRead;
+    f.transport.read = () => new Promise(resolve => { finishRead = () => resolve(f.reply({ status: status({ criticalMotorFault: true }) })); });
+    const action = f.session.action('enable');
+    const rejected = assert.rejects(action, /状态不允许/);
+    await tick(); assert.equal(typeof finishRead, 'function');
+    await f.session.disconnect();
+    await f.session.connect({ ...endpoint, host: '192.0.2.2' }, 'other');
+    finishRead(); await rejected;
+    assert.equal(f.session.state.connected, true);
+    assert.equal(f.session.state.status.criticalMotorFault, false);
+    assert.equal(f.session.state.error, null);
+  } finally { await f.session.disconnect(); }
+});
+
+test('rejected profile switch invalidates unrefreshed policy metadata without reconnecting', async () => {
+  const f = fixture();
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    f.transport.action = async () => { throw { code: 'precondition' }; };
+    await assert.rejects(f.session.action('switch-profile', 'stairs'), /状态不允许/);
+    assert.equal(f.session.state.connected, true);
+    assert.equal(f.session.state.profile, null);
+    assert.equal(f.session.operationReadiness.switchPolicy.ready, false);
+  } finally { await f.session.disconnect(); }
+});
+
+test('a nonbusy input failure logs only one fixed sanitized record and still retires authority', async t => {
+  const lines = []; t.mock.method(console, 'info', text => lines.push(text));
+  const f = fixture();
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh(); await f.session.acquire();
+    f.transport.input = async () => { throw { code: 'stale_input', message: 'private-message', token: 'private-token', host: 'private-host' }; };
+    await f.session.drive({ x: 0, y: -.4 }); await f.session.drive({ x: 0, y: -.8 });
+    assert.equal(f.session.state.phase, 'error'); assert.equal(f.session.state.leaseActive, false);
+    assert.equal(lines.length, 1);
+    assert.equal(lines[0], 'DOSO_CONTROL_FAILURE code=stale_input phase=armed seq=1 inputAgeMs=0');
+    assert.equal(f.calls.filter(call => call[0] === 'interrupt').length, 1);
+    assert.equal(f.calls.filter(call => call[0] === 'close').length, 1);
+  } finally { await f.session.disconnect(); }
+});
+
+test('an unknown failure code cannot inject log contents and logger exceptions cannot prevent cleanup', async t => {
+  const lines = []; const logger = t.mock.method(console, 'info', text => lines.push(text));
+  for (const throws of [false, true]) {
+    const f = fixture();
+    try {
+      await f.session.connect(endpoint, 'fixture');
+      f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh(); await f.session.acquire();
+      logger.mock.mockImplementation(text => { lines.push(text); if (throws) throw new Error('private logger'); });
+      f.transport.input = async () => { throw { code: 'private\ncode', message: 'private-message' }; };
+      await f.session.drive({ x: 0, y: -.4 });
+      assert.equal(f.session.state.phase, 'error'); assert.equal(f.session.state.leaseActive, false);
+      assert.equal(f.calls.filter(call => call[0] === 'interrupt').length, 1);
+      assert.equal(f.calls.filter(call => call[0] === 'close').length, 1);
+    } finally { await f.session.disconnect(); }
+  }
+  assert.deepEqual(lines, Array(2).fill('DOSO_CONTROL_FAILURE code=unknown phase=armed seq=1 inputAgeMs=0'));
+});
+
+test('an input ACK mismatch has its own diagnostic code and is never retried', async t => {
+  const lines = []; t.mock.method(console, 'info', text => lines.push(text));
+  const f = fixture();
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh(); await f.session.acquire();
+    const input = f.transport.input;
+    f.transport.input = async (...args) => ({ ...await input(...args), sequence: 999 });
+    await f.session.drive({ x: 0, y: -.4 });
+    assert.equal(f.calls.filter(call => call[0] === 'input').length, 1);
+    assert.equal(f.session.state.phase, 'error'); assert.equal(f.session.state.leaseActive, false);
+    assert.deepEqual(lines, ['DOSO_CONTROL_FAILURE code=ack_mismatch phase=armed seq=1 inputAgeMs=0']);
+  } finally { await f.session.disconnect(); }
+});
+
+test('busy outside the input dispatch path still retires the session', async t => {
+  const lines = []; t.mock.method(console, 'info', text => lines.push(text));
+  const f = fixture();
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh(); await f.session.acquire();
+    f.transport.read = async () => { throw { code: 'busy' }; };
+    await f.session.refresh();
+    assert.equal(f.session.state.phase, 'error'); assert.equal(f.session.state.leaseActive, false);
+    assert.equal(f.calls.filter(call => call[0] === 'interrupt').length, 1);
+    assert.equal(f.calls.filter(call => call[0] === 'close').length, 1);
+    assert.deepEqual(lines, ['DOSO_CONTROL_FAILURE code=busy phase=armed seq=1 inputAgeMs=1000']);
+  } finally { await f.session.disconnect(); }
+});
+
+test('dispatched input failures never retry the target or reacquire control', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  t.mock.method(console, 'info', () => {});
+  for (const code of ['timeout', 'unavailable', 'command_rejected', 'not_armed']) {
+    const f = fixture(); let attempts = 0;
+    try {
+      await f.session.connect(endpoint, 'fixture');
+      f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh(); await f.session.acquire();
+      f.transport.input = async () => { attempts++; throw { code }; };
+      await f.session.drive({ x: 0, y: -.4 });
+      f.advance(200); t.mock.timers.tick(200); await tick();
+      await f.session.drive({ x: 0, y: -.8 });
+      assert.equal(attempts, 1, code); assert.equal(f.session.state.leaseActive, false, code);
+      assert.equal(f.calls.filter(call => call[0] === 'acquire').length, 1, code);
+      assert.equal(f.calls.filter(call => call[0] === 'interrupt').length, 1, code);
+    } finally { await f.session.disconnect(); }
+  }
+});
+
+test('latest motion replaces only the pending target and retains the physical sample time', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  for (const physical of [false, true]) {
+    const f = fixture(); const timestamps = []; let finish;
+    try {
+      await f.session.connect(endpoint, 'fixture');
+      f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh(); await f.session.acquire();
+      const input = f.transport.input;
+      f.transport.input = async (...args) => {
+        timestamps.push(args[4]); const reply = await input(...args);
+        return timestamps.length === 1 ? new Promise(resolve => { finish = () => resolve(reply); }) : reply;
+      };
+      const first = f.session.sticks({ x: 0, y: -.2 }, { x: 0, y: 0 }, physical ? 900 : undefined); await tick();
+      f.advance(10); await f.session.sticks({ x: 0, y: -.4 }, { x: .2, y: 0 }, physical ? 910 : undefined);
+      f.advance(10); await f.session.sticks({ x: .5, y: -.8 }, { x: -.5, y: 0 }, physical ? 920 : undefined);
+      assert.equal(f.calls.filter(call => call[0] === 'input').length, 1);
+      finish(); await first;
+      assert.equal(f.calls.filter(call => call[0] === 'input').length, 1, 'ACK completion cannot dispatch queued input');
+      t.mock.timers.tick(20); await tick();
+      assert.deepEqual(f.calls.filter(call => call[0] === 'input'), [
+        ['input', .2, 0, 0], ['input', .8, -.5, .5],
       ]);
-      assert.equal(f.calls.some(call => call[0] === 'acquire' || call[0] === 'input'), false);
-    } finally { f.session.dispose(); }
+      assert.deepEqual(timestamps, physical ? [900, 920] : [undefined, undefined]);
+      assert.equal(f.session.state.sequence, 3, 'overwritten source targets must not consume wire sequence numbers');
+    } finally { await f.session.disconnect(); }
   }
 });
 
-test('modern capability validation rejects model IDs and unavailable or ambiguous slot IDs before dispatch', async () => {
-  for (const change of ['model', 'unavailable', 'unknown', 'duplicate']) {
-    const profile = slotProfile();
-    let target = 'stairs';
-    if (change === 'model') target = 'stairs_v1';
-    if (change === 'unavailable') { profile.modeCapabilities[1].available = false; profile.modeCapabilities[1].availability = 'unavailable'; }
-    if (change === 'unknown') target = 'platform';
-    if (change === 'duplicate') profile.modeCapabilities.push({ ...profile.modeCapabilities[1], kind: 'recovery-action' });
-    const f = fixture(profile);
+test('latest motion expires while waiting for ACK instead of receiving a new timestamp', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const f = fixture(); let finish;
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh(); await f.session.acquire();
+    const input = f.transport.input;
+    f.transport.input = async (...args) => { const reply = await input(...args); return new Promise(resolve => { finish = () => resolve(reply); }); };
+    const first = f.session.drive({ x: 0, y: -.2 }); await tick();
+    f.advance(10); await f.session.drive({ x: 0, y: -.8 }); f.advance(151);
+    finish(); await first;
+    t.mock.timers.tick(20); await tick();
+    assert.equal(f.calls.filter(call => call[0] === 'input').length, 1);
+    assert.equal(f.session.state.leaseActive, false);
+    assert.ok(f.calls.some(call => call[0] === 'interrupt'));
+  } finally { await f.session.disconnect(); }
+});
+
+test('latest motion is discarded when the preceding ACK rejects sequence or authority', async () => {
+  for (const rejected of ['sequence', 'lease']) {
+    const f = fixture(); let finish;
     try {
-      await f.session.connect(endpoint, 'doso-g20@robot');
-      await assert.rejects(f.session.action('switch-profile', target));
-      assert.equal(f.calls.some(call => call[0] === 'action'), false);
-    } finally { f.session.dispose(); }
+      await f.session.connect(endpoint, 'fixture');
+      f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh(); await f.session.acquire();
+      const input = f.transport.input;
+      f.transport.input = async (...args) => {
+        const reply = await input(...args);
+        return new Promise(resolve => { finish = () => resolve(rejected === 'sequence'
+          ? { ...reply, sequence: 999 } : { ...reply, leaseActive: false }); });
+      };
+      const first = f.session.drive({ x: 0, y: -.2 }); await tick();
+      await f.session.drive({ x: 0, y: -.8 }); finish(); await first;
+      assert.equal(f.calls.filter(call => call[0] === 'input').length, 1, rejected);
+      assert.equal(f.session.state.phase, 'error', rejected);
+      assert.equal(f.session.state.leaseActive, false, rejected);
+    } finally { await f.session.disconnect(); }
   }
 });
 
-test('modern switch must confirm the active slot rather than an echoed model name', async () => {
-  for (const active of ['flat', '', undefined]) {
-    const profile = slotProfile(); const f = fixture(profile);
-    f.transport.action = async () => f.reply({ profile: { ...profile, current: 'stairs', activeModeId: active } });
+test('latest motion retains each contributing touch axis age while waiting', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const f = fixture(); let finish;
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh(); await f.session.acquire();
+    const input = f.transport.input;
+    f.transport.input = async (...args) => { const reply = await input(...args); return new Promise(resolve => { finish = () => resolve(reply); }); };
+    const first = f.session.drive({ x: 0, y: -.2 }); await tick();
+    f.advance(100); await f.session.turn({ x: .5, y: 0 }); f.advance(60);
+    finish(); await first;
+    t.mock.timers.tick(20); await tick();
+    assert.equal(f.calls.filter(call => call[0] === 'input').length, 1);
+    assert.equal(f.session.state.leaseActive, false, 'a recent turn must not renew the older nonzero drive axis');
+  } finally { await f.session.disconnect(); }
+});
+
+test('latest motion after a status read sends only the newest still-authorized target', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  for (const revoked of [false, true]) {
+    const f = fixture(); let finish;
     try {
-      await f.session.connect(endpoint, 'doso-g20@robot');
-      await assert.rejects(f.session.action('switch-profile', 'stairs'));
-      assert.equal(f.session.state.phase, 'error');
-      assert.equal(f.session.runtimeState.currentPolicy, null);
-    } finally { f.session.dispose(); }
+      await f.session.connect(endpoint, 'fixture');
+      f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh(); await f.session.acquire();
+      f.transport.read = () => new Promise(resolve => { finish = () => resolve(f.reply()); });
+      const read = f.session.refresh();
+      await f.session.sticks({ x: 0, y: -.2 }, { x: 0, y: 0 }, 900);
+      await f.session.sticks({ x: 0, y: -.8 }, { x: -.5, y: 0 }, 920);
+      assert.equal(f.calls.some(call => call[0] === 'input'), false);
+      if (revoked) await f.transport.interrupt();
+      finish(); await read;
+      assert.equal(f.calls.some(call => call[0] === 'input'), false, 'read completion cannot dispatch queued input');
+      f.advance(20); t.mock.timers.tick(20); await tick();
+      assert.deepEqual(f.calls.filter(call => call[0] === 'input'), revoked ? [] : [['input', .8, 0, .5]]);
+    } finally { await f.session.disconnect(); }
   }
+});
+
+test('latest motion is cleared by neutral, retirement and replacement before a late ACK', async () => {
+  for (const cancel of ['neutral', 'interrupt', 'disconnect', 'replace']) {
+    const f = fixture(); let finish;
+    try {
+      await f.session.connect(endpoint, 'fixture');
+      f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh(); await f.session.acquire();
+      const input = f.transport.input;
+      f.transport.input = async (...args) => { const reply = await input(...args); return new Promise(resolve => { finish = () => resolve(reply); }); };
+      const first = f.session.drive({ x: 0, y: -.2 }); await tick();
+      await f.session.drive({ x: 0, y: -.8 });
+      if (cancel === 'neutral') await f.session.drive({ x: 0, y: 0 });
+      else if (cancel === 'replace') await f.session.connect(endpoint, 'replacement');
+      else await f.session[cancel]();
+      finish(); await first;
+      assert.equal(f.calls.filter(call => call[0] === 'input').length, 1, cancel);
+      assert.equal(f.session.state.leaseActive, false, cancel);
+    } finally { await f.session.disconnect(); }
+  }
+});
+
+test('latest motion cannot survive a protected action queued behind a status read', async () => {
+  const f = fixture(); let finish;
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh(); await f.session.acquire();
+    f.transport.read = () => new Promise(resolve => { finish = () => resolve(f.reply()); });
+    const read = f.session.refresh();
+    await f.session.drive({ x: 0, y: -.8 });
+    const action = f.session.action('disable'); finish(); await read; await action;
+    assert.equal(f.calls.some(call => call[0] === 'input'), false);
+    assert.equal(f.session.state.status.motorOutputEnabled, false);
+  } finally { await f.session.disconnect(); }
+});
+
+test('latest motion expiry after polling publishes an unconfirmed stop without rejecting the poll', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const f = fixture(); let finish;
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh(); await f.session.acquire();
+    f.transport.read = () => new Promise(resolve => { finish = () => resolve(f.reply()); });
+    const read = f.session.refresh(); await f.session.drive({ x: 0, y: -.8 }); f.advance(151);
+    f.transport.interrupt = async () => { throw { code: 'stop_unconfirmed' }; };
+    finish(); await assert.doesNotReject(read);
+    t.mock.timers.tick(20); await tick();
+    assert.equal(f.calls.some(call => call[0] === 'input'), false);
+    assert.equal(f.session.state.phase, 'error');
+    assert.match(f.session.state.error, /停止请求未确认/);
+    assert.equal(f.session.state.leaseActive, false);
+  } finally { await f.session.disconnect(); }
+});
+
+test('latest motion neutral interrupts a status read and discards its queued movement', async () => {
+  const f = fixture(); let finish;
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh(); await f.session.acquire();
+    const oldReply = f.reply(); f.transport.read = () => new Promise(resolve => { finish = () => resolve(oldReply); });
+    const read = f.session.refresh(); await f.session.drive({ x: 0, y: -.8 });
+    await f.session.drive({ x: 0, y: 0 });
+    assert.equal(f.session.state.leaseActive, false, 'neutral must not wait behind the status RPC');
+    finish(); await read;
+    assert.equal(f.calls.filter(call => call[0] === 'input').length, 0);
+    assert.equal(f.session.state.leaseActive, false);
+  } finally { await f.session.disconnect(); }
+});
+
+test('20ms held neutral stays armed across a pending status read and uses the next live sample', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const f = fixture(); let finish;
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh(); await f.session.acquire();
+    f.transport.read = () => new Promise(resolve => { finish = () => resolve(f.reply()); });
+    const reading = f.session.refresh();
+    const held = setInterval(() => { void f.session.drive({ x: 0, y: 0 }); }, 20);
+    try {
+      for (let sample = 0; sample < 12; sample++) { f.advance(20); t.mock.timers.tick(20); await tick(); }
+      assert.equal(f.calls.some(call => call[0] === 'interrupt'), false);
+      assert.equal(f.session.state.leaseActive, true);
+      assert.equal(f.calls.filter(call => call[0] === 'input').length, 0);
+      finish(); await reading;
+      assert.equal(f.calls.filter(call => call[0] === 'input').length, 0, 'read completion cannot replay the cached neutral');
+      f.advance(20); t.mock.timers.tick(20); await tick();
+      assert.deepEqual(f.calls.filter(call => call[0] === 'input'), [['input', 0, 0, 0]]);
+    } finally { clearInterval(held); finish?.(); await reading; }
+  } finally { await f.session.disconnect(); }
+});
+
+test('20ms held neutral coalesces across a pending zero ACK without releasing or overlapping', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const f = fixture(); let finish;
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh(); await f.session.acquire();
+    const input = f.transport.input;
+    f.transport.input = async (...args) => {
+      const reply = await input(...args);
+      return f.calls.filter(call => call[0] === 'input').length === 1
+        ? new Promise(resolve => { finish = () => resolve(reply); }) : reply;
+    };
+    const first = f.session.drive({ x: 0, y: 0 }); await tick();
+    const held = setInterval(() => { void f.session.drive({ x: 0, y: 0 }); }, 20);
+    try {
+      for (let sample = 0; sample < 4; sample++) { f.advance(20); t.mock.timers.tick(20); await tick(); }
+      assert.equal(f.calls.some(call => call[0] === 'interrupt'), false);
+      assert.equal(f.calls.filter(call => call[0] === 'input').length, 1);
+      assert.equal(f.session.state.leaseActive, true);
+      finish(); await first;
+      assert.equal(f.calls.filter(call => call[0] === 'input').length, 1, 'zero ACK cannot trigger replay');
+      f.advance(20); t.mock.timers.tick(20); await tick();
+      assert.deepEqual(f.calls.filter(call => call[0] === 'input'), [['input', 0, 0, 0], ['input', 0, 0, 0]]);
+      assert.equal(f.session.state.leaseActive, true);
+    } finally { clearInterval(held); finish?.(); await first; }
+  } finally { await f.session.disconnect(); }
 });
 
 test('the live control session preserves advertised terrain slots and dispatches actual model IDs', async () => {
@@ -177,6 +632,7 @@ test('Walking stand retains motor, lease, local-owner, fault, freshness and busy
   f.advance(1500);
   assert.equal(f.session.operationReadiness.stand.ready, false);
   await assert.rejects(f.session.action('stand-up'), /不允许/);
+  f.transport.read = async () => ({ ...f.reply(), profile: { current: 'flat', available: ['flat'], descriptions: [], currentDescription: '' } });
   await f.session.refresh();
   let finish;
   f.transport.action = () => new Promise(resolve => { finish = resolve; });
@@ -185,6 +641,79 @@ test('Walking stand retains motor, lease, local-owner, fault, freshness and busy
   await assert.rejects(f.session.action('stand-up'), /上一项操作/);
   finish(f.reply()); await action;
   f.session.dispose();
+});
+
+test('a blocked status read publishes expiry once without renewing telemetry or stale policy', async () => {
+  const f = fixture(); let finishRead; let changes = 0;
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh();
+    assert.equal(f.session.prepareManualControl(), true);
+    f.transport.read = () => new Promise(resolve => { finishRead = () => resolve(f.reply()); });
+    const reading = f.session.refresh();
+    const unsubscribe = f.session.subscribe(() => { changes++; });
+    f.advance(1499); await f.session.refresh();
+    assert.equal(changes, 0);
+    f.advance(1); await f.session.refresh();
+    assert.equal(changes, 1, 'the next existing poll must notify the UI even while a read is blocked');
+    assert.equal(f.session.state.connected, true, 'expired telemetry does not prove the transport disconnected');
+    assert.equal(f.session.state.status, null);
+    assert.equal(f.session.state.profile, null);
+    assert.equal(f.session.state.observedAt, null);
+    assert.equal(f.session.state.manualPrepared, false);
+    assert.equal(f.session.runtimeState.motorState, 'unknown', 'unknown must never be reported as disabled');
+    assert.equal(f.session.runtimeState.currentPolicy, null);
+    assert.equal(f.session.canAcquire, false);
+    assert.equal(f.session.operationReadiness.sit.ready, false);
+    await f.session.refresh();
+    assert.equal(changes, 1, 'repeated polls must not publish the same expiry again');
+    finishRead(); await reading;
+    assert.equal(changes, 2);
+    assert.equal(f.session.runtimeState.motorState, 'enabled');
+    assert.equal(f.session.state.observedAt, 2500);
+    assert.equal(f.session.runtimeState.currentPolicy, null, 'status-only replies cannot renew an expired profile');
+    assert.equal(f.session.state.manualPrepared, false, 'a new observation must not restore prepared control');
+    unsubscribe();
+  } finally { await f.session.disconnect(); }
+});
+
+test('telemetry expiry preserves an outstanding action until its real reply', async () => {
+  const f = fixture(); let finishAction; let changes = 0;
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    f.transport.action = () => new Promise(resolve => { finishAction = () => resolve(f.reply()); });
+    const action = f.session.action('enable');
+    const unsubscribe = f.session.subscribe(() => { changes++; });
+    f.advance(1500); await f.session.refresh();
+    assert.equal(changes, 1);
+    assert.equal(f.session.state.phase, 'operating');
+    assert.equal(f.session.runtimeState.controlLink, 'connected', 'an active action still owns its channel');
+    assert.equal(f.session.runtimeState.motorState, 'unknown');
+    assert.equal(f.session.operationReadiness.enableMotor.ready, false);
+    await assert.rejects(f.session.action('enable'), /上一项操作/);
+    f.set({ motorOutputEnabled: true }); finishAction(); await action;
+    assert.equal(f.session.state.phase, 'ready');
+    assert.equal(f.session.runtimeState.motorState, 'enabled');
+    unsubscribe();
+  } finally { await f.session.disconnect(); }
+});
+
+test('a late expired read cannot restore telemetry after connection replacement', async () => {
+  const f = fixture(); let finishRead;
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    const oldReply = f.reply({ status: status({ fsmKind: 'standing', motorOutputEnabled: true }) });
+    f.transport.read = () => new Promise(resolve => { finishRead = () => resolve(oldReply); });
+    const reading = f.session.refresh();
+    f.advance(1500); await f.session.refresh();
+    assert.equal(f.session.state.status, null);
+    assert.equal(await f.session.connect(endpoint, 'fixture'), true);
+    const replacement = f.session.state;
+    finishRead(); await reading;
+    assert.equal(f.session.state, replacement);
+    assert.equal(f.session.runtimeState.motorState, 'disabled');
+    assert.equal(f.session.state.status.fsmKind, 'grounded');
+  } finally { await f.session.disconnect(); }
 });
 
 test('an outstanding motor action keeps its channel while stale telemetry stays unknown and cannot authorize motion', async () => {
@@ -250,7 +779,8 @@ test('interrupt, disconnect and disposal cancel a queued motor action before the
     finishRead(); await reading;
     assert.equal(await outcome, 'cancelled', cancel);
     assert.equal(f.calls.some(call => call[0] === 'action'), false, cancel);
-    assert.equal(f.calls.some(call => call[0] === 'interrupt'), true, 'native work is cancelled even without an existing lease');
+    assert.equal(f.calls.some(call => call[0] === (cancel === 'interrupt' ? 'interrupt' : 'close')), true,
+      'queued JS action is fenced before native cancellation or channel close');
     f.session.dispose();
   }
 });
@@ -303,7 +833,7 @@ test('synchronous cancellation during the dispatch notification prevents the nat
     await assert.rejects(f.session.action('enable'), /控制连接已变化/);
     await cancelling;
     assert.equal(f.calls.some(call => call[0] === 'action'), false, cancel);
-    assert.equal(f.calls.some(call => call[0] === 'interrupt'), true, cancel);
+    assert.equal(f.calls.some(call => call[0] === (cancel === 'interrupt' ? 'interrupt' : 'close')), true, cancel);
     unsubscribe(); f.session.dispose();
   }
 });
@@ -358,7 +888,7 @@ test('explicit LAN channel retains lease ACK safety without claiming authenticat
     const original = f.transport[name];
     f.transport[name] = async (...args) => { const reply = await original(...args); return { ...reply, principalVerified: false, leaseOwnerMatched: reply.leaseActive }; };
   }
-  assert.equal(await f.session.connect({ host: '192.168.42.64', port: 13145, transport: 'lan-dev' }, ''), true);
+  assert.equal(await f.session.connect({ host: '192.168.66.64', port: 13145, transport: 'lan-dev' }, ''), true);
   assert.equal(f.session.state.transport, 'grpc-lan'); assert.equal(f.session.state.mutualTlsVerified, false);
   assert.equal(f.session.state.principalVerified, false); assert.equal(f.calls.length, 1);
   await f.session.action('enable'); f.set({ fsmKind: 'standing', transition: 'none' }); await f.session.refresh();
@@ -421,6 +951,7 @@ test('concurrent stop callers await the same unconfirmed result without a hidden
 test('cleanup stop failure remains visible until an explicitly verified reconnect succeeds', async () => {
   const f = fixture();
   await f.session.connect(endpoint, 'doso-g20@robot');
+  await f.session.action('enable');
   f.transport.interrupt = async () => { throw { code: 'stop_unconfirmed' }; };
   await f.session.disconnect();
   assert.match(f.session.state.error, /停止请求未确认/);
@@ -436,8 +967,19 @@ test('cleanup stop failure remains visible until an explicitly verified reconnec
   f.session.dispose();
 });
 
+test('confirmed explicit lease release makes later native channel retirement read-only', async () => {
+  const f = fixture(); await f.session.connect(endpoint, 'fixture');
+  await f.session.action('enable'); f.set({ fsmKind: 'standing' }); await f.session.refresh(); await f.session.acquire();
+  await f.session.interrupt(); const stopCount = f.calls.filter(call => call[0] === 'interrupt').length;
+  f.transport.interrupt = async () => { throw { code: 'cancelled' }; };
+  await f.session.disconnect();
+  assert.equal(f.session.state.error, null); assert.equal(f.session.state.failureCode, null);
+  assert.equal(f.calls.filter(call => call[0] === 'interrupt').length, stopCount); f.session.dispose();
+});
+
 test('status-failure cleanup records an unconfirmed stop, not only the network error', async () => {
   const f = fixture(); await f.session.connect(endpoint, 'doso-g20@robot');
+  await f.session.action('enable');
   f.transport.read = async () => { throw { code: 'unavailable' }; };
   f.transport.interrupt = async () => { throw { code: 'stop_unconfirmed' }; };
   await f.session.refresh();
@@ -448,6 +990,7 @@ test('status-failure cleanup records an unconfirmed stop, not only the network e
 
 test('a failed replacement open retains the previous connection stop warning', async () => {
   const f = fixture(); await f.session.connect(endpoint, 'doso-g20@robot');
+  await f.session.action('enable');
   f.transport.interrupt = async () => { throw { code: 'stop_unconfirmed' }; };
   f.transport.open = async () => { throw { code: 'unavailable' }; };
   assert.equal(await f.session.connect({ ...endpoint, host: '192.0.2.2' }, 'doso-g20@robot'), false);
@@ -458,6 +1001,7 @@ test('a failed replacement open retains the previous connection stop warning', a
 test('repeated disconnects retain late stop failure, while a new verified connection retires it', async () => {
   for (const replace of [false, true]) {
     const f = fixture(); await f.session.connect(endpoint, 'doso-g20@robot');
+    await f.session.action('enable');
     let rejectStop;
     f.transport.interrupt = () => new Promise((resolve, reject) => { rejectStop = reject; });
     const closing = f.session.disconnect();
@@ -500,7 +1044,8 @@ test('an old stop completion cannot clear the pending stop of a replacement sess
   await f.session.disconnect();
 });
 
-test('operator directions follow Brainstem body coordinates: forward, left and counter-clockwise positive', async () => {
+test('operator directions follow Brainstem body coordinates: forward, left and counter-clockwise positive', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
   // brainstem_api/README.md coordinates and cms.proto WalkRequest physical units.
   // The SDK learns screen/operator right as +X, which is negative body Y / angular Z.
   const f = fixture();
@@ -508,14 +1053,15 @@ test('operator directions follow Brainstem body coordinates: forward, left and c
     await f.session.connect(endpoint, 'doso-g20@robot'); await f.session.action('enable');
     f.set({ fsmKind: 'standing', transition: 'none' }); await f.session.refresh(); await f.session.acquire();
     for (const [name, drive, turn, expected] of [
-      ['forward', { x: 0, y: -1 }, { x: 0, y: 0 }, [.2, 0, 0]],
-      ['back', { x: 0, y: 1 }, { x: 0, y: 0 }, [-.2, 0, 0]],
-      ['left', { x: -1, y: 0 }, { x: 0, y: 0 }, [0, .2, 0]],
-      ['right', { x: 1, y: 0 }, { x: 0, y: 0 }, [0, -.2, 0]],
-      ['left turn', { x: 0, y: 0 }, { x: -1, y: 0 }, [0, 0, .3]],
-      ['right turn', { x: 0, y: 0 }, { x: 1, y: 0 }, [0, 0, -.3]],
+      ['forward', { x: 0, y: -1 }, { x: 0, y: 0 }, [1, 0, 0]],
+      ['back', { x: 0, y: 1 }, { x: 0, y: 0 }, [-1, 0, 0]],
+      ['left', { x: -1, y: 0 }, { x: 0, y: 0 }, [0, 1, 0]],
+      ['right', { x: 1, y: 0 }, { x: 0, y: 0 }, [0, -1, 0]],
+      ['left turn', { x: 0, y: 0 }, { x: -1, y: 0 }, [0, 0, 1]],
+      ['right turn', { x: 0, y: 0 }, { x: 1, y: 0 }, [0, 0, -1]],
     ]) {
       await f.session.sticks(drive, turn, 900);
+      f.advance(20); t.mock.timers.tick(20); await tick();
       const actual = f.calls.filter(call => call[0] === 'input').at(-1).slice(1);
       assert.deepEqual(actual.map(value => value === 0 ? 0 : value), expected, name);
     }
@@ -554,7 +1100,7 @@ test('physical sticks send one coherent drive/turn snapshot and reject non-finit
   await f.session.sticks({ x: .4, y: -.5 }, { x: -.25, y: .6 });
   const values = f.calls.filter(call => call[0] === 'input');
   assert.equal(values.length, 1);
-  assert.deepEqual(values[0], ['input', .1, -.4 * .20, .25 * .30]);
+  assert.deepEqual(values[0], ['input', .5, -.4, .25]);
   await f.session.sticks({ x: .4, y: -.5 }, { x: NaN, y: 0 });
   assert.equal(f.session.state.leaseActive, false);
   assert.equal(f.calls.filter(call => call[0] === 'input').length, 1);
@@ -584,10 +1130,21 @@ test('enable, stand dispatch, observed standing, acquire with zero ACK precede m
   assert.equal(f.session.canAcquire, true); await f.session.acquire();
   assert.equal(f.session.canUseManualControl, true);
   await f.session.drive({ x: .5, y: -1 });
-  assert.deepEqual(f.calls.find(c => c[0] === 'input'), ['input', .2, -.1, 0]);
+  assert.deepEqual(f.calls.find(c => c[0] === 'input'), ['input', 1, -.5, 0]);
   assert.equal(f.session.state.sequence, 2);
-  assert.equal(f.session.runtimeState.speed.source, 'unknown');
+  assert.deepEqual(f.session.runtimeState.speed, { source: 'command', linearMps: 1, lateralMps: -.5, yawRps: 0 });
   await f.session.disconnect();
+});
+
+test('idle connected target speed is zero, but stale, disconnected and external ownership stay unknown', async () => {
+  const f = fixture();
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    assert.deepEqual(f.session.runtimeState.speed, { source: 'command', linearMps: 0, lateralMps: 0, yawRps: 0 });
+    f.set({ owner: 'yunzhuo' }); await f.session.refresh(); assert.equal(f.session.runtimeState.speed.source, 'unknown');
+    f.set({ owner: 'none' }); await f.session.refresh(); f.advance(1501); assert.equal(f.session.runtimeState.speed.source, 'unknown');
+    await f.session.disconnect(); assert.equal(f.session.runtimeState.speed.source, 'unknown');
+  } finally { await f.session.disconnect(); }
 });
 
 test('Yunzhuo, motor fault, transition and stale state block motion and relevant actions', async () => {
@@ -689,7 +1246,7 @@ test('explicit prepare waits for first live gesture and never replays the pre-AC
   assert.equal(f.calls.some(c => c[0] === 'acquire'), true);
   assert.equal(f.calls.some(c => c[0] === 'input'), false);
   await f.session.drive({ x: .5, y: 0 });
-  assert.deepEqual(f.calls.find(c => c[0] === 'input'), ['input', 0, -.1, 0]);
+  assert.deepEqual(f.calls.find(c => c[0] === 'input'), ['input', 0, -.5, 0]);
   await f.session.interrupt();
   assert.equal(f.session.state.manualPrepared, false); assert.equal(f.session.canBeginManualControl, false);
   await f.session.disconnect();
@@ -816,6 +1373,157 @@ test('an unconfirmed native stop rejects the explicit action and retires local a
   } finally { await f.session.disconnect(); }
 });
 
+test('touch readiness needs no prepare button, but neutral never acquires and pre-ACK movement is discarded', async () => {
+  const f = fixture();
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh();
+    assert.equal(f.session.canBeginTouchControl, true);
+    assert.equal(f.session.canBeginManualControl, false);
+    f.session.prepareManualControl();
+    await f.session.drive({ x: 0, y: 0 });
+    assert.equal(f.calls.some(c => c[0] === 'acquire'), false);
+    await f.session.drive({ x: 0, y: -.5 });
+    assert.equal(f.calls.some(c => c[0] === 'input'), false);
+    await f.session.drive({ x: 0, y: -.4 });
+    const reads = f.calls.filter(c => c[0] === 'read').length;
+    await f.session.refresh();
+    assert.equal(f.calls.filter(c => c[0] === 'read').length, reads, 'live ACKs supply status without competing polling');
+    await f.session.interrupt();
+    assert.equal(f.session.canBeginTouchControl, true);
+    await f.session.drive({ x: 0, y: -.8 });
+    assert.equal(f.calls.filter(c => c[0] === 'acquire').length, 1, 'old held samples cannot prepare another gesture');
+  } finally { await f.session.disconnect(); }
+});
+
+test('motion timeout retains connection only after confirmed release, and never resumes held input', async () => {
+  for (const confirmed of [true, false]) {
+    const f = fixture();
+    try {
+      await f.session.connect(endpoint, 'fixture');
+      f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh();
+      f.session.prepareManualControl(); await f.session.drive({ x: 0, y: -.5 });
+      f.transport.input = async () => { throw { code: 'timeout' }; };
+      if (!confirmed) f.transport.interrupt = async () => { throw { code: 'stop_unconfirmed' }; };
+      await f.session.drive({ x: 0, y: -.5 }).catch(() => {});
+      assert.equal(f.session.state.connected, confirmed);
+      assert.equal(f.session.state.manualPrepared, false);
+      assert.equal(f.session.state.leaseActive, false);
+      assert.equal(f.session.state.failureCode, confirmed ? 'timeout' : 'stop_unconfirmed');
+      await f.session.drive({ x: 0, y: -.8 });
+      assert.equal(f.calls.filter(c => c[0] === 'acquire').length, 1);
+    } finally { await f.session.disconnect(); }
+  }
+});
+
+test('normal touch release sends zero without releasing a healthy lease; pending acquire is cancelled', async () => {
+  const f = fixture();
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    f.set({ motorOutputEnabled: true }); await f.session.refresh();
+    assert.equal(f.session.touchBlockedReason, '请先站立');
+    f.set({ fsmKind: 'standing' }); await f.session.refresh();
+    assert.equal(f.session.touchBlockedReason, null);
+    f.session.prepareManualControl(); await f.session.drive({ x: 0, y: -.5 });
+    await f.session.drive({ x: 0, y: -.5 });
+    await f.session.endTouchGesture();
+    assert.deepEqual(f.calls.filter(c => c[0] === 'input').at(-1), ['input', 0, 0, 0]);
+    assert.equal(f.session.state.leaseActive, true);
+    assert.equal(f.calls.some(c => c[0] === 'interrupt'), false);
+    await f.session.interrupt();
+    f.session.prepareManualControl();
+    const acquire = f.transport.acquire; let complete;
+    f.transport.acquire = async () => { const reply = await acquire(); return new Promise(resolve => { complete = () => resolve(reply); }); };
+    const pending = f.session.drive({ x: 0, y: -.5 }); await tick();
+    await f.session.endTouchGesture(); complete(); await pending;
+    assert.equal(f.session.state.leaseActive, false);
+    assert.equal(f.session.state.manualPrepared, false);
+  } finally { await f.session.disconnect(); }
+});
+
+test('released touch renews only zero and stops renewing after explicit cancellation', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const f = fixture();
+  try {
+    await f.session.connect(endpoint, 'fixture');
+    f.set({ fsmKind: 'standing', motorOutputEnabled: true }); await f.session.refresh();
+    f.session.prepareManualControl(); await f.session.drive({ x: 0, y: -.5 });
+    await f.session.drive({ x: 0, y: -.5 }); await f.session.endTouchGesture();
+    const before = f.calls.filter(c => c[0] === 'input').length;
+    for(let i=0;i<20;i++){f.advance(20);t.mock.timers.tick(20);await tick();}
+    const idle = f.calls.filter(c => c[0] === 'input').slice(before);
+    assert.equal(idle.length, 4);
+    assert.ok(idle.every(c => c.slice(1).every(value => value === 0)));
+    await f.session.interrupt();
+    const stopped = f.calls.length;
+    for(let i=0;i<20;i++){f.advance(20);t.mock.timers.tick(20);await tick();}
+    assert.equal(f.calls.length, stopped);
+  } finally { await f.session.disconnect(); }
+});
+
+function slotProfile(version = 'v1', activeModeId = 'flat') {
+  return { current: `flat_${version}`, available: [`flat_${version}`, `stairs_${version}`],
+    descriptions: ['stairs: misleading', 'flat: misleading'], currentDescription: 'diagnostics', activeModeId,
+    modeCapabilities: ['flat', 'stairs'].map(id => ({ id, kind: 'locomotion', available: true,
+      availability: 'available', label: '', unavailableReason: '', profileId: `${id}_${version}` })) };
+}
+
+test('motion slot commands and UI selection remain unchanged after robot model replacement', async () => {
+  for (const version of ['v1', 'replacement']) {
+    const profile = slotProfile(version);
+    const f = fixture(profile);
+    f.transport.action = async (id, action, slot) => {
+      f.calls.push(['action', action, slot]);
+      return f.reply({ profile: { ...profile, current: `${slot}_${version}`, activeModeId: slot } });
+    };
+    try {
+      await f.session.connect(endpoint, 'doso-g20@robot');
+      assert.equal(f.session.runtimeState.currentPolicy.id, 'flat');
+      assert.deepEqual(getControlTerrainPolicies(f.session.runtimeState).map(mode => mode.profileId), ['flat', 'stairs', null]);
+      for (const target of ['stairs', 'flat']) {
+        await f.session.action('switch-profile', target);
+        assert.equal(f.session.runtimeState.currentPolicy.id, target);
+        assert.equal(f.session.runtimeState.terrainMode.current, target);
+      }
+      assert.deepEqual(f.calls.filter(call => call[0] === 'action'), [
+        ['action', 'switch-profile', 'stairs'], ['action', 'switch-profile', 'flat'],
+      ]);
+      assert.equal(f.calls.some(call => call[0] === 'acquire' || call[0] === 'input'), false);
+    } finally { f.session.dispose(); }
+  }
+});
+
+test('modern capability validation rejects model IDs and unavailable or ambiguous slot IDs before dispatch', async () => {
+  for (const change of ['model', 'unavailable', 'unknown', 'duplicate']) {
+    const profile = slotProfile();
+    let target = 'stairs';
+    if (change === 'model') target = 'stairs_v1';
+    if (change === 'unavailable') { profile.modeCapabilities[1].available = false; profile.modeCapabilities[1].availability = 'unavailable'; }
+    if (change === 'unknown') target = 'platform';
+    if (change === 'duplicate') profile.modeCapabilities.push({ ...profile.modeCapabilities[1], kind: 'recovery-action' });
+    const f = fixture(profile);
+    try {
+      await f.session.connect(endpoint, 'doso-g20@robot');
+      await assert.rejects(f.session.action('switch-profile', target));
+      assert.equal(f.calls.some(call => call[0] === 'action'), false);
+    } finally { f.session.dispose(); }
+  }
+});
+
+test('modern switch must confirm the active slot rather than an echoed model name', async () => {
+  for (const active of ['flat', '', undefined]) {
+    const profile = slotProfile(); const f = fixture(profile);
+    f.transport.action = async () => f.reply({ profile: { ...profile, current: 'stairs', activeModeId: active } });
+    try {
+      await f.session.connect(endpoint, 'doso-g20@robot');
+      await assert.rejects(f.session.action('switch-profile', 'stairs'));
+      assert.equal(f.session.state.phase, 'error');
+      assert.equal(f.session.runtimeState.currentPolicy, null);
+    } finally { f.session.dispose(); }
+  }
+});
+
+
 test('recovery commands stay on the open session and heartbeats follow selection', async () => {
   const f = fixture();
   const beats = [];
@@ -889,7 +1597,7 @@ test('ListenImu samples stay on the live session and drop when the stream or the
     assert.equal(f.session.runtimeState.imu.linearAcceleration.z, 9.8, 'a partial acceleration sample must not replace a real one');
     f.advance(1000);
     assert.equal(f.session.runtimeState.imu, undefined);
-    assert.equal(f.session.runtimeState.speed.source, 'unknown');
+    assert.equal(f.session.runtimeState.speed.source, 'command');
     await f.session.disconnect();
     assert.equal(stopped, 1);
     assert.equal(emit, null);

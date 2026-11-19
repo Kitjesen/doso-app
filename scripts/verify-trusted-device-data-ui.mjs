@@ -62,7 +62,7 @@ assert.equal(readFirmwareVersion(undefined), '待同步', 'missing devices do no
 assert.equal(readFirmwareVersion({ firmware_version: null }), '待同步', 'null firmware remains unknown');
 assert.equal(readFirmwareVersion({ firmware_version: '' }), '待同步', 'empty firmware remains unknown');
 assert.equal(readFirmwareVersion({ firmware_version: '   ' }), '待同步', 'blank firmware remains unknown');
-assert.equal(readFirmwareVersion({ firmware_version: 'v1.2.3' }), '1.2.3', 'a leading firmware v is presentation-only');
+assert.equal(readFirmwareVersion({ firmware_version: 'v1.2.3' }), 'v1.2.3', 'firmware keeps the version reported by the device');
 
 assert.doesNotMatch(tasks, /按计划进行|已完成 33%|有 3 个待执行任务/, 'Tasks must not present templates as trusted schedules or progress');
 assert.match(tasks, /<Text style=\{styles\.summaryTitle\}>尚未同步可信任务<\/Text>/, 'Tasks visibly discloses the missing trusted source in its summary');

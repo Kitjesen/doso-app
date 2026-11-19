@@ -290,3 +290,4 @@ test('privacy content remains scrollable, themed and safe-area padded in landsca
   assert.ok(textNodes.filter(node => node.props.selectable).length >= 10);
   assert.equal(textNodes.some(node => node.props.numberOfLines != null), false, 'long privacy copy must not be truncated');
 });
+

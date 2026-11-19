@@ -19,6 +19,17 @@ const native = (captureInputFence = () => 1050) => ({
   addListener: () => ({ remove() {} }), captureInputFence,
 });
 
+test('latest observation passes the request identity and fails closed when unavailable', async () => {
+  const old = await load(native()); assert.equal(old.latestObservationAvailable, false);
+  assert.equal(old.latestObservation('raw'), null);
+  const module = native(); const sample = { sequence: 9 }; let requested;
+  module.getLatestObservation = id => { requested = id; return sample; };
+  const api = await load(module); assert.equal(api.latestObservationAvailable, true);
+  assert.equal(api.latestObservation('raw'), sample); assert.equal(requested, 'raw');
+  module.getLatestObservation = () => { throw Error('stopped'); };
+  assert.equal(api.latestObservation('raw'), null);
+});
+
 test('fence uses the native Android timestamp unchanged, without the JS clock', async () => {
   const api = await load(native());
   assert.equal(api.available, true); assert.equal(api.captureFence(), 1050);
@@ -36,4 +47,15 @@ test('invalid or unavailable native clocks never turn into an eligible fence', a
   }
   const api = await load(native(() => { throw Error('native unavailable'); }));
   assert.equal(api.captureFence(), null);
+});
+test('observation requires its own native entry and never falls back to configuration polling', async () => {
+  let guardedStarts = 0;
+  const old = native(); old.start = async () => { guardedStarts++; return {}; };
+  const oldApi = await load(old);
+  assert.equal(oldApi.observationAvailable, false); await assert.rejects(oldApi.observe('raw'));
+  assert.equal(guardedStarts, 0);
+  old.observe = async requestId => ({ requestId, configurationReady: false });
+  const api = await load(old); assert.equal(api.observationAvailable, true);
+  assert.equal((await api.observe('raw')).configurationReady, false);
+  assert.equal(guardedStarts, 0);
 });

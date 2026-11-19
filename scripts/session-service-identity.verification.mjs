@@ -90,3 +90,4 @@ test('a late public signOut for account A must not delete account B established 
   const switchedSessionWasDeleted = after.data.session === null;
   assert.equal(switchedSessionWasDeleted, false, 'late account A signOut deleted the public account B session');
 });
+

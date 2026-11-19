@@ -8,12 +8,15 @@ const code = ts.transpileModule(readFileSync(new URL('../src/features/robot-life
 const { createBleConnectionSession } = await import(`data:text/javascript;base64,${Buffer.from(code + '\n//# sourceURL=bleConnectionSession-fixture.js').toString('base64')}`);
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
+const robotId = '8f7e1c62-0a4d-4b89-96e2-6c47b03db1a5';
+const robotBytes = () => [...Buffer.from(robotId.replaceAll('-', ''), 'hex')];
 function fixture() {
   const calls = [], listeners = new Set();
   const runtime = {
     async prepare() { calls.push('prepare'); },
     async connect(id) { calls.push(['connect', id]); },
     async retrieveServices(id) { calls.push(['discover', id]); return { id, services: [{ uuid: 'fixture-service' }], characteristics: [{ service: 'fixture-service', characteristic: 'fixture-characteristic' }] }; },
+    async readRobotId(id) { calls.push(['read-id', id]); return robotBytes(); },
     async disconnect(id) { calls.push(['disconnect', id]); },
     onDisconnect(callback) { listeners.add(callback); return { remove() { listeners.delete(callback); } }; },
   };
@@ -26,14 +29,47 @@ test('explicit connection discovers actual services without claiming robot ident
   assert.equal(result.phase, 'connected');
   assert.equal(result.serviceCount, 1);
   assert.equal(result.characteristicCount, 1);
+  assert.equal(result.robotId, robotId);
   assert.equal(result.identityVerified, false);
   assert.equal(result.bound, false);
   assert.equal(result.wifiConfigured, false);
-  assert.deepEqual(f.calls, ['prepare', ['connect', 'fixture-robot'], ['discover', 'fixture-robot']]);
+  assert.deepEqual(f.calls, ['prepare', ['connect', 'fixture-robot'], ['discover', 'fixture-robot'], ['read-id', 'fixture-robot']]);
   await adapter.disconnect();
   assert.deepEqual(f.calls.at(-1), ['disconnect', 'fixture-robot']);
   assert.equal(f.listeners.size, 0);
   assert.equal(updates.at(-1).phase, 'disconnected');
+  assert.equal(updates.at(-1).robotId, null);
+});
+
+test('missing, malformed and rejected robot IDs close the connection without publishing an ID', async () => {
+  const invalidVersion = robotBytes(); invalidVersion[6] = 0x1b;
+  const invalidVariant = robotBytes(); invalidVariant[8] = 0x16;
+  for (const bytes of [undefined, [], robotBytes().slice(1), [...robotBytes(), 0], invalidVersion, invalidVariant, [...robotBytes().slice(0, 15), 256]]) {
+    const f = fixture(), states = [];
+    f.runtime.readRobotId = async () => bytes;
+    const adapter = createBleConnectionSession(f.runtime);
+    await assert.rejects(adapter.connect('fixture-robot', state => states.push(state)), { code: 'robot_id_failed' });
+    await settle();
+    assert.ok(states.every(state => state.robotId === null && state.identityVerified === false));
+    assert.equal(adapter.getSnapshot().cleanupConfirmed, true);
+  }
+  const f = fixture(), adapter = createBleConnectionSession(f.runtime);
+  f.runtime.readRobotId = async () => { throw new Error('PRIVATE_READ_CANARY'); };
+  await assert.rejects(adapter.connect('fixture-robot', () => {}), { code: 'robot_id_failed', message: 'robot_id_failed' });
+});
+
+test('robot ID read shares the connection deadline and late bytes cannot restore a cancelled session', async () => {
+  const f = fixture(), read = deferred(), clock = manualClock(), states = [];
+  f.runtime.readRobotId = () => read.promise;
+  const adapter = createBleConnectionSession(f.runtime, { clock, timeoutMs: 100 });
+  const outcome = adapter.connect('fixture-robot', state => states.push(state)).catch(error => error);
+  await settle();
+  assert.equal(adapter.getSnapshot().phase, 'reading');
+  clock.fire(100); await settle();
+  assert.equal((await outcome).code, 'timeout');
+  read.resolve(robotBytes()); await settle();
+  assert.ok(states.every(state => state.robotId === null));
+  assert.equal(adapter.getSnapshot().cleanupConfirmed, true);
 });
 
 test('cancelling an in-flight native connection rejects it and releases a late connect without discovering services', async () => {
@@ -80,6 +116,21 @@ test('cancelling during permission preparation cannot start a late native connec
   await adapter.disconnect(); preparation.resolve(); await settle();
   assert.equal((await outcome).code, 'cancelled');
   assert.deepEqual(f.calls, []);
+});
+
+test('synchronous observer cancellation before connect or discovery prevents the next native operation', async () => {
+  for (const phase of ['connecting', 'discovering']) {
+    const f = fixture(), adapter = createBleConnectionSession(f.runtime);
+    let stopping;
+    const outcome = adapter.connect('fixture-robot', state => {
+      if (state.phase === phase) stopping = adapter.disconnect();
+    }).catch(error => error);
+    assert.equal((await outcome).code, 'cancelled');
+    await stopping; await settle();
+    assert.ok(!f.calls.some(call => Array.isArray(call) && call[0] === (phase === 'connecting' ? 'connect' : 'discover')));
+    assert.equal(f.listeners.size, 0);
+    assert.equal(adapter.getSnapshot().cleanupConfirmed, true);
+  }
 });
 test('remote disconnect removes the listener and never reacts to a different peripheral', async () => {
   const f = fixture(), states = [];

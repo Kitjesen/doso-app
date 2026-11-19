@@ -1,0 +1,11 @@
+{
+  "name": "doso-cloud-acceptance",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test runner.test.mjs dashboard.test.mjs"
+  },
+  "devDependencies": {
+    "linkedom": "0.18.12"
+  }
+}

@@ -138,3 +138,4 @@ for (const fixture of fixtures) {
       `${fixture.name}: JWT claims and Auth-session seeds differ`);
   });
 }
+

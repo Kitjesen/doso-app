@@ -37,7 +37,8 @@ export function mountAuthScreen({ screen: screenName = 'register', width = 390, 
     },
   };
   const host = {
-    ActivityIndicator: 'ActivityIndicator', Image: 'Image', KeyboardAvoidingView: 'KeyboardAvoidingView',
+    Animated: { View: 'View' },
+    Modal: 'Modal', ImageBackground: 'ImageBackground', ActivityIndicator: 'ActivityIndicator', Image: 'Image', KeyboardAvoidingView: 'KeyboardAvoidingView',
     Pressable: 'Pressable', ScrollView: 'ScrollView', Text: 'Text', TextInput: 'TextInput', View: 'View',
     StyleSheet: { create: value => value, hairlineWidth: 1 },
     Platform: { OS: 'android', select: value => value.default },
@@ -48,12 +49,14 @@ export function mountAuthScreen({ screen: screenName = 'register', width = 390, 
     react,
     'react/jsx-runtime': require('react/jsx-runtime'),
     'react-native': host,
-    '@expo/vector-icons': { Ionicons: 'Ionicons', FontAwesome: 'FontAwesome' },
+    '@expo/vector-icons': { Feather: 'Feather', Ionicons: 'Ionicons', FontAwesome: 'FontAwesome' },
     'react-native-safe-area-context': {
       SafeAreaView: 'SafeAreaView',
       useSafeAreaInsets: () => safeInsets ?? ({ left: viewport.width > 700 ? 48 : 0, right: 0, top: 24, bottom: 24 }),
     },
     'expo-linear-gradient': { LinearGradient: 'LinearGradient' },
+    'expo-blur': { BlurView: 'BlurView', BlurTargetView: 'BlurTargetView' },
+    './loginMotion': { useLoginMotion: () => ({ intro: {}, glow: {} }) },
     'expo-system-ui': { setBackgroundColorAsync: async () => {} },
     '../components/GradientButton': { GradientButton: 'GradientButton' },
     '../assets': { images: Object.fromEntries(['thunderHero', 'homeBattery', 'homeQuickPatrol', 'homeQuickTask', 'homeQuickSafety', 'homeRecall', 'homeQuickArrow', 'homeMetricSensors', 'homeMetricTemperature', 'homeMetricMotor', 'navHome', 'navMap', 'navTasks', 'navAnalysis', 'navProfile'].map(name => [name, name === 'thunderHero' ? 'figma-thunder-robot' : name])) },
@@ -78,17 +81,35 @@ export function mountAuthScreen({ screen: screenName = 'register', width = 390, 
       if (name in allowed) return allowed[name];
       if (name === '../theme') return load('src/theme.ts');
       if (name === '../appearance') return load('src/appearance.ts');
+      if (name === '../officialPalette') return load('src/officialPalette.ts');
+      if (name === '../fonts/home') return { homeFont: {}, productType: { title: {}, section: {}, body: {}, caption: {}, button: {} } };
       if (name === '../typography') return load('src/typography.ts');
       if (name === '../layout/adaptiveLayout') return load('src/layout/adaptiveLayout.ts');
       if (name === './theme') return load('src/theme.ts');
       if (name === './registrationLayout') return load('src/screens/registrationLayout.ts');
       if (name === '../screens/registrationLayout') return load('src/screens/registrationLayout.ts');
+      if (name === 'expo-linear-gradient') return { LinearGradient: 'View' };
+      if (name === 'expo-font') return { useFonts: () => [true, null] };
+      if (name === './HomeText' || name === '../components/HomeText') return { Text: host.Text };
+      if (name === './HomeArtwork' || name === '../components/HomeArtwork') return load('src/components/HomeArtwork.tsx');
+      if (name === '../components/ProductHeader') return load('src/components/ProductHeader.tsx');
+      if (name === '../components/HomeFeatures') return load('src/components/HomeFeatures.tsx');
+      if (name === '../components/ControlPanelMotion') return { ControlPanelMotion: 'View' };
+      if (name === '../components/HomeSummary') return load('src/components/HomeSummary.tsx');
+      if (name === './AppText') return { Text: host.Text, TextInput: host.TextInput };
       if (name === '../components/AuthEntry') return load('src/components/AuthEntry.tsx');
+      if (name === './LoginSurface') return load('src/components/LoginSurface.tsx');
       if (name === './SocialLoginFeedback') return load('src/components/SocialLoginFeedback.tsx');
       if (name === './UserAvatar') return load('src/components/UserAvatar.tsx');
       if (name === './appleSignInArtwork') return { APPLE_LOGO_ONLY_DATA_URI: 'bundled-apple-logo' };
       if (name === '../../assets/brand/doso-auth-lockup-sky-v2.png') return 'doso-auth-lockup-sky-v2';
+      if (name === '../../assets/brand/doso-robotics-wordmark-email-03526d27c6b4.png') return 'doso-robotics-wordmark';
       if (name === '../../assets/brand/doso-soft-air.png') return 'doso-soft-air';
+      if (name === '../../assets/materials/card-aurora.png') return 'card-aurora';
+      if (name === '../../assets/scene/home-spring.png') return 'home-spring';
+      if (name === '../../assets/scene/home-landscape.png') return 'home-landscape';
+      if (name === '../../assets/materials/card-grain.png') return 'card-grain';
+      if (name.endsWith('.otf') || name === '../../assets/figma/home-reference.png' || name === '../../assets/figma/thunder-cutout.png') return name;
       throw new Error(`Unexpected screen dependency: ${name}`);
     };
     vm.runInNewContext(code, { exports: module.exports, module, require: localRequire, Error }, { filename: relative });
@@ -97,6 +118,7 @@ export function mountAuthScreen({ screen: screenName = 'register', width = 390, 
   }
   const Screen = screenName === 'header' ? load('src/components/AppHeader.tsx').AppHeader
     : screenName === 'home' ? load('src/screens/HomeScreen.tsx').HomeScreen
+    : screenName === 'home-summary' ? load('src/components/HomeSummary.tsx').HomeSummary
     : screenName === 'nav' ? load('src/components/BottomNav.tsx').BottomNav
     : screenName === 'toast' ? load('src/components/AppToast.tsx').AppToast
     : screenName === 'social-entry' ? load('src/components/AuthEntry.tsx').AuthEntrySocial
@@ -113,6 +135,7 @@ export function mountAuthScreen({ screen: screenName = 'register', width = 390, 
       if (typeof node !== 'object') { nodes.push({ type: 'copy', value: String(node) }); return; }
       if (typeof node.type === 'function') return walk(node.type(node.props));
       if (node.type === 'TextInput' && node.props.ref) node.props.ref.current = { focus: () => { focusCount += 1; } };
+      if (node.type === 'Modal' && node.props.visible === false) return;
       nodes.push(node);
       walk(node.props.children);
     }
