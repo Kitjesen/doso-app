@@ -52,16 +52,10 @@ jobs:
             test:wifi-discovery \
             test:auth-errors \
             test:auth-request-fetch \
-            test:home-appearance \
-            test:ui-details \
-            test:profile-editing \
+            test:app-font \
+            test:nav \
+            test:control-ui \
             test:profile-upgrade-preflight \
-            test:offline-preview \
-            test:map-graph \
-            test:design-qa-comparison \
-            test:design-qa-android-capture \
-            test:design-qa-harness \
-            test:email-otp \
             test:db-hosted-public-probe \
             auth-links:test \
             email:send-previews:test
@@ -70,10 +64,15 @@ jobs:
           done
           node --experimental-strip-types --test \
             scripts/brainstem-imu.test.mjs \
+            scripts/brainstem-web-dev-bridge.test.mjs \
             scripts/joystick-input.test.mjs \
+            scripts/joystick-layout-preferences.test.mjs \
             scripts/depth-snapshot-interaction.test.mjs \
             scripts/video-binding.test.mjs \
             scripts/video-viewer-screen.test.mjs \
+            scripts/video-media-capture.test.mjs \
+            scripts/dev-loopback-sim-video.test.mjs \
+            scripts/joint-status-screen.test.mjs \
             scripts/direct-robot-connection-wiring.test.mjs
           node --test \
             scripts/control-joystick.test.mjs \

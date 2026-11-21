@@ -118,7 +118,7 @@ for (const os of ['ios', 'android', 'web']) {
     const { Text, TextInput } = loadText(os);
     const ref = { current: null };
     const style = { fontWeight: '600', fontStyle: 'italic', lineHeight: 24 };
-    const onChangeText = () => {};
+    const onChangeText = () => { };
     for (const Component of [Text, TextInput]) {
       const node = Component({ ref, style, children: '设备 123', onChangeText, allowFontScaling: true });
       assert.equal(node.props.ref, ref);
@@ -138,11 +138,13 @@ for (const os of ['ios', 'android', 'web']) {
 
 test('product fonts select real face files instead of synthesized bold', () => {
   const module = { exports: {} };
-  vm.runInNewContext(compile('src/fonts/home.ts'), { module, exports: module.exports, require(name) {
-    if (name === 'react') return { createContext: value => ({ value }) };
-    if (name === 'react-native') return { Platform: { OS: 'android' }, StyleSheet: { flatten: value => Object.assign({}, ...[value].flat(Infinity).filter(Boolean)) } };
-    throw Error(name);
-  } });
+  vm.runInNewContext(compile('src/fonts/home.ts'), {
+    module, exports: module.exports, require(name) {
+      if (name === 'react') return { createContext: value => ({ value }) };
+      if (name === 'react-native') return { Platform: { OS: 'android' }, StyleSheet: { flatten: value => Object.assign({}, ...[value].flat(Infinity).filter(Boolean)) } };
+      throw Error(name);
+    }
+  });
   const font = module.exports.productFont;
   for (const [weight, face] of [['400', 'HomeRegular'], ['500', 'HomeMedium'], ['600', 'HomeSemibold'], ['700', 'HomeBold']]) {
     assert.equal(font({ fontWeight: weight }).fontFamily, face);
@@ -151,11 +153,13 @@ test('product fonts select real face files instead of synthesized bold', () => {
   assert.equal(font({ fontFamily: 'monospace' }), undefined);
   assert.equal(font({ fontFamily: 'Feather' }), undefined);
   const ios = { module: { exports: {} } };
-  vm.runInNewContext(compile('src/fonts/home.ts'), { module: ios.module, exports: ios.module.exports, require(name) {
-    if (name === 'react') return { createContext: value => ({ value }) };
-    if (name === 'react-native') return { Platform: { OS: 'ios' }, StyleSheet: { flatten: value => value ?? {} } };
-    throw Error(name);
-  } });
+  vm.runInNewContext(compile('src/fonts/home.ts'), {
+    module: ios.module, exports: ios.module.exports, require(name) {
+      if (name === 'react') return { createContext: value => ({ value }) };
+      if (name === 'react-native') return { Platform: { OS: 'ios' }, StyleSheet: { flatten: value => value ?? {} } };
+      throw Error(name);
+    }
+  });
   assert.equal(ios.module.exports.productFont({ fontWeight: '600' }), undefined);
 });
 
@@ -165,7 +169,7 @@ test('font provider waits for local faces and falls back on a loading error', ()
     vm.runInNewContext(compile('src/fonts/FontProvider.tsx'), {
       module, exports: module.exports, require(name) {
         if (name === 'react/jsx-runtime') return { jsx: (type, props) => ({ type, props }) };
-        if (name === 'react') return { useState: initial => [initial, () => {}], useEffect() {} };
+        if (name === 'react') return { useState: initial => [initial, () => { }], useEffect() { } };
         if (name === 'react-native') return { Platform: { OS: 'android' }, ActivityIndicator: 'Spinner', View: 'View', StyleSheet: { create: value => value } };
         if (name === 'expo-font') return { useFonts: () => [loaded, error] };
         if (name === '@expo/vector-icons') return { Feather: { font: {} }, Ionicons: { font: {} } };

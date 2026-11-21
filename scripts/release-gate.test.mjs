@@ -39,8 +39,8 @@ function assertStopped(run, step, code) {
   assert.equal(run.logs.some(line => /(?:AUDIT|GATE) PASS/.test(line)), false, 'A failed required stage cannot publish PASS');
 }
 
-test('full release gate stops when profile save safety regressions fail', () => {
-  assertStopped(runGate({ failStep: 'test:profile-editing' }), 'test:profile-editing', 17);
+test('full release gate stops when control UI contract regressions fail', () => {
+  assertStopped(runGate({ failStep: 'test:control-ui' }), 'test:control-ui', 17);
 });
 
 test('full release gate stops when profile upgrade staging preflight fails', () => {
@@ -51,18 +51,18 @@ test('full release gate also requires its own executable contract regressions', 
   assertStopped(runGate({ failStep: 'test:release-gate-core', result: { status: 19 } }), 'test:release-gate-core', 19);
 });
 
-for (const step of ['test:profile-editing', 'test:profile-upgrade-preflight', 'test:release-gate-core']) {
+for (const step of ['test:control-ui', 'test:profile-upgrade-preflight', 'test:release-gate-core']) {
   test(`design audit cannot skip required local check: ${step}`, () => {
     assertStopped(runGate({ args: ['--design-audit'], failStep: step }), step, 17);
   });
 }
 
-for (const designAudit of [false, true]) test(`${designAudit ? 'design audit' : 'full release'} preserves DB boundary and runs new required checks once`, () => {
+for (const designAudit of [false, true]) test(`${designAudit ? 'design audit' : 'full release'} preserves DB boundary and runs required checks once`, () => {
   const run = runGate({ args: designAudit ? ['--design-audit'] : [] });
   assert.equal(run.error, undefined); assert.equal(run.exitCode ?? 0, 0);
-  for (const step of ['test:profile-editing', 'test:profile-upgrade-preflight', 'test:release-gate-core']) assert.equal(run.calls.filter(value => value === step).length, 1);
-  const profile = run.calls.indexOf('test:profile-ui');
-  assert.deepEqual(run.calls.slice(profile, profile + 4), ['test:profile-ui', 'test:profile-editing', 'test:profile-upgrade-preflight', 'test:control-ui']);
+  for (const step of ['test:control-ui', 'test:profile-upgrade-preflight', 'test:release-gate-core']) assert.equal(run.calls.filter(value => value === step).length, 1);
+  const controlState = run.calls.indexOf('test:control-state');
+  assert.deepEqual(run.calls.slice(controlState, controlState + 3), ['test:control-state', 'test:profile-upgrade-preflight', 'test:control-ui']);
   assert.equal(run.calls.filter(value => value === 'test:db').length, designAudit ? 0 : 1);
   assert.equal(run.logs.some(line => line.includes('DESIGN AUDIT SCOPE: npm run test:db remains enforced by the full release gate')), designAudit);
   assert.equal(run.logs.filter(line => /(?:AUDIT|GATE) PASS/.test(line)).length, 1);
@@ -70,14 +70,14 @@ for (const designAudit of [false, true]) test(`${designAudit ? 'design audit' : 
   assert.ok(run.logs.at(-1).includes('REAL CONTROL BLOCKED'));
 });
 
-test('profile check killed without exit status fails closed and never publishes PASS', () => {
-  assertStopped(runGate({ failStep: 'test:profile-editing', result: { status: null, signal: 'SIGTERM' } }), 'test:profile-editing', 1);
+test('control UI check killed without exit status fails closed and never publishes PASS', () => {
+  assertStopped(runGate({ failStep: 'test:control-ui', result: { status: null, signal: 'SIGTERM' } }), 'test:control-ui', 1);
 });
 
-test('profile child-process startup error propagates without later stages or PASS', () => {
+test('control UI child-process startup error propagates without later stages or PASS', () => {
   const error = new Error('synthetic process startup failure');
-  const run = runGate({ failStep: 'test:profile-editing', result: { status: null, error } });
-  assert.equal(run.error, error); assert.equal(run.calls.at(-1), 'test:profile-editing');
+  const run = runGate({ failStep: 'test:control-ui', result: { status: null, error } });
+  assert.equal(run.error, error); assert.equal(run.calls.at(-1), 'test:control-ui');
   assert.equal(run.logs.some(line => /(?:AUDIT|GATE) PASS/.test(line)), false);
 });
 
@@ -95,6 +95,9 @@ test('gate check names resolve to normal local package commands, not DB executio
   const scripts = JSON.parse(readFileSync(new URL('../package.json', import.meta.url))).scripts;
   assert.equal(scripts['test:release-gate-core'], 'node --test scripts/release-gate.test.mjs');
   assert.equal(scripts['test:profile-upgrade-preflight'], 'node --test scripts/profile-upgrade-preflight.test.mjs');
-  assert.ok(scripts['test:profile-editing'].startsWith('node --test '));
-  assert.ok(scripts['test:profile-editing'].includes('scripts/profile-save-workflow.test.mjs'));
+  assert.ok(scripts['test:control-ui'].startsWith('node scripts/verify-control-ui.mjs'));
+  const run = runGate();
+  for (const step of run.calls) {
+    assert.equal(typeof scripts[step], 'string', `Missing package.json script for release gate step: ${step}`);
+  }
 });

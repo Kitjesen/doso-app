@@ -116,13 +116,12 @@ test('cloud probe reads health only and does not imply login or database readine
 test('development entry keeps QA priority and production authentication boundaries', async () => {
   const index = await readFile(new URL('../index.ts', import.meta.url), 'utf8');
   const app = await readFile(new URL('../App.tsx', import.meta.url), 'utf8');
-  assert.match(index, /useConnectionDiagnostics = __DEV__ && !useDesignQa/);
-  assert.match(index, /useDesignQa \? DesignQaEntry : useConnectionDiagnostics \? ConnectionDiagnosticsEntry : Root/);
-  assert.match(app, /if \(__DEV__ && connectionDiagnosticsOpen\)/);
-  assert.match(app, /PRODUCTION_ROBOT_COMMAND_EXECUTOR[^=]*= null/);
+  assert.doesNotMatch(index, /DesignQaEntry|ConnectionDiagnosticsEntry/);
+  assert.match(index, /createElement\(FontProvider,\s*null,\s*createElement\(App\)\)/);
   assert.doesNotMatch(source, /acquireControl|enableMotor|sendCommand|\.rpc\(/);
   const control = await readFile(new URL('../src/screens/ControlScreen.tsx', import.meta.url), 'utf8');
-  assert.match(app, /<ControlScreen[\s\S]*?onOpenConnectionDiagnostics=\{__DEV__ \? \(\) => setConnectionDiagnosticsOpen\(true\) : undefined\}/);
+  assert.match(app, /<ControlScreen[\s\S]*?allowInteractionPreview=\{false\}/);
+  assert.match(app, /<ControlScreen[\s\S]*?onOpenConnection=\{/);
   // The control surface may display the shared Brainstem readiness gates, but
   // it must not import the old diagnostic panel or perform a status probe.
   assert.doesNotMatch(control, /control-brainstem-connection|RobotDiagnosticsPanel|checkBrainstemConnection|BrainstemSnapshot|presentBrainstemSnapshot/);
