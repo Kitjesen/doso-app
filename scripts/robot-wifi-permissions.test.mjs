@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 
@@ -42,12 +42,16 @@ test('the Wi-Fi permission mutator caps location and adds nearby Wi-Fi without a
   assert.equal(entitlements['com.apple.developer.networking.HotspotConfiguration'], true);
 });
 
-test('the checked-in Android manifest matches the Wi-Fi permission contract', () => {
-  const manifest = read('android/app/src/main/AndroidManifest.xml');
-  assert.match(manifest, /android\.permission\.ACCESS_FINE_LOCATION" android:maxSdkVersion="32"/);
-  assert.match(manifest, /android\.permission\.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation"/);
-  assert.match(manifest, /android\.permission\.ACCESS_WIFI_STATE"/);
-  assert.match(manifest, /android\.permission\.CHANGE_WIFI_STATE"/);
-  assert.doesNotMatch(manifest, /ACCESS_FINE_LOCATION" tools:node="remove"/);
+test('the Expo config and optional prebuilt Android manifest match the Wi-Fi permission contract', () => {
   assert.match(read('app.json'), /withRobotWifiPermissions/);
+  assert.match(read('plugins/withRobotWifiPermissions.js'), /applyRobotWifiManifest/);
+  const manifestUrl = new URL('../android/app/src/main/AndroidManifest.xml', import.meta.url);
+  if (existsSync(manifestUrl)) {
+    const manifest = readFileSync(manifestUrl, 'utf8');
+    assert.match(manifest, /android\.permission\.ACCESS_FINE_LOCATION" android:maxSdkVersion="32"/);
+    assert.match(manifest, /android\.permission\.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation"/);
+    assert.match(manifest, /android\.permission\.ACCESS_WIFI_STATE"/);
+    assert.match(manifest, /android\.permission\.CHANGE_WIFI_STATE"/);
+    assert.doesNotMatch(manifest, /ACCESS_FINE_LOCATION" tools:node="remove"/);
+  }
 });
