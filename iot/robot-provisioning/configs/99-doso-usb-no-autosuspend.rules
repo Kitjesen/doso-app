@@ -1,0 +1,2 @@
+# Keep USB 3.x hubs, Orbbec RGB-D camera, and Broadcom Wi-Fi AP out of runtime suspend
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{power/control}="on"

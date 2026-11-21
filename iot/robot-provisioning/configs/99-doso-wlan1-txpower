@@ -1,0 +1,6 @@
+#!/bin/bash
+IFACE="$1"
+ACTION="$2"
+if [ "$IFACE" = "wlan1" ] && { [ "$ACTION" = "up" ] || [ "$ACTION" = "connectivity-change" ]; }; then
+  /usr/sbin/iw dev wlan1 set txpower fixed 1800 2>/dev/null || true
+fi
