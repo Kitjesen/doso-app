@@ -263,6 +263,10 @@ class RobotWifiModule : Module() {
         main.post { if (generation == joinGeneration) release() }
         promise.resolve("cancelled")
       }
+
+      override fun onLost(network: Network) {
+        main.post { if (generation == joinGeneration) release() }
+      }
     }
     networkCallback = callback
     try {

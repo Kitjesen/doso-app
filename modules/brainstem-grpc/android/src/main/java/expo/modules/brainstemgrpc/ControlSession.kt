@@ -87,6 +87,8 @@ internal class ControlSession(
       catch (error: Failure) {
         if (error.code in listOf("unimplemented", "unavailable", "timeout", "busy")) result + mapOf("profileUnavailable" to true)
         else throw error
+      } catch (_: java.io.IOException) {
+        result + mapOf("profileUnavailable" to true)
       }
     }
     return result

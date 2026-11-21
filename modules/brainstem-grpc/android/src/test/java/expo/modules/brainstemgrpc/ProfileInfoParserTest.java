@@ -75,6 +75,20 @@ public final class ProfileInfoParserTest {
     check("".equals(modes.get(0).get("profileId")) && "".equals(modes.get(0).get("unavailableReason")), "empty profile id");
     check("".equals(live.get("activeModeId")), "empty active mode");
 
+    ByteArrayOutputStream heightCap = new ByteArrayOutputStream();
+    field(heightCap, 1, "height");
+    heightCap.write(2 << 3); heightCap.write(3);
+    heightCap.write(3 << 3); heightCap.write(2);
+    field(heightCap, 4, "single_frame_height_v2");
+    message(heightCap, 6, new byte[]{9, 0, 0, 0, 0, 0, 0, (byte) 0xd8, 0x3f});
+    ByteArrayOutputStream withHeight = new ByteArrayOutputStream();
+    field(withHeight, 1, "flat");
+    message(withHeight, 5, heightCap.toByteArray());
+    Map<String, Object> parsedHeight = ProfileInfoParser.parse(withHeight.toByteArray());
+    @SuppressWarnings("unchecked") List<Map<String, Object>> heightModes = (List<Map<String, Object>>) parsedHeight.get("modeCapabilities");
+    check("body-height".equals(heightModes.get(0).get("kind")), "body-height kind");
+    check("single_frame_height_v2".equals(heightModes.get(0).get("profileId")), "body-height profileId");
+
     byte[] malformed = new byte[] { 0x0a, 0x02, (byte) 0xc3, 0x28 };
     try {
       ProfileInfoParser.parse(malformed);

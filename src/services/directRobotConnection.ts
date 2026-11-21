@@ -85,7 +85,7 @@ function validModeCapability(value: unknown): value is RobotModeCapability {
   if (!value || typeof value !== 'object') return false;
   const mode = value as Record<string, unknown>;
   return typeof mode.id === 'string' && !!mode.id && mode.id.trim() === mode.id && mode.id.length <= 64 && !mode.id.includes('\0') &&
-    typeof mode.kind === 'string' && ['unspecified', 'locomotion', 'recovery-action'].includes(mode.kind) && typeof mode.available === 'boolean' &&
+    typeof mode.kind === 'string' && ['unspecified', 'locomotion', 'recovery-action', 'body-height'].includes(mode.kind) && typeof mode.available === 'boolean' &&
     typeof mode.label === 'string' && mode.label.length <= 64 && !mode.label.includes('\0') &&
     typeof mode.unavailableReason === 'string' && mode.unavailableReason.length <= 200 && !mode.unavailableReason.includes('\0') &&
     (mode.availability === undefined || typeof mode.availability === 'string' && ['unknown', 'unavailable', 'available'].includes(mode.availability) && (mode.availability === 'available') === mode.available) &&

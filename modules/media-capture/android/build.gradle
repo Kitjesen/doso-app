@@ -20,6 +20,7 @@ android {
 }
 
 dependencies {
+  compileOnly 'com.facebook.react:react-android'
   compileOnly project(':react-native-webrtc')
   compileOnly 'org.jitsi:webrtc:155.0.1'
 }

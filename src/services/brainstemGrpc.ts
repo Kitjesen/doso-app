@@ -33,7 +33,7 @@ export type BrainstemGrpcStatus = {
   grpcLeaseActive: boolean;
   readyForWalk: boolean;
 };
-export type RobotModeKind = 'unspecified' | 'locomotion' | 'recovery-action';
+export type RobotModeKind = 'unspecified' | 'locomotion' | 'recovery-action' | 'body-height';
 export type RobotModeAvailability = 'unknown' | 'unavailable' | 'available';
 export type RobotModeCapability = Readonly<{
   id: string;
@@ -450,7 +450,7 @@ function projectedProfile(value: unknown, requestId: string): BrainstemGrpcProfi
 function projectModeCapabilities(value: unknown): RobotModeCapability[] | null {
   if (value === undefined) return null;
   if (!Array.isArray(value) || value.length > 16) return null;
-  const kinds = ['unspecified', 'locomotion', 'recovery-action'];
+  const kinds = ['unspecified', 'locomotion', 'recovery-action', 'body-height'];
   const availabilities = ['unknown', 'unavailable', 'available'];
   const capabilities: RobotModeCapability[] = [];
   for (const item of value) {
