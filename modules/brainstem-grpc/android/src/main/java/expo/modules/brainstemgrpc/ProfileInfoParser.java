@@ -97,7 +97,7 @@ public final class ProfileInfoParser {
         if (wire != 0 || (seen & 2) != 0) throw invalid();
         seen |= 2;
         long value = reader.uint32();
-        if (value > 2) throw invalid();
+        if (value > 255) throw invalid();
         kind = (int) value;
       } else if (field == 3) {
         // RobotModeAvailability. A string here is the retired label layout and must not parse.
@@ -116,8 +116,8 @@ public final class ProfileInfoParser {
     if (id.length() > 64 || profileId.length() > 128 || unavailableReason.length() > 200) throw invalid();
     Map<String, Object> value = new LinkedHashMap<>();
     value.put("id", id);
-    // 1 is LOCOMOTION_PROFILE. The session still calls that locomotion.
-    value.put("kind", kind == 1 ? "locomotion" : kind == 2 ? "recovery-action" : "unspecified");
+    // 1 is LOCOMOTION_PROFILE. 3 is BODY_HEIGHT. Unknown future kinds degrade to unspecified.
+    value.put("kind", kind == 1 ? "locomotion" : kind == 2 ? "recovery-action" : kind == 3 ? "body-height" : "unspecified");
     value.put("availability", availability == 1 ? "unavailable" : availability == 2 ? "available" : "unknown");
     value.put("profileId", profileId);
     value.put("available", availability == 2);

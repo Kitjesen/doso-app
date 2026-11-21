@@ -62,7 +62,7 @@ function invalid(): never { throw new BrainstemControlError('invalid_response', 
 function copyModeCapabilities(value: unknown): BrainstemGrpcProfile['modeCapabilities'] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value) || value.length > 16) return undefined;
-  const kinds = new Set(['unspecified', 'locomotion', 'recovery-action']);
+  const kinds = new Set(['unspecified', 'locomotion', 'recovery-action', 'body-height']);
   const availabilities = new Set(['unknown', 'unavailable', 'available']);
   const items: NonNullable<BrainstemGrpcProfile['modeCapabilities']>[number][] = [];
   for (const item of value) {
@@ -92,7 +92,7 @@ function copyModeCapabilities(value: unknown): BrainstemGrpcProfile['modeCapabil
       profileId = capability.profileId;
     }
     items.push({
-      id: capability.id, kind: capability.kind as 'unspecified' | 'locomotion' | 'recovery-action', label,
+      id: capability.id, kind: capability.kind as 'unspecified' | 'locomotion' | 'recovery-action' | 'body-height', label,
       available, unavailableReason: capability.unavailableReason,
       ...(availability ? { availability } : {}),
       ...(profileId !== undefined ? { profileId } : {}),
