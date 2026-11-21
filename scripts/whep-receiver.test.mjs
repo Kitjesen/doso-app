@@ -489,3 +489,32 @@ test('foregrounding cannot retry rejected viewer credentials without an explicit
   h.render({ config: { ...selected, viewerToken: 'replacement-credential' } });
   assert.equal(h.managers.length, 3); h.unmount();
 });
+
+test('rear camera selects advertised rear stream and single-camera gateways expose stream catalog for PIP sharing', async () => {
+  const dual = harness((url, init) => {
+    if (!init.method) return new Response(JSON.stringify({ available: true, source_ready: true, streams: ['cam', 'rear'], ice_servers: [], rotation_degrees: 0 }));
+    return null;
+  }, null, { ...config, deviceId: 'robot-a:rear', cameraId: 'rear' });
+  dual.receiver.start(); await flush();
+  dual.peers[0].connect(); dual.peers[0].track(); dual.peers[0].decoded = 1; await dual.advance(500);
+  assert.ok(dual.calls.some(call => call.init.method === 'POST' && call.url.endsWith('/api/v1/webrtc/whep?src=rear')));
+  assert.deepEqual(dual.latest.streams, ['cam', 'rear']);
+  await dual.receiver.stop();
+
+  const single = harness((url, init) => {
+    if (!init.method) return new Response(JSON.stringify({ available: true, source_ready: true, streams: ['cam'], ice_servers: [], rotation_degrees: 0 }));
+    return null;
+  }, null, { ...config, deviceId: 'robot-a:rear', cameraId: 'rear' });
+  single.receiver.start(); await flush();
+  single.peers[0].connect(); single.peers[0].track(); single.peers[0].decoded = 1; await single.advance(500);
+  assert.ok(single.calls.some(call => call.init.method === 'POST' && call.url.endsWith('/api/v1/webrtc/whep?src=cam')));
+  assert.deepEqual(single.latest.streams, ['cam']);
+  await single.receiver.stop();
+
+  const h = hookHarness(); h.render(); h.managers[0].frame();
+  const rendered = h.render();
+  assert.ok(rendered.surface && rendered.pipSurface);
+  assert.notEqual(rendered.surface, rendered.pipSurface, 'distinct VideoPlayer elements share the same decoded MediaStream');
+  assert.equal(rendered.surface.props.stream, rendered.pipSurface.props.stream);
+  h.unmount();
+});

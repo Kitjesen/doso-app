@@ -12,6 +12,7 @@ export type VideoSnapshot = Readonly<{
   stream: VideoStream | null;
   rotation: number;
   error: 'configuration' | 'authorization' | 'warming' | 'unavailable' | 'signalling' | 'connection' | 'frozen' | 'unsupported' | null;
+  streams?: readonly string[];
 }>;
 type Peer = {
   connectionState: string; iceGatheringState: string; localDescription: { sdp?: string | null } | null;
@@ -109,7 +110,7 @@ export class WhepReceiver {
   private newSession() {
     return {
       id: `video-${++receiverSequence}`, retired: false, pc: null as Peer | null, stream: null as VideoStream | null,
-      rotation: 0, abort: new AbortController(), postPending: false, resource: null as string | null, etag: null as string | null,
+      rotation: 0, streams: undefined as readonly string[] | undefined, abort: new AbortController(), postPending: false, resource: null as string | null, etag: null as string | null,
       timer: null as ReturnType<typeof setTimeout> | null, poll: null as ReturnType<typeof setTimeout> | null,
       iceFinish: null as (() => void) | null, listener: null as (() => void) | null, trackListener: null as ((event: any) => void) | null,
       stageCancel: null as (() => void) | null,
@@ -118,7 +119,14 @@ export class WhepReceiver {
     };
   }
   private emit(session: NonNullable<WhepReceiver['session']>, phase: VideoSnapshot['phase'], error: VideoSnapshot['error'] = null) {
-    if (this.current(session)) this.publish({ id: session.id, phase, stream: phase === 'receiving' || phase === 'connecting' ? session.stream : null, rotation: session.rotation, error });
+    if (this.current(session)) this.publish({
+      id: session.id,
+      phase,
+      stream: phase === 'receiving' || phase === 'connecting' ? session.stream : null,
+      rotation: session.rotation,
+      error,
+      ...(session.streams ? { streams: session.streams } : {}),
+    });
   }
   private connect() {
     if (!this.active) return;
@@ -218,6 +226,9 @@ export class WhepReceiver {
       || ![server.urls].flat().every(url => typeof url === 'string' && url.length < 2048 && /^(stun|stuns|turn|turns):[^\s]+$/i.test(url))
       || server.username != null && typeof server.username !== 'string' || server.credential != null && typeof server.credential !== 'string')) throw new Error('Invalid ICE configuration');
     session.rotation = [0, 90, 180, 270].includes(status.rotation_degrees) ? status.rotation_degrees : 0;
+    if (Array.isArray(status.streams)) {
+      session.streams = status.streams.filter((item: unknown): item is string => typeof item === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(item));
+    }
     const pc = this.runtime.createPeer({ iceServers });
     session.pc = pc;
     const track = (event: any) => {
@@ -243,14 +254,17 @@ export class WhepReceiver {
       let timer: ReturnType<typeof setTimeout>;
       const finish = () => { pc.removeEventListener('icegatheringstatechange', listener); this.runtime.clearTimeout(timer); session.iceFinish = null; resolve(); };
       const listener = () => { if (pc.iceGatheringState === 'complete') finish(); };
-      timer = this.runtime.setTimeout(finish, 1500);
+      timer = this.runtime.setTimeout(finish, iceServers.length === 0 ? 250 : 1500);
       session.iceFinish = finish;
       pc.addEventListener('icegatheringstatechange', listener);
     });
     if (!this.current(session)) return;
     const sdp = pc.localDescription?.sdp;
     if (!sdp) throw new Error('Missing local SDP');
-    const endpoint = `${this.origin}/api/v1/webrtc/whep?src=cam`;
+    const streamSrc = this.config.cameraId === 'rear'
+      ? (session.streams?.includes('rear') ? 'rear' : session.streams?.includes('cam_rear') ? 'cam_rear' : 'cam')
+      : 'cam';
+    const endpoint = `${this.origin}/api/v1/webrtc/whep?src=${encodeURIComponent(streamSrc)}`;
     const offerCredential = this.authorization;
     session.postPending = true;
     session.timer = this.runtime.setTimeout(() => session.abort.abort(), 40000);

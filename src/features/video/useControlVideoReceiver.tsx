@@ -75,8 +75,10 @@ export function useControlVideoReceiver(config: (VideoConfiguration & { expected
   return {
     presentation: { id: snapshot.id, phase: snapshot.phase, error: snapshot.error },
     surface: snapshot.stream ? createElement(VideoPlayer, { stream: snapshot.stream, rotation: snapshot.rotation }) : null,
+    pipSurface: snapshot.stream ? createElement(VideoPlayer, { stream: snapshot.stream, rotation: snapshot.rotation }) : null,
     stream: snapshot.phase === 'receiving' ? snapshot.stream : null,
     rotation: snapshot.rotation,
+    streams: snapshot.streams,
     error: snapshot.error,
     reconnect,
   };

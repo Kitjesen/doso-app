@@ -22,8 +22,8 @@ def _child_setup() -> None:
         raise OSError(ctypes.get_errno(), "prctl(PR_SET_PDEATHSIG) failed")
 
 
-FPS = os.environ.get("LINGTU_VIDEO_FPS", "15")
-BITRATE_KBPS = os.environ.get("LINGTU_VIDEO_BITRATE_KBPS", "800")
+FPS = os.environ.get("LINGTU_VIDEO_FPS", "30")
+BITRATE_KBPS = os.environ.get("LINGTU_VIDEO_BITRATE_KBPS", "1200")
 
 video_command = [
     "/opt/lingtu/current/bin/lingtu_camera_video",
@@ -36,8 +36,12 @@ video_command = [
 ]
 mux_command = [
     "ffmpeg", "-hide_banner", "-loglevel", "error",
+    "-fflags", "nobuffer", "-flags", "low_delay",
+    "-probesize", "32768", "-analyzeduration", "0",
     "-f", "h264", "-framerate", FPS, "-i", "pipe:0",
-    "-c:v", "copy", "-f", "mpegts", "pipe:1",
+    "-c:v", "copy",
+    "-muxdelay", "0", "-muxpreload", "0", "-flush_packets", "1",
+    "-f", "mpegts", "pipe:1",
 ]
 
 video: subprocess.Popen[bytes] | None = None
