@@ -1,3 +1,8 @@
+/**
+ * @status EXPERIMENTAL_READONLY
+ * Scans nearby BLE advertisements only (masked peripheral suffix). GATT identity handshake and Wi-Fi credential
+ * provisioning remain unimplemented; never auto-connects or writes characteristics.
+ */
 import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef, useState } from 'react';
 import { AppState, Linking, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';

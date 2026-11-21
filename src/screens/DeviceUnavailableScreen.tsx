@@ -1,3 +1,8 @@
+/**
+ * @status PLACEHOLDER / BLOCKED
+ * Wireless Wi-Fi provisioning and signed firmware OTA protocols are not yet wired to robot firmware/bootloader.
+ * Kept strictly as an honest read-only disclosure screen when opened from device settings; dispatches no commands.
+ */
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';

@@ -1,170 +1,126 @@
 # DOSO App
 
-DOSO 是基于 React Native、Expo、Supabase Auth、PostgreSQL 和 Edge Functions 的机器人管理 App。当前源码版本为 `0.0.1`。
+DOSO 是面向四足轮腿机器狗（Thunder 系列 / G20 遥控终端与移动设备）的直连操控与状态终端，基于 React Native（Expo SDK 57）与 TypeScript 构建。当前源码版本为 `0.0.1`。
 
-当前 UI 的唯一入口与历史 `legacy` 清单见 [UI source of truth](./docs/UI_SOURCE_OF_TRUTH.md)。登录与注册使用 `LoginSurface`，旧 Figma 认证素材只用于回溯。
+> `0.0.1` 是项目正式发版前的开发基线。当前 App 已收敛为单一入口（`index.ts` → `App.tsx`），启动直达 **三页机器狗工作台（控制 / 状态 / 设置）**，主控横屏采用 **方案 A-1 16:9 深色曜石三岛悬浮 HUD**。
+> - 界面启用、占位与已下线页面完整清单见 [UI Source of Truth](./docs/UI_SOURCE_OF_TRUTH.md)
+> - 阶段构建与实机验证记录见 [0.0.1 当前发布状态](./docs/CURRENT_RELEASE_STATUS.md)
 
-> `0.0.1` 是项目尚未正式发布时的开发基线，不是生产发布版本。历史 `1.2.x` APK 仅作为 QA 证据保留，不代表正式版本序列。社交登录 Provider 尚未在线启用，用户名认领和外部身份相关的最新托管数据库迁移也尚未完成部署验收。当前发布状态与 APK 对应关系见 [0.0.1 当前发布状态](./docs/CURRENT_RELEASE_STATUS.md)，机器人 App 范围、用户故事和阶段路线见 [机器人 App 产品需求与推进计划](./docs/APP_ROBOT_LIFECYCLE_PRD.md)。
+---
 
-## 当前产品推进顺序
+## 一、系统通信与功能架构
 
-1. **蓝牙/Wi-Fi 安全配网**：先建立机器人身份校验、临时配网会话、凭据保护、失败恢复和恢复出厂后的重新配网合同。
-2. **固件升级与回滚**：随后建立签名固件清单、型号/硬件兼容校验、断点恢复、安装状态机和失败回滚合同。
-3. **命令、ACK 与可信遥测**：在前两项具备可测试合同后，再接入任务、路线、召回、实时状态和故障通知。
+App 端侧同时对接机器狗底层运控服务（`brainstem`）与上层视觉/图传服务（`lingtu`）：
 
-前两项均为当前 P0。纯 TypeScript 合同、Node 机器人模拟器、App 内明确标注的配网/OTA 演示流程和离线安全门禁已经落地；Android 真实设备现在进入独立 BLE discovery 页面，源码可请求权限并读取广播。当前源码快照已通过 Android 原生预构建、四 ABI Gradle debug APK 编译、模拟器安装与 JS 启动，但尚无物理手机 + 真实广播扫描证据。GATT 身份、Wi-Fi 写入、托管作业、机器人固件与 bootloader 仍为 `BLOCKED/尚未实现`。
+| 层级 | 服务端来源 | 协议与默认端口 | 当前已接通能力 |
+| --- | --- | --- | --- |
+| **运控与本体遥测** | **Brainstem**（`contracts/brainstem_api/*.proto`，`brainstem.api.v1.RobotControl` & `RobotRecovery`） | gRPC `:13145`（Android 原生 `DosoBrainstemGrpc` 直连；Web 开发经本地代理 `:8121` 转发） | 电机使能/失能（`Enable`/`Disable`）、站立/坐下（`StandUp`/`SitDown`）、租约申请/续期/释放与 50Hz `WalkChecked` 连续摇杆控制、软急停、运动模式切换（`SwitchProfile`：平地/楼梯/高台）、**电机标零（`SetZero`）**、**清除电机故障（`ClearMotorFault`）**、**预设动作列表与执行（`ListGestures`/`PlayGesture`）**、16 电机健康/温度/角度/母线电压与 IMU 流读取、摔倒恢复（`RobotRecovery`） |
+| **实时图传与端侧采集** | **LingTu / 媒体网关**（本地联调为 MuJoCo 4.0 仿真推流服务） | WebRTC WHEP / 本地仿真流 `:5050` | 前/后双广角实时画面、右上角 16:9 画中画（PiP）一键互换主副视角、深度图预览叠层、**端侧 1080p JPEG 抓拍与 MP4/WebM 视频录制**（Web Canvas/MediaRecorder + Android 原生 `modules/media-capture`） |
 
-## 当前完成状态
+---
 
-已经接入真实服务的部分：
+## 二、当前界面结构与废弃/占位标记
 
-- 邮箱注册、6 位邮箱验证码、登录、会话持久化、退出登录
-- 忘记密码验证码、重置密码，以及兼容的 PKCE App Deep Link 回跳
-- PKCE 一次性授权码恢复流程；回跳 URL 不携带 access/refresh token
-- `profiles`、`account_terminals`、`devices`、`audit_logs` 和私有设备绑定凭据表
-- 数据库行级安全策略（RLS）：用户只能读取自己的账户、登录终端和设备；撤销终端后立即阻断数据访问
-- 登录终端登记、心跳、指定终端/其他终端/全部终端撤销
-- 机器人库存、序列号 + 一次性绑定码认领与解绑；绑定码只存 SHA-256 摘要
-- 用户、支持人员、管理员角色；账户暂停/恢复、密码重置、全局下线和追加式审计
-- 受保护 Edge Functions：终端、设备绑定、用户/设备管理，以及机器人可信 enrollment；内部邮件和机器人服务使用独立的服务端认证
-- 独立 `admin/` Web 管理端；管理接口强制 TOTP MFA 的 `aal2` 会话
-- 普通 App 只能更新设备名称与告警偏好，不能伪造在线状态、安全锁或遥测
-- Android 使用 SecureStore 保存登录会话，Web 使用浏览器本地存储
+详情与逐文件说明见 [docs/UI_SOURCE_OF_TRUTH.md](./docs/UI_SOURCE_OF_TRUTH.md)：
 
-已经写入当前 `0.0.1` 源码、但尚未形成线上闭环的部分：
+### 1. `[ACTIVE]` 正式在用界面
+- **主控台（默认首屏）** — `src/screens/ControlScreen.tsx` + `src/components/controlLandscapeHud.tsx`：
+  - **顶部三岛**：左岛展示设备名与连接状态（点击打开连接抽屉）及 `状态 / 操控 / 设置` 快捷切换；中岛提供 `平地 / 楼梯 / 高台` 模式切换与 `1.0 m/s` 速度上限调节；右岛展示延迟、电压、温度、录屏 `REC` 计时与置顶红色 `急停`。
+  - **右侧视觉轨**：后广角/深度 16:9 小窗 + `双摄 / 深度 / 抓拍` 圆钮 + `前视 / 车灯 / 录屏` 胶囊条。
+  - **底部控制坞与双摇杆**：左右独立虚拟摇杆（接入 G20 实体手柄时可切换实体输入），底栏集成 `使能/失能电机`、`站立`、`坐下`、`姿态`、`动作 ▾`（鞠躬 / 点头 / 扭动 / 伸展 / 跳舞 / 后退）及可展开整机仪表盘（`ControlHudDashboard.tsx`）。
+- **操控设置浮层** — `src/components/ControlReferenceUi.tsx`：不离开实时画面叠加展开 `通用 / 操控 / 视频 / 音频 / 网络 / 机器人 / 安全 / 关于` 8 栏；其中 **`机器人`** 页集成**电机标零**、**清除故障**、运动模式、动作触发与 **16/16 电机实时状态双列卡片**，**`视频`** 页提供视角切换与端侧抓拍/录屏管理。
+- **连接机器狗** — `src/screens/RobotConnectionScreen.tsx`：支持输入局域网私有 IP（默认端口 `13145`）、Wi-Fi 热点发现与 mTLS 配对证书连接。
+- **状态页** — `src/screens/JointStatusScreen.tsx`：按四条腿分组查看 16 关节状态、电压与 IMU 数据。
+- **全局设置与隐私页** — `src/screens/ProfileScreen.tsx`、`src/screens/DataPrivacyScreen.tsx`。
 
-- Apple、微信、QQ 登录入口、客户端授权流程和登录方式展示
-- 社交用户首次登录的唯一用户名认领页面、门禁和 RPC
-- 外部身份注册表与 `list_my_login_methods` RPC
-- 安全配网状态机、单设备活动会话、安全信道 envelope、会话绑定的设备/连接事件签名证明、事件防重放、凭据 receipt 与恢复出厂失效模拟；运行 `npm run test:robot-provisioning`
-- 签名固件 manifest 与电量策略、A/B 槽、分块续传、健康检查 deadline、完整绑定的签名健康/回滚证明与连续 OTA 作业模拟；运行 `npm run test:firmware-lifecycle`
-- “我的设备”中的安全配网和固件更新演示页：演示/真实设备隔离、密码不留存、资格门槛、取消边界、回滚与恢复；运行 `npm run test:provisioning-ui` 和 `npm run test:firmware-update-ui`
-- Android 前台 BLE discovery adapter 与候选设备页：真实权限、Android 11 及以下定位开关检查、扫描错误码、取消/重试隔离、App 进入后台自动停止、广播去重、脱敏设备标识和平台 fallback；运行 `npm run test:ble-discovery`。候选身份未验证，不连接或写入 characteristic。
-- 制造 Ed25519 身份、短时一次性 enrollment challenge、恢复出厂计数推进、设备事件防重放和运行时公钥安装的数据库/Edge 合同已写；仍待托管 Supabase 部署与物理机器人签名验收
-- 首页与设备页在无可信遥测时显示“待同步/—”，不再展示虚构电量、传感器和温度。
-- 汇总发布门禁会顺序执行生产基线、机器人合同、App 演示 UI、BLE discovery 代码合同、可信数据 guard 和 TypeScript 检查；运行 `npm run test:release-gate`
+### 2. `[PLACEHOLDER / EXPERIMENTAL]` 占位与实验性只读界面（已在源码标记）
+- `src/screens/DeviceUnavailableScreen.tsx`（`@status PLACEHOLDER / BLOCKED`）：无线配网与固件 OTA 协议尚未接入设备端 bootloader，仅展示诚实未开放说明。
+- `src/screens/BleDiscoveryScreen.tsx`（`@status EXPERIMENTAL_READONLY`）：仅扫描附近 BLE 广播尾号，尚未接通 GATT 身份验证与配网写参。
+- `src/screens/LingtuStatusScreen.tsx`、`src/screens/VideoViewerScreen.tsx`：连接页下的只读网关体检与独立画面预览辅助页。
+- `ControlReferenceUi.tsx` 内暂未接入底层协议的条目（`音频` 扬声器/对讲、`车灯` 本地状态预览、`摇杆灵敏度`、`视频清晰度`、`自动录像`）均保持只读或本地预览标注。
 
-Apple 与 Supabase Apple Provider、微信/QQ 的 Custom OIDC Provider 当前仍关闭；默认功能开关为 `false`，因此三个入口显示为灰色禁用状态。必须先部署并验证最新迁移，再配置 Provider 并完成真机登录，才能启用这些入口。
+### 3. `[RETIRED / DORMANT]` 已下线页面与未挂载后台目录
+- 早期的登录/注册/验证码/MFA 页、旧 5-Tab（首页 / 地图 / 任务 / 分析 / 选型）、旧配网/OTA 演示页以及 `index.preview.ts` / `src/design-qa/*` 共 **30+ 个历史页面已从源码移除**。
+- `src/auth/`、`supabase/`、`admin/`、`src/domain/`、`iot/simulator/` 当前作为无头模块保留在仓内用于契约测试与后续云端能力演进，不在当前 App 运行时挂载任何 UI。
 
-仍然缺少真实物理、云端或机器人侧闭环的部分：
+---
 
-- Android Development Build 在物理手机上的 BLE 扫描验收，以及后续 GATT 身份/凭据传输、Wi-Fi 安全配网；当前已有原生 APK 编译与模拟器启动证据，但模拟器不能替代 BLE 射频验收
-- 生产固件签名、制品分发、机器人写入、重启健康证明与物理回滚
-- 机器人实时电量、里程、运行时长等可信遥测上报
-- 路线、任务、召回和控制指令下发
+## 三、本地全链路热加载联调（Web + Brainstem 仿真 + MuJoCo 1080p 图传）
 
-也就是说，账户、密码、登录终端、管理员 API、审计和物理设备所有权绑定已经是联网后端逻辑；App 已开始读取 Android 真实 BLE 广播，但机器人通信协议、设备侧密钥和 bootloader 尚未提供，因此发现页只显示“身份未验证”，不会假装完成配网、刷写固件或发送命令。
+前置条件：Node.js `>= 22.13`（推荐 Node 24 LTS）；如需运行 3D 实时相机仿真画面，需安装带 `mujoco` 的 Python 3.11+ 环境。
 
-## 本地运行真实后端
-
-前置条件：Node.js、Docker Desktop，以及能运行 Android 模拟器或浏览器的开发环境。
+### 1. 安装依赖
 
 ```powershell
 npm install
-Copy-Item .env.example .env.local
-npm run supabase:start
-npm run db:reset
-$env:DOSO_ALLOW_ALL_WEB_ORIGINS_FOR_LOCAL_DEV='true'
-npx supabase functions serve
+npm --prefix iot/brainstem-bridge install
+```
+
+### 2. 启动本地仿真与 Web 热加载服务（分终端运行）
+
+```powershell
+# 1) 启动本地 Brainstem gRPC 运控仿真（监听 127.0.0.1:13145，状态镜像 :13146）
+npm run dev:brainstem-sim
+
+# 2) 启动 Web 局域网 gRPC 代理桥（监听 127.0.0.1:8121）
+npm run dev:web-grpc-bridge
+
+# 3) 启动 MuJoCo 4.0 1080p 前/后双视角视频仿真（监听 127.0.0.1:5050）
+npm run dev:mujoco-video
+
+# 4) 启动 Expo Web 热加载服务（http://localhost:8081/）
 npm run web -- --port 8081
 ```
 
-本地测试账号：
+### 3. 浏览器联调实操步骤
+1. 打开 `http://localhost:8081/`，点击左上角设备胶囊进入 **连接机器狗**。
+2. 地址输入 `127.0.0.1`（端口保持 `13145`），点击 **连接机器狗** 返回主控台（直连真机时将地址替换为机器狗热点 `192.168.50.1` 或局域网 IP 如 `192.168.66.64`）。
+3. 在主控台或 **操控 › 机器人** 面板中依次体验：
+   - 趴地态执行 **电机标零**（二次确认）与查看 **16/16 电机实时健康/温度/角度**
+   - **使能电机** → **站立** → 拖动虚拟摇杆下发 50Hz `WalkChecked` 连续速度
+   - 展开底栏 **动作 ▾** 或在设置页触发 `鞠躬 / 点头 / 扭动 / 伸展 / 跳舞 / 后退`
+   - 切换 **平地 / 楼梯 / 高台** 运动模式
+   - 点击右侧 **抓拍** / **录屏** 导出 1080p JPEG 与 MP4/WebM 视频文件
 
-- 邮箱：`demo@doso.local`
-- 密码：`DosoDemo123!`
+---
 
-本地服务：
+## 四、Android 真机 / G20 构建与测试验证
 
-- Supabase API：`http://127.0.0.1:54321`
-- 测试邮件箱 Mailpit：`http://127.0.0.1:54324`
-
-Android 模拟器通过 `http://10.0.2.2:54321` 访问电脑上的本地 Supabase。另开一个终端运行 `npx supabase functions serve`，App 才能登记登录终端和绑定设备。实体手机不能直接使用这个模拟器专用地址；实体机或公开发布必须换成托管 Supabase 的 HTTPS URL。
-
-Android 原生构建会根据后端 URL 自动决定是否允许明文流量：仅当本地 QA 地址以 `http://` 开头时启用；托管生产地址使用 HTTPS 时会自动关闭明文流量。
-
-## 验证
+### 常用验证命令（与 GitHub Actions CI 对齐）
 
 ```powershell
+# TypeScript 全量类型检查
 npm run typecheck
-npm run test:release-gate
-npm run test:ble-discovery
-npx expo-doctor
-npm run test:config
-npm run test:db
-npm run test:pkce
-npm run test:network
-npx supabase db lint --local --level warning
-npm run export:web
-npm run export:android
+
+# 控制台 UI 契约、横竖屏安全区布局、摇杆与交互回归
+npm run test:control-ui
+
+# 字体打包完整性与导航栏测试
+npm run test:app-font
+npm run test:nav
+
+# Brainstem 桥接与本地仿真协议回归（需指定 contracts 目录）
+$env:DOSO_BRAINSTEM_PROTO_ROOT = (Resolve-Path .\contracts).Path
+npm run test:brainstem-bridge
 ```
 
-`npm run test:auth`、`npm run test:pkce` 和 `npm run test:network` 需要先从 `supabase status -o env` 将本地测试凭据注入当前进程。联网测试还需设置 `VERIFY_EDGE_FUNCTIONS=1` 并保持 `supabase functions serve` 运行。测试凭据绝不能写入 App、APK、Git 或任何 `EXPO_PUBLIC_` 环境变量。
+### Android Development / QA 构建注意事项
+- 原生模块（`modules/brainstem-grpc`、`modules/media-capture`、`modules/g20-input`、`modules/robot-wifi`、`modules/doso-pointcloud`）不包含在 Expo Go 中，真机调试需构建原生客户端（`npm run android -- --device` 或按 `eas.json` 构建内部包）。
+- 本地 Android 编译请使用 **JDK 17 或 JDK 21**，并保持工程路径简短以避免 Windows CMake 路径长度超限。
+- 签名密钥、`.env*.local`、本地构建缓存与 `.apk` 安装包严禁提交入库。
 
-## Android APK
+---
 
-以下 `1.2.3` 文件是历史 QA 构建，文件名与哈希保持不变，不属于当前 `0.0.1` 正式版本序列。
+## 五、关键目录结构
 
-- `releases/DOSO-1.2.3-pure-social-icons-qa.apk` 和 `releases/DOSO-1.2.3-pure-social-icons-universal-qa.apk` 早于最后一轮用户名门禁与外部身份代码，只能验收当时的社交图标 UI。
-- `releases/DOSO-1.2.3-quiet-auth-identity-qa.apk` 是较新的 QA 构建，但仍未证明托管迁移、线上 Provider 或真实第三方登录可用。
-- 旧版 APK 的用途与校验值见 [Android builds](./releases/README.md)。
-
-启动 Android 模拟器后，可执行：
-
-```powershell
-adb install -r .\releases\DOSO-1.2.3-quiet-auth-identity-qa.apk
-```
-
-也可以把 APK 拖入已打开的 Android 模拟器窗口完成安装。Windows 不能直接运行 APK。当前所有 APK 都使用 QA/debug 签名，不是应用商店生产包；即使连接托管后端，也不能据此认定未部署的数据库迁移或关闭的 Provider 已经可用。
-
-生产 APK 需要把 `.env.local` 改为托管 Supabase 项目的 URL 和 publishable key 后重新构建。客户端只能使用 publishable/anon key，不得使用 service-role key。
-
-### Android BLE Development Build
-
-BLE 原生模块不在 Expo Go 中。使用 USB 连接的 Android 真机时运行：
-
-```powershell
-adb devices
-npm run android -- --device
-```
-
-本地 Android 原生构建使用 JDK 17 或 21；JDK 24 会在当前 Expo/RN CMake 链路触发受限 API 错误。Windows 构建路径应尽量简短，避免 New Architecture C++ 对象路径超过 260 字符。也可用 `eas.json` 的 `development` profile 构建内部 APK。`EXPO_PUBLIC_DOSO_BLE_NAME_PREFIX` 默认是 `DOSO`；固件提供正式 provisioning service UUID 后，再设置 `EXPO_PUBLIC_DOSO_BLE_SERVICE_UUID`。UUID 未配置时页面会展示附近 BLE 广播并全部标为身份未验证，不会自动连接。
-
-## 上线到托管 Supabase
-
-1. 创建 Supabase 项目。
-2. 将 `.env.local` 中的 URL 和 publishable key 替换为托管项目值。
-3. 将 `supabase/migrations/` 中的迁移推送到托管数据库，并按 `supabase/functions/README.md` 与各 runbook 部署所需 Edge Functions。
-4. 配置 6 位 OTP 邮件模板、TOTP MFA、正式域名 HTTPS 回跳、Android App Links 和 iOS Universal Links。
-5. 为 Auth 配置生产 Custom SMTP，再用真实外部邮箱和两台终端完成注册、重置密码和远程撤销验收。
-6. 单独部署 `admin/` 管理端，并将其限制为管理员账户 + TOTP MFA。
-7. 使用正式签名密钥构建 AAB/APK；当前本地包只用于测试，不用于应用商店发布。
-
-完整命令、SMTP、DNS、Secrets、MFA 和上线验收清单见 [联网后端部署指南](./docs/NETWORK_BACKEND.md)。
-
-## DOSO 后缀邮箱
-
-不能直接注册一个只有 `@DOSO` 的公网邮箱后缀。公司必须先购买并持有完整域名，例如 `doso.com` 或 `doso.cn`（示例不代表可注册或已持有），然后才能创建：
-
-- `support@你的域名`：客服收件邮箱
-- `no-reply@mail.你的域名`：注册验证和密码重置发件地址
-
-域名购买、企业邮箱、DNS 的 MX/SPF/DKIM/DMARC，以及 Supabase Custom SMTP 的完整步骤见 [DOSO 域名邮箱配置指南](./docs/DOSO_EMAIL_DOMAIN.md)。
-
-## 远程 GPS 定位
-
-“我的 → 远程状态 → 查看位置”可展开 GPS 地图，支持拖动、缩放、旋转地球与“定位设备”。坐标使用 WGS84，定位采集时间超过 5 秒独立显示过期；旧设备无定位时不显示设备标记。模拟设备始终带模拟提示。地图只复用面板现有状态轮询，不传递登录 token。
-
-底图默认使用 OpenFreeMap Liberty（保留 OpenStreetMap / OpenMapTiles 版权），可通过 `EXPO_PUBLIC_MAP_STYLE_URL` 替换兼容的 HTTPS MapLibre 样式。MapLibre GL JS/CSS 固定为 6.17.0，通过 unpkg 加载，需要联网与 WebGL；底图失败仍可查看原始时间和坐标。Web 使用 iframe，Android/iOS 使用 Expo SDK 57 推荐的 `react-native-webview` 13.16.1，需要重新构建原生客户端；原生候选实现仍须真机验证。
-
-## 关键目录
-
-- `src/auth/`：认证状态和会话恢复
-- `src/services/`：Supabase 客户端、认证接口、设备数据接口
-- `supabase/migrations/`：用户、登录终端、设备、审计、RLS 与权限
-- `supabase/functions/`：账户、设备、管理员、邮件与机器人可信边界的服务端 API/worker
-- `admin/`：不含 service-role key 的独立管理员 Web 端
-- `supabase/tests/`：数据库和认证配置测试
-- `scripts/verify-auth.mjs`：真实 Auth + Mailpit + RLS 端到端测试
-- `scripts/verify-pkce-recovery.mjs`：按邮件模板自动验证恢复 OTP/PKCE，并覆盖修改密码重新认证 nonce
-- `scripts/verify-network-backend.mjs`：终端撤销、设备绑定、权限隔离和管理员 MFA 端到端测试
+- `App.tsx` / `index.ts`：三页工作台根容器与 Web 16:9 舞台适配
+- `contracts/brainstem_api/`：Brainstem gRPC Protobuf 契约（`cms.proto`、`recovery.proto`、`common.proto`）
+- `src/screens/`：当前启用页面与显式标记的占位/辅助页面
+- `src/components/`：方案 A-1 横屏战术 HUD、8 栏操控设置、摇杆、仪表盘与恢复控件
+- `src/features/control/`：Brainstem 控制会话、动作前置门禁、遥测轮询与 G20 物理摇杆模型
+- `src/features/video/`：WebRTC WHEP 接收器、本地 MuJoCo 仿真流接收器与跨平台抓拍/录屏封装
+- `src/services/`：Brainstem gRPC 客户端、Web 开发桥接垫片与 LingTu 只读探测服务
+- `modules/`：Expo Android/iOS 原生模块（`brainstem-grpc`、`media-capture`、`g20-input`、`robot-wifi`、`doso-pointcloud`）
+- `iot/brainstem-bridge/`：本地 Web gRPC 桥接服务、Brainstem 状态机仿真与 MuJoCo 1080p 视频推流脚本
+- `scripts/`：UI 契约、控制会话、原生桥接与发布门禁自动化测试集
+- `supabase/` & `admin/`：`[DORMANT_HEADLESS]` 保留的云端数据库迁移、Edge Functions 与独立管理端源码（参考 [联网后端部署指南](./docs/NETWORK_BACKEND.md)）
