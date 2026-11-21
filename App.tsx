@@ -266,13 +266,15 @@ export default function App() {
 
   const controlVideo = useControlVideoReceiver(videoConfig, stage === 'control' && !robotConnectionVisible);
   const [rearCameraActive, setRearCameraActive] = useState(false);
+  const hasDedicatedRearStream = Boolean(controlVideo.streams?.some(name => name === 'rear' || name === 'cam_rear'));
   const rearVideoConfig = videoConfig && videoConfig.allowLocalHttp === true && !videoConfig.viewerToken
     ? { ...videoConfig, deviceId: `${videoConfig.deviceId}:rear`, cameraId: 'rear' as const }
     : null;
   const controlRearVideo = useControlVideoReceiver(
     rearVideoConfig,
-    stage === 'control' && !robotConnectionVisible && rearCameraActive,
+    stage === 'control' && !robotConnectionVisible && rearCameraActive && hasDedicatedRearStream,
   );
+  const shareSingleCameraPip = Boolean(videoConfig && rearCameraActive && !hasDedicatedRearStream);
   const g20Controller = useG20Input(stage === 'control' && !robotConnectionVisible);
 
   const directEndpointLabel = directEndpoint
@@ -584,10 +586,18 @@ export default function App() {
                     videoSurface={videoConfig ? controlVideo.surface : undefined}
                     videoStream={videoConfig ? controlVideo.stream : undefined}
                     videoRotation={videoConfig ? controlVideo.rotation : undefined}
-                    rearVideo={rearVideoConfig ? controlRearVideo.presentation : undefined}
-                    rearVideoSurface={rearVideoConfig ? controlRearVideo.surface : undefined}
-                    rearVideoStream={rearVideoConfig ? controlRearVideo.stream : undefined}
-                    rearVideoRotation={rearVideoConfig ? controlRearVideo.rotation : undefined}
+                    rearVideo={shareSingleCameraPip
+                      ? { ...controlVideo.presentation, id: `${controlVideo.presentation.id}:pip` }
+                      : rearVideoConfig && hasDedicatedRearStream ? controlRearVideo.presentation : undefined}
+                    rearVideoSurface={shareSingleCameraPip
+                      ? controlVideo.pipSurface ?? undefined
+                      : rearVideoConfig && hasDedicatedRearStream ? controlRearVideo.surface : undefined}
+                    rearVideoStream={shareSingleCameraPip
+                      ? controlVideo.stream
+                      : rearVideoConfig && hasDedicatedRearStream ? controlRearVideo.stream : undefined}
+                    rearVideoRotation={shareSingleCameraPip
+                      ? controlVideo.rotation
+                      : rearVideoConfig && hasDedicatedRearStream ? controlRearVideo.rotation : undefined}
                     operationTargetKey={JSON.stringify([WORKSPACE_OWNER_KEY, directEndpoint?.host, directEndpoint?.port, directEndpoint?.transport, controlEndpoint?.clientIdentityAlias])}
                     allowInteractionPreview={false}
                     batteryPercent={null}

@@ -35,9 +35,10 @@ Orbbec Gemini 335 (USB 3.2)
   **与宇树 Go2 没有任何关系。** `go2rtc`（开源项目 `AlexxIT/go2rtc`）是 **“Go 语言（Golang）转（2 = to）WebRTC”** 的缩写（类似 `v4l2rtsp` 中的 `2`）。它的职责仅仅是把本地 H.264 视频流封装成标准的低延迟 WebRTC（WHEP 协议，UDP `8555` 端口）发给 G20 App 播放。在产品对外名称中统称为 `DOSO Video Gateway`。
 - **为什么默认用 `15 fps` / `800 kbps`，官方相机不是支持 `30 fps` 吗？**  
   Gemini 335 硬件确实支持 `30 fps`。此前机器狗原始 `/etc/lingtu/camera.env` 被设为 `15 fps`，是因为旧版 `camera.cpp` 用未压缩 `YUYV` 传输，开 `30 fps` 会产生近 `300 Mbps` 的裸 USB 流量直接卡死总线；而旧版推流脚本却写了 `--fps 30`，实际上是在把 `15 fps` 画面每帧重复编码两遍（假 30 帧，白耗一倍 CPU 和无线带宽）。  
-  现在我们已为 `camera.cpp` 接入了相机硬件 **MJPG 压缩传输（`LINGTU_ORBBEC_COLOR_MJPG=1`）**，USB 带宽下降了 **18 倍**。因此：
-  - **稳定优先档（`--profile 15fps`，默认）**：真 `15 fps` + `800 kbps`，整机功耗、发热与无线空口占用最低（已实测连续运行 **>26 分钟、`23,200+` 帧、0 掉线**）。
-  - **高帧率档（`--profile 30fps`，按需开启）**：相机与编码器同步开启真原生 **`640x480@30` MJPG + `1200 kbps`**，USB 带宽仅约 `8 Mbps`，下一台高配需求机器或需要更丝滑画面时可直接一行命令切换。
+  现在我们已为 `camera.cpp` 接入了相机硬件 **MJPG 压缩传输（`LINGTU_ORBBEC_COLOR_MJPG=1`）**，USB 带宽下降了 **18 倍**，并将共享内存单槽容量提升至 `4 MB`、FFmpeg 管道切换为 `nobuffer / low_delay / muxdelay 0` 零缓冲模式：
+  - **高性能宽屏档（`--profile 30fps`，默认）**：相机与编码器同步开启真原生 **`848x480@30`（16:9 宽屏，水平视野拓宽 32.5%，原生贴合 G20 屏幕）MJPG + `1200 kbps` 零缓冲 H.264**，USB 彩色带宽仅约 `10 Mbps`。
+  - **低功耗省流档（`--profile 15fps`，按需切换）**：`640x480@15` + `800 kbps`，适合弱网或超长续航场景。
+  - **App 端配套性能优化**：当机器狗仅公布单路 `cam` 流时，G20 开启「双摄」画中画直接共享同一路解码 `MediaStream`（不再重复发起第 2 条 WebRTC 连接，节省 **50%** 无线带宽与硬件解码器占用）；同时在局域网控制会话期间将遥测轮询（状态/电压/电机）多路复用到同一条 HTTP/2 长连接，并强制锁定 Android `WIFI_MODE_FULL_LOW_LATENCY` 低延迟模式。
 
 ---
 
@@ -51,7 +52,7 @@ Orbbec Gemini 335 (USB 3.2)
 | 2 | 5 GHz 热点与子网 | `/etc/NetworkManager/system-connections/dog-hotspot.nmconnection` | [provision-robot-dog.sh](../../iot/robot-provisioning/provision-robot-dog.sh) | `wlan1` 设为 5 GHz `band=a`、`channel=149`、`192.168.50.1/28`（14 个可用客户端 IP），关闭网卡省电 `powersave=2`；限制无卡 `usb0` 路由优先级防止劫持 |
 | 3 | Brainstem 白名单 | `/etc/brainstem/brainstem.env` | [provision-robot-dog.sh](../../iot/robot-provisioning/provision-robot-dog.sh) | `THUNDER_GRPC_ALLOWED_IPS` 与 `THUNDER_LINGTU_ALLOWED_IPS` 覆盖 `192.168.50.2`–`192.168.50.14` 全 `/28` 网段（满足 16 IP 上限约束） |
 | 4 | Orbbec 原生驱动 | `/home/sunrise/lingtu-src/src/drivers/real/camera/impl/orbbec/camera.cpp` -> `/opt/lingtu/current/bin/orbbec_capture` | [camera.cpp](../../iot/robot-provisioning/orbbec/camera.cpp)、[orbbec-mjpg-laser-power.patch](../../iot/robot-provisioning/orbbec/orbbec-mjpg-laser-power.patch) | 增加 `LINGTU_ORBBEC_COLOR_MJPG=1`（相机端硬件 MJPG 传输 + SDK `FormatConvertFilter` 转 `RGB8`）及 `LINGTU_ORBBEC_LASER_CONTROL` / `LASER_ENERGY_LEVEL` 寄存器控制，砍掉 >75% USB 带宽与散斑激光峰值电流 |
-| 5 | 相机运行参数 | `/etc/lingtu/camera.env` | [camera.env.15fps](../../iot/robot-provisioning/configs/camera.env.15fps) / [camera.env.30fps](../../iot/robot-provisioning/configs/camera.env.30fps) | 默认关闭高功耗主动激光脉冲（`LASER_CONTROL=0`，双目被动红外仍正常输出深度），深度设为 `424x240@15`，开启 `COLOR_MJPG=1` |
+| 5 | 相机运行参数 | `/etc/lingtu/camera.env` | [camera.env.15fps](../../iot/robot-provisioning/configs/camera.env.15fps) / [camera.env.30fps](../../iot/robot-provisioning/configs/camera.env.30fps) | 默认关闭高功耗主动激光脉冲（`LASER_CONTROL=0`，双目被动红外仍正常输出深度），`30fps` 档采用彩色 `848x480@30` MJPG + 深度 `424x240@30`（保持同频以确保 `ob::Pipeline` 帧集同步），单槽共享内存扩至 `4 MB` |
 | 6 | 网卡发射功率锁 | `/etc/NetworkManager/dispatcher.d/99-doso-wlan1-txpower` | [99-doso-wlan1-txpower](../../iot/robot-provisioning/configs/99-doso-wlan1-txpower) | 解决 `BCM43569` 缺 `clm_blob` 默认 `31.00 dBm`（`1.26W`）功放过载失真问题，热点启动自动锁定 `18.00 dBm`（`63mW`） |
 | 7 | USB 电源与缓冲 | `/etc/udev/rules.d/99-doso-usb-no-autosuspend.rules`、`/etc/systemd/system/doso-usb-stability.service` | [99-doso-usb-no-autosuspend.rules](../../iot/robot-provisioning/configs/99-doso-usb-no-autosuspend.rules)、[doso-usb-stability.service](../../iot/robot-provisioning/configs/doso-usb-stability.service) | 开机强制 `usbcore.autosuspend=-1`、全 USB 设备 `power/control=on`、`usbfs_memory_mb=256` |
 | 8 | WebRTC 直连与内核缓冲 | `/etc/go2rtc/go2rtc.yaml`、`/etc/sysctl.d/99-doso-webrtc.conf` | [go2rtc.yaml.template](../../iot/robot-provisioning/configs/go2rtc.yaml.template)、[99-doso-webrtc.conf](../../iot/robot-provisioning/configs/99-doso-webrtc.conf) | 移除国内不可达的 `stun.l.google.com:19302`，直配 `192.168.50.1:8555` 本地 UDP host 候选；UDP 收发缓冲调至 `4 MB` |

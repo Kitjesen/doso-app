@@ -96,6 +96,7 @@ class BrainstemGrpcModule : Module() {
     val startedAt = SystemClock.elapsedRealtime()
     var timeout: ScheduledFuture<*>? = null
     var channel: ManagedChannel? = null
+    var ownsChannel = true
     var call: ClientCall<ByteArray, ByteArray>? = null
   }
 
@@ -498,9 +499,12 @@ class BrainstemGrpcModule : Module() {
     runCatching {
       val context = appContext.reactContext ?: return
       val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-      val network = connectivity.activeNetwork ?: return
-      if (connectivity.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) != true) return
       val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+      val hasWifiTransport = connectivity.activeNetwork?.let {
+        connectivity.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+      } == true
+      @Suppress("DEPRECATION")
+      if (!hasWifiTransport && !wifi.isWifiEnabled) return
       @Suppress("DEPRECATION")
       val mode = if (Build.VERSION.SDK_INT >= 29) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else WifiManager.WIFI_MODE_FULL_HIGH_PERF
       @Suppress("DEPRECATION")
@@ -667,15 +671,23 @@ class BrainstemGrpcModule : Module() {
         init(emptyArray<KeyManager>(), null, null)
       } else selectedTls.context
       if (read.finished.get()) return
-      val builder = OkHttpChannelBuilder.forAddress(host, port)
-      if (lanDev) builder.usePlaintext() else builder.useTransportSecurity().sslSocketFactory(tls!!.socketFactory)
-      val channel = builder.maxInboundMessageSize(ControlStatusParser.MAX_BYTES)
-        .maxInboundMetadataSize(8192)
-        .disableRetry()
-        .build()
+      val sharedChannel = if (lanDev) synchronized(lock) {
+        control?.takeIf { !destroyed && !paused && controlPeer == IdentityChoice(host, port, alias, true) }?.channel
+      } else null
+      val channel = if (sharedChannel != null) {
+        read.ownsChannel = false
+        sharedChannel
+      } else {
+        val builder = OkHttpChannelBuilder.forAddress(host, port)
+        if (lanDev) builder.usePlaintext() else builder.useTransportSecurity().sslSocketFactory(tls!!.socketFactory)
+        builder.maxInboundMessageSize(ControlStatusParser.MAX_BYTES)
+          .maxInboundMetadataSize(8192)
+          .disableRetry()
+          .build()
+      }
       synchronized(lock) {
         if (read.finished.get() || active !== read || destroyed || paused) {
-          channel.shutdownNow(); return
+          if (read.ownsChannel) channel.shutdownNow(); return
         }
         read.channel = channel
         val remaining = DEADLINE_MS - (SystemClock.elapsedRealtime() - read.startedAt)
@@ -720,7 +732,7 @@ class BrainstemGrpcModule : Module() {
       if (active === read) active = null
       read.timeout?.cancel(false)
       read.call?.cancel("Status read finished", null)
-      read.channel?.shutdownNow()
+      if (read.ownsChannel) read.channel?.shutdownNow()
       if (code != null) reject(read.promise, code)
       else if (destroyed || paused || !isForeground()) reject(read.promise, "background")
       else read.promise.resolve(value)

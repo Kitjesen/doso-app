@@ -6,7 +6,7 @@
 
 set -euo pipefail
 
-PROFILE="15fps"
+PROFILE="30fps"
 HOTSPOT_CONN="dog-hotspot"
 HOTSPOT_IFACE="wlan1"
 HOTSPOT_CHANNEL="149"
@@ -20,9 +20,9 @@ usage() {
 Usage: sudo bash provision-robot-dog.sh [options]
 
 Options:
-  --profile 15fps|30fps   Camera & WebRTC preset (default: 15fps)
-                            15fps: 640x480@15 MJPG + 800 kbps H.264 (verified baseline)
-                            30fps: 640x480@30 MJPG + 1200 kbps H.264 (high frame rate)
+  --profile 30fps|15fps   Camera & WebRTC preset (default: 30fps)
+                            30fps: 848x480@30 (16:9) MJPG + 1200 kbps zero-buffer H.264
+                            15fps: 640x480@15 (4:3)  MJPG + 800 kbps low-power H.264
   --extra-lan-ip IP       Optional extra LAN IP (e.g. wlan0 192.168.66.64) for go2rtc & whitelist
   --lingtu-src DIR        Path to lingtu-src checkout (default: /home/sunrise/lingtu-src)
   --verify-seconds N      Post-deploy stability check duration (default: 30)
