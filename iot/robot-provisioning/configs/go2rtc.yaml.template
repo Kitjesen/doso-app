@@ -1,0 +1,15 @@
+api:
+  listen: "127.0.0.1:1984"
+  origin: "*"
+
+webrtc:
+  listen: ":8555"
+  candidates:
+    - "192.168.50.1:8555"
+
+log:
+  level: info
+
+streams:
+  cam:
+    - "exec:/opt/lingtu/current/bin/lingtu_camera_go2rtc_mpegts.py"

@@ -1,0 +1,12 @@
+[Unit]
+Description=DOSO USB & Wi-Fi Hotspot Power Stability Tuning
+After=local-fs.target systemd-udevd.service NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c "echo -1 > /sys/module/usbcore/parameters/autosuspend; echo 256 > /sys/module/usbcore/parameters/usbfs_memory_mb; for f in /sys/bus/usb/devices/*/power/control; do echo on > \"$f\" 2>/dev/null || true; done; /usr/sbin/iw dev wlan1 set txpower fixed 1800 2>/dev/null || true"
+
+[Install]
+WantedBy=multi-user.target

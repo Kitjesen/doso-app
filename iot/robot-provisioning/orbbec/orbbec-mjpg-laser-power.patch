@@ -1,0 +1,158 @@
+--- a/src/drivers/real/camera/impl/orbbec/camera.cpp
++++ b/src/drivers/real/camera/impl/orbbec/camera.cpp
+@@ -3,6 +3,8 @@
+ #include <libobsensor/ObSensor.hpp>
+ 
+ #include <chrono>
++#include <cstdlib>
++#include <iostream>
+ #include <memory>
+ #include <stdexcept>
+ #include <string>
+@@ -15,20 +17,70 @@ std::string safe_cstr(const char *value) {
+   return value == nullptr ? std::string{} : std::string(value);
+ }
+ 
+-std::shared_ptr<ob::Config> make_streams(const CameraConfig &options) {
++int env_int(const char *name, int fallback) {
++  const char *val = std::getenv(name);
++  if (val == nullptr || *val == '\0') {
++    return fallback;
++  }
++  try {
++    return std::stoi(val);
++  } catch (...) {
++    return fallback;
++  }
++}
++
++bool env_bool(const char *name, bool fallback) {
++  const char *val = std::getenv(name);
++  if (val == nullptr || *val == '\0') {
++    return fallback;
++  }
++  const std::string s(val);
++  if (s == "1" || s == "true" || s == "TRUE" || s == "yes" || s == "on") {
++    return true;
++  }
++  if (s == "0" || s == "false" || s == "FALSE" || s == "no" || s == "off") {
++    return false;
++  }
++  return fallback;
++}
++
++void apply_power_tuning(const std::shared_ptr<ob::Device> &device) {
++  if (!device) {
++    return;
++  }
++  const int laser_ctrl = env_int("LINGTU_ORBBEC_LASER_CONTROL", -1);
++  const int laser_level = env_int("LINGTU_ORBBEC_LASER_ENERGY_LEVEL", -1);
++  try {
++    if (laser_level >= 0 &&
++        device->isPropertySupported(OB_PROP_LASER_ENERGY_LEVEL_INT, OB_PERMISSION_WRITE)) {
++      device->setIntProperty(OB_PROP_LASER_ENERGY_LEVEL_INT, laser_level);
++    }
++    if (laser_ctrl >= 0 &&
++        device->isPropertySupported(OB_PROP_LASER_CONTROL_INT, OB_PERMISSION_WRITE)) {
++      device->setIntProperty(OB_PROP_LASER_CONTROL_INT, laser_ctrl);
++    }
++  } catch (const std::exception &e) {
++    std::cerr << "orbbec power tuning warning: " << e.what() << std::endl;
++  } catch (...) {
++  }
++}
++
++std::shared_ptr<ob::Config> make_streams(const CameraConfig &options, bool use_mjpg) {
+   auto config = std::make_shared<ob::Config>();
+   config->enableVideoStream(
+       OB_STREAM_COLOR,
+       options.color.width,
+       options.color.height,
+       options.color.fps,
+-      OB_FORMAT_RGB);
+-  config->enableVideoStream(
+-      OB_STREAM_DEPTH,
+-      options.depth.width,
+-      options.depth.height,
+-      options.depth.fps,
+-      OB_FORMAT_Y16);
++      use_mjpg ? OB_FORMAT_MJPG : OB_FORMAT_RGB);
++  if (options.depth.width > 0 && options.depth.height > 0 && options.depth.fps > 0) {
++    config->enableVideoStream(
++        OB_STREAM_DEPTH,
++        options.depth.width,
++        options.depth.height,
++        options.depth.fps,
++        OB_FORMAT_Y16);
++  }
+   return config;
+ }
+ 
+@@ -169,9 +221,11 @@ struct Camera::Impl {
+   std::unique_ptr<ob::Context> context;
+   std::shared_ptr<ob::Device> device;
+   std::unique_ptr<ob::Pipeline> pipeline;
++  std::unique_ptr<ob::FormatConvertFilter> mjpg_to_rgb;
+   OBCameraParam camera_param{};
+   CameraConfig config;
+   DeviceInfo device_info;
++  bool use_mjpg = false;
+   bool connected = false;
+ };
+ 
+@@ -182,19 +236,33 @@ Camera::~Camera() {
+ }
+ 
+ Camera::Camera(Camera &&) noexcept = default;
+-
+ Camera &Camera::operator=(Camera &&) noexcept = default;
+ 
+ void Camera::connect(const CameraConfig &config) {
+   disconnect();
++
+   impl_->config = config;
+-  impl_->context = std::make_unique<ob::Context>(config.sdk_config_path.c_str());
++  impl_->use_mjpg = env_bool("LINGTU_ORBBEC_COLOR_MJPG", false);
++  if (config.sdk_config_path.empty()) {
++    impl_->context = std::make_unique<ob::Context>();
++  } else {
++    impl_->context = std::make_unique<ob::Context>(config.sdk_config_path.c_str());
++  }
++
+   impl_->device = open_device(*impl_->context, config);
++  apply_power_tuning(impl_->device);
++
+   impl_->pipeline = std::make_unique<ob::Pipeline>(impl_->device);
+   if (config.enable_frame_sync) {
+     impl_->pipeline->enableFrameSync();
+   }
+-  impl_->pipeline->start(make_streams(config));
++  if (impl_->use_mjpg) {
++    impl_->mjpg_to_rgb = std::make_unique<ob::FormatConvertFilter>();
++    impl_->mjpg_to_rgb->setFormatConvertType(FORMAT_MJPG_TO_RGB);
++  }
++  impl_->pipeline->start(make_streams(config, impl_->use_mjpg));
++  apply_power_tuning(impl_->device);
++
+   impl_->camera_param = impl_->pipeline->getCameraParam();
+   impl_->device_info = device_info(impl_->pipeline->getDevice());
+   impl_->connected = true;
+@@ -210,6 +278,7 @@ void Camera::disconnect() noexcept {
+     } catch (...) {
+     }
+   }
++  impl_->mjpg_to_rgb.reset();
+   impl_->pipeline.reset();
+   impl_->device.reset();
+   impl_->context.reset();
+@@ -261,6 +330,10 @@ Frames Camera::read(uint32_t timeout_ms) {
+   }
+ 
+   auto color = frameset->colorFrame();
++  if (color && color->getFormat() == OB_FORMAT_MJPG && impl_->mjpg_to_rgb) {
++    auto converted = impl_->mjpg_to_rgb->process(color);
++    color = converted ? converted->as<ob::ColorFrame>() : nullptr;
++  }
+   auto depth = frameset->depthFrame();
+ 
+   Frames out;
