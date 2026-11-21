@@ -1,4 +1,4 @@
-export type ControlOperation = 'stop' | 'stand' | 'sit' | 'enableMotor' | 'disableMotor' | 'switchPolicy';
+export type ControlOperation = 'stop' | 'stand' | 'sit' | 'enableMotor' | 'disableMotor' | 'switchPolicy' | 'setZero' | 'clearMotorFault' | 'playGesture';
 export type ControlActionReadiness = Readonly<{ ready: boolean; blockedReason?: string }>;
 export type ControlPolicyOption = Readonly<{ id: string; label: string; terrainModeId?: ControlTerrainModeId }>;
 export type ControlTerrainModeId = 'flat' | 'stairs' | 'platform';
@@ -31,8 +31,16 @@ export type ControlBatteryState = Readonly<{
 export type ControlSignalState = Readonly<{
   rssiDbm?: number | null;
   qualityPercent?: number | null;
+  latencyMs?: number | null;
   source: 'device' | 'controller' | 'unknown';
   updatedAt?: string | null;
+}>;
+export type ControlCellularSignalState = Readonly<{
+  connected: boolean;
+  networkLabel?: string | null;
+  bars?: 0 | 1 | 2 | 3 | 4 | null;
+  qualityPercent?: number | null;
+  source: 'controller' | 'unknown';
 }>;
 export type ControlVector3 = Readonly<{ x: number; y: number; z: number }>;
 export type ControlQuaternion = Readonly<{ w: number; x: number; y: number; z: number }>;
@@ -54,6 +62,7 @@ export type ControlJointState = Readonly<{
   torqueNm?: number | null;
   voltageV?: number | null;
   temperatureC?: number | null;
+  driverTemperatureC?: number | null;
   errors?: readonly number[];
   fault?: 'unknown' | 'clear' | 'active';
   source: 'device' | 'unknown';
@@ -72,6 +81,9 @@ export type ControlRuntimeState = Readonly<{
   speed?: ControlSpeedState;
   battery?: ControlBatteryState;
   signal?: ControlSignalState;
+  cellular?: ControlCellularSignalState;
+  robotLinkLatencyMs?: number | null;
+  remainingRangeKm?: number | null;
   joints?: readonly ControlJointState[];
   /** Present only while a fresh ListenImu sample is held. */
   imu?: ControlImuReading;
@@ -93,10 +105,14 @@ export type ControlOperationCallbacks = Readonly<{
   enableMotor?: () => void | Promise<void>;
   disableMotor?: () => void | Promise<void>;
   switchPolicy?: (policyId: string) => void | Promise<void>;
+  setZero?: () => void | Promise<void>;
+  clearMotorFault?: () => void | Promise<void>;
+  playGesture?: (gestureName: string) => void | Promise<void>;
 }>;
 
 export const controlOperationLabels: Readonly<Record<ControlOperation, string>> = {
   stop: '停止', stand: '站立', sit: '坐下', enableMotor: '使能电机', disableMotor: '失能电机', switchPolicy: '切换策略模型',
+  setZero: '电机标零', clearMotorFault: '清除电机故障', playGesture: '动作',
 };
 
 export const controlOperationStatusLabels: Readonly<Record<ControlOperationStatus, string>> = {

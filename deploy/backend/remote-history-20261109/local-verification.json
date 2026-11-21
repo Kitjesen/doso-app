@@ -1,0 +1,25 @@
+{
+  "status": "PASS_LOCAL",
+  "archiveSha256": "3126b3fae648a31f51f0ed43f0109028198e01d888d52b49be5289728f5cc112",
+  "checks": {
+    "historyDenoTests": 9,
+    "historyAndAdjacentDenoRegressionTests": 39,
+    "denoFormatAndLint": "PASS",
+    "releaseDenoEntrypoints": "PASS",
+    "expoTscNoEmit": "PASS",
+    "isolatedPostgresCases": 41,
+    "releaseOriginalSqlTransaction": "PASS",
+    "releaseReadonlyPostflight": "PASS",
+    "releaseRepeatApplyRejected": "PASS",
+    "postgresStopped": true,
+    "deploymentUnitTests": 4,
+    "exactGatewayRoutesAndSecretKeyBypass": "PASS",
+    "existingFunctionFilesBytePreserved": 21,
+    "archiveFiles": 40
+  },
+  "postgresEvidence": "artifacts/multi-device/2026-11-09T09-44-47-929Z/verification.json",
+  "limitations": [
+    "This local evidence excludes cloud deployment and actual Auth transport.",
+    "The main execution thread owns platform relay, hosted Docker/Envoy validation, TLS and real user history acceptance."
+  ]
+}

@@ -1,0 +1,28 @@
+(node:53680) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/99563/Documents/ChatGPT/New%20project/doso-app/src/domain/device-provisioning/index.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\Users\99563\Documents\ChatGPT\New project\doso-app\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ both peers complete simulated network verification at ATT MTU 23 without claiming ownership (26.7616ms)
+✔ both peers complete simulated network verification at ATT MTU 185 without claiming ownership (9.9292ms)
+✔ trusted configuration grant and pinned manufacturing signature are both required (13.2598ms)
+✔ revoked epoch, expired authorization and altered account/session binding cannot reach the network adapter (3.5643ms)
+✔ authenticated encrypted configuration hides synthetic credentials and detects mutation without consuming the receive sequence (9.9644ms)
+✔ keys, nonces and AAD separate both directions, target/session and ordered records (4.7351ms)
+✔ bounded fragments fit the negotiated ATT payload at MTU 23 (3.0583ms)
+✔ bounded fragments fit the negotiated ATT payload at MTU 185 (0.6935ms)
+✔ fragment duplicate, reordering, mixed sizes, expiry and clear discard partial data (1.2428ms)
+✔ SSID uses UTF8 byte bounds and WPA2 personal passphrase rules without trimming (2.573ms)
+✔ wrong password and timeout preserve the prior network and never report configured (9.0381ms)
+✔ cancel while connect is in flight ignores a late success and prevents subsequent reports (4.4788ms)
+✔ session expiry during connect rolls back candidate and a used grant cannot reopen the service (7.8916ms)
+✔ cancel after a device report was prepared still rejects that late report and rolls back the candidate (4.6515ms)
+✔ IP side proof is necessary before persistence and binds the current nonce/device/session (5.7543ms)
+✔ CLI accepts only fixed synthetic scenarios and public results contain no credentials (302.6469ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 792.7393

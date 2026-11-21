@@ -60,6 +60,45 @@ public final class ControlWire {
     varint(out, 26); varint(out, body.length); out.write(body, 0, body.length);
     return out.toByteArray();
   }
+  public static byte[] clearFaultRequest(int[] jointIds) {
+    if (jointIds == null || jointIds.length == 0) return new byte[0];
+    if (jointIds.length > 16) throw new IllegalArgumentException("Invalid joint ids");
+    ByteArrayOutputStream packed = new ByteArrayOutputStream();
+    int seen = 0;
+    for (int id : jointIds) {
+      if (id < 0 || id >= 16) throw new IllegalArgumentException("Invalid joint id");
+      int bit = 1 << id;
+      if ((seen & bit) != 0) throw new IllegalArgumentException("Duplicate joint id");
+      seen |= bit;
+      varint(packed, id);
+    }
+    byte[] body = packed.toByteArray();
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    varint(out, 10); varint(out, body.length); out.write(body, 0, body.length);
+    return out.toByteArray();
+  }
+  public static byte[] speedModeRequest(String mode) {
+    if ("normal".equals(mode)) return new byte[0];
+    if ("high".equals(mode)) return new byte[]{8, 1};
+    throw new IllegalArgumentException("Invalid speed mode");
+  }
+  public static String parseSpeedMode(byte[] bytes) throws IOException {
+    Reader r = new Reader(bytes);
+    int mode = 0;
+    int seen = 0;
+    while (r.hasNext()) {
+      int tag = r.tag(), field = tag >>> 3, wire = tag & 7;
+      if (field == 1) {
+        if ((seen & 1) != 0) throw invalid();
+        seen |= 1;
+        r.wire(wire, 0);
+        mode = r.small(1);
+      } else {
+        r.skip(wire);
+      }
+    }
+    return mode == 1 ? "high" : "normal";
+  }
   public static Lease lease(byte[] bytes) throws IOException {
     Reader r = new Reader(bytes);
     boolean accepted = false; String token = ""; int duration = 0, reason = 0, seen = 0;

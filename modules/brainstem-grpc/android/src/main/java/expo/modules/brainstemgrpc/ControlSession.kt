@@ -113,9 +113,14 @@ internal class ControlSession(
       "stand-up" -> "StandUp"
       "sit-down" -> "SitDown"
       "switch-profile" -> "SwitchProfile"
+      "set-zero" -> "SetZero"
+      "clear-motor-fault" -> "ClearMotorFault"
+      "play-gesture" -> "PlayGesture"
       else -> throw Failure("config")
     }
-    if (action != "disable") {
+    if (action == "clear-motor-fault") {
+      if (before["owner"] == "yunzhuo") throw Failure("precondition")
+    } else if (action != "disable") {
       if (before["owner"] == "yunzhuo" || before.boolean("criticalMotorFault")
           || before["fsmKind"] == "transitioning") throw Failure("precondition")
       if (action == "stand-up" || action == "sit-down") {
@@ -123,25 +128,50 @@ internal class ControlSession(
       }
       if (action == "stand-up" && before["fsmKind"] == "walking"
           && before.boolean("grpcLeaseActive")) throw Failure("precondition")
+      if (action == "set-zero" && (before["fsmKind"] != "grounded"
+          || before.boolean("grpcLeaseActive"))) throw Failure("precondition")
+      if (action == "play-gesture" && (!before.boolean("motorOutputEnabled")
+          || before["fsmKind"] != "standing" || before.boolean("grpcLeaseActive"))) throw Failure("precondition")
     }
     var motionSlotRequest = false
-    val request = if (action == "switch-profile") {
-      if (before["fsmKind"] !in listOf("grounded", "standing")
-          || before.boolean("grpcLeaseActive")) throw Failure("precondition")
-      if (profileName.isNullOrBlank() || profileName.length > 256) throw Failure("config")
-      val profile = ProfileInfoParser.parse(rpc("GetProfile", EMPTY, epoch = epoch))
-      val capabilities = (profile["modeCapabilities"] as? List<*>)?.filterIsInstance<Map<*, *>>() ?: emptyList()
-      motionSlotRequest = capabilities.any { it["kind"] == "locomotion" }
-      if (motionSlotRequest) {
-        val capability = capabilities.filter { it["id"] == profileName }.singleOrNull()
-        if (capability == null || capability["kind"] != "locomotion"
-            || capability["available"] != true || capability["availability"] != "available") throw Failure("precondition")
-      } else {
-        val available = profile["available"] as? List<*> ?: throw Failure("invalid_response")
-        if (!available.contains(profileName)) throw Failure("precondition")
+    val request = when (action) {
+      "switch-profile" -> {
+        if (before["fsmKind"] !in listOf("grounded", "standing")
+            || before.boolean("grpcLeaseActive")) throw Failure("precondition")
+        if (profileName.isNullOrBlank() || profileName.length > 256) throw Failure("config")
+        val profile = ProfileInfoParser.parse(rpc("GetProfile", EMPTY, epoch = epoch))
+        val capabilities = (profile["modeCapabilities"] as? List<*>)?.filterIsInstance<Map<*, *>>() ?: emptyList()
+        motionSlotRequest = capabilities.any { it["kind"] == "locomotion" }
+        if (motionSlotRequest) {
+          val capability = capabilities.filter { it["id"] == profileName }.singleOrNull()
+          if (capability == null || capability["kind"] != "locomotion"
+              || capability["available"] != true || capability["availability"] != "available") throw Failure("precondition")
+        } else {
+          val available = profile["available"] as? List<*> ?: throw Failure("invalid_response")
+          if (!available.contains(profileName)) throw Failure("precondition")
+        }
+        ControlWire.stringRequest(profileName)
       }
-      ControlWire.stringRequest(profileName)
-    } else EMPTY
+      "play-gesture" -> {
+        val gestureName = profileName?.trim().orEmpty()
+        if (gestureName.isEmpty() || gestureName.length > GestureListParser.MAX_NAME_CHARS || gestureName.contains('\u0000')) {
+          throw Failure("config")
+        }
+        try { ControlWire.stringRequest(gestureName) } catch (_: IllegalArgumentException) { throw Failure("config") }
+      }
+      "clear-motor-fault" -> {
+        if (profileName.isNullOrBlank()) EMPTY
+        else {
+          val ids = try {
+            profileName.split(',').map { it.trim().toInt() }.toIntArray()
+          } catch (_: NumberFormatException) {
+            throw Failure("config")
+          }
+          try { ControlWire.clearFaultRequest(ids) } catch (_: IllegalArgumentException) { throw Failure("config") }
+        }
+      }
+      else -> EMPTY
+    }
     val response = rpc(method, request, epoch = epoch)
     principalVerified = !lanDev
     val result = status().toMutableMap()
@@ -322,6 +352,50 @@ internal class ControlSession(
     }
   }
 
+  fun listGestures(): Map<String, Any> {
+    checkOpen()
+    val bytes = rpc("ListGestures", EMPTY)
+    val gestures = try { GestureListParser.parse(bytes) } catch (_: Exception) { throw Failure("invalid_response") }
+    return mapOf("gestures" to gestures)
+  }
+
+  fun playGesture(name: String, epoch: Long = captureEpoch()): Map<String, Any> =
+    action("play-gesture", name, epoch)
+
+  fun setZero(epoch: Long = captureEpoch()): Map<String, Any> =
+    action("set-zero", null, epoch)
+
+  fun clearMotorFault(jointIds: List<Int>? = null, epoch: Long = captureEpoch()): Map<String, Any> {
+    if (jointIds != null) {
+      try { ControlWire.clearFaultRequest(jointIds.toIntArray()) }
+      catch (_: IllegalArgumentException) { throw Failure("config") }
+    }
+    val arg = jointIds?.takeIf { it.isNotEmpty() }?.joinToString(",")
+    return action("clear-motor-fault", arg, epoch)
+  }
+
+  fun getSpeedMode(): Map<String, Any> {
+    checkOpen()
+    val bytes = rpc("GetSpeedMode", EMPTY)
+    val mode = try { ControlWire.parseSpeedMode(bytes) } catch (_: Exception) { throw Failure("invalid_response") }
+    return mapOf("speedMode" to mode)
+  }
+
+  fun setSpeedMode(mode: String, epoch: Long = captureEpoch()): Map<String, Any> {
+    checkOpen()
+    requireEpoch(epoch)
+    if (stopping.get()) throw Failure("busy")
+    val normalized = mode.trim().lowercase()
+    val payload = try { ControlWire.speedModeRequest(normalized) } catch (_: IllegalArgumentException) { throw Failure("config") }
+    interrupt()
+    val before = ControlStatusParser.parse(rpc("GetControlStatus", EMPTY, epoch = epoch))
+    if (before["owner"] == "yunzhuo" || before.boolean("criticalMotorFault")
+        || before["fsmKind"] == "transitioning") throw Failure("precondition")
+    rpc("SetSpeedMode", payload, epoch = epoch)
+    principalVerified = !lanDev
+    return status() + mapOf("speedMode" to normalized)
+  }
+
   fun recovery(action: String): Map<String, Any> {
     val name = when (action) {
       "status" -> "GetStatus"
@@ -467,7 +541,7 @@ internal class ControlSession(
       if (result.code == Status.Code.DEADLINE_EXCEEDED) recordTimeout(name, startedAt, false, headersAt.get(), messageAt.get())
       if (!result.isOk) throw Failure(when (result.code) {
         Status.Code.UNAUTHENTICATED, Status.Code.PERMISSION_DENIED -> "unauthorized"
-        Status.Code.FAILED_PRECONDITION, Status.Code.ABORTED -> "precondition"
+        Status.Code.FAILED_PRECONDITION, Status.Code.ABORTED, Status.Code.NOT_FOUND, Status.Code.INVALID_ARGUMENT -> "precondition"
         Status.Code.DEADLINE_EXCEEDED -> "timeout"
         Status.Code.CANCELLED -> "cancelled"
         Status.Code.UNIMPLEMENTED -> "unimplemented"
@@ -509,7 +583,8 @@ internal class ControlSession(
         override fun parse(stream: InputStream): ByteArray = ImuParser.readBounded(stream)
       }).build()
     private val allowedMethods = setOf("GetControlStatus", "GetProfile", "AcquireControl", "RenewControlLease",
-      "ReleaseControl", "WalkChecked", "Enable", "Disable", "StandUp", "SitDown", "SwitchProfile")
+      "ReleaseControl", "WalkChecked", "Enable", "Disable", "StandUp", "SitDown", "SwitchProfile",
+      "SetZero", "ClearMotorFault", "PlayGesture", "ListGestures", "SetSpeedMode", "GetSpeedMode")
     private fun recoveryMethod(name: String): MethodDescriptor<ByteArray, ByteArray> {
       if (name !in setOf("GetStatus", "Enter", "Enable", "Heartbeat", "Start", "Cancel", "Exit")) throw Failure("config")
       return MethodDescriptor.newBuilder<ByteArray, ByteArray>()

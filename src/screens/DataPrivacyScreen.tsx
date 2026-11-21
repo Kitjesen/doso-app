@@ -13,24 +13,24 @@ type Props = {
 
 const SECTIONS = [
   {
-    icon: 'person-outline' as const,
-    title: '登录与个人资料',
-    body: '邮箱、用户名、昵称和头像用于登录账户与展示个人资料。主动选择图片时，App 会打开系统图片选择器；只有你确认保存后，所选头像才会上传。',
+    icon: 'wifi-outline' as const,
+    title: '机器狗连接与地址保存',
+    body: '局域网与证书连接直接在本机与你指定的机器狗地址之间通信。为方便下次打开重连，本机安全存储仅保存上次成功连接的目标地址、传输方式与配对证书标识；你可以随时在「设置 → 设备详情」中断开连接并清除该记录。',
   },
   {
-    icon: 'shield-checkmark-outline' as const,
-    title: '终端与账户安全',
-    body: '终端标识、系统类型、终端名称，以及最近活跃和撤销状态用于展示与管理账户安全。',
+    icon: 'videocam-outline' as const,
+    title: '实时画面与只读诊断',
+    body: '实时视频（WebRTC / WHEP）与导航网关只读诊断（含相机状态和深度彩色预览）仅在你打开控制页、连接页或视频诊断页时按需请求，不会在后台静默拉流；视频观看凭据（如有）仅保留在当次前台会话内存中。',
   },
   {
     icon: 'hardware-chip-outline' as const,
-    title: '机器人与连接',
-    body: '设备绑定、序列号、固件、电量和连接状态按真实同步结果展示。BLE 扫描只在你主动操作时触发，只扫描附近设备广播；发现广播不代表已经完成安全配网或设备连接。Android 11 及以下系统的 BLE 扫描需要位置权限并开启定位服务；此扫描流程仅检查定位服务是否开启，不读取、保存或上传手机经纬度。',
+    title: '附近蓝牙设备与定位开关',
+    body: 'BLE 扫描只在你主动点击开始查找时触发，仅扫描附近设备广播；发现广播不代表已经完成安全配网或设备授权。Android 11 及以下系统的 BLE / Wi-Fi 发现需要位置权限并开启定位服务；此流程仅用于系统扫描所需检查，不读取、保存或上传手机经纬度。',
   },
   {
     icon: 'phone-portrait-outline' as const,
-    title: '本机保存',
-    body: '本机保存登录会话、安装标识和待核对的头像操作日志。退出登录不会清除全部本机记录：安装标识会保留，未完成核对或清理的头像操作日志也会保留。头像操作日志不包含密码或图片内容。',
+    title: '本机偏好保存',
+    body: '本机仅保存主题外观、虚拟摇杆布局与状态警报偏好等使用配置，不会采集、上传或同步个人账号信息。',
   },
 ];
 
@@ -74,7 +74,7 @@ export function DataPrivacyScreen({ onBack }: Props) {
         style={styles.scroll}
       >
         <View style={styles.contentColumn}>
-          <Text selectable style={[styles.intro, { color: colors.inkSoft }]}>以下说明对应当前 App 已实现的账户、设备与本机功能。</Text>
+          <Text selectable style={[styles.intro, { color: colors.inkSoft }]}>以下说明对应当前 DOSO App 已收敛的本机与机器狗连接功能。</Text>
 
           <View style={styles.sections}>
             {SECTIONS.map(section => (
@@ -92,7 +92,7 @@ export function DataPrivacyScreen({ onBack }: Props) {
 
           <View style={styles.notice}>
             <Ionicons color={colors.muted} name="information-circle-outline" size={21} />
-            <Text selectable style={[styles.noticeText, { color: colors.inkSoft }]}>本页说明当前功能的数据范围，不替代正式隐私政策。账户删除服务尚未接通，本页不会提交注销或解绑；退出登录不等于删除账户。</Text>
+            <Text selectable style={[styles.noticeText, { color: colors.inkSoft }]}>本页说明当前单机工作台功能的数据范围，不替代正式隐私政策。账号登录与云端同步功能已在本版本暂时下线，本应用不会写入或上传账户数据。</Text>
           </View>
         </View>
       </ScrollView>
@@ -143,4 +143,3 @@ const styles = StyleSheet.create({
   },
   noticeText: { flex: 1, fontSize: 13, lineHeight: 21 },
 });
-

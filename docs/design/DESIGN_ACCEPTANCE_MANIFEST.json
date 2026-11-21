@@ -1,0 +1,661 @@
+{
+  "schemaVersion": 1,
+  "pages": [
+    {
+      "id": "auth-login",
+      "status": "needs_revalidation",
+      "figma": {
+        "fileKey": "ZDueCh91PDy5oyLKicv0zR",
+        "nodes": {
+          "light": "139:5200",
+          "dark": "139:2728",
+          "landscape": "139:7722"
+        }
+      },
+      "sourceFiles": [
+        "App.tsx",
+        "index.ts",
+        "src/design-qa/DesignQaRoot.tsx",
+        "src/design-qa/request.ts",
+        "src/screens/LoginScreen.tsx",
+        "src/components/AuthEntry.tsx",
+        "src/screens/registrationLayout.ts",
+        "assets/brand/doso-auth-lockup.png",
+        "assets/figma/home-02.png",
+        "scripts/login-screen.test.mjs",
+        "scripts/helpers/auth-screen-harness.mjs",
+        "src/components/GradientButton.tsx",
+        "src/components/SocialLoginButtons.tsx",
+        "src/components/SocialLoginButtons.native.tsx",
+        "src/components/SocialLoginButtons.web.tsx",
+        "src/services/socialAuthService.ts",
+        "src/theme.ts",
+        "src/assets.ts",
+        "scripts/verify-auth-ui.mjs",
+        "scripts/verify-auth-layout.mjs",
+        "scripts/verify-social-auth.mjs",
+        "assets/figma/login-hero-light.png",
+        "assets/figma/login-hero-dark.png",
+        "assets/figma/login-hero-landscape.png",
+        "src/appearance.ts",
+        "assets/brand/doso-soft-air.png"
+      ],
+      "evidenceDirectory": "artifacts/design-acceptance/20260907-device-product-shared-refresh-v5/auth-login",
+      "reason": "2026-09-08 按用户选定白底电蓝注册参考统一登录/注册原生组件；删除社交入口下方不可用文案，保留真实能力门禁。新增登录行为回归与 Android 三态候选在 artifacts/release-readiness/20260908-auth-entry-v7；尚非 Figma 同步或最终像素通过。 2026-09-08 v8：用户新增 Overlay 参考，认证、首页及共享导航/Header 改为 Soft Air 蓝白材质；证据见 artifacts/design-acceptance/20260908-soft-air-v8。新外观尚未同步 Figma 或完成全量发布验收，不继承旧像素通过。"
+    },
+    {
+      "id": "auth-register",
+      "status": "in_progress",
+      "figma": {
+        "fileKey": "ZDueCh91PDy5oyLKicv0zR",
+        "nodes": {
+          "light": "139:5247",
+          "dark": "139:2773",
+          "landscape": "139:7784"
+        }
+      },
+      "sourceFiles": [
+        "App.tsx",
+        "index.ts",
+        "src/design-qa/DesignQaRoot.tsx",
+        "src/design-qa/request.ts",
+        "src/screens/RegisterScreen.tsx",
+        "src/components/AuthEntry.tsx",
+        "assets/brand/doso-auth-lockup.png",
+        "scripts/helpers/auth-screen-harness.mjs",
+        "src/services/authService.ts",
+        "src/services/socialAuthService.ts",
+        "src/theme.ts",
+        "src/assets.ts",
+        "scripts/verify-auth-ui.mjs",
+        "scripts/verify-social-auth.mjs",
+        "src/screens/registrationLayout.ts",
+        "scripts/verify-register-ui.mjs",
+        "scripts/register-screen.test.mjs",
+        "scripts/registration-layout.test.mjs",
+        "scripts/verify-register-browser.mjs",
+        "src/services/socialAuthService.native.ts",
+        "assets/figma/home-02.png",
+        "src/appearance.ts",
+        "assets/brand/doso-soft-air.png"
+      ],
+      "evidenceDirectory": "artifacts/design-acceptance/20260908-register-soft-blue-v6/auth-register",
+      "reason": "2026-09-08 最新选定大图/原生表单参考已替换旧 v6 版式；删除下一步邮箱验证和社交入口不可用文案，保留用户名规则、真实注册/授权与同步请求锁。候选与发布包证据在 artifacts/release-readiness/20260908-auth-entry-v7。Figma 同步、最终像素验收及真实认证 E2E 仍未完成。 2026-09-08 v8：用户新增 Overlay 参考，认证、首页及共享导航/Header 改为 Soft Air 蓝白材质；证据见 artifacts/design-acceptance/20260908-soft-air-v8。新外观尚未同步 Figma 或完成全量发布验收，不继承旧像素通过。"
+    },
+    {
+      "id": "auth-email-otp",
+      "status": "in_progress",
+      "figma": {
+        "fileKey": "ZDueCh91PDy5oyLKicv0zR",
+        "nodes": {
+          "light": "3444:2752",
+          "dark": "3444:2774",
+          "landscape": "3444:2796"
+        }
+      },
+      "sourceFiles": [
+        "src/screens/EmailOtpScreen.tsx",
+        "src/theme.ts",
+        "App.tsx",
+        "scripts/email-otp-screen.test.mjs",
+        "scripts/verify-email-otp-ui.mjs"
+      ],
+      "evidenceDirectory": "artifacts/design-acceptance/20260907-auth-email-otp-current-v2/auth-email-otp",
+      "reason": "2026-09-08 修复从邮箱返回后的倒计时滞后、重复验证/重发及同帧返回竞态；11 项真实处理函数行为测试通过。旧截图仅作历史，真实邮箱端到端、Figma 比对和最终验收仍未完成。"
+    },
+    {
+      "id": "auth-forgot-password",
+      "status": "in_progress",
+      "figma": {
+        "fileKey": "ZDueCh91PDy5oyLKicv0zR",
+        "nodes": {
+          "light": "3444:2818",
+          "dark": "3444:2836",
+          "landscape": "3444:2854"
+        }
+      },
+      "sourceFiles": [
+        "src/screens/ForgotPasswordScreen.tsx",
+        "src/theme.ts"
+      ],
+      "evidenceDirectory": "artifacts/design-acceptance/20260904-pending-android-current-v1/auth-forgot-password",
+      "reason": "The local Figma generator now uses the real validation-first recovery form, account-enumeration-safe copy, and a 54px Compact landscape email field with non-overlapping helper and CTA geometry. The cloud 3444 frames are not yet patched or exported; current comparisons, isolated-account delivery/failure evidence and final QA remain incomplete."
+    },
+    {
+      "id": "auth-reset-password",
+      "status": "in_progress",
+      "figma": {
+        "fileKey": "ZDueCh91PDy5oyLKicv0zR",
+        "nodes": {
+          "light": "3444:2872",
+          "dark": "3444:2894",
+          "landscape": "3444:2916"
+        }
+      },
+      "sourceFiles": [
+        "src/screens/ResetPasswordScreen.tsx",
+        "src/theme.ts"
+      ],
+      "evidenceDirectory": "artifacts/design-acceptance/20260904-pending-android-current-v1/auth-reset-password",
+      "reason": "The local Figma generator now uses two true Compact landscape password fields, preserving the recovery-session and nonce-required variants without the prior 4px field overlap. The cloud 3444 frames, current comparisons and real nonce expiry/success evidence are still missing."
+    },
+    {
+      "id": "auth-username",
+      "status": "in_progress",
+      "figma": {
+        "fileKey": "ZDueCh91PDy5oyLKicv0zR",
+        "nodes": {
+          "light": "3444:2938",
+          "dark": "3444:2956",
+          "landscape": "3444:2974"
+        }
+      },
+      "sourceFiles": [
+        "src/screens/UsernameOnboardingScreen.tsx",
+        "src/theme.ts"
+      ],
+      "evidenceDirectory": "artifacts/design-acceptance/20260904-pending-android-current-v1/auth-username",
+      "reason": "The local Figma generator now uses a true Compact landscape username field so it no longer overlaps the primary action, while retaining validation-first claim and guarded logout states. The cloud 3444 frames, current comparisons and real RPC conflict/error/success evidence are still missing."
+    },
+    {
+      "id": "auth-display-name",
+      "status": "in_progress",
+      "figma": {
+        "fileKey": "ZDueCh91PDy5oyLKicv0zR",
+        "nodes": {
+          "light": "3444:2992",
+          "dark": "3444:3012",
+          "landscape": "3444:3032"
+        }
+      },
+      "sourceFiles": [
+        "src/screens/DisplayNameConfirmationScreen.tsx",
+        "src/theme.ts"
+      ],
+      "evidenceDirectory": "artifacts/design-acceptance/20260904-shared-qa-root-recapture-v1/auth-display-name",
+      "reason": "Figma generator 2026-09-04.20 and the shared DesignQaRoot now remove the invented DOSO design-QA display name, use the App's empty-field guidance, and retain validation-first save/skip plus the current-Apple-session data contract. Android light, dark and landscape were re-captured through the recovered ADB 5038 path, and all seven shared passed-page evidence sets were refreshed and release-audited. Current cloud 3444 exports, same-size comparisons and real Apple first-login recovery evidence are still missing."
+    },
+    {
+      "id": "auth-mfa",
+      "status": "in_progress",
+      "figma": {
+        "fileKey": "ZDueCh91PDy5oyLKicv0zR",
+        "nodes": {
+          "light": "3444:3052",
+          "dark": "3444:3068",
+          "landscape": "3444:3084"
+        }
+      },
+      "sourceFiles": [
+        "src/screens/MfaSetupScreen.tsx",
+        "src/theme.ts"
+      ],
+      "evidenceDirectory": "artifacts/design-acceptance/20260904-pending-android-current-v1/auth-mfa",
+      "reason": "The Figma baseline remains a safe loading state with no QR, secret, factor result or executable verification before service reads succeed. The App's real enrollment/step-up code field now uses an unambiguous six-dot empty state instead of fake 000000 and keeps verification disabled until six digits exist. Current cloud 3444 exports, comparisons and isolated-account AAL2 evidence are still missing."
+    },
+    {
+      "id": "model-select",
+      "status": "needs_revalidation",
+      "figma": {
+        "fileKey": "ZDueCh91PDy5oyLKicv0zR",
+        "nodes": {
+          "light": "139:5298",
+          "dark": "139:2821",
+          "landscape": "139:7848"
+        }
+      },
+      "sourceFiles": [
+        "App.tsx",
+        "index.ts",
+        "src/design-qa/DesignQaRoot.tsx",
+        "src/design-qa/request.ts",
+        "src/screens/ModelSelectScreen.tsx",
+        "src/screens/modelSelectLayout.ts",
+        "src/models.ts",
+        "src/assets.ts",
+        "src/theme.ts",
+        "src/types.ts",
+        "scripts/verify-model-select-ui.mjs",
+        "scripts/verify-model-select-layout.mjs",
+        "assets/figma/models-04.png",
+        "assets/figma/models-08.png",
+        "assets/figma/models-07.png",
+        "assets/figma/models-05.png",
+        "assets/figma/model-grid-light.png",
+        "assets/figma/model-grid-dark.png",
+        "assets/figma/model-grid-landscape.png",
+        "assets/figma/model-controls-light.png",
+        "assets/figma/model-controls-dark.png",
+        "assets/figma/model-controls-landscape.png"
+      ],
+      "evidenceDirectory": "artifacts/design-acceptance/20260907-device-product-shared-refresh-v5/model-select",
+      "reason": "2026-09-08 目视复核发现横屏“跳过”和 CTA 边缘重复，旧合成素材与真实控件可能叠加；撤回通过，等待去重和重新验收。"
+    },
+    {
+      "id": "main-home",
+      "status": "stale",
+      "figma": {
+        "fileKey": "ZDueCh91PDy5oyLKicv0zR",
+        "nodes": {
+          "light": "139:6636",
+          "dark": "139:4126",
+          "landscape": "139:10575"
+        }
+      },
+      "sourceFiles": [
+        "App.tsx",
+        "index.ts",
+        "src/design-qa/DesignQaRoot.tsx",
+        "src/design-qa/request.ts",
+        "src/screens/HomeScreen.tsx",
+        "src/components/AppHeader.tsx",
+        "src/components/BottomNav.tsx",
+        "src/theme.ts",
+        "src/assets.ts",
+        "src/models.ts",
+        "src/features/robot-lifecycle/robotCapabilityReadiness.ts",
+        "src/features/robot-lifecycle/robotCommandExecutor.ts",
+        "scripts/verify-home-ui.mjs",
+        "scripts/verify-trusted-device-data-ui.mjs",
+        "scripts/verify-robot-capability-readiness.mjs",
+        "scripts/verify-robot-command-executor.mts",
+        "scripts/verify-theme-orientation-ui.mjs",
+        "assets/figma/home-01.png",
+        "assets/figma/home-02.png",
+        "assets/figma/home-03.png",
+        "assets/figma/nav-home.png",
+        "assets/figma/nav-map.png",
+        "assets/figma/nav-tasks.png",
+        "assets/figma/nav-analysis.png",
+        "assets/figma/nav-profile.png",
+        "assets/figma/home-quick-arrow.png",
+        "assets/figma/home-metric-sensors.png",
+        "assets/figma/home-metric-temperature.png",
+        "assets/figma/home-metric-motor.png",
+        "assets/figma/home-battery.png",
+        "assets/figma/home-recall.png",
+        "assets/figma/home-quick-patrol.png",
+        "assets/figma/home-quick-task.png",
+        "assets/figma/home-quick-safety.png",
+        "assets/figma/home-quick-card-1-light.png",
+        "assets/figma/home-quick-card-1-dark.png",
+        "assets/figma/home-quick-card-2-light.png",
+        "assets/figma/home-quick-card-2-dark.png",
+        "assets/figma/home-quick-card-3-light.png",
+        "assets/figma/home-quick-card-3-dark.png",
+        "assets/figma/home-nav-dark.png",
+        "assets/figma/home-metrics-dark.png",
+        "assets/figma/home-battery-dark.png",
+        "src/appearance.ts",
+        "assets/brand/doso-soft-air.png",
+        "scripts/home-appearance.test.mjs",
+        "scripts/helpers/auth-screen-harness.mjs"
+      ],
+      "evidenceDirectory": "artifacts/design-acceptance/20260907-device-product-shared-refresh-v5/main-home",
+      "reason": "2026-10-10 已完成当前源码 Android 浅/深/横三态重拍，诊断目录 artifacts/design-acceptance/20261010-android-revalidation-a01/main-home。相对历史 Figma 原生导出 SSIM 为 0.5843/0.3606/0.5591，三态均 FAIL，不能只刷新 SHA 恢复通过。当前连接需要重新认证；用户选定蓝白标准尚未云端同步，Header/导航/卡片、关键区域/间距/字号/触控及交互仍须收敛。旧 evidenceDirectory 仅保留历史，正式通过未登记。"
+    },
+    {
+      "id": "main-routes",
+      "status": "stale",
+      "figma": {
+        "fileKey": "ZDueCh91PDy5oyLKicv0zR",
+        "nodes": {
+          "light": "139:7397",
+          "dark": "139:4784",
+          "landscape": "139:10680"
+        }
+      },
+      "sourceFiles": [
+        "App.tsx",
+        "index.ts",
+        "src/design-qa/DesignQaRoot.tsx",
+        "src/design-qa/request.ts",
+        "src/screens/MapScreen.tsx",
+        "src/components/AppHeader.tsx",
+        "src/components/BottomNav.tsx",
+        "src/theme.ts",
+        "src/assets.ts",
+        "src/features/routes/routeStartPolicy.ts",
+        "src/features/robot-lifecycle/robotCapabilityReadiness.ts",
+        "src/features/robot-lifecycle/robotCommandExecutor.ts",
+        "scripts/verify-routes-ui.mjs",
+        "scripts/verify-route-start-policy.mts",
+        "scripts/verify-robot-capability-readiness.mjs",
+        "scripts/verify-robot-command-executor.mts",
+        "assets/figma/routes-map-compact.png",
+        "assets/figma/routes-map-large.png",
+        "assets/figma/nav-home.png",
+        "assets/figma/nav-map.png",
+        "assets/figma/nav-tasks.png",
+        "assets/figma/nav-analysis.png",
+        "assets/figma/nav-profile.png",
+        "src/appearance.ts",
+        "assets/brand/doso-soft-air.png"
+      ],
+      "evidenceDirectory": "artifacts/design-acceptance/20260907-device-product-shared-refresh-v5/main-routes",
+      "reason": "2026-10-10 已完成当前源码 Android 浅/深/横三态重拍，诊断目录 artifacts/design-acceptance/20261010-android-revalidation-a01/main-routes。相对历史 Figma 原生导出 SSIM 为 0.6488/0.7213/0.7825，三态均 FAIL，不能只刷新 SHA 恢复通过。需重连并同步用户选定蓝白标准，修正共享 Header/导航、筛选配色与地图裁切，补齐关键区域/布局/触控和交互证据。旧 evidenceDirectory 仅保留历史，正式通过未登记。"
+    },
+    {
+      "id": "main-tasks",
+      "status": "in_progress",
+      "figma": {
+        "fileKey": "ZDueCh91PDy5oyLKicv0zR",
+        "nodes": {
+          "light": "139:6722",
+          "dark": "139:4209",
+          "landscape": "139:11041"
+        }
+      },
+      "sourceFiles": [
+        "App.tsx",
+        "index.ts",
+        "src/design-qa/DesignQaRoot.tsx",
+        "src/design-qa/request.ts",
+        "src/screens/TasksScreen.tsx",
+        "src/components/AppHeader.tsx",
+        "src/components/BottomNav.tsx",
+        "src/theme.ts",
+        "src/assets.ts",
+        "src/features/tasks/taskStartPolicy.ts",
+        "scripts/verify-tasks-ui.mjs",
+        "scripts/verify-task-start-policy.mts",
+        "scripts/task-screen-interaction.test.mjs",
+        "scripts/verify-trusted-device-data-ui.mjs",
+        "assets/figma/tasks-05.png",
+        "assets/figma/tasks-07.png",
+        "assets/figma/tasks-11.png",
+        "assets/figma/nav-home.png",
+        "assets/figma/nav-map.png",
+        "assets/figma/nav-tasks.png",
+        "assets/figma/nav-analysis.png",
+        "assets/figma/nav-profile.png",
+        "assets/figma/tasks-summary-light.png",
+        "assets/figma/tasks-summary-dark.png",
+        "assets/figma/tasks-summary-landscape.png",
+        "assets/figma/tasks-date-dark.png",
+        "assets/figma/tasks-heading-dark.png",
+        "assets/figma/tasks-cards-light.png",
+        "assets/figma/tasks-cards-dark.png",
+        "assets/figma/tasks-cards-landscape.png",
+        "assets/figma/tasks-nav-light.png",
+        "assets/figma/tasks-nav-dark.png",
+        "assets/figma/tasks-nav-landscape.png",
+        "src/appearance.ts",
+        "assets/brand/doso-soft-air.png"
+      ],
+      "evidenceDirectory": "artifacts/design-acceptance/20261010-android-tasks-native-ui-r4/main-tasks",
+      "reason": "2026-10-10 按用户截图重做原生任务页：停用整片任务/摘要/日期/标题位图与透明热区，三模板统一真实组件、机器人仅在选中详情出现一次，蓝白/石墨主题一致；支持唯一选中、只读步骤展开/切换收起、日期真实说明、正常流反馈与大字纵排。任务策略7项、页面交互9项、typecheck、Android export及design-audit通过；当前源码 Android 浅/深/横三态重拍和6项实际浅色竖屏点击通过，35个源码/资源SHA已绑定verification.json。该目录仅为修复候选，不是正式Figma PASS。Figma插件仍需重新认证，最新蓝白三节点未同步/导出，关键区域与全帧正式对比待完成；跨午夜日期刷新、原生大字/深色横屏交互矩阵亦未完成。旧绿色证据仅保留历史，不复制旧PASS或刷新SHA冒充通过。"
+    },
+    {
+      "id": "main-analysis",
+      "status": "needs_revalidation",
+      "figma": {
+        "fileKey": "ZDueCh91PDy5oyLKicv0zR",
+        "nodes": {
+          "light": "139:6953",
+          "dark": "139:4440",
+          "landscape": "139:10757"
+        }
+      },
+      "sourceFiles": [
+        "App.tsx",
+        "index.ts",
+        "src/design-qa/DesignQaRoot.tsx",
+        "src/design-qa/request.ts",
+        "src/screens/AnalysisScreen.tsx",
+        "src/components/AppHeader.tsx",
+        "src/components/BottomNav.tsx",
+        "src/theme.ts",
+        "src/assets.ts",
+        "src/features/analysis/analysisPreview.ts",
+        "scripts/verify-trusted-device-data-ui.mjs",
+        "scripts/verify-theme-orientation-ui.mjs",
+        "assets/figma/home-01.png",
+        "assets/figma/analysis-chart-light.png",
+        "assets/figma/analysis-chart-dark.png",
+        "assets/figma/nav-home.png",
+        "assets/figma/nav-map.png",
+        "assets/figma/nav-tasks.png",
+        "assets/figma/nav-analysis.png",
+        "assets/figma/nav-profile.png",
+        "assets/figma/analysis-performance-light.png",
+        "assets/figma/analysis-performance-dark.png",
+        "assets/figma/analysis-performance-landscape.png",
+        "assets/figma/analysis-monthly-light.png",
+        "assets/figma/analysis-monthly-dark.png",
+        "assets/figma/analysis-monthly-landscape.png",
+        "assets/figma/analysis-nav-light.png",
+        "assets/figma/analysis-nav-dark.png",
+        "assets/figma/analysis-nav-landscape.png",
+        "src/appearance.ts",
+        "assets/brand/doso-soft-air.png"
+      ],
+      "evidenceDirectory": "artifacts/design-acceptance/20260907-device-product-shared-refresh-v5/main-analysis",
+      "reason": "2026-09-08 目视复核发现深色/横屏月份与性能文字重叠，并需核对导航边界；旧机器像素通过未覆盖这些问题，撤回通过并重新验收。 2026-09-08 v8：用户新增 Overlay 参考，认证、首页及共享导航/Header 改为 Soft Air 蓝白材质；证据见 artifacts/design-acceptance/20260908-soft-air-v8。新外观尚未同步 Figma 或完成全量发布验收，不继承旧像素通过。"
+    },
+    {
+      "id": "main-profile",
+      "status": "needs_revalidation",
+      "figma": {
+        "fileKey": "ZDueCh91PDy5oyLKicv0zR",
+        "nodes": {
+          "light": "139:7104",
+          "dark": "139:4589",
+          "landscape": "139:10918"
+        }
+      },
+      "sourceFiles": [
+        "App.tsx",
+        "index.ts",
+        "src/design-qa/DesignQaRoot.tsx",
+        "src/design-qa/request.ts",
+        "src/screens/ProfileScreen.tsx",
+        "src/screens/profileLayout.ts",
+        "src/components/AppHeader.tsx",
+        "src/components/BottomNav.tsx",
+        "src/theme.ts",
+        "src/assets.ts",
+        "src/features/robot-lifecycle/robotCapabilityReadiness.ts",
+        "src/features/robot-lifecycle/robotCommandExecutor.ts",
+        "scripts/verify-profile-ui.mjs",
+        "scripts/verify-profile-layout.mts",
+        "scripts/verify-trusted-device-data-ui.mjs",
+        "scripts/verify-robot-capability-readiness.mjs",
+        "scripts/verify-robot-command-executor.mts",
+        "scripts/verify-theme-orientation-ui.mjs",
+        "assets/figma/home-01.png",
+        "assets/figma/nav-home.png",
+        "assets/figma/nav-map.png",
+        "assets/figma/nav-tasks.png",
+        "assets/figma/nav-analysis.png",
+        "assets/figma/nav-profile.png",
+        "src/appearance.ts",
+        "assets/brand/doso-soft-air.png"
+      ],
+      "evidenceDirectory": "artifacts/design-acceptance/20260904-pending-android-current-v1/main-profile",
+      "reason": "The currently bound Figma nodes still show fake online, 50% battery, v2.4.1 firmware, 6.4 h runtime and a 2-minute sync. A targeted truthful-state patch exists locally but has not been applied to the cloud file. The latest comparison records Light SSIM 0.7717, Dark 0.3455 and Landscape 0.7717, so all three states remain below the full-frame gate; reverse-landscape device coverage also remains. 2026-09-08 v8：用户新增 Overlay 参考，认证、首页及共享导航/Header 改为 Soft Air 蓝白材质；证据见 artifacts/design-acceptance/20260908-soft-air-v8。新外观尚未同步 Figma 或完成全量发布验收，不继承旧像素通过。"
+    },
+    {
+      "id": "robot-control",
+      "status": "needs_revalidation",
+      "figma": {
+        "fileKey": "ZDueCh91PDy5oyLKicv0zR",
+        "nodes": {
+          "light": "139:6520",
+          "dark": "139:4019",
+          "landscape": "139:8596"
+        }
+      },
+      "sourceFiles": [
+        "App.tsx",
+        "index.ts",
+        "src/design-qa/DesignQaRoot.tsx",
+        "src/design-qa/request.ts",
+        "src/screens/ControlScreen.tsx",
+        "src/screens/controlLayout.ts",
+        "src/components/ControlJoystick.tsx",
+        "src/features/robot-lifecycle/joystickInput.ts",
+        "scripts/joystick-input.test.mjs",
+        "scripts/control-joystick.test.mjs",
+        "scripts/control-screen-interaction.test.mjs",
+        "src/features/robot-lifecycle/robotDiagnosticsPanel.tsx",
+        "src/features/robot-lifecycle/robotDiagnosticsGateway.ts",
+        "src/features/robot-lifecycle/robotCapabilityReadiness.ts",
+        "src/features/robot-lifecycle/robotCommandExecutor.ts",
+        "src/theme.ts",
+        "src/assets.ts",
+        "scripts/verify-control-ui.mjs",
+        "scripts/verify-control-layout.mts",
+        "scripts/verify-g008-diagnostic-ui.mts",
+        "scripts/verify-trusted-device-data-ui.mjs",
+        "scripts/verify-robot-capability-readiness.mjs",
+        "scripts/verify-robot-command-executor.mts",
+        "scripts/verify-theme-orientation-ui.mjs",
+        "assets/figma/home-02.png"
+      ],
+      "evidenceDirectory": "artifacts/design-acceptance/20260904-pending-android-current-v1/robot-control",
+      "reason": "2026-10-12 latest revision keeps two sticks and return, adding precise ticks, center rings and L/R marks. Android API 35 native multi-touch, independent release, held input, cancel, clamp, background, rotation and dark switch pass in 10 scenarios using the existing versionCode 6 development package and final source over Metro. Native first-pointer responder-release bug is fixed; Android-only touch fallback avoids Web TouchList errors. Control tests (30), typecheck, command-executor tests (30) and Web regressions pass. Eight key source hashes are bound in the native receipt. Bound Figma nodes and evidenceDirectory remain historical; requires Figma sync and formal three-state/region comparisons plus release-package and hardware acceptance. Physical motion executor remains null. See artifacts/release-readiness/20261012-joystick-native/README.md."
+    },
+    {
+      "id": "device-bind",
+      "status": "in_progress",
+      "figma": {
+        "fileKey": "ZDueCh91PDy5oyLKicv0zR",
+        "nodes": {
+          "light": "3444:3100",
+          "dark": "3444:3122",
+          "landscape": "3444:3144"
+        }
+      },
+      "sourceFiles": [
+        "App.tsx",
+        "index.ts",
+        "src/design-qa/DesignQaRoot.tsx",
+        "src/design-qa/request.ts",
+        "src/screens/BindDeviceScreen.tsx",
+        "src/screens/devicePageLayout.ts",
+        "scripts/device-page-layout.test.mjs",
+        "src/components/GradientButton.tsx",
+        "src/services/deviceRepository.ts",
+        "src/theme.ts",
+        "scripts/verify-device-flow-layout.mjs"
+      ],
+      "evidenceDirectory": "artifacts/design-acceptance/20260907-device-product-current-v6/device-bind",
+      "reason": "2026-09-07 已更新真实产品文案、输入焦点、键盘下一项、绑定码占位字距和深色按钮对比度。当前 Android 三态候选位于 artifacts/design-acceptance/20260907-device-product-current-v6/device-bind/；默认空表单通过点击触发本地校验。Figma 绑定节点仍为旧通用结构，云端写入受 Starter 配额阻挡；当前 Figma 三态/拼图及真实仓库绑定交互仍缺失。"
+    },
+    {
+      "id": "device-ble-discovery",
+      "status": "in_progress",
+      "figma": {
+        "fileKey": "ZDueCh91PDy5oyLKicv0zR",
+        "nodes": {
+          "light": "3444:3166",
+          "dark": "3444:3182",
+          "landscape": "3444:3198"
+        }
+      },
+      "sourceFiles": [
+        "App.tsx",
+        "index.ts",
+        "src/design-qa/DesignQaRoot.tsx",
+        "src/design-qa/request.ts",
+        "src/screens/BleDiscoveryScreen.tsx",
+        "src/features/robot-lifecycle/bleDiscoveryAdapter.ts",
+        "src/features/robot-lifecycle/bleDiscoveryAdapter.android.ts",
+        "src/features/robot-lifecycle/bleDiscoveryContract.ts",
+        "src/features/robot-lifecycle/bleDiscoveryModel.ts",
+        "src/features/robot-lifecycle/bleDiscoverySession.ts",
+        "src/theme.ts",
+        "scripts/verify-ble-discovery.mts",
+        "scripts/verify-ble-introspection.mjs"
+      ],
+      "evidenceDirectory": "artifacts/design-acceptance/20260904-pending-android-current-v1/device-ble-discovery",
+      "reason": "Figma generator 2026-09-04.20 aligns the portrait BLE page to the declared 24px/342px safe gutter, keeps the corrected 0.9:1.1 landscape grid inside 68..776, and applies the shared 33-frame safe-area gate before atomic replacement. The App uses the same portrait gutter; BLE behavior 12/12 and native permission introspection pass. Recorded Android evidence is now diagnostic only, so current cloud comparisons and physical permission/Bluetooth-state evidence remain missing."
+    },
+    {
+      "id": "device-provisioning",
+      "status": "in_progress",
+      "figma": {
+        "fileKey": "ZDueCh91PDy5oyLKicv0zR",
+        "nodes": {
+          "light": "3444:3214",
+          "dark": "3444:3230",
+          "landscape": "3444:3246"
+        }
+      },
+      "sourceFiles": [
+        "App.tsx",
+        "index.ts",
+        "src/design-qa/DesignQaRoot.tsx",
+        "src/design-qa/request.ts",
+        "src/screens/DeviceUnavailableScreen.tsx",
+        "src/screens/devicePageLayout.ts",
+        "scripts/device-page-layout.test.mjs",
+        "src/components/GradientButton.tsx",
+        "src/features/robot-lifecycle/robotCapabilityReadiness.ts",
+        "src/theme.ts",
+        "scripts/device-unavailable-screen.test.mjs",
+        "scripts/verify-robot-lifecycle-ui.mjs",
+        "scripts/verify-device-flow-layout.mjs"
+      ],
+      "evidenceDirectory": "artifacts/design-acceptance/20260907-device-product-current-v6/device-provisioning",
+      "reason": "2026-09-07 生产与 QA 共用 DeviceUnavailableScreen，只展示配网暂未开放及返回设备设置；无密码输入、网关或模拟成功。当前 Android 三态候选：artifacts/design-acceptance/20260907-device-product-current-v6/device-provisioning/。六态渲染语义与生产 wiring 检查通过；云端定点更新、原生 Figma 导出及拼图仍缺失，真实配网执行保持关闭。"
+    },
+    {
+      "id": "device-firmware",
+      "status": "in_progress",
+      "figma": {
+        "fileKey": "ZDueCh91PDy5oyLKicv0zR",
+        "nodes": {
+          "light": "3444:3262",
+          "dark": "3444:3278",
+          "landscape": "3444:3294"
+        }
+      },
+      "sourceFiles": [
+        "App.tsx",
+        "index.ts",
+        "src/design-qa/DesignQaRoot.tsx",
+        "src/design-qa/request.ts",
+        "src/screens/DeviceUnavailableScreen.tsx",
+        "src/screens/devicePageLayout.ts",
+        "scripts/device-page-layout.test.mjs",
+        "src/components/GradientButton.tsx",
+        "src/features/robot-lifecycle/robotCapabilityReadiness.ts",
+        "src/theme.ts",
+        "scripts/device-unavailable-screen.test.mjs",
+        "scripts/verify-robot-lifecycle-ui.mjs",
+        "scripts/verify-device-flow-layout.mjs"
+      ],
+      "evidenceDirectory": "artifacts/design-acceptance/20260907-device-product-current-v6/device-firmware",
+      "reason": "2026-09-07 生产与 QA 共用 DeviceUnavailableScreen，只展示固件更新暂未开放及返回设备设置；无虚构版本、升级/回滚或模拟网关。当前 Android 三态候选：artifacts/design-acceptance/20260907-device-product-current-v6/device-firmware/。六态渲染语义与生产 wiring 检查通过；当前 Figma 更新、原生导出及拼图仍缺失，真实 OTA/回滚保持关闭。"
+    },
+    {
+      "id": "account-security",
+      "status": "in_progress",
+      "figma": {
+        "fileKey": "ZDueCh91PDy5oyLKicv0zR",
+        "nodes": {
+          "light": "3444:3310",
+          "dark": "3444:3326",
+          "landscape": "3444:3342"
+        }
+      },
+      "sourceFiles": [
+        "App.tsx",
+        "index.ts",
+        "src/design-qa/DesignQaRoot.tsx",
+        "src/design-qa/request.ts",
+        "src/screens/AccountSecurityScreen.tsx",
+        "src/screens/securityPageLayout.ts",
+        "src/services/authService.ts",
+        "src/services/sessionService.ts",
+        "src/services/mfaService.ts",
+        "src/theme.ts",
+        "scripts/verify-security-responsive-ui.mts"
+      ],
+      "evidenceDirectory": "artifacts/design-acceptance/20260904-pending-android-current-v1/account-security",
+      "reason": "The shared account-security/MFA layout now matches the Figma 24px portrait gutter (342px content on a 390px frame) while preserving the 20px landscape two-column grid; 14 responsive/security checks and typecheck pass. The recorded three-state Android evidence is still only the old no-service safety shell, so current Figma comparisons, real dangerous-action results and assistive-focus evidence remain missing."
+    }
+  ]
+}

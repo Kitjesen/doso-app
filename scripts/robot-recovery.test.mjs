@@ -9,8 +9,10 @@ const profile = { current: 'flat', available: ['flat'], descriptions: [''], curr
 const standing = { posture: 'standing', motorState: 'enabled', speed: { linearMps: 0, lateralMps: 0, yawRps: 0, source: 'device' } };
 
 function status(patch) {
-  return { service: 'ready', phase: 'absent', sessionSelected: false, modelConfigured: true, enableSequenceVerified: true,
-    stableStand: false, locomotionAvailable: false, activeModeId: null, reason: 'none', detail: '', heartbeatFresh: null, heartbeatError: null, ...patch };
+  return {
+    service: 'ready', phase: 'absent', sessionSelected: false, modelConfigured: true, enableSequenceVerified: true,
+    stableStand: false, locomotionAvailable: false, activeModeId: null, reason: 'none', detail: '', heartbeatFresh: null, heartbeatError: null, ...patch
+  };
 }
 
 test('recovery status keeps only the fields the proto returned', () => {
@@ -122,13 +124,10 @@ test('one tap enters, enables only while the robot still requires it, then start
   assert.equal(held.enableSequenceVerified, false);
 });
 
-test('design-qa previews the one-tap control without opening a recovery channel', () => {
-  const preview = readFileSync(new URL('../src/design-qa/DesignQaRoot.tsx', import.meta.url), 'utf8');
+test('app control wires recovery safely and the panel preserves fixed terminology', () => {
   const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
   const panel = readFileSync(new URL('../src/components/RobotRecoveryControls.tsx', import.meta.url), 'utf8');
-  assert.match(preview, /设计验收不连接机器人，不会进入倒地恢复/);
-  assert.doesNotMatch(preview, /brainstemControl|setRecoveryHeartbeat|recoveryCommand/);
-  assert.match(app, /recovery=\{controlTarget === 'direct'/);
+  assert.match(app, /recovery=\{\{\s*status: brainstemControl\.recoveryStatus,\s*profile: brainstemControl\.state\.profile,\s*onCommand: brainstemControl\.recoveryCommand,\s*\}\}/);
   assert.doesNotMatch(panel, /进入恢复|使能恢复|摔倒起立|退出并回到运动|switchPolicy|SwitchProfile/);
   assert.equal([...panel].some(char => char.codePointAt(0) === 0x8DBA), false);
 });

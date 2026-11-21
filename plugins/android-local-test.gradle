@@ -21,3 +21,11 @@ afterEvaluate {
         bundleTask.entryFile.set(file('../../index.ts'))
     }
 }
+
+gradle.taskGraph.whenReady { graph ->
+    graph.allTasks.findAll { it.project == project && it.name.startsWith('createBundle') && it.name.endsWith('JsAndAssets') }.each { bundleTask ->
+        if (bundleTask.entryFile.get().asFile.name != 'index.ts') {
+            throw new GradleException("DOSO entry isolation failed for ${bundleTask.name}; expected index.ts.")
+        }
+    }
+}

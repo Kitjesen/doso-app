@@ -7,9 +7,11 @@ import ts from 'typescript';
 
 const require = createRequire(import.meta.url);
 const read = path => readFileSync(new URL('../' + path, import.meta.url), 'utf8');
-const compile = source => ts.transpileModule(source, { compilerOptions: {
-  module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
-} }).outputText;
+const compile = source => ts.transpileModule(source, {
+  compilerOptions: {
+    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX,
+  }
+}).outputText;
 const app = ts.createSourceFile('App.tsx', read('App.tsx'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 function nodes(predicate) {
   const found = []; const visit = node => { if (predicate(node)) found.push(node); ts.forEachChild(node, visit); };
@@ -20,26 +22,26 @@ const viewCallback = connection.attributes.properties.find(prop => prop.name?.ge
 const evaluate = (expression, context) => vm.runInNewContext(compile(`(${expression})`), context);
 
 test('formal App explicitly opens a foreign video source without changing a robot or navigation binding', () => {
-  const owner = {}, selected = [], selection = { current: { owner, viewReady: true } };
+  const selected = [], selection = { current: { ownerKey: 'local-workspace', viewReady: true } };
   const context = {
-    canViewReadOnlyVideo: true, navigationSelection: selection, deviceSettingsRenderContext: owner,
-    deviceSettingsContext: { current: owner }, AppState: { currentState: 'active' }, guestMode: true,
-    isBrainstemLanAvailable: () => true, validateLingtuOrigin: origin => new URL(origin).origin,
+    canViewReadOnlyVideo: true, navigationSelection: selection, WORKSPACE_OWNER_KEY: 'local-workspace',
+    AppState: { currentState: 'active' }, isBrainstemLanAvailable: () => true,
+    validateLingtuOrigin: origin => new URL(origin).origin,
     setVideoViewing: value => selected.push(value),
   };
   const open = evaluate(viewCallback, context);
   assert.equal(open('http://192.168.66.65:15051'), true);
   assert.equal(selected[0].origin, 'http://192.168.66.65:15051');
-  assert.equal(selected[0].owner, owner); assert.equal(selected[0].guest, true);
+  assert.equal(selected[0].ownerKey, 'local-workspace');
   assert.equal(selection.current.viewReady, false);
   assert.equal(open('http://192.168.66.66:15051'), false, 'a retired callback cannot replace the visible source');
   assert.equal(selected.length, 1);
 });
 
-test('video selection rejects stale owners, background callbacks, invalid origins and HTTP credentials', () => {
-  const owner = {}, selected = [], context = {
-    canViewReadOnlyVideo: true, navigationSelection: { current: { owner, viewReady: true } }, deviceSettingsRenderContext: owner,
-    deviceSettingsContext: { current: owner }, AppState: { currentState: 'active' }, guestMode: false,
+test('video selection rejects background callbacks, invalid origins and HTTP credentials', () => {
+  const selected = [], context = {
+    canViewReadOnlyVideo: true, navigationSelection: { current: { ownerKey: 'local-workspace', viewReady: true } },
+    WORKSPACE_OWNER_KEY: 'local-workspace', AppState: { currentState: 'active' },
     isBrainstemLanAvailable: () => true, validateLingtuOrigin: origin => { if (origin === 'bad') throw Error(); return new URL(origin).origin; },
     setVideoViewing: value => selected.push(value),
   };
@@ -47,37 +49,29 @@ test('video selection rejects stale owners, background callbacks, invalid origin
   assert.equal(open('bad'), false);
   assert.equal(open('http://192.168.66.65:15051', 'credential'), false);
   context.AppState.currentState = 'background'; assert.equal(open('https://camera.example'), false);
-  context.AppState.currentState = 'active'; context.deviceSettingsContext.current = {};
-  assert.equal(open('https://camera.example'), false); assert.equal(selected.length, 0);
+  assert.equal(selected.length, 0);
   assert.equal(evaluate(viewCallback, { canViewReadOnlyVideo: false }), undefined);
 });
 
-test('closing the connection route, changing owner or losing account preparation retires viewing credentials', () => {
+test('closing the connection route or mismatching workspace owner retires viewing credentials', () => {
   const effect = nodes(node => ts.isCallExpression(node) && node.expression.getText(app) === 'useEffect'
     && node.arguments[0]?.getText(app).includes('videoViewing &&'))[0];
   assert.ok(effect);
-  const owner = {};
-  for (const update of [{ videoRouteActive: false }, { deviceSettingsRenderContext: {} }, { guestMode: true }, { directConnectionReady: false }]) {
+  for (const update of [{ videoRouteActive: false }, { WORKSPACE_OWNER_KEY: 'other-owner' }]) {
     const discarded = [];
     evaluate(`(() => { ${effect.getText(app)} })()`, {
-      useEffect: run => run(), videoViewing: { owner, guest: false, origin: 'https://nx.example', viewerToken: 'memory-only' },
-      videoRouteActive: true, deviceSettingsRenderContext: owner, guestMode: false, directConnectionReady: true,
+      useEffect: run => run(), videoViewing: { ownerKey: 'local-workspace', origin: 'https://nx.example', viewerToken: 'memory-only' },
+      videoRouteActive: true, WORKSPACE_OWNER_KEY: 'local-workspace',
       setVideoViewing: value => discarded.push(value), ...update,
     });
     assert.equal(discarded.length, 1); assert.equal(discarded[0], null);
   }
 });
 
-test('a direct home viewer closes when its target or home route changes', () => {
+test('a read-only viewer belongs to the connection overlay', () => {
   const route = nodes(n => ts.isVariableDeclaration(n) && n.name.getText(app) === 'videoRouteActive')[0].initializer.getText(app);
-  const base = { videoViewing: { homeGeneration: 4 }, robotConnectionVisible: false, stage: 'main', activeTab: 'home',
-    currentVideoTarget: 'robot-A', videoTargetGeneration: { current: { generation: 4 } } };
-  assert.equal(evaluate(route, base), true);
-  for (const update of [{ currentVideoTarget: null }, { videoTargetGeneration: { current: { generation: 5 } } },
-    { stage: 'control' }, { activeTab: 'profile' }, { robotConnectionVisible: true }]) {
-    assert.equal(evaluate(route, { ...base, ...update }), false);
-  }
-  assert.equal(evaluate(route, { ...base, videoViewing: {}, robotConnectionVisible: true }), true);
+  assert.equal(evaluate(route, { robotConnectionVisible: true }), true);
+  assert.equal(evaluate(route, { robotConnectionVisible: false }), false);
 });
 
 function mountViewer(initial) {
@@ -104,13 +98,17 @@ function mountViewer(initial) {
     '../components/AppText': { Text: 'Text' }, '../components/ControlVideoSurface': { ControlVideoSurface: 'Video' },
     '../components/DepthSnapshotView': { DepthSnapshotView: 'Depth' },
     '../features/control/videoProbeUrl': probe.exports,
-    '../features/video/useControlVideoReceiver': { useControlVideoReceiver: (config, enabled) => {
-      options = config; active = enabled; return { presentation, surface, reconnect: () => retries++ };
-    } },
+    '../features/video/useControlVideoReceiver': {
+      useControlVideoReceiver: (config, enabled) => {
+        options = config; active = enabled; return { presentation, surface, reconnect: () => retries++ };
+      }
+    },
   };
   const module = { exports: {} };
-  vm.runInNewContext(compile(read('src/screens/VideoViewerScreen.tsx')), { module, exports: module.exports,
-    require: name => { assert.ok(name in imports, `viewing must not import control/auth: ${name}`); return imports[name]; } });
+  vm.runInNewContext(compile(read('src/screens/VideoViewerScreen.tsx')), {
+    module, exports: module.exports,
+    require: name => { assert.ok(name in imports, `viewing must not import control/auth: ${name}`); return imports[name]; }
+  });
   let props = { origin: 'https://nx.example', viewerToken: 'session-only', allowLocalHttp: false, onBack: () => returns++, ...initial };
   function render(changes) {
     props = { ...props, ...changes };

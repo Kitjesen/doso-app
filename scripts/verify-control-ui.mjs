@@ -41,9 +41,11 @@ assert.ok(referenceUi.includes("link('control-open-diagnostics', '电机诊断',
 assert.match(control, /onDiagnostics: onOpenJointStatus \|\| onOpenConnectionDiagnostics/);
 for (const text of ['平地模式', '楼梯模式', '高台模式']) assert.ok(controlOperations.includes(text), text);
 
-assert.ok(app.includes("allowInteractionPreview={controlTarget !== 'direct' && __DEV__}"));
-assert.match(app, /PRODUCTION_ROBOT_COMMAND_EXECUTOR[^=]*= null/);
-assert.match(control, /export function ControlScreen\(\{\s+allowInteractionPreview = false, developmentInput, productionInput, controlSession, onBack,/);
+assert.ok(app.includes('allowInteractionPreview={false}'));
+assert.ok(app.includes('canRecall={false}'));
+assert.ok(app.includes('diagnosticsDeviceClass="physical"'));
+assert.ok(app.includes('operationCallbacks={brainstemControl.operationCallbacks}'));
+assert.match(control, /export function ControlScreen\(\{\s+allowInteractionPreview = false, showPlanning = true, prepareWorkspaceLeaveRef, dismissWorkspaceOverlayRef,\s+developmentInput, productionInput, controlSession, onBack,/);
 assert.match(control, /if \(__DEV__ && developmentInput\?\.ready && appActive && !leaving\) developmentInput\.onDrive\(value\)/);
 assert.match(control, /if \(__DEV__ && developmentInput\?\.ready && appActive && !leaving\) developmentInput\.onTurn\(value\)/);
 assert.match(control, /const ignoreLocalInput = \(_value: JoystickVector\) => \{\};/);

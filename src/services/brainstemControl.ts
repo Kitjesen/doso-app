@@ -3,7 +3,8 @@ import { Platform } from 'react-native';
 import { validateBrainstemEndpoint, type BrainstemGrpcEndpoint, type BrainstemGrpcStatus, type BrainstemGrpcProfile } from './brainstemGrpc';
 import { projectRobotRecoveryStatus, type RobotRecoveryCommand, type RobotRecoveryStatus } from '../features/control/robotRecovery';
 
-export type BrainstemControlAction = 'enable' | 'disable' | 'stand-up' | 'sit-down' | 'switch-profile';
+export type BrainstemControlAction = 'enable' | 'disable' | 'stand-up' | 'sit-down' | 'switch-profile' | 'set-zero' | 'clear-motor-fault' | 'play-gesture';
+export type BrainstemGesture = Readonly<{ name: string; description: string; durationMs: number }>;
 export type BrainstemControlReply = Readonly<{
   transport?: 'grpc-mtls' | 'grpc-lan';
   status: BrainstemGrpcStatus;
@@ -28,6 +29,7 @@ export interface BrainstemControlTransport {
   readRecovery?(sessionId: string): Promise<RobotRecoveryStatus>;
   recoveryCommand?(sessionId: string, command: RobotRecoveryCommand): Promise<RobotRecoveryStatus>;
   setRecoveryHeartbeat?(sessionId: string, enabled: boolean): void;
+  listGestures?(sessionId: string): Promise<readonly BrainstemGesture[]>;
 }
 
 export class BrainstemControlError extends Error {
@@ -162,6 +164,7 @@ type NativeControl = {
   readRecoveryStatus?(sessionId: string): Promise<unknown>;
   recoveryCommand?(sessionId: string, command: string): Promise<unknown>;
   setRecoveryHeartbeat?(sessionId: string, enabled: boolean): Promise<void> | void;
+  listGestures?(sessionId: string): Promise<unknown>;
   addListener?(event: string, listener: (payload: unknown) => void): { remove: () => void };
   startListenImu?(sessionId: string): Promise<unknown>;
   stopListenImu?(sessionId: string): Promise<void>;
@@ -169,10 +172,30 @@ type NativeControl = {
 let native: NativeControl | null = null;
 try { if (Platform.OS === 'android') native = requireOptionalNativeModule<NativeControl>('DosoBrainstemGrpc'); } catch { /* Old APK. */ }
 const nativeMethods = ['openControl', 'readControlStatus', 'controlAction', 'acquireControl', 'sendControlInput', 'interruptControl', 'closeControl'] as const;
-export function isBrainstemControlAvailable() { return Platform.OS === 'android' && native !== null && nativeMethods.every(key => typeof native?.[key] === 'function'); }
+const webDevMethods = ['openLanControl', 'readControlStatus', 'controlAction', 'acquireControl', 'sendControlInput', 'interruptControl', 'closeControl'] as const;
+
+function webDevControl(): NativeControl | null {
+  if (typeof __DEV__ === 'undefined' || __DEV__ !== true || Platform.OS !== 'web') return null;
+  const candidate = (globalThis as { __dosoWebDevBrainstemBridge?: NativeControl | null }).__dosoWebDevBrainstemBridge;
+  return candidate && typeof candidate === 'object' ? candidate : null;
+}
+
+function activeControl(): NativeControl | null {
+  return Platform.OS === 'android' ? native : webDevControl();
+}
+
+export function isBrainstemControlAvailable() {
+  if (Platform.OS === 'android') {
+    return native !== null && nativeMethods.every(key => typeof native?.[key] === 'function');
+  }
+  const bridge = webDevControl();
+  return bridge !== null && webDevMethods.every(key => typeof bridge[key] === 'function');
+}
+
 function client(): NativeControl {
-  if (!isBrainstemControlAvailable()) throw new BrainstemControlError('native_unavailable', errorMessages.native_unavailable);
-  return native!;
+  const bridge = activeControl();
+  if (!isBrainstemControlAvailable() || !bridge) throw new BrainstemControlError('native_unavailable', errorMessages.native_unavailable);
+  return bridge;
 }
 async function reply(operation: () => Promise<unknown>) {
   try { return projectBrainstemControlReply(await operation()); } catch (error) { throw safeBrainstemControlError(error); }
@@ -241,12 +264,30 @@ export const brainstemControlTransport: BrainstemControlTransport = {
     } catch (error) { throw safeBrainstemControlError(error); }
   },
   setRecoveryHeartbeat(sessionId, enabled) {
-    const bridge = native;
+    const bridge = activeControl();
     if (!bridge || typeof bridge.setRecoveryHeartbeat !== 'function') return;
     void Promise.resolve(bridge.setRecoveryHeartbeat(sessionId, enabled)).catch(() => undefined);
   },
+  async listGestures(sessionId) {
+    try {
+      const bridge = client();
+      if (typeof bridge.listGestures !== 'function') throw new BrainstemControlError('unimplemented', errorMessages.unimplemented);
+      const raw = await bridge.listGestures(sessionId);
+      const list = raw && typeof raw === 'object' && Array.isArray((raw as { gestures?: unknown }).gestures) ? (raw as { gestures: unknown[] }).gestures : null;
+      if (!list || list.length > 64) invalid();
+      return list.map(item => {
+        const v = item as Record<string, unknown>;
+        if (!v || typeof v.name !== 'string' || !v.name || v.name.length > 64) invalid();
+        return Object.freeze({
+          name: v.name as string,
+          description: typeof v.description === 'string' ? v.description.slice(0, 128) : '',
+          durationMs: typeof v.durationMs === 'number' && Number.isFinite(v.durationMs) && v.durationMs >= 0 ? Math.round(v.durationMs) : 0,
+        });
+      });
+    } catch (error) { throw safeBrainstemControlError(error); }
+  },
   listenImu(sessionId, onSample) {
-    const bridge = native;
+    const bridge = activeControl();
     if (!bridge || typeof bridge.startListenImu !== 'function' || typeof bridge.stopListenImu !== 'function' || typeof bridge.addListener !== 'function') {
       return () => {};
     }

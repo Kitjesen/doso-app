@@ -1,0 +1,15 @@
+name: DOSO iOS native auth smoke
+on:
+  workflow_dispatch: {}
+jobs:
+  auth_smoke:
+    name: Launch and navigate auth screens without backend writes
+    type: maestro
+    environment: preview
+    params:
+      build_id: ca1d0d14-e5e6-48e9-8a39-fa26b6e71a61
+      flow_path: .maestro/ios-auth-smoke.yml
+      shards: 1
+      retries: 0
+      record_screen: true
+      skip_build_check: false

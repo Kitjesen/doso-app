@@ -1,4 +1,10 @@
-export type VideoConfiguration = Readonly<{ deviceId: string; gatewayUrl: string; allowLocalHttp?: boolean; viewerToken?: string }>;
+export type VideoConfiguration = Readonly<{
+  deviceId: string;
+  gatewayUrl: string;
+  allowLocalHttp?: boolean;
+  viewerToken?: string;
+  cameraId?: 'front' | 'rear' | 'follow';
+}>;
 export type VideoStream = { getTracks(): { stop(): void }[]; toURL?: () => string; release?: (releaseTracks?: boolean) => void };
 export type VideoSnapshot = Readonly<{
   id: string;

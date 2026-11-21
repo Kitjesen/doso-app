@@ -213,6 +213,28 @@ test('depth requests retry after failure and stop in the background or when coll
   assert.equal(view.pendingTimers, 0);
 });
 
-test('the landscape HUD passes touches through to the card', () => {
-  assert.match(read('src/components/controlLandscapeHud.tsx'), /pointerEvents="box-none" style=\{styles\.pointCloudSlot\}/);
+test('the landscape HUD mounts the depth card in a touch-through layer beside the sticks', () => {
+  const file = 'src/components/controlLandscapeHud.tsx';
+  const tree = ts.createSourceFile(file, read(file), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const views = new Map();
+  function attribute(node, name) {
+    const prop = node.openingElement.attributes.properties.find(item => ts.isJsxAttribute(item) && item.name.getText(tree) === name);
+    return prop?.initializer && ts.isStringLiteral(prop.initializer) ? prop.initializer.text : undefined;
+  }
+  function collect(node, parent) {
+    if (ts.isJsxElement(node)) {
+      const id = attribute(node, 'testID');
+      if (id) views.set(id, { node, parent });
+      parent = node;
+    }
+    ts.forEachChild(node, child => collect(child, parent));
+  }
+  collect(tree);
+  const layer = views.get('control-hud-center-stack');
+  const sticks = views.get('control-immersive-sticks');
+  assert.ok(layer && sticks);
+  assert.equal(layer.node.openingElement.tagName.getText(tree), 'View');
+  assert.equal(attribute(layer.node, 'pointerEvents'), 'box-none');
+  assert.equal(layer.parent, sticks.parent);
+  assert.ok(layer.node.children.some(child => ts.isJsxExpression(child) && child.expression?.getText(tree) === 'pointCloud'));
 });

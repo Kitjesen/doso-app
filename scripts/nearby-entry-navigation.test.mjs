@@ -14,17 +14,26 @@ const prop = (component, name) => nodes.find(node => ts.isJsxSelfClosingElement(
 const backEffect = nodes.find(node => ts.isCallExpression(node) && node.expression.getText(source) === 'useEffect'
   && node.arguments[0]?.getText(source).includes("BackHandler.addEventListener('hardwareBackPress'")).arguments[0].getText(source);
 
-function fixture() {
-  const state = { stage: 'main', tab: 'home', panelVisible: true };
+function fixture(stage = 'main', hasControlOverlay = false) {
+  const state = { stage, deviceOpen: false, panelVisible: true, controlOverlay: hasControlOverlay };
+  const destinations = [];
   let hardwareBack;
   const context = vm.createContext({
     useRef: value => ({ current: value }), useCallback: fn => fn,
     Platform: { OS: 'android' }, __DEV__: false,
-    deviceTestMode: false, robotConnectionVisible: false, guestMode: false,
+    deviceTestMode: false, localUseMode: false, connectionDiagnosticsOpen: false, robotConnectionVisible: false, guestMode: false,
+    videoViewing: null, cloudVideoViewing: null,
     canOpenRobotAccountActions: true,
+    stage,
+    openRobotPage: tab => { destinations.push(tab); },
+    dismissControlOverlay: { current: () => {
+      const wasOpen = state.controlOverlay;
+      state.controlOverlay = false;
+      return wasOpen;
+    } },
     deviceName: 'Known robot',
     setStage: stage => { state.stage = stage; context.stage = stage; },
-    setActiveTab: tab => { state.tab = tab; },
+    setProfileDeviceOpen: value => { state.deviceOpen = value; },
     setRobotConnectionVisible: value => { state.panelVisible = value; },
     BackHandler: { addEventListener(name, handler) { assert.equal(name, 'hardwareBackPress'); hardwareBack = handler; return { remove() {} }; } },
   });
@@ -37,6 +46,7 @@ function fixture() {
   evaluate(backEffect)();
   return {
     state,
+    destinations,
     fromBinding: () => evaluate(prop('BindDeviceScreen', 'onFindNearby'))(),
     fromSettings: () => evaluate(prop('ProfileScreen', 'onOpenBleDiscovery'))(),
     fromConnection: () => evaluate(prop('RobotConnectionScreen', 'onOpenBleDiscovery'))(),
@@ -66,7 +76,7 @@ test('nearby discovery returns to the adding page from its screen back action', 
   assert.equal(app.displayedTarget(), '机器人');
   app.backButton();
   assert.equal(app.state.stage, 'bind-device');
-  assert.equal(app.state.tab, 'home');
+  assert.equal(app.state.deviceOpen, false);
 });
 
 test('Android back returns to the adding page and settings entry resets that origin', () => {
@@ -79,7 +89,7 @@ test('Android back returns to the adding page and settings entry resets that ori
   assert.equal(app.displayedTarget(), 'Known robot');
   assert.equal(app.hardwareBack(), true);
   assert.equal(app.state.stage, 'main');
-  assert.equal(app.state.tab, 'profile');
+  assert.equal(app.state.deviceOpen, false);
 });
 
 test('connection-panel discovery closes its panel and returns to settings', () => {
@@ -90,5 +100,22 @@ test('connection-panel discovery closes its panel and returns to settings', () =
   assert.equal(app.state.stage, 'ble-discovery');
   app.backButton();
   assert.equal(app.state.stage, 'main');
-  assert.equal(app.state.tab, 'profile');
+  assert.equal(app.state.deviceOpen, false);
+});
+
+test('Android Back returns from status and settings to control', () => {
+  for (const stage of ['joint-status', 'main']) {
+    const app = fixture(stage);
+    assert.equal(app.hardwareBack(), true);
+    assert.deepEqual(app.destinations, ['control']);
+  }
+});
+
+test('Android Back closes the control overlay before requesting a safe app exit', () => {
+  const app = fixture('control', true);
+  assert.equal(app.hardwareBack(), true);
+  assert.equal(app.state.controlOverlay, false);
+  assert.deepEqual(app.destinations, []);
+  assert.equal(app.hardwareBack(), true);
+  assert.deepEqual(app.destinations, [null]);
 });

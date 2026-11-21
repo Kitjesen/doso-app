@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DOSO · 功能</title>
+    <style>
+      @font-face {
+        font-family: MiSans;
+        src: url(../../fonts/MiSans-Regular.otf) format("opentype");
+        font-weight: 400;
+        font-display: swap;
+      }
+
+      @font-face {
+        font-family: MiSans;
+        src: url(../../fonts/MiSans-Medium.otf) format("opentype");
+        font-weight: 500;
+        font-display: swap;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: #f1f3f1;
+        color: #242725;
+        font-family: MiSans, system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .sheet {
+        width: min(560px, calc(100% - 40px));
+        margin: 36px auto;
+        padding: 16px;
+        border-radius: 32px;
+        background: #fff;
+      }
+
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 18px 12px 30px;
+      }
+
+      .header h1 {
+        margin: 0;
+        font-size: 32px;
+        font-weight: 500;
+        line-height: 1.2;
+        letter-spacing: -1px;
+      }
+
+      .wordmark {
+        color: #b3b8b4;
+        font-size: 13px;
+        font-weight: 500;
+        letter-spacing: 3px;
+      }
+
+      .hero {
+        position: relative;
+        height: 264px;
+        overflow: hidden;
+        border-radius: 24px;
+        background:
+          radial-gradient(ellipse at 95% 0%, #e0e6ff 0, transparent 55%),
+          linear-gradient(135deg, #f6f7f5 30%, #eaf1f4);
+      }
+
+      .hero h2 {
+        position: relative;
+        z-index: 1;
+        margin: 0;
+        padding: 25px 24px;
+        font-size: 26px;
+        font-weight: 500;
+        line-height: 1.2;
+        letter-spacing: -0.8px;
+      }
+
+      .hero img {
+        position: absolute;
+        top: -4%;
+        right: 0;
+        height: 104%;
+        width: auto;
+        max-width: none;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 10px;
+      }
+
+      .card {
+        --surface: #f5f6f4;
+        position: relative;
+        height: 234px;
+        overflow: hidden;
+        border-radius: 23px;
+        isolation: isolate;
+        background: var(--surface);
+      }
+
+      .card img {
+        position: absolute;
+        max-width: none;
+        height: auto;
+      }
+
+      .card::after {
+        position: absolute;
+        z-index: 1;
+        inset: 40% 0 0;
+        background: linear-gradient(
+          to bottom,
+          transparent,
+          var(--surface) 78%,
+          var(--surface)
+        );
+        content: "";
+      }
+
+      .card h2 {
+        position: absolute;
+        z-index: 2;
+        right: 12px;
+        bottom: 22px;
+        left: 12px;
+        margin: 0;
+        color: #535c57;
+        font-size: 18px;
+        font-weight: 400;
+        line-height: 1.3;
+        text-align: center;
+      }
+
+      .remote {
+        background:
+          radial-gradient(ellipse at 70% 0%, #71b9fa, transparent 75%),
+          linear-gradient(160deg, #c9e8ff, var(--surface) 85%);
+      }
+
+      .remote img {
+        top: -24%;
+        left: -22%;
+        width: 145%;
+      }
+
+      .posture {
+        background:
+          radial-gradient(ellipse at 75% 0%, #f2a5bd, transparent 76%),
+          linear-gradient(145deg, #ffd6e0, var(--surface) 85%);
+      }
+
+      .posture img {
+        top: -7%;
+        left: -30%;
+        width: 166%;
+      }
+
+      .maps {
+        background:
+          radial-gradient(ellipse at 65% 0%, #c4e855, transparent 80%),
+          linear-gradient(145deg, #e9f7b7, var(--surface) 85%);
+      }
+
+      .maps img {
+        top: -1%;
+        left: -13%;
+        width: 125%;
+      }
+
+      .diagnostics {
+        background:
+          radial-gradient(ellipse at 20% 0%, #c9b6ef, transparent 80%),
+          linear-gradient(145deg, #e4d7fc, var(--surface) 85%);
+      }
+
+      .diagnostics img {
+        top: -20%;
+        left: -22%;
+        width: 145%;
+      }
+
+      @media (max-width: 480px) {
+        .sheet {
+          width: calc(100% - 24px);
+          margin: 12px auto;
+          padding: 12px;
+          border-radius: 27px;
+        }
+
+        .header {
+          padding: 14px 8px 24px;
+        }
+
+        .header h1 {
+          font-size: 29px;
+        }
+
+        .hero {
+          height: 208px;
+          border-radius: 21px;
+        }
+
+        .hero h2 {
+          padding: 20px;
+          font-size: 22px;
+        }
+
+        .hero img {
+          top: 0;
+          height: 100%;
+        }
+
+        .grid {
+          gap: 8px;
+          margin-top: 8px;
+        }
+
+        .card {
+          height: 178px;
+          border-radius: 20px;
+        }
+
+        .card h2 {
+          bottom: 19px;
+          font-size: 16px;
+        }
+
+        .remote img {
+          top: -16%;
+        }
+
+        .posture img {
+          top: -3%;
+        }
+
+        .diagnostics img {
+          top: -12%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="sheet">
+      <header class="header">
+        <h1>功能</h1>
+        <span class="wordmark">DOSO</span>
+      </header>
+
+      <section class="hero" aria-labelledby="device-name">
+        <h2 id="device-name">THUNDER-01</h2>
+        <img src="robot-hero.png" alt="DOSO 轮足机器狗">
+      </section>
+
+      <section class="grid" aria-label="功能卡片设计">
+        <article class="card remote" aria-labelledby="remote-title">
+          <img src="remote-control.png" alt="" aria-hidden="true">
+          <h2 id="remote-title">遥控</h2>
+        </article>
+        <article class="card posture" aria-labelledby="posture-title">
+          <img src="posture.png" alt="" aria-hidden="true">
+          <h2 id="posture-title">姿态</h2>
+        </article>
+        <article class="card maps" aria-labelledby="maps-title">
+          <img src="maps.png" alt="" aria-hidden="true">
+          <h2 id="maps-title">地图</h2>
+        </article>
+        <article class="card diagnostics" aria-labelledby="diagnostics-title">
+          <img src="diagnostics.png" alt="" aria-hidden="true">
+          <h2 id="diagnostics-title">诊断</h2>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

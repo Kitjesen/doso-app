@@ -42,6 +42,6 @@ test('the connection screen keeps manual entry, Bluetooth honesty, and releases 
   assert.match(screen, /身份验证和配网尚未接入/);
   assert.match(screen, /查找蓝牙设备/);
   assert.match(screen, /连接机器狗/);
-  assert.match(screen, /账号设备/);
-  assert.doesNotMatch(screen, /192\.168\.66\.64|5050|5052|云端状态已通/);
+  assert.match(screen, /视频与诊断/);
+  assert.doesNotMatch(screen, /192\.168\.66\.64|5050|5052|云端状态已通|账号设备/);
 });

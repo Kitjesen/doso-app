@@ -32,6 +32,40 @@ const g20Module = { exports: {} };
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/features/control/g20InputModel.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, { module: g20Module, exports: g20Module.exports });
+const controlHudModelModule = { exports: {} };
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/controlHudModel.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText, { module: controlHudModelModule, exports: controlHudModelModule.exports });
+const hudComponentDependencies = {
+  'react/jsx-runtime': require('react/jsx-runtime'),
+  'react-native': { Pressable: 'Pressable', ScrollView: 'ScrollView', StyleSheet: { create: value => value, absoluteFill: { position: 'absolute' } }, View: 'View' },
+  '@expo/vector-icons': { Ionicons: 'Ionicons' },
+  './AppText': { Text: 'Text' },
+  './controlHudModel': controlHudModelModule.exports,
+  '../officialPalette': { officialDark: { cta: '#F0F4FE', ctaInk: '#1C1C1B', ink: '#E8E8E6', muted: '#A0A09B' } },
+};
+const controlHudDashboardModule = { exports: {} };
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/ControlHudDashboard.tsx', import.meta.url), 'utf8'), {
+  compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText, {
+  module: controlHudDashboardModule,
+  exports: controlHudDashboardModule.exports,
+  require: name => {
+    if (name in hudComponentDependencies) return hudComponentDependencies[name];
+    throw new Error(`Unexpected ControlHudDashboard dependency: ${name}`);
+  },
+});
+const controlHudPanelsModule = { exports: {} };
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/ControlHudPanels.tsx', import.meta.url), 'utf8'), {
+  compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText, {
+  module: controlHudPanelsModule,
+  exports: controlHudPanelsModule.exports,
+  require: name => {
+    if (name in hudComponentDependencies) return hudComponentDependencies[name];
+    throw new Error(`Unexpected ControlHudPanels dependency: ${name}`);
+  },
+});
 const landscapeHudModule = { exports: {} };
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/controlLandscapeHud.tsx', import.meta.url), 'utf8'), {
   compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -39,12 +73,32 @@ vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/co
   module: landscapeHudModule,
   exports: landscapeHudModule.exports,
   require(name) {
-    if (name === 'react/jsx-runtime') return require('react/jsx-runtime');
-    if (name === 'react-native') return { Platform: { OS: 'ios' }, Pressable: 'Pressable', StyleSheet: { create: value => value, absoluteFillObject: { position: 'absolute' } }, View: 'View' };
-    if (name === '@expo/vector-icons') return { Ionicons: 'Ionicons' };
-    if (name === './AppText') return { Text: 'Text' };
-    if (name === '../officialPalette') return { officialDark: { cta: '#F0F4FE', ctaInk: '#1C1C1B', ink: '#E8E8E6', muted: '#A0A09B' } };
+    if (name in hudComponentDependencies) return hudComponentDependencies[name];
+    if (name === './ControlHudDashboard') return controlHudDashboardModule.exports;
+    if (name === './ControlHudPanels') return controlHudPanelsModule.exports;
     throw new Error(`Unexpected landscape HUD dependency: ${name}`);
+  },
+});
+
+const controlMediaModelModule = { exports: {} };
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/features/video/controlMediaModel.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText, { module: controlMediaModelModule, exports: controlMediaModelModule.exports });
+
+const controlMediaCaptureWebModule = { exports: {} };
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/features/video/controlMediaCapture.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText, {
+  module: controlMediaCaptureWebModule,
+  exports: controlMediaCaptureWebModule.exports,
+  Blob: globalThis.Blob,
+  setTimeout,
+  clearTimeout,
+  setInterval,
+  clearInterval,
+  require(name) {
+    if (name === './controlMediaModel.ts' || name === './controlMediaModel') return controlMediaModelModule.exports;
+    throw new Error(`Unexpected controlMediaCapture dependency: ${name}`);
   },
 });
 
@@ -78,6 +132,7 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
   const appStateListeners = new Set();
   const navigationCalls = [];
   const timers = new Map();
+  const intervals = new Set();
   let timerId = 0, now = 0, unmounted = false, lateUpdates = 0;
   let cursor = 0;
   let dirty = false;
@@ -147,6 +202,7 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
   };
   const dependencies = {
     '../features/control/useControlRobotVideo': { useControlRobotVideo: () => ({}) },
+    '../features/video/controlMediaModel': controlMediaModelModule.exports,
     '../components/DepthSnapshotView': { DepthSnapshotView: 'DepthSnapshotView' },
     react,
     'react/jsx-runtime': require('react/jsx-runtime'),
@@ -159,6 +215,7 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     'react-native-safe-area-context': { useSafeAreaInsets: () => ({top:0,left:0,right:0,bottom:0}), SafeAreaView: 'SafeAreaView' },
     '../components/ControlJoystick': { ControlJoystickPair },
     '../components/controlLandscapeHud': landscapeHudModule.exports,
+    '../components/controlHudModel': controlHudModelModule.exports,
     '../components/RobotRecoveryControls': recoveryPanelModule.exports,
     '../features/control/robotRecovery': { beginRobotRecovery, presentRobotRecovery },
     '../components/ControlVideoSurface': { ControlVideoSurface },
@@ -191,6 +248,35 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText, { module: referenceUi, exports: referenceUi.exports, require: name => name === './AppText' ? { Text: 'Text' } : dependencies[name] });
   dependencies['../components/ControlReferenceUi'] = referenceUi.exports;
+
+  const mediaCaptureHookModule = { exports: {} };
+  vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/features/video/useControlMediaCapture.ts', import.meta.url), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, {
+    module: mediaCaptureHookModule,
+    exports: mediaCaptureHookModule.exports,
+    setTimeout(callback, delay) { const id = ++timerId; timers.set(id, { callback, due: now + delay }); return id; },
+    clearTimeout: id => timers.delete(id),
+    setInterval(callback, delay) {
+      const id = ++timerId;
+      intervals.add(id);
+      const step = () => {
+        if (!intervals.has(id) || unmounted) return;
+        callback();
+        if (intervals.has(id) && !unmounted) timers.set(id, { callback: step, due: now + delay });
+      };
+      timers.set(id, { callback: step, due: now + delay });
+      return id;
+    },
+    clearInterval: id => { intervals.delete(id); timers.delete(id); },
+    require(name) {
+      if (name === 'react') return react;
+      if (name === './controlMediaModel.ts' || name === './controlMediaModel') return controlMediaModelModule.exports;
+      if (name === './controlMediaCapture.ts' || name === './controlMediaCapture') return controlMediaCaptureWebModule.exports;
+      throw new Error(`Unexpected useControlMediaCapture dependency: ${name}`);
+    },
+  });
+  dependencies['../features/video/useControlMediaCapture'] = mediaCaptureHookModule.exports;
   const module = { exports: {} };
   vm.runInNewContext(compiled, {
     module,
@@ -265,13 +351,24 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     get joystickSettings() { return nodes.find(node => node.type === JoystickLayoutSettings)?.props; },
     async settle() { await new Promise(resolve => setImmediate(resolve)); render(); },
     advance(ms) {
-      now += ms;
-      for (const [id, timer] of [...timers]) if (timer.due <= now) { timers.delete(id); timer.callback(); }
+      const target = now + ms;
+      while (true) {
+        let nextEntry = null;
+        for (const entry of timers) {
+          if (entry[1].due <= target && (!nextEntry || entry[1].due < nextEntry[1].due)) nextEntry = entry;
+        }
+        if (!nextEntry) break;
+        const [id, timer] = nextEntry;
+        now = Math.max(now, timer.due);
+        timers.delete(id);
+        timer.callback();
+      }
+      now = target;
       if (!unmounted) render();
     },
     get timerCount() { return timers.size; },
     get lateUpdates() { return lateUpdates; },
-    get scroll() { return nodes.find(node => node.type === 'ScrollView')?.props; },
+    get scroll() { return nodes.find(node => node.type === 'ScrollView' && !node.props.horizontal)?.props; },
     get safeArea() { return nodes.find(node => node.type === 'SafeAreaView')?.props; },
     background(state = 'background') {
       for (const listener of appStateListeners) listener(state);
@@ -789,6 +886,7 @@ test('production control center exposes truthful status and offline preview stic
   assert.equal(screen.pair.disabled, false);
   assert.equal(screen.pair.left.onSample, undefined);
   assert.equal(screen.pair.showLabels, true);
+  assert.equal(screen.pair.showVisuals, true);
   assert.equal(screen.pair.left.testID, 'control-drive-stick');
   assert.equal(screen.pair.right.testID, 'control-turn-stick');
   assert.ok(screen.find('control-back'));
@@ -873,11 +971,21 @@ test('landscape keeps the four real action controls on the glass video surface',
   assert.ok(screen.pair);
   assert.equal(screen.pair.variant, 'glass');
   assert.equal(screen.pair.showLabels, false);
+  assert.equal(screen.pair.showVisuals, true);
   assert.equal(screen.pair.disabled, false);
   assert.equal(screen.pair.left.onSample, undefined);
   assert.match(screen.copy, /THUNDER-01/);
   assert.match(screen.find('control-telemetry-battery').props.accessibilityLabel, /电量/);
   assert.doesNotMatch(screen.copy, /手动控制|输入来源|任务|路线|Brainstem|更多/);
+  screen.unmount();
+});
+
+test('G20 landscape hides joystick visuals while retaining the touch pair', () => {
+  const hardware = physicalFixture();
+  const screen = mount({ dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, g20Controller: hardware.controller });
+  assert.equal(screen.pair.showVisuals, false);
+  assert.equal(screen.pair.floating, true);
+  assert.equal(screen.pair.disabled, false);
   screen.unmount();
 });
 
@@ -1580,6 +1688,30 @@ test('shared header closes the layout editor and flushes its preview without lea
   assert.ok(screen.find('control-immersive-surface')); screen.unmount();
 });
 
+test('workspace Back closes control settings without leaving and saves a pending layout edit', async () => {
+  const dismissWorkspaceOverlayRef = { current: null };
+  const saved = [];
+  const screen = mount({ dev: false, dimensions: { width: 1000, height: 600, fontScale: 1 }, dismissWorkspaceOverlayRef,
+    layoutSave: async value => { saved.push(value.landscape.left.sizeScale); } });
+  await screen.settle();
+  assert.equal(dismissWorkspaceOverlayRef.current(), false);
+  screen.find('control-open-more').props.onPress(); screen.render();
+  assert.ok(screen.find('control-settings-background'));
+  assert.equal(dismissWorkspaceOverlayRef.current(), true);
+  screen.render();
+  assert.equal(screen.find('control-settings-background'), undefined);
+  openSettings(screen, 'control-open-joystick-layout'); screen.render();
+  screen.joystickSettings.onPreview('left', { sizeScale: 1.2 }); screen.render();
+  assert.equal(dismissWorkspaceOverlayRef.current(), true);
+  await screen.settle();
+  assert.deepEqual(saved, [1.2]);
+  assert.equal(screen.joystickSettings, undefined);
+  assert.equal(dismissWorkspaceOverlayRef.current(), false);
+  assert.equal(screen.backCalls, 0);
+  screen.unmount();
+  assert.equal(dismissWorkspaceOverlayRef.current, null);
+});
+
 test('closing flushes the latest slider preview and rejects late editor callbacks', async () => {
   const saved = [];
   const screen = mount({ dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
@@ -1982,7 +2114,7 @@ test('video HUD omits speed and keeps only identified signal and battery sources
     signal: { qualityPercent: 71, source: 'controller' }, battery: { percent: null, voltageV: 48.1, source: 'device' },
   } });
   assert.equal(screen.find('control-telemetry-speed'), undefined);
-  assert.match(screen.find('control-telemetry-signal').props.accessibilityLabel, /71%/); assert.match(screen.copy, /48\.1\s*V/);
+  assert.match(screen.find('control-telemetry-signal').props.accessibilityLabel, /71%/); assert.doesNotMatch(screen.copy, /48\.1\s*V/);
   assert.equal(screen.pair.left.onSample, undefined, 'receiving telemetry is not an actuator permission');
   screen.unmount();
 });
@@ -2020,12 +2152,26 @@ test('touch release uses the neutral callback and blocked posture has a visible 
   screen.unmount();
 });
 
-test('receiving landscape video paints the connected HUD and blocks terrain while walking', () => {
+function selectLeftCategory(screen, category) {
+  const dockId = category === 'policy'
+    ? 'control-hud-terrain-capsule-flat'
+    : category === 'posture'
+      ? 'control-hud-posture-dock'
+      : 'control-hud-action-dock';
+  if (!screen.find(dockId)) {
+    screen.find(`control-hud-category-${category}`).props.onPress();
+    screen.render();
+  }
+}
+
+test('receiving landscape video renders G20 HUD controls and confirms eligible terrain changes', async () => {
   const terrainRuntime = {
     controlLink: 'connected', controlAuthority: 'held', posture: 'standing', motorState: 'enabled',
     deviceIdentity: 'bound-unverified', faultStatus: 'clear', inputSource: 'touch',
     speed: { linearMps: 0, lateralMps: 0, yawRps: 0, source: 'device' },
-    signal: { qualityPercent: 72, source: 'device' },
+    signal: { qualityPercent: 72, latencyMs: 18, source: 'controller' },
+    cellular: { connected: true, networkLabel: '5G', bars: 4, source: 'controller' },
+    robotLinkLatencyMs: 24,
     currentPolicy: { id: 'flat', label: '平地模式', terrainModeId: 'flat' },
     policyCatalogStatus: 'synced',
     policyOptions: [
@@ -2042,19 +2188,33 @@ test('receiving landscape video paints the connected HUD and blocks terrain whil
       ],
     },
   };
+  const policies = [];
   const screen = mount({ landscapeDocksExpanded: true,
     dev: true, dimensions: { width: 844, height: 390, fontScale: 1 }, allowInteractionPreview: true,
     connected: true, batteryPercent: 80, safetyLock: false,
     runtimeState: terrainRuntime,
     operationReadiness: { stand: { ready: true }, sit: { ready: true }, stop: { ready: true }, switchPolicy: { ready: true } },
-    operationCallbacks: { stand() {}, sit() {}, stop() {}, switchPolicy() {} },
+    operationCallbacks: { stand() {}, sit() {}, stop() {}, switchPolicy(id) { policies.push(id); } },
   });
   const flat = style => Object.assign({}, ...(Array.isArray(style) ? style : [style]));
   const officialSize = Math.min(240, Math.floor(Math.min(844 * .18, 390 * .30) / 1.42));
   assert.ok(screen.find('control-landscape-hud'));
   assert.equal(screen.find('control-action-dock'), undefined);
   assert.equal(screen.videoStage, undefined);
-  assert.equal(flat(screen.find('control-video-backdrop').props.style).backgroundColor, '#000000');
+  assert.ok(screen.find('control-hud-video-empty'));
+  assert.match(screen.copy, /等待画面/);
+  assert.ok(screen.find('control-hud-status-bar'));
+  assert.ok(screen.find('control-hud-stop'));
+  assert.ok(screen.find('control-hud-mode-header'));
+  assert.ok(screen.find('control-hud-open-status'));
+  assert.equal(screen.find('control-hud-fault-badge'), undefined);
+  assert.ok(screen.find('control-hud-cellular'));
+  assert.ok(screen.find('control-hud-robot-signal'));
+  assert.ok(screen.find('control-hud-wifi-signal'));
+  assert.match(screen.copy, /5G/);
+  assert.match(screen.copy, /24ms/);
+  assert.match(screen.copy, /72%/);
+  assert.equal(flat(screen.find('control-video-backdrop').props.style).backgroundColor, 'transparent');
   assert.equal(screen.pair.variant, 'glass');
   assert.equal(screen.pair.floating, true);
   assert.equal(screen.pair.size, officialSize);
@@ -2067,48 +2227,95 @@ test('receiving landscape video paints the connected HUD and blocks terrain whil
   assert.match(screen.copy, /THUNDER-01/); assert.match(screen.copy, /已连接/);
   assert.match(screen.copy, /本设备控制/);
   assert.match(screen.copy, /设备已解锁/);
-  assert.match(screen.copy, /电压/); assert.doesNotMatch(screen.copy, /80%/);
-  assert.match(screen.copy, /信号 72%/);
-  assert.match(screen.copy, /速度 0\.00 m\/s/);
+  assert.match(screen.find('control-hud-battery-bar').props.children ? screen.copy : '', /80%/);
+  assert.ok(screen.find('control-hud-terrain-capsule-flat'));
   assert.match(screen.copy, /平地/);
   assert.match(screen.copy, /楼梯/);
   assert.match(screen.copy, /高台/);
+  assert.equal(screen.find('control-hud-terrain-capsule-stairs').props.disabled, false);
+
+  selectLeftCategory(screen, 'posture');
+  assert.deepEqual(policies, [], 'switching categories must not send a policy command');
   assert.ok(screen.find('control-hud-posture-selected-stand'));
   assert.match(screen.copy, /坐下/);
   assert.match(screen.copy, /趴下/);
   assert.match(screen.copy, /恢复/);
+  assert.equal(screen.find('control-hud-posture-prone').props.accessibilityState.disabled, true);
+  assert.equal(screen.find('control-hud-posture-recover').props.accessibilityState.disabled, true);
+
+  selectLeftCategory(screen, 'action');
+  assert.ok(screen.find('control-hud-basic-action-walk'));
+  assert.ok(screen.find('control-hud-basic-action-step'));
+  screen.find('control-hud-basic-action-wave').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-hud-notice'));
+  assert.match(screen.copy, /打招呼.*暂未接入/);
+
   assert.equal(screen.find('control-hud-lidar'), undefined);
   assert.equal(screen.find('control-hud-map'), undefined);
   assert.doesNotMatch(screen.copy, /点云未接入/);
-  assert.match(screen.copy, /设置/);
+  assert.match(screen.find('control-hud-settings').props.accessibilityLabel, /设置/);
   assert.doesNotMatch(screen.copy, /躺下|跤下|蹬下|趾下|无画面|机身高度|抬腿高度|机身温度|电机温度|握手|伸懒腰/);
-  assert.equal(screen.find('control-hud-posture-prone').props.accessibilityState.disabled, true);
-  assert.equal(screen.find('control-hud-posture-recover').props.accessibilityState.disabled, true);
-  assert.equal(screen.find('control-hud-terrain-capsule-stairs').props.disabled, false);
-  assert.equal(screen.find('control-hud-terrain-capsule-flat').props.disabled, false);
+
   screen.render({ video: { id: 'preview-camera', phase: 'receiving' }, videoSurface: 'plate' });
   assert.ok(screen.videoStage);
+  assert.equal(screen.find('control-hud-video-empty'), undefined);
   assert.equal(screen.videoStage.presentation.phase, 'receiving');
   assert.equal(screen.pair.size, officialSize);
   assert.equal(flat(screen.find('control-immersive-sticks').props.style).bottom, stickFrame.bottom);
   const beforeFold = flat(screen.find('control-immersive-sticks').props.style);
-  screen.find('control-hud-docks-toggle').props.onPress();
+
+  // Collapse dashboard (⑩) and verify collapsed tray (⑪–⑭) then expand again.
+  assert.ok(screen.find('control-hud-dashboard-expanded'));
+  screen.find('control-hud-dashboard-toggle').props.onPress();
   screen.render();
-  assert.equal(screen.find('control-hud-terrain-dock'), undefined);
-  assert.equal(screen.find('control-hud-posture-dock'), undefined);
-  assert.match(screen.find('control-hud-docks-summary').props.accessibilityLabel, /平地/);
-  assert.match(screen.find('control-hud-docks-summary').props.accessibilityLabel, /站立/);
+  assert.ok(screen.find('control-hud-dashboard-collapsed'));
+  assert.ok(screen.find('control-hud-range-readout'));
+  assert.match(screen.copy, /-- KM/);
+  assert.ok(screen.find('control-hud-stop'));
+  assert.ok(screen.find('control-hud-settings'));
+  assert.ok(screen.videoStage);
   assert.equal(screen.pair.size, officialSize);
   assert.deepEqual(flat(screen.find('control-immersive-sticks').props.style), beforeFold);
-  screen.find('control-hud-docks-summary').props.onPress();
+  screen.find('control-hud-dashboard-toggle').props.onPress();
   screen.render();
-  assert.ok(screen.find('control-hud-posture-prone'));
+  assert.ok(screen.find('control-hud-dashboard-expanded'));
+
   screen.render({ video: undefined, videoSurface: undefined, runtimeState: { ...terrainRuntime, speed: { linearMps: 0.4, lateralMps: 0, yawRps: 0, source: 'device' } } });
+  selectLeftCategory(screen, 'policy');
   assert.equal(screen.find('control-hud-terrain-capsule-stairs').props.disabled, true);
   assert.match(screen.find('control-hud-terrain-capsule-stairs').props.accessibilityHint, /行走中不可切换/);
+  assert.deepEqual(policies, []);
   screen.render({ safetyLock: true, runtimeState: { ...terrainRuntime, controlAuthority: 'not-held' } });
   assert.equal(screen.find('control-hud-unlocked'), undefined);
   assert.equal(screen.find('control-hud-local-control'), undefined);
+  screen.render({ safetyLock: false, runtimeState: terrainRuntime });
+  selectLeftCategory(screen, 'policy');
+  screen.find('control-hud-terrain-capsule-stairs').props.onPress();
+  screen.render();
+  assert.deepEqual(policies, [], 'changing terrain still requires confirmation');
+  screen.find('control-immersive-confirm').props.onPress();
+  await screen.settle();
+  assert.deepEqual(policies, ['stairs']);
+  screen.unmount();
+});
+
+test('landscape settings stay open when the hidden joystick frame reports a new size', () => {
+  const screen = mount({ dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, landscapeDocksExpanded: true });
+  const reportStickArea = (width, height) => {
+    screen.find('control-immersive-sticks').props.onLayout({ nativeEvent: { layout: { width, height } } });
+    screen.render();
+  };
+  reportStickArea(828, 180);
+  screen.find('control-hud-settings').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-settings-page-操控'));
+  reportStickArea(844, 220);
+  assert.ok(screen.find('control-settings-page-操控'));
+  assert.equal(screen.pair.disabled, true);
+  screen.find('control-close-settings').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-landscape-hud'));
   screen.unmount();
 });
 
@@ -2133,7 +2340,7 @@ test('connected landscape stand, sit, and stop call the live operation callbacks
   await screen.settle();
   assert.deepEqual(calls, ['stop']);
   assert.match(screen.copy, /请求已接受/);
-  screen.find('control-hud-posture-stand').props.onPress();
+  screen.find('control-hud-quick-stand').props.onPress();
   await screen.settle();
   assert.deepEqual(calls, ['stop', 'stand']);
   screen.render({
@@ -2144,6 +2351,7 @@ test('connected landscape stand, sit, and stop call the live operation callbacks
       stop: { ready: true },
     },
   });
+  selectLeftCategory(screen, 'posture');
   screen.find('control-hud-posture-sit').props.onPress();
   await screen.settle();
   assert.deepEqual(calls, ['stop', 'stand', 'sit']);
@@ -2170,6 +2378,7 @@ test('landscape emergency stop still sends while a posture command is in flight'
       stop: async () => { calls.push('stop'); },
     },
   });
+  selectLeftCategory(screen, 'posture');
   screen.find('control-hud-posture-sit').props.onPress();
   screen.render();
   assert.deepEqual(calls, ['sit']);
@@ -2216,7 +2425,10 @@ test('one confirmed press enters recovery and a stable stand returns through Exi
     recovery,
   });
   assert.deepEqual(commands, [], 'opening the control screen must not enter recovery');
-  const dock = () => screen.find('control-hud-posture-recover');
+  const dock = () => {
+    selectLeftCategory(screen, 'posture');
+    return screen.find('control-hud-posture-recover');
+  };
   assert.equal(dock().props.disabled, false);
   assert.equal(dock().props.accessibilityLabel, '摔倒恢复');
   assert.equal(screen.find('control-recovery-begin'), undefined);
@@ -2251,13 +2463,13 @@ test('one confirmed press enters recovery and a stable stand returns through Exi
   screen.render({ recovery: { ...recovery, status: recoveryStatus({ modelConfigured: false }) }, runtimeState: standing });
   assert.equal(dock().props.disabled, true);
   assert.match(dock().props.accessibilityHint, /模型尚未配置/);
-  assert.match(screen.copy, /模型尚未配置/);
+  assert.doesNotMatch(screen.copy, /模型尚未配置/, 'blocked reasons stay in the hint, not as a floating card');
   screen.render({ recovery: { ...recovery, status: recoveryStatus() }, runtimeState: { ...standing, speed: { linearMps: 0.4, lateralMps: 0, yawRps: 0, source: 'device' } } });
   assert.equal(dock().props.disabled, true);
-  assert.match(screen.copy, /行走中不可切换/);
+  assert.match(dock().props.accessibilityHint, /行走中不可切换/);
   screen.render({ recovery: { ...recovery, status: recoveryStatus({ enableSequenceVerified: false }) }, runtimeState: standing });
   assert.equal(dock().props.disabled, true);
-  assert.match(screen.copy, /使能顺序尚未核验/);
+  assert.match(dock().props.accessibilityHint, /使能顺序尚未核验/);
   assert.equal([...screen.copy].some(char => char.codePointAt(0) === 0x8DBA), false);
   screen.unmount();
 });
@@ -2274,7 +2486,352 @@ test('portrait recovery offers one button and does not open when the channel is 
   assert.doesNotMatch(screen.copy, /进入恢复|使能恢复|摔倒起立|退出并回到运动/);
   screen.unmount();
   const closed = mount({ landscapeDocksExpanded: true, dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, connected: true, runtimeState: standing });
+  selectLeftCategory(closed, 'posture');
   assert.equal(closed.find('control-hud-posture-recover').props.accessibilityState.disabled, true);
   assert.match(closed.find('control-hud-posture-recover').props.accessibilityHint, /恢复指令尚未接通/);
   closed.unmount();
+});
+
+test('HUD status badges stay conditional and truthful across fault, cellular, robot link, and WiFi', () => {
+  const jointsWithFault = [
+    { id: '3', label: '前左髋', online: true, positionDeg: 80, temperatureC: 84, fault: 'active', errors: [7], source: 'device' },
+    { id: '4', label: '前左大腿', online: true, positionDeg: 120, temperatureC: 68, fault: 'clear', errors: [], source: 'device' },
+  ];
+  const screen = mount({ landscapeDocksExpanded: true, dev: false, dimensions: { width: 844, height: 390, fontScale: 1 } });
+  // Disconnected: fault badge, cellular, robot link, and WiFi badges remain hidden.
+  assert.equal(screen.find('control-hud-fault-badge'), undefined);
+  assert.equal(screen.find('control-hud-cellular'), undefined);
+  assert.equal(screen.find('control-hud-robot-signal'), undefined);
+  assert.equal(screen.find('control-hud-wifi-signal'), undefined);
+  assert.doesNotMatch(screen.copy, /67%|18\.08 KM|900ms/);
+
+  screen.render({
+    connected: true,
+    runtimeState: {
+      controlLink: 'connected',
+      faultStatus: 'active',
+      faultSummary: '前左髋电机过温',
+      cellular: { connected: true, networkLabel: '5G', bars: 3, source: 'controller' },
+      signal: { qualityPercent: 86, latencyMs: 14, source: 'controller' },
+      robotLinkLatencyMs: 14,
+      joints: jointsWithFault,
+    },
+  });
+  assert.ok(screen.find('control-hud-fault-badge'));
+  assert.ok(screen.find('control-hud-cellular'));
+  assert.ok(screen.find('control-hud-robot-signal'));
+  assert.ok(screen.find('control-hud-wifi-signal'));
+  screen.find('control-hud-fault-badge').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-hud-fault-panel'));
+  assert.match(screen.copy, /异常列表/);
+  assert.match(screen.copy, /前左髋电机过温/);
+  screen.find('control-hud-fault-panel-close').props.onPress();
+  screen.render();
+  assert.equal(screen.find('control-hud-fault-panel'), undefined);
+  screen.unmount();
+});
+
+test('HUD speed limiter scales manual drive and turn proportionally and L1 toggles joint panels', () => {
+  const sent = [];
+  const hardware = physicalFixture();
+  const joints = [
+    { id: '3', label: '前左髋', online: true, positionDeg: 80, temperatureC: 38, fault: 'clear', errors: [], source: 'device' },
+    { id: '4', label: '前左大腿', online: true, positionDeg: 120, temperatureC: 71, fault: 'clear', errors: [], source: 'device' },
+    { id: '5', label: '前左小腿', online: true, positionDeg: 117, temperatureC: 88, fault: 'active', errors: [2], source: 'device' },
+    { id: '13', label: '前左足轮', online: true, velocityRps: 3.01, temperatureC: 44, fault: 'clear', errors: [], source: 'device' },
+    { id: '0', label: '前右髋', online: true, positionDeg: 45, temperatureC: 40, fault: 'clear', errors: [], source: 'device' },
+  ];
+  const screen = mount({
+    landscapeDocksExpanded: true,
+    dev: false,
+    dimensions: { width: 844, height: 390, fontScale: 1 },
+    ...capableProps(),
+    g20Controller: hardware.controller,
+    runtimeState: { controlLink: 'connected', controlAuthority: 'held', posture: 'standing', motorState: 'enabled', joints },
+    productionInput: {
+      ready: true,
+      onDrive(value) { sent.push(['drive', value]); },
+      onTurn(value) { sent.push(['turn', value]); },
+      onSticks(drive, turn) { sent.push(['sticks', drive, turn]); },
+      onInterrupt() {},
+    },
+  });
+
+  // Expand speed limit slider (⑱) and decrease from 100% to 80%.
+  screen.find('control-hud-speed-limit-toggle').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-hud-speed-limit-bar'));
+  screen.find('control-hud-speed-limit-dec').props.onPress();
+  screen.render();
+  screen.find('control-hud-speed-limit-dec').props.onPress();
+  screen.render();
+  assert.match(screen.copy, /80%/);
+  screen.pair.left.onSample({ x: 0.5, y: -1 });
+  screen.pair.right.onSample({ x: 0.5, y: 0 });
+  assert.ok(Math.abs(sent[0][1].y + 0.8) < 1e-6);
+  assert.ok(Math.abs(sent[1][1].x - 0.4) < 1e-6);
+
+  // Open joint parameters (㉜) & switch leg tabs (`左前腿` -> `右前腿`).
+  screen.find('control-hud-joint-params-toggle').props.onPress();
+  screen.render();
+  assert.equal(screen.find('control-hud-joint-params-toggle').props.accessibilityState.selected, true);
+  assert.ok(screen.find('control-hud-joint-params-panel'));
+  assert.match(screen.copy, /80°/);
+  assert.match(screen.copy, /3\.01 rad\/s/);
+  screen.find('control-hud-leg-tab-front-right').props.onPress();
+  screen.render();
+  assert.match(screen.copy, /45°/);
+
+  // Open joint temperature (㉙) and verify motor -> driver toggle is truthful.
+  screen.find('control-hud-joint-temp-toggle').props.onPress();
+  screen.render();
+  assert.equal(screen.find('control-hud-joint-temp-toggle').props.accessibilityState.selected, true);
+  assert.ok(screen.find('control-hud-joint-temp-panel'));
+  assert.match(screen.copy, /71°/);
+  assert.match(screen.copy, /88°/);
+  screen.find('control-hud-temp-tab-driver').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-hud-driver-temp-note'));
+
+  // Toggle dual wide-angle camera + PiP swap (㉑, ㉒, ㉘).
+  assert.equal(screen.find('control-hud-pip-window'), undefined);
+  screen.find('control-hud-camera-count-toggle').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-hud-pip-window'));
+  screen.find('control-hud-pip-window').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-hud-rear-video-empty'));
+  screen.find('control-hud-camera-swap').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-hud-video-empty'));
+
+  // Physical G20 L1 shortcut (`toggleJointParams`) closes the joint params panel cleanly.
+  screen.render({ inputSource: 'physical' });
+  hardware.sample();
+  hardware.sample({ pressed: ['toggleJointParams'] });
+  screen.render();
+  assert.equal(screen.find('control-hud-joint-params-panel'), undefined);
+  screen.unmount();
+});
+
+test('landscape HUD motor power button displays explicit label and confirms enable/disable', async () => {
+  const calls = [];
+  const screen = mount({
+    landscapeDocksExpanded: true,
+    dev: true,
+    dimensions: { width: 844, height: 390, fontScale: 1 },
+    connected: true,
+    runtimeState: { controlLink: 'connected', controlAuthority: 'not-held', motorState: 'disabled', posture: 'sitting' },
+    operationReadiness: {
+      enableMotor: { ready: true },
+      disableMotor: { ready: true },
+      stand: { ready: false, blockedReason: '电机须已使能' },
+      stop: { ready: true },
+    },
+    operationCallbacks: {
+      enableMotor: async () => { calls.push('enable'); },
+      disableMotor: async () => { calls.push('disable'); },
+      stand: async () => { calls.push('stand'); },
+      stop: async () => { calls.push('stop'); },
+    },
+  });
+  const powerBtn = () => screen.find('control-hud-motor-power');
+  assert.ok(powerBtn());
+  assert.equal(powerBtn().props.disabled, false);
+  assert.equal(powerBtn().props.accessibilityLabel, '使能电机');
+  assert.equal(powerBtn().props.accessibilityState.checked, false);
+  assert.match(screen.copy, /使能电机/);
+
+  powerBtn().props.onPress();
+  screen.render();
+  assert.deepEqual(calls, [], 'motor power trigger still requires confirmation');
+  assert.ok(screen.find('control-immersive-confirm'));
+  screen.find('control-immersive-confirm').props.onPress();
+  await screen.settle();
+  assert.deepEqual(calls, ['enable']);
+
+  screen.render({
+    runtimeState: { controlLink: 'connected', controlAuthority: 'not-held', motorState: 'enabled', posture: 'sitting' },
+  });
+  assert.equal(powerBtn().props.accessibilityLabel, '失能电机');
+  assert.equal(powerBtn().props.accessibilityState.checked, true);
+  assert.match(screen.copy, /失能电机/);
+  screen.unmount();
+});
+
+test('G20 camera HUD settings overlay keeps live video HUD mounted, updates HUD preferences, and preserves emergency stop', async () => {
+  let stops = 0;
+  const screen = mount({
+    landscapeDocksExpanded: true,
+    dev: false,
+    dimensions: { width: 844, height: 390, fontScale: 1 },
+    video: { id: 'sim-front', phase: 'receiving' },
+    videoSurface: 'plate',
+    connected: true,
+    runtimeState: { controlLink: 'connected', controlAuthority: 'held', posture: 'standing', motorState: 'enabled' },
+    operationReadiness: { stop: { ready: true } },
+    operationCallbacks: { stop: async () => { stops++; } },
+  });
+
+  assert.ok(screen.find('control-landscape-hud'));
+  assert.equal(screen.videoStage.presentation.phase, 'receiving');
+
+  screen.find('control-hud-settings').props.onPress();
+  screen.render();
+
+  // Live video HUD remains mounted underneath the frosted dark console while sticks stay locked.
+  assert.ok(screen.find('control-landscape-hud'));
+  assert.equal(screen.videoStage.presentation.phase, 'receiving');
+  assert.ok(screen.find('control-settings-menu'));
+  assert.ok(screen.find('control-settings-page-操控'));
+  assert.equal(screen.pair.disabled, true);
+
+  // Speed limit preset updates inside 操控 tab.
+  screen.find('control-setting-speed-preset-60').props.onPress();
+  screen.render();
+  assert.equal(screen.find('control-setting-speed-value').props.children, '60%');
+
+  // Switch to 视频 tab and toggle dual camera + primary swap.
+  screen.find('control-settings-tab-视频').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-settings-page-视频'));
+  screen.find('control-setting-dual-camera').props.onPress();
+  screen.render();
+  screen.find('control-setting-camera-swap').props.onPress();
+  screen.render();
+
+  // Switch to 通用 tab and toggle bottom dashboard expansion.
+  screen.find('control-settings-tab-通用').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-settings-page-通用'));
+  screen.find('control-setting-hud-dashboard').props.onPress();
+  screen.render();
+
+  // Emergency stop in the top HUD bar remains live while settings is open and closes the overlay immediately.
+  screen.find('control-hud-stop').props.onPress();
+  await screen.settle();
+  assert.equal(stops, 1);
+  assert.equal(screen.find('control-settings-menu'), undefined);
+  assert.ok(screen.find('control-landscape-hud'));
+  assert.ok(screen.find('control-hud-pip-window'));
+  assert.ok(screen.find('control-hud-dashboard-collapsed'));
+  assert.match(screen.find('control-hud-speed-limit-toggle').props.accessibilityLabel, /60%/);
+  screen.unmount();
+});
+
+test('landscape HUD capture and recording fail closed without receiving stream and auto-save on backgrounding', async () => {
+  const captured = [];
+  let recordSeq = 0;
+  const stopEvents = [];
+  const fakeAdapter = {
+    supported: true,
+    storageTargetLabel: '系统相册 Pictures/Movies/DOSO',
+    async capturePhoto(input) {
+      captured.push(input);
+      return {
+        fileName: `DOSO_SNAP_test_${input.camera}.jpg`,
+        width: 1920,
+        height: 1080,
+        bytes: 4096,
+        locationLabel: '系统相册 Pictures/DOSO',
+      };
+    },
+    async startRecording(input) {
+      const id = ++recordSeq;
+      const fileName = `DOSO_REC_test_${id}_${input.camera}.mp4`;
+      return {
+        fileName,
+        mimeType: 'video/mp4',
+        async stop() {
+          stopEvents.push(fileName);
+          return {
+            fileName,
+            durationMs: 1200,
+            bytes: 8192,
+            mimeType: 'video/mp4',
+            locationLabel: '系统相册 Movies/DOSO',
+          };
+        },
+        async cancel() {
+          stopEvents.push(`cancel:${fileName}`);
+        },
+      };
+    },
+  };
+
+  // 1. Disconnected / unconfigured stream fails closed on tap.
+  const screen = mount({
+    landscapeDocksExpanded: true,
+    dev: false,
+    dimensions: { width: 844, height: 390, fontScale: 1 },
+    mediaCaptureAdapter: fakeAdapter,
+  });
+  screen.find('control-hud-photo-capture').props.onPress();
+  await screen.settle();
+  assert.match(screen.find('control-hud-notice').props.children.props.children, /暂无可抓拍/);
+  screen.find('control-hud-record-toggle').props.onPress();
+  await screen.settle();
+  assert.match(screen.find('control-hud-notice').props.children.props.children, /暂无可录制/);
+  assert.equal(captured.length, 0);
+
+  // 2. Receiving front stream enables snapshot and recording.
+  const frontStream = { id: 'front-live-stream' };
+  const rearStream = { id: 'rear-live-stream' };
+  screen.render({
+    video: { id: 'sim-front', phase: 'receiving' },
+    videoSurface: 'front-plate',
+    videoStream: frontStream,
+    videoRotation: 90,
+    rearVideo: { id: 'sim-rear', phase: 'receiving' },
+    rearVideoSurface: 'rear-plate',
+    rearVideoStream: rearStream,
+    rearVideoRotation: 0,
+  });
+
+  screen.find('control-hud-photo-capture').props.onPress();
+  await screen.settle();
+  assert.equal(captured.length, 1);
+  assert.equal(captured[0].camera, 'front');
+  assert.equal(captured[0].stream, frontStream);
+  assert.equal(captured[0].rotation, 90);
+  assert.match(screen.find('control-hud-notice').props.children.props.children, /DOSO_SNAP_test_front\.jpg/);
+
+  screen.find('control-hud-record-toggle').props.onPress();
+  await screen.settle();
+  assert.ok(screen.find('control-hud-recording-badge'));
+  assert.equal(screen.find('control-hud-record-toggle').props.accessibilityState.selected, true);
+
+  screen.advance(1000);
+  screen.advance(1000);
+  assert.match(JSON.stringify(screen.find('control-hud-recording-badge')), /REC 00:02/);
+
+  // Settings -> 视频 tab shows live status, storage location, and quick controls while keeping auto-recording disabled.
+  screen.find('control-hud-settings').props.onPress();
+  screen.render();
+  screen.find('control-settings-tab-视频').props.onPress();
+  screen.render();
+  assert.equal(screen.find('control-setting-recording').props.disabled, true);
+  assert.ok(screen.find('control-setting-record-toggle'));
+  assert.match(screen.copy, /DOSO_SNAP_test_front\.jpg/);
+
+  screen.find('control-setting-record-toggle').props.onPress();
+  await screen.settle();
+  assert.deepEqual(stopEvents, ['DOSO_REC_test_1_front.mp4']);
+  assert.equal(screen.find('control-hud-recording-badge'), undefined);
+
+  // Switching to rear camera captures rear stream, and app backgrounding auto-saves active recording.
+  screen.find('control-close-settings').props.onPress();
+  screen.render();
+  screen.find('control-hud-camera-swap').props.onPress();
+  screen.render();
+  screen.find('control-hud-record-toggle').props.onPress();
+  await screen.settle();
+  assert.ok(screen.find('control-hud-recording-badge'));
+
+  screen.background('background');
+  await screen.settle();
+  assert.deepEqual(stopEvents, ['DOSO_REC_test_1_front.mp4', 'DOSO_REC_test_2_rear.mp4']);
+  assert.equal(screen.find('control-hud-recording-badge'), undefined);
+  screen.unmount();
 });

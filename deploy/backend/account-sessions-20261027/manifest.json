@@ -1,0 +1,94 @@
+{
+  "upstream_commit": "bc27d2661edd09a5d0b8d76ce33da6d4071a756e",
+  "functions_image": "public.ecr.aws/supabase/edge-runtime@sha256:fded42ff725708990b1a0803633c2659453259d075c4bec6b4d01dfb82dc055e",
+  "gateway_image_id": "sha256:7e5d2c0dbac760df975f4f5f809eec5f4149bfcfc0c538f2603df4ab29af25a8",
+  "route": "/functions/v1/account-sessions",
+  "worker_path": "/account-sessions",
+  "runtime_imports": [
+    "jsr:@panva/jose@6",
+    "npm:@supabase/supabase-js@2.112.3"
+  ],
+  "files": {
+    "cds.yaml": {
+      "bytes": 2506,
+      "sha256": "079d14f377f8834289aefc55b1a554da3277394146b41018bf20c90d11285d92"
+    },
+    "compose.account-sessions.yml": {
+      "bytes": 2143,
+      "sha256": "9fba2e1cc8de0249e266e5318cdbaac553249a3d844b2ad97060c46bbcb38fe3"
+    },
+    "dependency-probe/index.ts": {
+      "bytes": 369,
+      "sha256": "d8169a48398f56a2a7132691dbfe42df7d4698733b95fbfd49242b5b6c1a4a70"
+    },
+    "functions/_shared/actions.ts": {
+      "bytes": 599,
+      "sha256": "3e172b8f0efbb88c341d98411c820db72d18e3bde667edf9c65d3bd301e0b380"
+    },
+    "functions/_shared/audit.ts": {
+      "bytes": 1562,
+      "sha256": "87db77681713dbe09b3892b75b6cd8ca3d36ee607e3016af8390b31545a1fadb"
+    },
+    "functions/_shared/auth.ts": {
+      "bytes": 6072,
+      "sha256": "729cdf6b566d5cbd1730af80a7e796e0da256c15ec1e9b78e99847318a0c1f96"
+    },
+    "functions/_shared/http.ts": {
+      "bytes": 5260,
+      "sha256": "b743ee978ef3dadb4d4e76334e3754401f95c8e62d86603e4ad1adec0e6f9d7b"
+    },
+    "functions/account-sessions/index.ts": {
+      "bytes": 6504,
+      "sha256": "660ec08ebdb4757e29a515c0a46db84fcf5c329e0ef11c138229a88b4cbc0f75"
+    },
+    "functions/deno.jsonc": {
+      "bytes": 136,
+      "sha256": "a9a29da36c2576f755dd868b9f553a02afdf7d7bccf52e97e65c7f68cf36bfef"
+    },
+    "functions/main/index.ts": {
+      "bytes": 12494,
+      "sha256": "ed402c31abf346198d71cc7bab3b7eead03b91d6b9d638b30fc5e5fada25802b"
+    },
+    "lds.template.yaml": {
+      "bytes": 46311,
+      "sha256": "e2e3dbdfaf32157ab7f9b3b3f19b021e0b3ec44c9c1a72ea2ac3401f3d7add24"
+    }
+  },
+  "source_pins": {
+    "functions/main/index.ts": {
+      "path": "artifacts/release-readiness/20261026-aliyun-server-inventory/host-overlay-validation/reviewed/candidate/docker/volumes/functions/main/index.ts",
+      "bytes": 12494,
+      "sha256": "ed402c31abf346198d71cc7bab3b7eead03b91d6b9d638b30fc5e5fada25802b"
+    },
+    "functions/deno.jsonc": {
+      "path": "artifacts/release-readiness/20261026-aliyun-server-inventory/host-overlay-validation/reviewed/candidate/docker/volumes/functions/deno.jsonc",
+      "bytes": 136,
+      "sha256": "a9a29da36c2576f755dd868b9f553a02afdf7d7bccf52e97e65c7f68cf36bfef"
+    },
+    "functions/account-sessions/index.ts": {
+      "path": "supabase/functions/account-sessions/index.ts",
+      "bytes": 6504,
+      "sha256": "660ec08ebdb4757e29a515c0a46db84fcf5c329e0ef11c138229a88b4cbc0f75"
+    },
+    "functions/_shared/auth.ts": {
+      "path": "supabase/functions/_shared/auth.ts",
+      "bytes": 6072,
+      "sha256": "729cdf6b566d5cbd1730af80a7e796e0da256c15ec1e9b78e99847318a0c1f96"
+    },
+    "functions/_shared/http.ts": {
+      "path": "supabase/functions/_shared/http.ts",
+      "bytes": 5260,
+      "sha256": "b743ee978ef3dadb4d4e76334e3754401f95c8e62d86603e4ad1adec0e6f9d7b"
+    },
+    "functions/_shared/actions.ts": {
+      "path": "supabase/functions/_shared/actions.ts",
+      "bytes": 599,
+      "sha256": "3e172b8f0efbb88c341d98411c820db72d18e3bde667edf9c65d3bd301e0b380"
+    },
+    "functions/_shared/audit.ts": {
+      "path": "supabase/functions/_shared/audit.ts",
+      "bytes": 1562,
+      "sha256": "87db77681713dbe09b3892b75b6cd8ca3d36ee607e3016af8390b31545a1fadb"
+    }
+  }
+}

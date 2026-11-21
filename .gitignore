@@ -1,32 +1,77 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
 node_modules/
+
+# Expo
 .expo/
-.eas/
-.gradle/
+dist/
+dist-web/
+dist-android/
+web-build/
+expo-env.d.ts
+
+# Native
 .kotlin/
-.cxx/
-build/
-dist*/
-coverage/
-artifacts/
-releases/
-*.log
-*.tsbuildinfo
-.env*
-!.env.example
-local.properties
-credentials.json
-google-services.json
-GoogleService-Info.plist
-*.keystore
+*.orig.*
 *.jks
 *.p8
 *.p12
 *.key
-*.pem
 *.mobileprovision
-*.apk
-*.aab
-*.ipa
-*.aar
-*.otf
-*.ttf
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env*.local
+
+# typescript
+*.tsbuildinfo
+
+# generated native folders
+/ios
+/android
+
+# locally built Android binaries
+/releases/*.apk
+/releases/**/*.apk
+
+# local visual QA captures and unused Figma export archive
+/artifacts/
+/assets/figma/*.png
+!/assets/figma/home-01.png
+!/assets/figma/home-02.png
+!/assets/figma/home-03.png
+!/assets/figma/models-04.png
+!/assets/figma/models-05.png
+!/assets/figma/models-07.png
+!/assets/figma/models-08.png
+!/assets/figma/tasks-08.png
+!/assets/figma/tasks-10.png
+!/assets/figma/tasks-12.png
+!/assets/figma/nav-home.png
+!/assets/figma/nav-map.png
+!/assets/figma/nav-tasks.png
+!/assets/figma/nav-analysis.png
+!/assets/figma/nav-profile.png
+
+!/assets/figma/thunder-cutout.png
+
+# local module/tool native build outputs & python cache
+/modules/*/android/build/
+/modules/*/android/.cxx/
+/modules/*/android/.gradle/
+/tools/*/build/
+/.ruff_cache/
+**/__pycache__/
+*.pyc

@@ -1,0 +1,14 @@
+# Append as layer 14; change only the functions source mount.
+services:
+  functions:
+    environment:
+      DOSO_ALLOWED_WEB_ORIGINS: http://localhost:8081
+    volumes: !override
+      - type: bind
+        source: ./doso/simulated-device-20261107/functions
+        target: /home/deno/functions
+        read_only: true
+        bind: {create_host_path: false}
+      - type: volume
+        source: deno-cache
+        target: /root/.cache/deno

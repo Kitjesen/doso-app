@@ -1,0 +1,12 @@
+{$PROXY_DOMAIN} {
+    @doso_api path /auth/v1/* /rest/v1/* /graphql/v1 /realtime/v1/* /storage/v1/* /functions/v1/account-sessions /functions/v1/account-sessions/*
+    handle @doso_api {
+        reverse_proxy api-gw:8000
+    }
+
+    # Studio, MCP and the upstream hello function stay off the public endpoint.
+    handle {
+        respond 404
+    }
+    header -Server
+}

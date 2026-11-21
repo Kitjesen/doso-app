@@ -1,0 +1,25 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.mediacapture'
+version = '1.0.0'
+
+android {
+  namespace 'expo.modules.mediacapture'
+  defaultConfig {
+    minSdkVersion 24
+    versionCode 1
+    versionName '1.0.0'
+  }
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+}
+
+dependencies {
+  compileOnly project(':react-native-webrtc')
+  compileOnly 'org.jitsi:webrtc:155.0.1'
+}

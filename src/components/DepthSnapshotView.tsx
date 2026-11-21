@@ -50,12 +50,14 @@ function DepthPreview({ endpoint }: { endpoint: string }) {
   </>;
 }
 
-export function DepthSnapshotView({ host, active, size = 124 }: {
+export function DepthSnapshotView({ host, active, size = 124, defaultExpanded = false, fillContainer = false }: {
   host: string | null;
   active: boolean;
   size?: number;
+  defaultExpanded?: boolean;
+  fillContainer?: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [resizing, setResizing] = useState(false);
   const [requestedSize, setRequestedSize] = useState(size);
   const [available, setAvailable] = useState({ width: MAX_SIZE, height: MAX_SIZE });
@@ -67,6 +69,15 @@ export function DepthSnapshotView({ host, active, size = 124 }: {
   resize.current = { allowed: canResize, frameSize, limit };
   const dragStart = useRef<number | null>(null);
   const endpoint = snapshotUrl(host);
+
+  if (fillContainer) {
+    return (
+      <View style={StyleSheet.absoluteFill} testID="control-hud-depth">
+        {active && endpoint ? <DepthPreview key={endpoint} endpoint={endpoint} />
+          : <Text style={styles.status}>{active ? '深度图暂不可用' : '已暂停'}</Text>}
+      </View>
+    );
+  }
 
   const resizePanResponder = useMemo(() => PanResponder.create({
     onStartShouldSetPanResponder: () => resize.current.allowed,

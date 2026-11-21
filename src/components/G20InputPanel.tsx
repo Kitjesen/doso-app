@@ -8,7 +8,7 @@ import { useAppTheme } from '../theme';
 import { controlTypography as typography } from '../typography';
 
 export type G20InputAxis = 'leftX' | 'leftY' | 'rightX' | 'rightY';
-export type G20InputButton = 'stand' | 'sit' | 'stop' | 'enableMotor' | 'disableMotor' | 'switchPolicy';
+export type G20InputButton = 'stand' | 'sit' | 'stop' | 'enableMotor' | 'disableMotor' | 'switchPolicy' | 'toggleJointParams';
 export type G20InputPanelState = Readonly<{
   status: string;
   reading: boolean;
@@ -53,6 +53,7 @@ const buttons: readonly Readonly<{ id: G20InputButton; label: string }>[] = [
   { id: 'enableMotor', label: '电机使能' },
   { id: 'disableMotor', label: '电机失能' },
   { id: 'switchPolicy', label: '策略选择' },
+  { id: 'toggleJointParams', label: '关节参数 (L1)' },
 ];
 
 const statusLabels: Readonly<Record<string, string>> = {
@@ -107,67 +108,67 @@ export function G20InputPanel({
   return (
     <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={[styles.safe, { backgroundColor: colors.background }]} testID="g20-input-panel">
       <ControlSetupPage title="遥控器输入" onBack={onClose} backTestID="g20-input-close" media={media} header={header}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} style={{ borderRadius: 22, borderWidth: .5, borderColor: colors.line, backgroundColor: colors.surface }}>
-        {state.message ? <Text accessibilityLiveRegion="polite" style={[styles.caption, { color: colors.muted }]} testID="g20-input-message">{state.message}</Text> : null}
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} style={{ borderRadius: 22, borderWidth: .5, borderColor: colors.line, backgroundColor: colors.surface }}>
+          {state.message ? <Text accessibilityLiveRegion="polite" style={[styles.caption, { color: colors.muted }]} testID="g20-input-message">{state.message}</Text> : null}
 
-        <View style={styles.sourceRow} testID="g20-input-sources">
-          <Text accessibilityLiveRegion="polite" style={[styles.caption, { color: colors.muted }]} testID="g20-input-status">{status}</Text>
-          {action('g20-source-touch', '触屏摇杆', () => onSourceChange('touch'), false, source === 'touch')}
-          {action('g20-source-physical', '实体摇杆', () => onSourceChange('physical'), !canSelectPhysical, source === 'physical' && canSelectPhysical)}
-          <View style={{ flex: 1 }} />
-          {state.reading || starting
-            ? action('g20-input-stop', '停止读取', onStop)
-            : action('g20-input-start', '读取输入', onStart, !state.available)}
-        </View>
+          <View style={styles.sourceRow} testID="g20-input-sources">
+            <Text accessibilityLiveRegion="polite" style={[styles.caption, { color: colors.muted }]} testID="g20-input-status">{status}</Text>
+            {action('g20-source-touch', '触屏摇杆', () => onSourceChange('touch'), false, source === 'touch')}
+            {action('g20-source-physical', '实体摇杆', () => onSourceChange('physical'), !canSelectPhysical, source === 'physical' && canSelectPhysical)}
+            <View style={{ flex: 1 }} />
+            {state.reading || starting
+              ? action('g20-input-stop', '停止读取', onStop)
+              : action('g20-input-start', '读取输入', onStart, !state.available)}
+          </View>
 
-        <View style={styles.metrics} testID="g20-input-vectors">
-          {axes.map(axis => <View key={axis.id} style={[styles.metric, { backgroundColor: colors.surface, borderColor: colors.line }]}>
-            <Text style={[styles.caption, { color: colors.muted }]}>{axis.label}</Text>
-            <Text style={[styles.value, { color: colors.ink }]} testID={`g20-value-${axis.id}`}>{axisValue(hasSample ? state.vector?.[axis.id] : undefined)}</Text>
-          </View>)}
-        </View>
+          <View style={styles.metrics} testID="g20-input-vectors">
+            {axes.map(axis => <View key={axis.id} style={[styles.metric, { backgroundColor: colors.surface, borderColor: colors.line }]}>
+              <Text style={[styles.caption, { color: colors.muted }]}>{axis.label}</Text>
+              <Text style={[styles.value, { color: colors.ink }]} testID={`g20-value-${axis.id}`}>{axisValue(hasSample ? state.vector?.[axis.id] : undefined)}</Text>
+            </View>)}
+          </View>
 
-        <Text style={[styles.sectionTitle, { color: colors.ink }]}>原始通道</Text>
-        <View style={styles.channels} testID="g20-input-channels">
-          {Array.from({ length: 16 }, (_, channel) => <View key={channel} style={[styles.channel, { backgroundColor: colors.surface, borderColor: colors.line }]}>
-            <Text style={[styles.caption, { color: colors.muted }]}>CH{channel + 1}</Text>
-            <Text style={[styles.value, { color: colors.ink }]} testID={`g20-channel-${channel + 1}`}>{rawValue(hasSample ? state.sample?.channels[channel] : undefined)}</Text>
-          </View>)}
-        </View>
+          <Text style={[styles.sectionTitle, { color: colors.ink }]}>原始通道</Text>
+          <View style={styles.channels} testID="g20-input-channels">
+            {Array.from({ length: 16 }, (_, channel) => <View key={channel} style={[styles.channel, { backgroundColor: colors.surface, borderColor: colors.line }]}>
+              <Text style={[styles.caption, { color: colors.muted }]}>CH{channel + 1}</Text>
+              <Text style={[styles.value, { color: colors.ink }]} testID={`g20-channel-${channel + 1}`}>{rawValue(hasSample ? state.sample?.channels[channel] : undefined)}</Text>
+            </View>)}
+          </View>
 
-        <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, { color: colors.ink }]}>输入校验</Text>
-          {action('g20-calibration-begin', state.calibrating ? '重新开始' : state.calibrated ? '重新校验' : '开始校验', onBeginCalibration, !hasSample)}
-          {state.calibrating ? action('g20-calibration-finish', '完成校验', onFinishCalibration, !configurationReady || !state.calibrated) : null}
-          {action('g20-calibration-clear', '清除', onClearCalibration, !state.calibrating && !state.calibrated)}
-        </View>
-        <Text style={[styles.caption, { color: colors.muted }]} testID="g20-calibration-instruction">
-          {state.calibrating ? '按住当前项后记录，全部松开后完成。校验期间 App 不发送动作。' : state.reading && !configurationReady
-            ? '校验会读取配置，遥控器可能发出提示音。' : '先断开机器人接收机，松开所有摇杆和按键后开始。'}
-        </Text>
-        <View style={styles.list}>
-          {axes.map(axis => <View key={axis.id} style={[styles.row, { borderColor: colors.line }]} testID={`g20-axis-${axis.id}`}>
-            <View style={styles.rowCopy}>
-              <Text style={[styles.body, { color: colors.ink }]}>{axis.instruction}</Text>
-              <Text style={[styles.caption, { color: colors.muted }]}>{channelLabel(state.axes[axis.id]?.channel)}</Text>
-            </View>
-            {action(`g20-learn-${axis.id}`, `记录${axis.instruction}`, () => onLearnAxis(axis.id), !canLearn)}
-          </View>)}
-        </View>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.sectionTitle, { color: colors.ink }]}>输入校验</Text>
+            {action('g20-calibration-begin', state.calibrating ? '重新开始' : state.calibrated ? '重新校验' : '开始校验', onBeginCalibration, !hasSample)}
+            {state.calibrating ? action('g20-calibration-finish', '完成校验', onFinishCalibration, !configurationReady || !state.calibrated) : null}
+            {action('g20-calibration-clear', '清除', onClearCalibration, !state.calibrating && !state.calibrated)}
+          </View>
+          <Text style={[styles.caption, { color: colors.muted }]} testID="g20-calibration-instruction">
+            {state.calibrating ? '按住当前项后记录，全部松开后完成。校验期间 App 不发送动作。' : state.reading && !configurationReady
+              ? '校验会读取配置，遥控器可能发出提示音。' : '先断开机器人接收机，松开所有摇杆和按键后开始。'}
+          </Text>
+          <View style={styles.list}>
+            {axes.map(axis => <View key={axis.id} style={[styles.row, { borderColor: colors.line }]} testID={`g20-axis-${axis.id}`}>
+              <View style={styles.rowCopy}>
+                <Text style={[styles.body, { color: colors.ink }]}>{axis.instruction}</Text>
+                <Text style={[styles.caption, { color: colors.muted }]}>{channelLabel(state.axes[axis.id]?.channel)}</Text>
+              </View>
+              {action(`g20-learn-${axis.id}`, `记录${axis.instruction}`, () => onLearnAxis(axis.id), !canLearn)}
+            </View>)}
+          </View>
 
-        <Text style={[styles.sectionTitle, { color: colors.ink }]}>动作按键</Text>
-        <Text style={[styles.caption, { color: colors.muted }]}>选配，按住对应按键后记录。</Text>
-        <View style={styles.list}>
-          {buttons.map(button => <View key={button.id} style={[styles.row, { borderColor: colors.line }]} testID={`g20-button-${button.id}`}>
-            <View style={styles.rowCopy}>
-              <Text style={[styles.body, { color: colors.ink }]}>{button.label}</Text>
-              <Text style={[styles.caption, { color: colors.muted }]}>{channelLabel(state.buttons[button.id]?.channel)}{state.buttons[button.id] && hasSample ? state.pressed ? state.pressed.includes(button.id) ? ' 按下' : ' 释放' : ' 未同步' : ''}</Text>
-            </View>
-            {action(`g20-learn-button-${button.id}`, `记录${button.label}键`, () => onLearnButton(button.id), !canLearn)}
-          </View>)}
-        </View>
+          <Text style={[styles.sectionTitle, { color: colors.ink }]}>动作按键</Text>
+          <Text style={[styles.caption, { color: colors.muted }]}>选配，按住对应按键后记录。</Text>
+          <View style={styles.list}>
+            {buttons.map(button => <View key={button.id} style={[styles.row, { borderColor: colors.line }]} testID={`g20-button-${button.id}`}>
+              <View style={styles.rowCopy}>
+                <Text style={[styles.body, { color: colors.ink }]}>{button.label}</Text>
+                <Text style={[styles.caption, { color: colors.muted }]}>{channelLabel(state.buttons[button.id]?.channel)}{state.buttons[button.id] && hasSample ? state.pressed ? state.pressed.includes(button.id) ? ' 按下' : ' 释放' : ' 未同步' : ''}</Text>
+              </View>
+              {action(`g20-learn-button-${button.id}`, `记录${button.label}键`, () => onLearnButton(button.id), !canLearn)}
+            </View>)}
+          </View>
 
-      </ScrollView>
+        </ScrollView>
       </ControlSetupPage>
     </SafeAreaView>
   );

@@ -1,0 +1,11 @@
+{
+  "status": "simulated_device_ready",
+  "backup": "/opt/doso-backend-shadow/env/simulated-device-l7mc34_q",
+  "running_services": 6,
+  "functions_changed": [
+    "admin-devices/handler.ts",
+    "remote-state/handler.ts"
+  ],
+  "other_services_preserved": true,
+  "environment_preserved": true
+}

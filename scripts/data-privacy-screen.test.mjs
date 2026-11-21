@@ -4,7 +4,6 @@ import { createRequire } from 'node:module';
 import test from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
-import { mountAuthScreen } from './helpers/auth-screen-harness.mjs';
 import { loadVisualTokenModules } from './helpers/visual-token-modules.mjs';
 
 const require = createRequire(import.meta.url);
@@ -62,7 +61,7 @@ function mountPrivacy({ dark = false, width = 390, height = 844, fontScale = 1, 
   };
 }
 
-function mountProfile({ onOpenDataPrivacy } = {}) {
+function mountProfile({ onOpenDataPrivacy, detailsOnly = false } = {}) {
   const module = { exports: {} };
   const source = readFileSync(new URL('src/screens/ProfileScreen.tsx', root), 'utf8');
   const code = ts.transpileModule(source, {
@@ -81,6 +80,8 @@ function mountProfile({ onOpenDataPrivacy } = {}) {
       if (name === 'react') return {
         useMemo: factory => factory(),
         useCallback: callback => callback,
+        useContext: () => ({ preference: 'dark' }),
+        useEffect: () => {},
         useState(initial) {
           const slot = stateCursor++;
           if (!(slot in states)) states[slot] = typeof initial === 'function' ? initial() : initial;
@@ -88,21 +89,20 @@ function mountProfile({ onOpenDataPrivacy } = {}) {
         },
       };
       if (name === 'react-native') return {
-        Image: 'Image', Pressable: 'Pressable', ScrollView: 'ScrollView', Switch: 'Switch', View: 'View',
+        Image: 'Image', Modal: 'Modal', Pressable: 'Pressable', ScrollView: 'ScrollView', Switch: 'Switch', View: 'View',
         StyleSheet: { create: value => value, hairlineWidth: 1 },
         useWindowDimensions: () => ({ width: 390, height: 844, fontScale: 1, scale: 1 }),
       };
       if (name === '@expo/vector-icons') return { Ionicons: 'Ionicons' };
       if (name === 'expo-linear-gradient') return { LinearGradient: 'LinearGradient' };
       if (name === 'react-native-safe-area-context') return { useSafeAreaInsets: () => ({ top: 24, bottom: 20, left: 0, right: 0 }) };
-      if (name.endsWith('/AppText')) return { Text: 'Text' };
+      if (name.endsWith('/HomeText')) return { Text: 'Text' };
+      if (name === '../components/ProductHeader') return { ProductHeader: 'ProductHeader' };
+      if (name === '../components/ControlPanelMotion') return { ControlPanelMotion: 'View' };
       if (name === './profileLayout') return {
-        PROFILE_LANDSCAPE_CONTROLS_TOP: 0,
-        PROFILE_LANDSCAPE_DEVICE_TOP: 0,
-        getSafeProfileTopOffset: () => 0,
-        getProfileLayoutMetrics: () => ({ contentWidth: 390, controlsColumnWidth: 390, deviceColumnWidth: 390, gridGap: 0, isLandscape: false, leadingInset: 0, usesColumns: false }),
+        getProfileLayoutMetrics: () => ({ contentWidth: 390, controlsColumnWidth: 390, deviceColumnWidth: 390, gridGap: 0, isLandscape: false, padding: 20, availableGridWidth: 350, usesColumns: false, isCompactColumns: false }),
       };
-      if (name === '../theme') return { useAppTheme: () => ({ colors, isDark: false }) };
+      if (name === '../theme') return { AppearanceControlContext: {}, useAppTheme: () => ({ colors, isDark: false }) };
       if (name === '../appearance') return loadVisualTokenModules().appearance;
       if (name === '../typography') return loadVisualTokenModules().typography;
       if (name === '../components/FontLicenseNotice') return { FontLicenseNotice: () => null };
@@ -119,8 +119,8 @@ function mountProfile({ onOpenDataPrivacy } = {}) {
     nodes.push(node); walk(node.props.children);
   }
   walk(module.exports.ProfileScreen({
-    accountEmail: 'pilot@example.com', alertsEnabled: false, canOpenFirmwareUpdate: false,
-    canOpenProvisioning: false, connected: false, deviceName: 'THUNDER 01', deviceType: '室外四足机器人',
+    detailsOnly, alertsEnabled: false, canOpenFirmwareUpdate: false,
+    canOpenProvisioning: false, connected: false, deviceName: 'THUNDER 01', deviceType: '等待连接机器狗',
     onConnect() {}, onDisconnect() {}, onOpenBleDiscovery() {}, onOpenFirmwareUpdate() {}, onOpenProvisioning() {},
     onRetry() {}, onToggleAlerts() {}, safetyLock: null, onOpenDataPrivacy,
   }));
@@ -129,29 +129,23 @@ function mountProfile({ onOpenDataPrivacy } = {}) {
 
 test('data privacy screen renders the current factual data scope as read-only scrollable content', () => {
   const screen = mountPrivacy();
-  assert.match(screen.copy, /登录与个人资料/);
-  assert.match(screen.copy, /终端与账户安全/);
-  assert.match(screen.copy, /机器人与连接/);
-  assert.match(screen.copy, /本机保存/);
+  assert.match(screen.copy, /机器狗连接与地址保存/);
+  assert.match(screen.copy, /实时画面与只读诊断/);
+  assert.match(screen.copy, /附近蓝牙设备与定位开关/);
+  assert.match(screen.copy, /本机偏好保存/);
   assert.match(screen.copy, /不替代正式隐私政策/);
-  assert.match(screen.copy, /账户删除服务尚未接通/);
+  assert.match(screen.copy, /账号登录与云端同步功能已在本版本暂时下线/);
   assert.ok(screen.nodes.some(node => node.type === 'ScrollView'));
   assert.equal(screen.nodes.some(node => node.type === 'TextInput' || node.type === 'Switch'), false);
 });
 
-test('privacy screen distinguishes logout from erasing retained local records without offering a destructive action', () => {
+test('privacy screen keeps a single non-destructive back action', () => {
   for (const dark of [false, true]) {
     for (const [width, height] of [[390, 844], [844, 390]]) {
       let backs = 0;
       const screen = mountPrivacy({ dark, width, height, onBack: () => { backs += 1; } });
-      assert.match(screen.copy, /退出登录不会清除全部本机记录/);
-      assert.match(screen.copy, /安装标识会保留/);
-      assert.match(screen.copy, /未完成核对或清理的头像操作日志也会保留/);
-      assert.match(screen.copy, /头像操作日志不包含密码或图片内容/);
-      assert.match(screen.copy, /本页不会提交注销或解绑/);
-      assert.match(screen.copy, /退出登录不等于删除账户/);
       const actions = screen.nodes.filter(node => node.type === 'Pressable');
-      assert.equal(actions.length, 1, 'the read-only page must not offer erasure or account deletion');
+      assert.equal(actions.length, 1, 'the read-only page must not offer extra actions');
       assert.equal(actions[0].props.accessibilityLabel, '返回');
       actions[0].props.onPress();
       assert.equal(backs, 1);
@@ -169,40 +163,17 @@ test('privacy explains legacy Android BLE location permission without implying p
           && typeof node.props.children === 'string' && node.props.children.includes('BLE 扫描'));
         assert.ok(disclosure);
         assert.match(disclosure.props.children, /Android 11 及以下.*位置权限.*定位服务/);
-        assert.match(disclosure.props.children, /此扫描流程仅检查定位服务是否开启/);
+        assert.match(disclosure.props.children, /此流程仅用于系统扫描所需检查/);
         assert.match(disclosure.props.children, /不读取、保存或上传手机经纬度/);
-        assert.match(disclosure.props.children, /只在你主动操作时触发/);
-        assert.match(disclosure.props.children, /发现广播不代表已经完成安全配网或设备连接/);
+        assert.match(disclosure.props.children, /只在你主动点击开始查找时触发/);
+        assert.match(disclosure.props.children, /发现广播不代表已经完成安全配网或设备授权/);
         assert.equal(disclosure.props.selectable, true);
         assert.equal(disclosure.props.numberOfLines, undefined);
         assert.ok(screen.nodes.some(node => node.type === 'ScrollView'));
         assert.equal(screen.nodes.filter(node => node.type === 'Pressable').length, 1);
-        assert.match(screen.copy, /账户删除服务尚未接通/);
         screen.action('data-privacy-back').props.onPress(); assert.equal(backs, 1);
       }
     }
-  }
-});
-
-test('login and register privacy entries open without unmounting or clearing form values', () => {
-  for (const screenName of ['login', 'register']) {
-    let opens = 0;
-    const screen = mountAuthScreen({ screen: screenName, onOpenDataPrivacy: () => { opens += 1; } });
-    if (screenName === 'login') {
-      screen.field('邮箱地址').props.onChangeText('pilot@example.com');
-      screen.field('密码').props.onChangeText('StrongPass123');
-    } else {
-      screen.fill('pilot_01', 'pilot@example.com', 'StrongPass123');
-    }
-    screen.render();
-    const entry = screen.action(`${screenName}-data-privacy`);
-    assert.ok(entry);
-    entry.props.onPress();
-    assert.equal(opens, 1);
-    screen.render();
-    assert.equal(screen.field(screenName === 'login' ? '邮箱地址' : '电子邮箱').props.value, 'pilot@example.com');
-    assert.equal(screen.field('密码').props.value, 'StrongPass123');
-    assert.equal(mountAuthScreen({ screen: screenName }).action(`${screenName}-data-privacy`), undefined);
   }
 });
 
@@ -231,7 +202,7 @@ test('production App modal callbacks preserve the underlying stage and support p
     if ((ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node))) {
       const opening = ts.isJsxElement(node) ? node.openingElement : node;
       const name = opening.tagName.getText(file);
-      if (['Modal', 'DataPrivacyScreen', 'LoginScreen', 'RegisterScreen', 'ProfileScreen'].includes(name)) {
+      if (['Modal', 'DataPrivacyScreen', 'ProfileScreen'].includes(name)) {
         const entries = new Map(opening.attributes.properties
           .filter(ts.isJsxAttribute)
           .map(attribute => [attribute.name.getText(file), attribute.initializer?.getText(file) ?? 'true']));
@@ -266,9 +237,7 @@ test('production App modal callbacks preserve the underlying stage and support p
   assert.match(modal?.get('supportedOrientations') ?? '', /landscape-left/);
   assert.match(modal?.get('supportedOrientations') ?? '', /landscape-right/);
   assert.equal(jsx.get('DataPrivacyScreen')?.[0]?.get('onBack'), '{closeDataPrivacy}');
-  for (const name of ['LoginScreen', 'RegisterScreen', 'ProfileScreen']) {
-    assert.ok(jsx.get(name)?.some(attributes => attributes.get('onOpenDataPrivacy') === '{openDataPrivacy}'));
-  }
+  assert.ok(jsx.get('ProfileScreen')?.some(attributes => attributes.get('onOpenDataPrivacy') === '{openDataPrivacy}'));
 });
 
 test('privacy content remains scrollable, themed and safe-area padded in landscape with dynamic text', () => {
@@ -290,4 +259,3 @@ test('privacy content remains scrollable, themed and safe-area padded in landsca
   assert.ok(textNodes.filter(node => node.props.selectable).length >= 10);
   assert.equal(textNodes.some(node => node.props.numberOfLines != null), false, 'long privacy copy must not be truncated');
 });
-

@@ -196,7 +196,7 @@ test('rejection recovery fails closed on unconfirmed stop, read failure or resid
       if (scenario === 'lease') f.transport.read = async () => f.reply({ leaseActive: true, leaseOwnerMatched: true });
       await assert.rejects(f.session.action('enable'), error => {
         assert.equal(error.code, scenario === 'read' ? 'unavailable' : 'stop_unconfirmed');
-        assert.match(error.message, scenario === 'read' ? /连接已中断/ : /停止请求未确认/); return true;
+        assert.match(error.message, scenario === 'read' ? /控制已断开/ : /停止请求未确认/); return true;
       });
       assert.equal(f.session.state.connected, false, scenario);
       assert.equal(f.session.state.leaseActive, false, scenario);
@@ -213,7 +213,7 @@ test('action errors expose only whitelisted codes and fixed messages', async t =
     f.transport.action = async () => { throw { code: 'private\ncode', message: 'private-message' }; };
     await assert.rejects(f.session.action('enable'), error => {
       assert.equal(error.code, 'unknown');
-      assert.equal(error.message, '控制连接已中断，请重新连接并申请控制权。'); return true;
+      assert.equal(error.message, '控制已断开，请重新连接'); return true;
     });
   } finally { await f.session.disconnect(); }
 });

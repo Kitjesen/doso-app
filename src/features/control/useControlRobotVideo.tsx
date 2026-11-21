@@ -10,6 +10,8 @@ import { startVideoProbe, type VideoProbeView } from './whepVideoSession';
 export function useControlRobotVideo({ host, enabled }: { host: string | null; enabled: boolean }): {
   presentation?: ControlVideoPresentation;
   surface?: ReactNode;
+  stream?: unknown;
+  rotation?: number;
 } {
   const baseUrl = videoProbeBaseUrl(host);
   const [view, setView] = useState<VideoProbeView | null>(null);
@@ -44,5 +46,7 @@ export function useControlRobotVideo({ host, enabled }: { host: string | null; e
   return {
     presentation: { id: view.id, phase },
     surface: streamUrl ? <RobotVideoFrame rotationDegrees={view.rotationDegrees} streamUrl={streamUrl} /> : undefined,
+    stream: phase === 'receiving' ? view.stream : null,
+    rotation: view.rotationDegrees,
   };
 }

@@ -9,8 +9,16 @@ import {
   type DirectRobotConnectionSnapshot,
 } from '../../services/directRobotConnection';
 
+const elapsedNow = () => {
+  try {
+    return typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : NaN;
+  } catch {
+    return NaN;
+  }
+};
+
 type Owner = Readonly<{ ownerKey: string | null; endpoint: BrainstemGrpcEndpoint | null; active: boolean }>;
-type Reading = Readonly<{ owner: Owner; snapshot: DirectRobotConnectionSnapshot | null; error: string | null; refreshing: boolean }>;
+type Reading = Readonly<{ owner: Owner; snapshot: DirectRobotConnectionSnapshot | null; latencyMs: number | null; error: string | null; refreshing: boolean }>;
 let requestSequence = 0;
 const requestId = () => `telemetry-${Date.now()}-${++requestSequence}`;
 
@@ -34,12 +42,19 @@ export function useBrainstemTelemetry({ ownerKey, endpoint, active }: Owner) {
     if (!valid() || pending.current) return;
     const request = { owner: captured, controller: new AbortController() };
     pending.current = request;
-    setReading(value => ({ owner: captured,
+    setReading(value => ({
+      owner: captured,
       snapshot: value?.owner === captured && value.snapshot && isDirectRobotConnectionFresh(value.snapshot) ? value.snapshot : null,
-      error: null, refreshing: true }));
+      latencyMs: value?.owner === captured ? value.latencyMs : null,
+      error: null, refreshing: true
+    }));
     try {
       const options = () => ({ endpoint: captured.endpoint!, requestId: requestId(), signal: request.controller.signal });
+      const startedAt = elapsedNow();
       const observation = await readBrainstemGrpcStatus(options());
+      const finishedAt = elapsedNow();
+      const rawLatency = Number.isFinite(startedAt) && Number.isFinite(finishedAt) ? Math.round(finishedAt - startedAt) : null;
+      const latencyMs = rawLatency !== null && Number.isFinite(rawLatency) && rawLatency >= 0 && rawLatency < 15000 ? rawLatency : null;
       if (!valid() || request.controller.signal.aborted) return;
       let enriched = observation;
       let partial = false;
@@ -58,9 +73,9 @@ export function useBrainstemTelemetry({ ownerKey, endpoint, active }: Owner) {
         }
       }
       const snapshot = createDirectRobotConnectionSnapshot(captured.endpoint!, enriched);
-      if (valid()) setReading({ owner: captured, snapshot, error: partial ? '部分遥测未读取，请刷新重试。' : null, refreshing: false });
+      if (valid()) setReading({ owner: captured, snapshot, latencyMs, error: partial ? '部分遥测未读取，请刷新重试。' : null, refreshing: false });
     } catch {
-      if (valid() && !request.controller.signal.aborted) setReading({ owner: captured, snapshot: null, error: '遥测读取失败，请检查连接后重试。', refreshing: false });
+      if (valid() && !request.controller.signal.aborted) setReading({ owner: captured, snapshot: null, latencyMs: null, error: '遥测读取失败，请检查连接后重试。', refreshing: false });
     } finally {
       if (pending.current === request) pending.current = null;
     }
@@ -88,10 +103,25 @@ export function useBrainstemTelemetry({ ownerKey, endpoint, active }: Owner) {
   useEffect(() => {
     if (!snapshot) return;
     const timer = setTimeout(() => {
-      if (valid()) setReading(value => value?.snapshot === snapshot ? { ...value, snapshot: null } : value);
+      if (valid()) setReading(value => value?.snapshot === snapshot ? { ...value, snapshot: null, latencyMs: null } : value);
     }, Math.max(0, Date.parse(snapshot.observation.observedAt) + 15000 - Date.now()));
     return () => clearTimeout(timer);
   }, [snapshot, captured]);
-  return { snapshot, presentation: snapshot ? describeDirectRobotConnection(snapshot) : null,
-    error: current?.error ?? null, refreshing: current?.refreshing ?? false, refresh };
+  const basePresentation = snapshot ? describeDirectRobotConnection(snapshot) : null;
+  const latencyMs = snapshot && typeof current?.latencyMs === 'number' && Number.isFinite(current.latencyMs) && current.latencyMs >= 0
+    ? current.latencyMs
+    : null;
+  const presentation = basePresentation
+    ? {
+      ...basePresentation,
+      runtimeState: {
+        ...basePresentation.runtimeState,
+        ...(latencyMs !== null ? { robotLinkLatencyMs: latencyMs } : {}),
+      },
+    }
+    : null;
+  return {
+    snapshot, presentation,
+    error: current?.error ?? null, refreshing: current?.refreshing ?? false, refresh
+  };
 }

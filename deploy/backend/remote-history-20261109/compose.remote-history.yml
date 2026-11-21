@@ -1,0 +1,47 @@
+# Append after the active device-cloud layer. Only api-gw and functions may change.
+services:
+  api-gw:
+    volumes: !override
+      - type: bind
+        source: ./doso/gateway-loopback-20261027/envoy.yaml
+        target: /etc/envoy/envoy.yaml
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: ./doso/remote-history-20261109/cds.yaml
+        target: /etc/envoy/cds.yaml
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: ./doso/remote-history-20261109/lds.template.yaml
+        target: /etc/envoy/lds.template.yaml
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: ./doso/gateway-loopback-20261027/validate-config.mjs
+        target: /app/validate-config.mjs
+        read_only: true
+        bind: { create_host_path: false }
+
+  functions:
+    environment: !override
+      SUPABASE_URL: http://api-gw:8000
+      SUPABASE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL:?Use the existing approved test origin}
+      SUPABASE_ANON_KEY: ${ANON_KEY:?Use the existing new test public key}
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:?Use the existing server-only test key}
+      DOSO_REMOTE_SYNC_SECRET_NAME: remote-state-sync
+      VERIFY_JWT: "false"
+      DOSO_ALLOWED_WEB_ORIGINS: http://localhost:8081
+      DENO_DIR: /root/.cache/deno
+      DOSO_TELEMETRY_EXPORT_SECRET_NAME: telemetry-export
+    volumes: !override
+      - type: bind
+        source: ./doso/remote-history-20261109/functions
+        target: /home/deno/functions
+        read_only: true
+        bind: { create_host_path: false }
+      - type: volume
+        source: deno-cache
+        target: /root/.cache/deno
+    env_file:
+      - /opt/doso-backend-shadow/env/remote-history.env

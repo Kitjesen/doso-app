@@ -9,19 +9,19 @@ import {
   maskPeripheralId,
   mergeCandidate,
   sortCandidates,
-// @ts-expect-error Node verifier uses the explicit TypeScript source entrypoint.
+  // @ts-expect-error Node verifier uses the explicit TypeScript source entrypoint.
 } from '../src/features/robot-lifecycle/bleDiscoveryModel.ts';
 import {
   isSuccessfulBleStopStatus,
   requiresLegacyAndroidLocationServices,
   runBleDiscoveryScanSession,
   shouldStopBleScanForAppState,
-// @ts-expect-error Node verifier uses the explicit TypeScript source entrypoint.
+  // @ts-expect-error Node verifier uses the explicit TypeScript source entrypoint.
 } from '../src/features/robot-lifecycle/bleDiscoverySession.ts';
 import {
   BleDiscoveryCancelledError,
   BleDiscoveryError,
-// @ts-expect-error Node verifier uses the explicit TypeScript source entrypoint.
+  // @ts-expect-error Node verifier uses the explicit TypeScript source entrypoint.
 } from '../src/features/robot-lifecycle/bleDiscoveryContract.ts';
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -137,7 +137,7 @@ await check('native scan session preserves Android failure status instead of rep
   const fake = createFakeBleRuntime();
   const pending = runBleDiscoveryScanSession(fake.runtime, {
     seconds: 8,
-    onCandidates() {},
+    onCandidates() { },
     toCandidate: (peripheral) => candidateFromPeripheral(peripheral, { namePrefix: 'DOSO', serviceUuid: null }),
   });
   await fake.ready;
@@ -154,7 +154,7 @@ await check('native scan session accepts an explicit normal stop status', async 
   const fake = createFakeBleRuntime();
   const pending = runBleDiscoveryScanSession(fake.runtime, {
     seconds: 8,
-    onCandidates() {},
+    onCandidates() { },
     toCandidate: (peripheral) => candidateFromPeripheral(peripheral, { namePrefix: 'DOSO', serviceUuid: null }),
   });
   await fake.ready;
@@ -239,9 +239,9 @@ await check('native wiring requests permission, scans, cleans up, and never writ
   assert.match(screen, /应用进入后台，蓝牙扫描已停止/, 'the interruption reason is visible to the user');
   assert.match(screen, /accessibilityState=\{\{ busy: status === 'scanning' \}\}/, 'assistive technology receives the active scan state');
   assert.match(app, /import \{ BleDiscoveryScreen \} from '\.\/src\/screens\/BleDiscoveryScreen';/);
-  assert.match(app, /stage === 'ble-discovery'[\s\S]*?<BleDiscoveryScreen[\s\S]*?onBack=\{returnFromBleDiscovery\}/);
-  assert.match(app, /onOpenBleDiscovery=\{\(\) => openBleDiscovery\('main'\)\}/);
-  assert.match(app, /canOpenProvisioning=\{robotCapabilityReadiness\.provisioning\.available\}/);
+  assert.match(app, /stage === 'ble-discovery'[\s\S]*?<BleDiscoveryScreen[\s\S]*?onBack=\{returnToDeviceSettings\}/);
+  assert.match(app, /onOpenBleDiscovery=\{\(\) => setStage\('ble-discovery'\)\}/);
+  assert.match(app, /canOpenProvisioning=\{false\}/);
   assert.match(profile, /title="附近 BLE 设备"/);
   // Connection is now explicit in the BLE screen, while this entry still only
   // navigates there. The scanner's no-connect/no-write assertion above stays.
@@ -298,8 +298,8 @@ function escapeRegex(value: string) {
 }
 
 function createFakeBleRuntime() {
-  let discoverListener = () => {};
-  let stopListener = () => {};
+  let discoverListener = () => { };
+  let stopListener = () => { };
   let resolveReady;
   let scanning = false;
   const state = {
@@ -310,11 +310,11 @@ function createFakeBleRuntime() {
   const runtime = {
     onDiscover(listener) {
       discoverListener = listener;
-      return { remove() { state.removedSubscriptions += 1; discoverListener = () => {}; } };
+      return { remove() { state.removedSubscriptions += 1; discoverListener = () => { }; } };
     },
     onStop(listener) {
       stopListener = listener;
-      return { remove() { state.removedSubscriptions += 1; stopListener = () => {}; } };
+      return { remove() { state.removedSubscriptions += 1; stopListener = () => { }; } };
     },
     async scan() {
       scanning = true;

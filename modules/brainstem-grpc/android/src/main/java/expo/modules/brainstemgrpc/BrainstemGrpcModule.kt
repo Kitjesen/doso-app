@@ -220,6 +220,24 @@ class BrainstemGrpcModule : Module() {
     AsyncFunction("controlAction") { sessionId: String, action: String, profileName: String?, promise: Promise ->
       runControl(sessionId, promise) { session, epoch -> session.action(action, profileName, epoch) }
     }.runOnQueue(Queues.MAIN)
+    AsyncFunction("listGestures") { sessionId: String, promise: Promise ->
+      runControl(sessionId, promise) { session, _ -> session.listGestures() }
+    }.runOnQueue(Queues.MAIN)
+    AsyncFunction("playGesture") { sessionId: String, gestureName: String, promise: Promise ->
+      runControl(sessionId, promise) { session, epoch -> session.playGesture(gestureName, epoch) }
+    }.runOnQueue(Queues.MAIN)
+    AsyncFunction("setZero") { sessionId: String, promise: Promise ->
+      runControl(sessionId, promise) { session, epoch -> session.setZero(epoch) }
+    }.runOnQueue(Queues.MAIN)
+    AsyncFunction("clearMotorFault") { sessionId: String, jointIds: List<Int>?, promise: Promise ->
+      runControl(sessionId, promise) { session, epoch -> session.clearMotorFault(jointIds, epoch) }
+    }.runOnQueue(Queues.MAIN)
+    AsyncFunction("getSpeedMode") { sessionId: String, promise: Promise ->
+      runControl(sessionId, promise) { session, _ -> session.getSpeedMode() }
+    }.runOnQueue(Queues.MAIN)
+    AsyncFunction("setSpeedMode") { sessionId: String, mode: String, promise: Promise ->
+      runControl(sessionId, promise) { session, epoch -> session.setSpeedMode(mode, epoch) }
+    }.runOnQueue(Queues.MAIN)
     AsyncFunction("acquireControl") { sessionId: String, promise: Promise ->
       runControl(sessionId, promise) { session, epoch -> session.acquire(epoch) }
     }.runOnQueue(Queues.MAIN)

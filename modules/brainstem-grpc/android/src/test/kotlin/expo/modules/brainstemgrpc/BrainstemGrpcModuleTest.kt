@@ -159,6 +159,24 @@ private class Bridge {
     return result
   }
   @Suppress("UNCHECKED_CAST")
+  fun controlAction(action: String, profileName: String? = null): Result {
+    val result = Result()
+    (definition.functions.getValue("controlAction") as (String, String, String?, Promise) -> Unit)(session.id, action, profileName, result)
+    return result
+  }
+  @Suppress("UNCHECKED_CAST")
+  fun listGestures(): Result {
+    val result = Result()
+    (definition.functions.getValue("listGestures") as (String, Promise) -> Unit)(session.id, result)
+    return result
+  }
+  @Suppress("UNCHECKED_CAST")
+  fun getSpeedMode(): Result {
+    val result = Result()
+    (definition.functions.getValue("getSpeedMode") as (String, Promise) -> Unit)(session.id, result)
+    return result
+  }
+  @Suppress("UNCHECKED_CAST")
   fun close() { (definition.functions.getValue("closeControl") as (String) -> Unit)(session.id) }
   fun destroy() = definition.destroy()
 }
@@ -506,6 +524,23 @@ private fun controlWifiLockLifecycle() {
   } finally { bridge.destroy() }
 }
 
+private fun newControlAndDiagnosticFunctionsUseControlExecutor() {
+  ModuleTestTransport.methods.clear()
+  val bridge = Bridge()
+  try {
+    val gestures = bridge.listGestures()
+    gestures.success()
+    check((gestures.value as Map<*, *>)["gestures"] is List<*>)
+    val speed = bridge.getSpeedMode()
+    speed.success()
+    check((speed.value as Map<*, *>)["speedMode"] == "normal")
+    bridge.controlAction("clear-motor-fault").success()
+    bridge.controlAction("set-zero").rejected("precondition")
+    check(ModuleTestTransport.methods.containsAll(listOf("ListGestures", "GetSpeedMode", "ClearMotorFault", "GetControlStatus")))
+    check(!ModuleTestTransport.methods.contains("SetZero"))
+  } finally { bridge.destroy() }
+}
+
 fun main(args: Array<String>) {
   val mapper = BrainstemGrpcModule::class.java.getDeclaredMethod("safeGrpcCode", Status::class.java).apply { isAccessible = true }
   val mappingModule = BrainstemGrpcModule()
@@ -524,7 +559,8 @@ fun main(args: Array<String>) {
     "queued-interrupt-keeps-busy-owner" to ::queuedInterruptKeepsItsBusyOwnership,
     "close-background-destroy-cancellation" to ::lifecycleCancelsReadAndPeer,
     "failed-open-clears-peer-without-bypassing-mtls" to ::failedOpenDoesNotLeavePeer,
-    "factory-permission-target-generation-and-cancellation" to ::factoryPermissionAndLifecycle)
+    "factory-permission-target-generation-and-cancellation" to ::factoryPermissionAndLifecycle,
+    "new-control-and-diagnostic-functions-use-control-executor" to ::newControlAndDiagnosticFunctionsUseControlExecutor)
   var failures = 0
   for ((name, run) in cases) try { run(); println("PASS: $name") }
     catch (error: Throwable) { failures++; System.err.println("FAIL: $name: ${error.message}") }

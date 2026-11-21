@@ -1,0 +1,53 @@
+# Merge from docker/ after the existing DOSO layers. No host port is published.
+services:
+  auth:
+    environment:
+      GOTRUE_MAILER_TEMPLATES_CONFIRMATION: http://mail-templates:8080/confirmation.html
+    depends_on:
+      mail-templates:
+        condition: service_healthy
+
+  mail-templates:
+    image: public.ecr.aws/supabase/postgres-meta@sha256:822227a8d12c109b24b8d8f1dae98a9c089a698b4586d35527dadf929e655136
+    pull_policy: never
+    entrypoint: [node, /app/mail-template-server.mjs]
+    command: []
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: none
+    mem_limit: 64m
+    memswap_limit: 64m
+    cpus: 0.25
+    pids_limit: 32
+    ulimits:
+      core: 0
+      nofile:
+        soft: 128
+        hard: 128
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: ./doso/mail-template-server.mjs
+        target: /app/mail-template-server.mjs
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./doso/confirmation.html
+        target: /app/confirmation.html
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "const http=require('node:http'); const r=http.get('http://127.0.0.1:8080/confirmation.html',s=>{s.resume();s.on('end',()=>process.exit(s.statusCode===200?0:1));});r.setTimeout(2000,()=>{r.destroy();process.exit(1);});r.on('error',()=>process.exit(1));"
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s

@@ -1,0 +1,10 @@
+# Fourth layer: append after upstream base, upstream Caddy and compose.doso.yml.
+# Reuse the host's Nginx without taking its public ports or changing existing sites.
+services:
+  api-gw:
+    ports: !override
+      - "127.0.0.1:18000:8000/tcp"
+
+  caddy:
+    profiles: [manual-caddy]
+    ports: !reset []

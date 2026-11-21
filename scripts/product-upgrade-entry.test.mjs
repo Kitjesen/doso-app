@@ -17,7 +17,7 @@ test('choosing a model enters the normal app without a fake binding or developme
   const compiled = ts.transpileModule(`(${handler.initializer.getText(ast)})`, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
-  const chosen = [], devices = [], tabs = [], stages = [], notices = [];
+  const chosen = [], devices = [], stages = [], notices = [];
   const helper = { exports: {} };
   vm.runInNewContext(ts.transpileModule(read('src/services/deviceBootstrapIntent.ts'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -27,15 +27,14 @@ test('choosing a model enters the normal app without a fake binding or developme
   const invoke = vm.runInNewContext(compiled, {
     deviceBootstrapIntent: { current: intent },
     setSelectedModel: value => chosen.push(value), setDevice: value => devices.push(value),
-    setActiveTab: value => tabs.push(value), setStage: value => stages.push(value),
+    setStage: value => stages.push(value),
     notify: (...args) => notices.push(args),
   });
   const model = { id: 'thunder-01', name: 'THUNDER 01' };
   await invoke(model);
   assert.equal(chosen[0], model);
   assert.deepEqual(devices, [null]);
-  assert.deepEqual(tabs, ['home']);
-  assert.deepEqual(stages, ['main']);
+  assert.deepEqual(stages, ['control']);
   assert.doesNotMatch(notices.flat().join(' '), /预览|已连接|绑定成功/);
   assert.match(notices[0][1], /尚未绑定机器人.*机身二维码/);
   assert.equal(intent.preservesNavigation('fixture-user'), true);
@@ -76,16 +75,12 @@ test('Android upgrade preparation increments the shared version while keeping th
   assert.equal(JSON.parse(read('package.json')).main, 'index.ts');
   assert.match(read('index.ts'), /createElement\(AuthProvider, null, createElement\(App\)\)/);
   assert.match(read('src/screens/MapScreen.tsx'), /showExamples = false/);
-  const maps = [];
-  function visitMaps(node) {
-    if (ts.isJsxSelfClosingElement(node) && node.tagName.getText(ast) === 'MapScreen') maps.push(node);
-    ts.forEachChild(node, visitMaps);
+  const mounted = new Set();
+  function visit(node) {
+    if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) mounted.add(node.tagName.getText(ast));
+    ts.forEachChild(node, visit);
   }
-  visitMaps(ast);
-  assert.ok(maps.length > 0);
-  for (const map of maps) {
-    const examples = map.attributes.properties.find(attribute => attribute.name?.getText(ast) === 'showExamples');
-    assert.ok(!examples || (examples.initializer && ts.isJsxExpression(examples.initializer)
-      && examples.initializer.expression?.kind === ts.SyntaxKind.FalseKeyword), 'normal App must never opt into example galleries');
-  }
+  visit(ast);
+  for (const screen of ['RobotMainNav', 'ControlScreen', 'JointStatusScreen', 'ProfileScreen']) assert.ok(mounted.has(screen), screen);
+  for (const screen of ['HomeScreen', 'MapLibraryScreen', 'MapScreen', 'TasksScreen', 'AnalysisScreen']) assert.ok(!mounted.has(screen), screen);
 });

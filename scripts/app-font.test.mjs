@@ -12,8 +12,8 @@ const compile = file => ts.transpileModule(readFileSync(new URL(file, root), 'ut
   compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 
-test('both production and isolated-preview entries mount their root below FontProvider', () => {
-  for (const file of ['index.ts', 'index.preview.ts']) {
+test('production entry mounts its root below FontProvider', () => {
+  for (const file of ['index.ts']) {
     const source = readFileSync(new URL(file, root), 'utf8');
     const ast = ts.createSourceFile(file, source, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
     let importsFontProvider = false;

@@ -1,0 +1,16 @@
+{
+  "status": "prepared_only",
+  "files": 40,
+  "archiveSha256": "3126b3fae648a31f51f0ed43f0109028198e01d888d52b49be5289728f5cc112",
+  "preservedFunctions": 21,
+  "addedFunctions": [
+    "remote-history",
+    "telemetry-export"
+  ],
+  "expectedActiveLayers": {
+    "functions": 15,
+    "gateway": 13
+  },
+  "nextLayer": 16,
+  "deployed": false
+}

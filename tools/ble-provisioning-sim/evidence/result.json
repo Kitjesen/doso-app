@@ -1,0 +1,81 @@
+{
+  "recordedAtUtc": "2026-10-25T16:47:15.509Z",
+  "scope": "Offline App/robot encrypted provisioning byte-protocol simulation only",
+  "sourceInputs": [
+    {
+      "path": "tools/ble-provisioning-sim/protocol.mjs",
+      "sha256": "b6a58c19e23fea779bad5d663698f62ab4ccf4e4e5d9c970f9b7d871d9273703"
+    },
+    {
+      "path": "tools/ble-provisioning-sim/flow.mjs",
+      "sha256": "dc3c6d9c25df2e9a7767527d5d9c7e9eea6689c41e2d598ecc42c1999af789c5"
+    },
+    {
+      "path": "tools/ble-provisioning-sim/fixture.mjs",
+      "sha256": "d6d2ea94be04cc0556b615ae951307be6f9ccc3e4c4700c5f24703f2c0d84e8c"
+    },
+    {
+      "path": "tools/ble-provisioning-sim/run.mjs",
+      "sha256": "7ff492fab9c1a4e18ec362992f5a7aa4d5c7b3f2abb87863262d7e0df7908e06"
+    },
+    {
+      "path": "tools/ble-provisioning-sim/protocol.test.mjs",
+      "sha256": "5a53066bbe10c35bd48d2b87471dd6e7c49aef068e8a61838503dcc851b40c06"
+    },
+    {
+      "path": "tools/ble-provisioning-sim/README.md",
+      "sha256": "5584ba832ac6936b80e47a634796f2794e924c58cb474233fad86fca98e1ebc2"
+    }
+  ],
+  "syntaxChecks": 5,
+  "testCommand": "node --test tools/ble-provisioning-sim/protocol.test.mjs",
+  "testsExitCode": 0,
+  "testSummary": {
+    "tests": 16,
+    "passed": 16,
+    "failed": 0
+  },
+  "cliCommand": "node tools/ble-provisioning-sim/run.mjs all",
+  "cliExitCode": 0,
+  "scenarios": [
+    {
+      "scenario": "success",
+      "networkOutcome": "verified-network-awaiting-bind",
+      "domainPhase": "awaiting_confirmation",
+      "oldNetworkPreserved": false
+    },
+    {
+      "scenario": "wrong-password",
+      "networkOutcome": "wrong-password",
+      "domainPhase": "failed",
+      "oldNetworkPreserved": true
+    },
+    {
+      "scenario": "timeout",
+      "networkOutcome": "timeout",
+      "domainPhase": "expired",
+      "oldNetworkPreserved": true
+    },
+    {
+      "scenario": "cancel",
+      "networkOutcome": "cancel",
+      "domainPhase": "cancelled",
+      "oldNetworkPreserved": true
+    }
+  ],
+  "mutations": {
+    "productionApp": 0,
+    "robot": 0,
+    "ble": 0,
+    "wifi": 0,
+    "cloud": 0,
+    "accounts": 0,
+    "builds": 0
+  },
+  "limitations": [
+    "No real Android/BlueZ protocol implementation or radio/USB driver acceptance",
+    "Cryptographic reference construction needs production protocol review and cross-language test vectors",
+    "No cloud ownership confirmation or device-claim transaction",
+    "Virtual network checkpoint/rollback is not an operating-system guarantee"
+  ]
+}

@@ -11,13 +11,6 @@
         "buildConfiguration": "Release"
       }
     },
-    "ios-browser-preview": {
-      "extends": "ios-simulator",
-      "env": {
-        "EXPO_NO_DOTENV": "1",
-        "ENTRY_FILE": "index.preview.ts"
-      }
-    },
     "development": {
       "developmentClient": true,
       "distribution": "internal",

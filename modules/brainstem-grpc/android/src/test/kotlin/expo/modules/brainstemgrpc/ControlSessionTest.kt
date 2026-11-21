@@ -33,6 +33,9 @@ private class FakeChannel(val expectedPrincipal: String = PRINCIPAL) : ManagedCh
   var profileActiveModeId: String? = null
   var onProfileSwitch: ((ByteArray) -> Unit)? = null
   var owner = 0
+  var criticalFault = false
+  var gesturesPayload = byteArrayOf()
+  var speedMode = 0
   var sequence = 0L
   var wrongAck = false
   var failWalk = false
@@ -46,6 +49,7 @@ private class FakeChannel(val expectedPrincipal: String = PRINCIPAL) : ManagedCh
   val releaseStatus = CountDownLatch(1)
   fun state() = ControlWireTest.join(ControlWireTest.b(1, ControlWireTest.f(1, kind.toLong())),
     ControlWireTest.f(2, if (enabled) 1 else 0), ControlWireTest.f(3, owner.toLong()),
+    ControlWireTest.f(4, if (criticalFault) 1 else 0),
     ControlWireTest.f(5, if (lease) 1 else 0), ControlWireTest.f(7, sequence),
     ControlWireTest.text(10, if (lease) expectedPrincipal else ""))
   override fun authority() = "fake-local-only"
@@ -108,6 +112,15 @@ private class FakeChannel(val expectedPrincipal: String = PRINCIPAL) : ManagedCh
           "Disable" -> { enabled = false; byteArrayOf() }
           "StandUp" -> { kind = 4; byteArrayOf() }
           "SitDown" -> { kind = 4; byteArrayOf() }
+          "SetZero" -> byteArrayOf()
+          "ClearMotorFault" -> { criticalFault = false; byteArrayOf() }
+          "PlayGesture" -> { kind = 4; byteArrayOf() }
+          "ListGestures" -> gesturesPayload
+          "SetSpeedMode" -> {
+            speedMode = if (request.contentEquals(ControlWireTest.f(1, 1))) 1 else 0
+            byteArrayOf()
+          }
+          "GetSpeedMode" -> if (speedMode == 1) ControlWireTest.f(1, 1) else byteArrayOf()
           else -> throw AssertionError("Unexpected local RPC $name")
         }
         complete(response)
@@ -268,6 +281,65 @@ private fun verifyOriginalInputDeadline() {
   println("PASS: source timestamps survive queues; stale/future/negative and delayed dispatch cannot send movement")
 }
 
+private fun verifyCalibrationFaultGestureAndSpeedMode() {
+  // SetZero: requires Grounded and no active lease/yunzhuo/fault.
+  val groundedChannel = FakeChannel().apply { kind = 1; enabled = false }
+  val zeroSession = ControlSession(groundedChannel, PRINCIPAL) { it() }
+  try {
+    zeroSession.action("set-zero", null)
+    check(groundedChannel.requests.count { it.first == "SetZero" } == 1)
+    groundedChannel.kind = 2 // Standing rejects set-zero
+    expectFailure("precondition") { zeroSession.setZero() }
+    check(groundedChannel.requests.count { it.first == "SetZero" } == 1)
+  } finally { zeroSession.close() }
+
+  // ClearMotorFault: exempts criticalMotorFault and supports clear-all or specific joint IDs.
+  val faultChannel = FakeChannel().apply { kind = 1; enabled = false; criticalFault = true }
+  val faultSession = ControlSession(faultChannel, PRINCIPAL) { it() }
+  try {
+    val cleared = faultSession.action("clear-motor-fault", null)
+    @Suppress("UNCHECKED_CAST")
+    val clearedStatus = cleared["status"] as Map<String, Any>
+    check(faultChannel.requests.count { it.first == "ClearMotorFault" } == 1)
+    check(faultChannel.requests.last { it.first == "ClearMotorFault" }.second.isEmpty())
+    check(clearedStatus["criticalMotorFault"] == false)
+    faultSession.clearMotorFault(listOf(0, 5))
+    check(faultChannel.requests.last { it.first == "ClearMotorFault" }.second.contentEquals(ControlWire.clearFaultRequest(intArrayOf(0, 5))))
+    expectFailure("config") { faultSession.action("clear-motor-fault", "bad") }
+    expectFailure("config") { faultSession.clearMotorFault(listOf(16)) }
+    faultChannel.owner = 2 // yunzhuo still blocks
+    expectFailure("precondition") { faultSession.action("clear-motor-fault", null) }
+  } finally { faultSession.close() }
+
+  // Gestures & SpeedMode
+  val gestureItem = ControlWireTest.join(ControlWireTest.text(1, "bow"), ControlWireTest.text(2, "鞠躬"), ControlWireTest.f(3, 1800))
+  val gestureChannel = FakeChannel().apply {
+    kind = 2; enabled = true
+    gesturesPayload = ControlWireTest.b(1, gestureItem)
+  }
+  val gestureSession = ControlSession(gestureChannel, PRINCIPAL) { it() }
+  try {
+    @Suppress("UNCHECKED_CAST")
+    val list = gestureSession.listGestures()["gestures"] as List<Map<String, Any>>
+    check(list.size == 1 && list[0]["name"] == "bow" && list[0]["durationMs"] == 1800)
+    gestureSession.action("play-gesture", "bow")
+    check(gestureChannel.requests.last { it.first == "PlayGesture" }.second.contentEquals(ControlWire.stringRequest("bow")))
+    expectFailure("precondition") { gestureSession.action("play-gesture", "bow") } // now kind == 4 (transitioning)
+    gestureChannel.kind = 1 // grounded cannot play gesture
+    expectFailure("precondition") { gestureSession.playGesture("bow") }
+    gestureChannel.kind = 2
+    expectFailure("config") { gestureSession.action("play-gesture", "") }
+    expectFailure("config") { gestureSession.action("play-gesture", " ") }
+    gestureChannel.kind = 2
+    check(gestureSession.getSpeedMode()["speedMode"] == "normal")
+    check(gestureSession.setSpeedMode("high")["speedMode"] == "high")
+    check(gestureSession.getSpeedMode()["speedMode"] == "high")
+    expectFailure("config") { gestureSession.setSpeedMode("invalid") }
+  } finally { gestureSession.close() }
+
+  println("PASS: native setZero, clearMotorFault exemption, listGestures/playGesture and speedMode")
+}
+
 fun main() {
   val catalogChannel = FakeChannel()
   val catalog = ControlSession(catalogChannel, PRINCIPAL) { it() }
@@ -292,6 +364,7 @@ fun main() {
   verifyOriginalInputDeadline()
   verify50HzWireBoundary()
   verifyAckReceiveCooldown()
+  verifyCalibrationFaultGestureAndSpeedMode()
   val channel = FakeChannel()
   val cleanup = ConcurrentLinkedQueue<() -> Unit>()
   val session = ControlSession(channel, PRINCIPAL) { cleanup.add(it) }

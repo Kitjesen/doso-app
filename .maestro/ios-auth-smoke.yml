@@ -1,0 +1,53 @@
+appId: com.doso.robot
+name: DOSO auth navigation and empty-form validation
+---
+- launchApp:
+    clearState: true
+    permissions:
+      all: deny
+- extendedWaitUntil:
+    visible:
+      id: login-email
+    timeout: 30000
+- takeScreenshot: 01-login
+- tapOn:
+    id: login-register
+- assertVisible:
+    id: register-username
+- takeScreenshot: 02-register
+- scrollUntilVisible:
+    element:
+      id: register-password-visibility
+    direction: DOWN
+    timeout: 15000
+- tapOn:
+    id: register-password-visibility
+- assertVisible: 隐藏密码
+- takeScreenshot: 03-register-password-toggle
+- scrollUntilVisible:
+    element:
+      id: register-login
+    direction: UP
+    timeout: 15000
+- tapOn:
+    id: register-login
+- scrollUntilVisible:
+    element:
+      id: login-forgot-password
+    direction: DOWN
+    timeout: 15000
+- tapOn:
+    id: login-forgot-password
+- assertVisible: 找回密码
+- takeScreenshot: 04-forgot-password
+- tapOn: 返回
+- scrollUntilVisible:
+    element:
+      id: login-submit
+    direction: DOWN
+    timeout: 15000
+# All fields remain empty: validation returns before any auth request is sent.
+- tapOn:
+    id: login-submit
+- assertVisible: 请输入邮箱地址
+- takeScreenshot: 05-login-local-validation

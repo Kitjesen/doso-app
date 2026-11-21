@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text, TextInput } from '../components/AppText';
 import { type ControlSetupMedia } from '../components/ControlSetupSurface';
 import { OfficialSheet } from '../components/OfficialSheet';
-import { officialDark, officialHotspotHost, officialHotspotPort, officialLabHost } from '../officialPalette';
+import { officialDark, officialLabHost } from '../officialPalette';
 import { cardLayout, getProductAppearance } from '../appearance';
 import { controlTypography as typography } from '../typography';
 import { useAppTheme } from '../theme';
@@ -28,10 +28,7 @@ type Props = {
   readOnlyPreview?: boolean;
   media?: ControlSetupMedia;
   onBack: () => void;
-  onOpenLocalUse?: () => void;
   onOpenBleDiscovery?: () => void;
-  onBindDevice?: () => void;
-  onOpenDeviceEnrollment?: () => void;
   initialEndpoint?: Readonly<BrainstemGrpcEndpoint>;
   onUseConnection?: (snapshot: DirectRobotConnectionSnapshot) => boolean;
   onUseNavigation?: (endpoint: string, viewerToken?: string) => boolean;
@@ -39,26 +36,23 @@ type Props = {
   navigationUseLabel?: string;
   allowViewerToken?: boolean;
   onOpenControl?: (endpoint: BrainstemGrpcEndpoint, principal: string, signal: AbortSignal) => Promise<boolean>;
-  accountDeviceName?: string;
-  onOpenAccountDevice?: () => void;
-  accountDeviceConnected?: boolean;
-  accountDeviceIdentityStatus?: 'unbound' | 'bound-unverified' | 'verified';
-  accountDeviceConnectionSource?: string;
-  accountDeviceLastSyncLabel?: string;
-  accountControlAuthority?: 'unknown' | 'not-held' | 'held';
-  accountBlockedReason?: string;
 };
 
-type Transport = 'ip' | 'ble' | 'cloud' | 'navigation';
-type Styles = ReturnType<typeof createStyles>;
+type Transport = 'ip' | 'ble' | 'navigation';
 
 // A local observation does not grant cloud ownership or a control lease.
-export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, onBack, onOpenLocalUse, onOpenBleDiscovery, onBindDevice, onOpenDeviceEnrollment, initialEndpoint, onUseConnection, onUseNavigation, onViewVideo, navigationUseLabel, allowViewerToken, onOpenControl, accountDeviceName, onOpenAccountDevice, accountDeviceConnected = false, accountDeviceIdentityStatus = 'unbound', accountDeviceConnectionSource = '云端设备记录', accountDeviceLastSyncLabel = '尚未同步', accountControlAuthority = 'unknown', accountBlockedReason }: Props) {
+export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, onBack, onOpenBleDiscovery, initialEndpoint, onUseConnection, onUseNavigation, onViewVideo, navigationUseLabel, allowViewerToken, onOpenControl }: Props) {
   void _media;
   const theme = useAppTheme();
   const colors = { ...theme.colors, background: officialDark.canvas, surface: officialDark.surface, ink: officialDark.ink, muted: officialDark.muted, line: officialDark.line, authPrimary: officialDark.cta, authPrimaryInk: officialDark.ctaInk };
   const p = { ...getProductAppearance(true), canvas: officialDark.canvas, surface: officialDark.surface, ink: officialDark.ink, secondary: officialDark.muted, border: officialDark.line, action: officialDark.cta, actionInk: officialDark.ctaInk, blue: officialDark.cta };
-  const [host, setHost] = useState(initialEndpoint?.host ?? officialLabHost);
+  const defaultHost = initialEndpoint?.host
+    ?? (typeof __DEV__ !== 'undefined' && __DEV__ && isBrainstemLanAvailable()
+      && typeof globalThis !== 'undefined'
+      && ['localhost', '127.0.0.1'].includes((globalThis as { location?: { hostname?: string } }).location?.hostname ?? '')
+      ? '127.0.0.1'
+      : officialLabHost);
+  const [host, setHost] = useState(defaultHost);
   const [port, setPort] = useState(String(initialEndpoint?.port ?? 13145));
   const [wireTransport, setWireTransport] = useState<'tls' | 'lan-dev'>(initialEndpoint ? initialEndpoint.transport ?? 'tls' : isBrainstemLanAvailable() ? 'lan-dev' : 'tls');
   const [identityAlias, setIdentityAlias] = useState<string | null>(null);
@@ -72,7 +66,7 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
   const [observation, setObservation] = useState<BrainstemGrpcObservation | null>(null);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const [diagnosticIssues, setDiagnosticIssues] = useState<Partial<Record<'profile' | 'voltage' | 'motors', string>>>({});
-  const releaseWifi = useRef<() => void>(() => {});
+  const releaseWifi = useRef<() => void>(() => { });
   const request = useRef<AbortController | null>(null);
   const operation = useRef(0);
   const busyRef = useRef(false);
@@ -88,7 +82,7 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
     nativeModuleAvailable: available,
     endpointConfigured: host.trim().length > 0 && port.trim().length > 0,
     readOnlyObservationFresh: Boolean(observation),
-    deviceIdentity: accountDeviceIdentityStatus,
+    deviceIdentity: 'unbound',
     clientIdentitySelected: Boolean(identityAlias),
     // A successful status read does not prove remote listener policy, mTLS
     // principal mapping, a control lease or a production executor.
@@ -100,7 +94,7 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
     deadmanStopReady: false,
   });
   const clearExpiry = () => { if (expiry.current) clearTimeout(expiry.current); expiry.current = null; };
-  const cancelLocalIdentity = () => { if (readOnlyPreview) return; void cancelBrainstemLocalClientIdentity().catch(() => {}); };
+  const cancelLocalIdentity = () => { if (readOnlyPreview) return; void cancelBrainstemLocalClientIdentity().catch(() => { }); };
   const interrupt = () => {
     operation.current++; request.current?.abort(); request.current = null;
     busyRef.current = false; identityPending.current = false; clearExpiry(); cancelLocalIdentity();
@@ -126,8 +120,8 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
   const report = (error: unknown) => error instanceof BrainstemGrpcError && error.code !== 'unavailable'
     ? error.message
     : wireTransport === 'lan-dev'
-    ? '局域网连接检查失败，请核对私有 IPv4、服务端口与来源许可。'
-    : error instanceof BrainstemGrpcError ? error.message : '连接检查失败，请核对机器狗服务地址和证书配置。';
+      ? '局域网连接检查失败，请核对私有 IPv4、服务端口与来源许可。'
+      : error instanceof BrainstemGrpcError ? error.message : '连接检查失败，请核对机器狗服务地址和证书配置。';
   const endpointForConnection = (): BrainstemGrpcEndpoint => ({
     ...validateBrainstemEndpoint(host, port, wireTransport, wireTransport === 'tls' ? identityAlias ?? undefined : undefined),
     ...(wireTransport === 'lan-dev' ? { transport: 'lan-dev' as const } : identityAlias ? { clientIdentityAlias: identityAlias } : {}),
@@ -221,18 +215,12 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
       const identityVerified = (value: BrainstemGrpcTlsEvidence) => value.mutualTlsVerified === true && typeof certificateSha256 === 'string' && value.clientCertificateSha256 === certificateSha256;
       let verifiedReads = identityVerified(result) ? 1 : 0;
       const issues: Partial<Record<'profile' | 'voltage' | 'motors', string>> = {};
-      // Profile metadata is an optional read-only extension. Older APKs and
-      // Brainstem builds may not expose GetProfile; status remains usable and
-      // the control page keeps terrain modes at “未同步” in that case.
       if (typeof readBrainstemGrpcProfile === 'function') {
         try {
           const profile = await readBrainstemGrpcProfile({ endpoint: { ...endpoint, ...(identityAlias ? { clientIdentityAlias: identityAlias } : {}) }, requestId: randomUUID(), signal: controller.signal });
           enriched = { ...result, profile: profile.profile };
           if (identityVerified(profile)) verifiedReads++;
         } catch (profileError) {
-          // Profile is an optional metadata read. Keep a valid status result
-          // when an older server, build or certificate policy does not expose
-          // GetProfile; lifecycle cancellation still aborts the whole read.
           if (profileError instanceof BrainstemGrpcError && (profileError.code === 'cancelled' || profileError.code === 'background')) throw profileError;
           issues.profile = report(profileError);
         }
@@ -247,8 +235,6 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
           if ('voltage' in diagnostic) enriched = { ...enriched, voltage: diagnostic.voltage };
           if ('motors' in diagnostic) enriched = { ...enriched, motors: diagnostic.motors };
         } catch (diagnosticError) {
-          // Voltage and motor status are optional diagnostics. Preserve a valid
-          // status/profile result when an older server does not implement them.
           if (diagnosticError instanceof BrainstemGrpcError && (diagnosticError.code === 'cancelled' || diagnosticError.code === 'background')) throw diagnosticError;
           issues[kind] = report(diagnosticError);
         }
@@ -271,9 +257,9 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
     try {
       const checked = createDirectRobotConnectionSnapshot(endpointForConnection(), observation);
       if (onUseConnection(checked)) return;
-    } catch { /* Display only a fixed reason; never native or account details. */ }
+    } catch { /* Display only a fixed reason; never expose native or account details. */ }
     clearExpiry(); setObservation(null);
-    setMessage('本次状态或账户上下文已变化，请重新读取后继续。');
+    setMessage('本次状态或会话上下文已变化，请重新读取后继续。');
   };
   const openControl = async () => {
     if (!onOpenControl || wireTransport === 'tls' && !identityAlias || busyRef.current || !active.current) return;
@@ -317,29 +303,6 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
   );
   const fsm = { zero: '初始化', grounded: '落地', standing: '站立', walking: '行走', transitioning: '姿态切换中' };
   const owner = { none: '无控制者', grpc: 'gRPC 控制者', yunzhuo: '云卓遥控器' };
-  const identityLabel = accountDeviceIdentityStatus === 'verified'
-    ? '身份已验证'
-    : accountDeviceIdentityStatus === 'bound-unverified'
-      ? '身份待验证'
-      : '未绑定账户设备';
-  const identityTone = accountDeviceIdentityStatus === 'verified' ? 'positive' : accountDeviceName ? 'pending' : 'neutral';
-  const connectionLabel = accountDeviceConnected
-    ? '在线'
-    : accountDeviceName
-      ? '已绑定，未连接'
-      : observation
-        ? '本地状态已读取'
-        : '未建立连接';
-  const authorityLabel = accountControlAuthority === 'held'
-    ? '控制权已取得'
-    : accountControlAuthority === 'not-held'
-      ? '未取得控制权'
-      : observation
-        ? `状态显示：${owner[observation.status.owner]}（只读）`
-        : '控制权待核对';
-  const authorityReason = accountBlockedReason
-    ?? (accountDeviceName ? '云端设备身份仍待验证。' : '尚未添加账号设备。本地使用需要单独取得设备授权。');
-  const observedAtLabel = observation ? '本次读取' : accountDeviceLastSyncLabel;
   const tab = (id: Transport, label: string) => (
     <Pressable
       accessibilityRole="tab"
@@ -365,158 +328,114 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
     onBack={() => { if (mounted.current && active.current) { setTransport('ip'); setMessage(null); } }} />;
   return <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
     <OfficialSheet title="连接机器狗" onBack={() => leave(onBack)} backTestID="robot-connection-back">
-    <ScrollView keyboardShouldPersistTaps="handled" contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} style={styles.scroll} contentContainerStyle={styles.pageContent} testID="robot-connection-scroll">
-      <View style={styles.content}>
-        <View style={styles.primaryPanel} testID="connection-primary-panel">
-          <Text style={[typography.supporting, { color: officialDark.muted, fontWeight: '500' }]}>机器狗地址</Text>
-          <Text style={[typography.supporting, { color: officialDark.muted, marginBottom: 6 }]} testID={wireTransport === 'lan-dev' ? 'robot-lan-mode' : 'robot-tls-mode'}>局域网连接</Text>
-              <TextInput accessibilityLabel="机器狗地址" autoCapitalize="none" autoCorrect={false} editable={!busy} keyboardType="url" onChangeText={value => changeEndpoint('host', value)} placeholder="输入 IP 或主机名" placeholderTextColor={p.secondary} style={[styles.input, { backgroundColor: officialDark.field, color: p.ink }]} testID="robot-grpc-host" value={host} />
-          {button(busy ? '取消连接' : '连接机器狗', busy ? 'robot-grpc-cancel' : 'robot-connect', busy ? cancel : connect, !busy && (!available || (!!onOpenControl && !controlAvailable)), true)}
-          {lanVideoAvailable ? button('仅看画面', 'robot-lan-view-video', openLanVideo, busy !== null) : null}
-          <Text accessibilityLiveRegion="polite" style={[typography.supporting, { color: p.secondary }]} testID="robot-grpc-result">{readOnlyPreview ? '设计预览，不连接设备' : message ?? (!available || (onOpenControl && !controlAvailable) ? '请升级安装包以连接机器狗。' : '未连接')}</Text>
-          {onOpenLocalUse ? <>
-            {button('本地使用', 'connection-local-use', () => leave(onOpenLocalUse), busy !== null)}
-            <Text style={[typography.supporting, { color: p.secondary }]}>使用这台机器狗的本地授权连接，无需绑定到当前账号。</Text>
-          </> : null}
-        </View>
+      <ScrollView keyboardShouldPersistTaps="handled" contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} style={styles.scroll} contentContainerStyle={styles.pageContent} testID="robot-connection-scroll">
+        <View style={styles.content}>
+          <View style={styles.primaryPanel} testID="connection-primary-panel">
+            <Text style={[typography.supporting, { color: officialDark.muted, fontWeight: '500' }]}>机器狗地址</Text>
+            <Text style={[typography.supporting, { color: officialDark.muted, marginBottom: 6 }]} testID={wireTransport === 'lan-dev' ? 'robot-lan-mode' : 'robot-tls-mode'}>局域网连接</Text>
+            <TextInput accessibilityLabel="机器狗地址" autoCapitalize="none" autoCorrect={false} editable={!busy} keyboardType="url" onChangeText={value => changeEndpoint('host', value)} placeholder="输入 IP 或主机名" placeholderTextColor={p.secondary} style={[styles.input, { backgroundColor: officialDark.field, color: p.ink }]} testID="robot-grpc-host" value={host} />
+            {button(busy ? '取消连接' : '连接机器狗', busy ? 'robot-grpc-cancel' : 'robot-connect', busy ? cancel : connect, !busy && (!available || (!!onOpenControl && !controlAvailable)), true)}
+            {lanVideoAvailable ? button('仅看画面', 'robot-lan-view-video', openLanVideo, busy !== null) : null}
+            <Text accessibilityLiveRegion="polite" style={[typography.supporting, { color: p.secondary }]} testID="robot-grpc-result">{readOnlyPreview ? '预览模式，不连接设备' : message ?? (!available || (onOpenControl && !controlAvailable) ? '请升级安装包以连接机器狗。' : '未连接')}</Text>
+          </View>
 
-        <WifiDiscoveryPanel currentHost={host} currentPort={port} disabled={busy !== null} onApplyAddress={applyDiscoveredAddress} releaseRef={releaseWifi} testID="connection-wifi-discovery" />
+          <WifiDiscoveryPanel currentHost={host} currentPort={port} disabled={busy !== null} onApplyAddress={applyDiscoveredAddress} releaseRef={releaseWifi} testID="connection-wifi-discovery" />
 
-        <View style={[styles.panel, detailsExpanded ? { backgroundColor: p.surface } : styles.collapsedPanel]}>
-<Pressable accessibilityRole="button" accessibilityState={{ expanded: detailsExpanded }} accessibilityLabel={detailsExpanded ? '收起高级设置' : '展开高级设置'} onPress={() => setDetailsExpanded(value => !value)} style={styles.integrationHeader} testID="connection-details-toggle">
-            <Text style={[typography.label, { color: p.ink, flex: 1 }]}>高级设置</Text>
-            <Ionicons color={p.secondary} name={detailsExpanded ? 'chevron-up' : 'chevron-down'} size={20} />
-          </Pressable>
-          {detailsExpanded ? <View style={styles.advancedContent} testID="connection-advanced-settings">
-            <View accessibilityRole="tablist" style={styles.transportTabs} testID="connection-transport-tabs">
-              {tab('ip', '连接设置')}
-              {tab('ble', '蓝牙')}
-              {tab('cloud', '账号设备')}
-              {tab('navigation', '导航服务')}
-            </View>
-            {transport === 'ip' ? <View style={styles.advancedContent}>
-              {button(wireTransport === 'lan-dev' ? '切换到证书连接' : '切换到局域网连接', 'robot-wire-transport', () => {
-                if (busyRef.current) return;
-                interrupt(); setWireTransport(wireTransport === 'lan-dev' ? 'tls' : 'lan-dev'); setIdentityAlias(null); setLocalIdentity(null); setObservation(null); setIdentityReadsVerified(false); setMessage(null);
-              }, busy !== null || wireTransport === 'tls' && !isBrainstemLanAvailable())}
-              <Text style={[typography.label, { color: p.ink }]}>端口</Text>
-              <TextInput accessibilityLabel="gRPC端口" editable={!busy} keyboardType="number-pad" onChangeText={value => changeEndpoint('port', value)} style={[styles.input, { backgroundColor: colors.background, color: p.ink }]} testID="robot-grpc-port" value={port} />
-              {wireTransport === 'tls' ? <><Text style={[typography.label, { color: p.ink }]}>机器人编号</Text>
-              <TextInput accessibilityLabel="机器人编号" autoCapitalize="none" autoCorrect={false} editable={!busy} onChangeText={changeRobotId} placeholder="输入机器人编号" placeholderTextColor={p.secondary} style={[styles.input, { backgroundColor: colors.background, color: p.ink }]} testID="robot-local-identity-robot-id" value={robotId} />
-              <Text style={[typography.supporting, { color: p.secondary }]} testID="robot-local-identity-status">本机身份：{localIdentity?.status === 'ready' ? '可用' : localIdentity ? '等待授权' : '未准备'}</Text>
-              {button(busy === 'local-identity' ? '正在读取…' : localIdentity?.status === 'ready' ? '读取本机身份' : '生成连接申请', 'robot-local-identity-prepare', () => useLocalIdentity(false), busy !== null || !localIdentityAvailable)}
-              {localIdentity?.status === 'pending' ? button('读取授权结果', 'robot-local-identity-complete', () => useLocalIdentity(true), busy !== null || !localIdentityAvailable) : null}
-              {!localIdentityAvailable ? <Text style={[typography.supporting, { color: p.secondary }]} testID="robot-local-identity-unavailable">此版本不支持本机身份，请升级安装包。</Text> : null}
-              <Text style={[typography.supporting, { color: p.secondary }]}>{identityAlias ? '配对证书：已选择' : '配对证书：未选择'}</Text>
-              {button(busy === 'identity' ? '正在选择配对证书…' : '选择配对证书', 'robot-grpc-certificate', selectIdentity, busy !== null || !available)}
-              {onOpenControl ? <>
-                <Text style={[typography.label, { color: p.ink }]}>配对身份</Text>
-                <TextInput accessibilityLabel="配对控制身份" autoCapitalize="none" autoCorrect={false} editable={!busy && !(localIdentity?.status === 'ready' && identityAlias === localIdentity.identityAlias)} value={principal} onChangeText={value => { if (!(localIdentity?.status === 'ready' && identityAlias === localIdentity.identityAlias)) setPrincipal(value); }} style={[styles.input, { backgroundColor: colors.background, color: p.ink }]} testID="robot-control-principal" />
-              </> : null}</> : null}
-              {button(busy === 'read' ? '正在检查…' : '检查连接状态', 'robot-grpc-read', readStatus, busy !== null || !available)}
-              {!available ? <Text style={[typography.supporting, { color: p.secondary }]} testID="robot-grpc-unavailable">此版本不支持直连，请升级 Android 安装包。</Text> : null}
-            </View> : null}
-            {transport === 'ble' ? <View style={styles.advancedContent} testID="connection-ble-panel">
-              <Text style={[typography.label, { color: p.ink }]}>附近 BLE 设备</Text>
-              <Text style={[typography.supporting, { color: p.secondary }]}>身份验证和配网尚未接入</Text>
-              {onOpenBleDiscovery ? button('查找蓝牙设备', 'connection-open-ble', () => leave(onOpenBleDiscovery), busy !== null) : <Text style={[typography.supporting, { color: p.secondary }]}>登录后可查找设备。</Text>}
-            </View> : null}
-            {transport === 'cloud' ? <View style={styles.advancedContent} testID="connection-cloud-panel">
-              <Text style={[typography.label, { color: p.ink }]}>{accountDeviceName ?? '尚未绑定机器狗'}</Text>
-              {accountDeviceName ? <View style={styles.advancedContent} testID="device-connection-summary">
-                <Text style={[typography.supporting, { color: p.secondary }]}>连接来源：{accountDeviceConnectionSource}</Text>
-                <Text style={[typography.supporting, { color: p.secondary }]}>{connectionLabel}</Text>
-                <View style={styles.summaryGrid}>
-                  <SummaryItem label="设备身份" value={identityLabel} tone={identityTone} styles={styles} />
-                  <SummaryItem label="最后同步" value={observedAtLabel} tone="neutral" styles={styles} />
-                  <SummaryItem label="控制权" value={authorityLabel} tone={accountControlAuthority === 'held' ? 'positive' : 'neutral'} styles={styles} />
-                </View>
-                <Text style={[typography.supporting, { color: p.secondary }]}>{authorityReason}</Text>
+          <View style={[styles.panel, detailsExpanded ? { backgroundColor: p.surface } : styles.collapsedPanel]}>
+            <Pressable accessibilityRole="button" accessibilityState={{ expanded: detailsExpanded }} accessibilityLabel={detailsExpanded ? '收起高级设置' : '展开高级设置'} onPress={() => setDetailsExpanded(value => !value)} style={styles.integrationHeader} testID="connection-details-toggle">
+              <Text style={[typography.label, { color: p.ink, flex: 1 }]}>高级设置</Text>
+              <Ionicons color={p.secondary} name={detailsExpanded ? 'chevron-up' : 'chevron-down'} size={20} />
+            </Pressable>
+            {detailsExpanded ? <View style={styles.advancedContent} testID="connection-advanced-settings">
+              <View accessibilityRole="tablist" style={styles.transportTabs} testID="connection-transport-tabs">
+                {tab('ip', '连接设置')}
+                {tab('ble', '蓝牙')}
+                {tab('navigation', '视频与诊断')}
+              </View>
+              {transport === 'ip' ? <View style={styles.advancedContent}>
+                {button(wireTransport === 'lan-dev' ? '切换到证书连接' : '切换到局域网连接', 'robot-wire-transport', () => {
+                  if (busyRef.current) return;
+                  interrupt(); setWireTransport(wireTransport === 'lan-dev' ? 'tls' : 'lan-dev'); setIdentityAlias(null); setLocalIdentity(null); setObservation(null); setIdentityReadsVerified(false); setMessage(null);
+                }, busy !== null || wireTransport === 'tls' && !isBrainstemLanAvailable())}
+                <Text style={[typography.label, { color: p.ink }]}>端口</Text>
+                <TextInput accessibilityLabel="gRPC端口" editable={!busy} keyboardType="number-pad" onChangeText={value => changeEndpoint('port', value)} style={[styles.input, { backgroundColor: colors.background, color: p.ink }]} testID="robot-grpc-port" value={port} />
+                {wireTransport === 'tls' ? <><Text style={[typography.label, { color: p.ink }]}>机器人编号</Text>
+                  <TextInput accessibilityLabel="机器人编号" autoCapitalize="none" autoCorrect={false} editable={!busy} onChangeText={changeRobotId} placeholder="输入机器人编号" placeholderTextColor={p.secondary} style={[styles.input, { backgroundColor: colors.background, color: p.ink }]} testID="robot-local-identity-robot-id" value={robotId} />
+                  <Text style={[typography.supporting, { color: p.secondary }]} testID="robot-local-identity-status">本机身份：{localIdentity?.status === 'ready' ? '可用' : localIdentity ? '等待授权' : '未准备'}</Text>
+                  {button(busy === 'local-identity' ? '正在读取…' : localIdentity?.status === 'ready' ? '读取本机身份' : '生成连接申请', 'robot-local-identity-prepare', () => useLocalIdentity(false), busy !== null || !localIdentityAvailable)}
+                  {localIdentity?.status === 'pending' ? button('读取授权结果', 'robot-local-identity-complete', () => useLocalIdentity(true), busy !== null || !localIdentityAvailable) : null}
+                  {!localIdentityAvailable ? <Text style={[typography.supporting, { color: p.secondary }]} testID="robot-local-identity-unavailable">此版本不支持本机身份，请升级安装包。</Text> : null}
+                  <Text style={[typography.supporting, { color: p.secondary }]}>{identityAlias ? '配对证书：已选择' : '配对证书：未选择'}</Text>
+                  {button(busy === 'identity' ? '正在选择配对证书…' : '选择配对证书', 'robot-grpc-certificate', selectIdentity, busy !== null || !available)}
+                  {onOpenControl ? <>
+                    <Text style={[typography.label, { color: p.ink }]}>配对身份</Text>
+                    <TextInput accessibilityLabel="配对控制身份" autoCapitalize="none" autoCorrect={false} editable={!busy && !(localIdentity?.status === 'ready' && identityAlias === localIdentity.identityAlias)} value={principal} onChangeText={value => { if (!(localIdentity?.status === 'ready' && identityAlias === localIdentity.identityAlias)) setPrincipal(value); }} style={[styles.input, { backgroundColor: colors.background, color: p.ink }]} testID="robot-control-principal" />
+                  </> : null}</> : null}
+                {button(busy === 'read' ? '正在检查…' : '检查连接状态', 'robot-grpc-read', readStatus, busy !== null || !available)}
+                {!available ? <Text style={[typography.supporting, { color: p.secondary }]} testID="robot-grpc-unavailable">此版本不支持直连，请升级 Android 安装包。</Text> : null}
               </View> : null}
-              {accountDeviceName && onOpenDeviceEnrollment ? button('验证设备身份', 'connection-open-enrollment', () => leave(onOpenDeviceEnrollment), busy !== null) : null}
-              {accountDeviceName && onOpenAccountDevice ? button('查看账号设备', 'connection-open-account-device', () => leave(onOpenAccountDevice), busy !== null) : null}
-              {!accountDeviceName && onBindDevice ? button('添加账号设备', 'connection-open-binding', () => leave(onBindDevice), busy !== null) : null}
-            </View> : null}
+              {transport === 'ble' ? <View style={styles.advancedContent} testID="connection-ble-panel">
+                <Text style={[typography.label, { color: p.ink }]}>附近 BLE 设备</Text>
+                <Text style={[typography.supporting, { color: p.secondary }]}>身份验证和配网尚未接入</Text>
+                {onOpenBleDiscovery ? button('查找蓝牙设备', 'connection-open-ble', () => leave(onOpenBleDiscovery), busy !== null) : null}
+              </View> : null}
 
-            {observation ? <View style={styles.status} testID="robot-grpc-observation">
-              <Text style={[typography.label, { color: p.ink }]}>连接诊断</Text>
-              {wireTransport === 'tls' ? <Text style={[typography.supporting, { color: p.ink }]} testID="robot-grpc-mtls-proof">身份握手：{identityReadsVerified ? '已验证' : '未验证'}</Text> : null}
-              <Text style={[typography.supporting, { color: p.ink }]}>机器人状态：{fsm[observation.status.fsmKind]}</Text>
-              <Text style={[typography.supporting, { color: p.ink }]}>控制来源：{owner[observation.status.owner]}</Text>
-              <Text style={[typography.supporting, { color: p.ink }]}>电机输出：{observation.status.motorOutputEnabled ? '已使能' : '未使能'}</Text>
-              <Text style={[typography.supporting, { color: p.ink }]}>严重故障：{observation.status.criticalMotorFault ? '有' : '无'}</Text>
-              <Text style={[typography.supporting, { color: p.ink }]}>当前策略：{observation.profile?.currentDescription || observation.profile?.current || '未同步'}</Text>
-              {(() => {
-                const values = observation.voltage?.values.filter(value => value > 0) ?? [];
-                const live = values.length > 0;
-                const voltageText = live ? `${Math.min(...values).toFixed(1)}–${Math.max(...values).toFixed(1)} V` : '未同步';
-                return <Text style={[typography.supporting, { color: live ? '#30D158' : p.ink }]}>电机总线电压：{voltageText}</Text>;
-              })()}
-              <Text style={[typography.supporting, { color: p.ink }]}>电机在线：{observation.motors?.length ? `${observation.motors.filter(motor => motor.online).length}/${observation.motors.length}` : '未同步'}</Text>
-              {observation.motors?.some(motor => motor.errors.length > 0) ? <Text style={[typography.supporting, { color: colors.dangerText }]}>存在电机故障</Text> : null}
-              {onUseConnection ? button('使用此设备', 'robot-use-connection', useConnection, busy !== null) : null}
-              <View testID="connection-diagnostic-issues">
-                {(['profile', 'voltage', 'motors'] as const).filter(kind => diagnosticIssues[kind]).map(kind => <Text key={kind} style={[typography.supporting, { color: p.secondary }]}>
-                  {{ profile: '策略', voltage: '电压', motors: '电机状态' }[kind]}：{diagnosticIssues[kind]}
-                </Text>)}
+              {observation ? <View style={styles.status} testID="robot-grpc-observation">
+                <Text style={[typography.label, { color: p.ink }]}>连接诊断</Text>
+                {wireTransport === 'tls' ? <Text style={[typography.supporting, { color: p.ink }]} testID="robot-grpc-mtls-proof">身份握手：{identityReadsVerified ? '已验证' : '未验证'}</Text> : null}
+                <Text style={[typography.supporting, { color: p.ink }]}>机器人状态：{fsm[observation.status.fsmKind]}</Text>
+                <Text style={[typography.supporting, { color: p.ink }]}>控制来源：{owner[observation.status.owner]}</Text>
+                <Text style={[typography.supporting, { color: p.ink }]}>电机输出：{observation.status.motorOutputEnabled ? '已使能' : '未使能'}</Text>
+                <Text style={[typography.supporting, { color: p.ink }]}>严重故障：{observation.status.criticalMotorFault ? '有' : '无'}</Text>
+                <Text style={[typography.supporting, { color: p.ink }]}>当前策略：{observation.profile?.currentDescription || observation.profile?.current || '未同步'}</Text>
+                {(() => {
+                  const values = observation.voltage?.values.filter(value => value > 0) ?? [];
+                  const live = values.length > 0;
+                  const voltageText = live ? `${Math.min(...values).toFixed(1)}–${Math.max(...values).toFixed(1)} V` : '未同步';
+                  return <Text style={[typography.supporting, { color: live ? '#30D158' : p.ink }]}>电机总线电压：{voltageText}</Text>;
+                })()}
+                <Text style={[typography.supporting, { color: p.ink }]}>电机在线：{observation.motors?.length ? `${observation.motors.filter(motor => motor.online).length}/${observation.motors.length}` : '未同步'}</Text>
+                {observation.motors?.some(motor => motor.errors.length > 0) ? <Text style={[typography.supporting, { color: colors.dangerText }]}>存在电机故障</Text> : null}
+                {onUseConnection ? button('使用此设备', 'robot-use-connection', useConnection, busy !== null) : null}
+                <View testID="connection-diagnostic-issues">
+                  {(['profile', 'voltage', 'motors'] as const).filter(kind => diagnosticIssues[kind]).map(kind => <Text key={kind} style={[typography.supporting, { color: p.secondary }]}>
+                    {{ profile: '策略', voltage: '电压', motors: '电机状态' }[kind]}：{diagnosticIssues[kind]}
+                  </Text>)}
+                </View>
+              </View> : null}
+              <View style={styles.integrationRows} testID="brainstem-integration-readiness">
+                <Text style={[typography.supporting, { color: p.secondary }]}>{integration.controlBlockedReason}</Text>
+                {integration.gates.map(currentGate => {
+                  const color = currentGate.state === 'ready' ? '#2A8A64' : currentGate.state === 'pending' ? '#A06E18' : '#77808B';
+                  const label = currentGate.state === 'ready' ? '已满足' : currentGate.state === 'pending' ? '待完成' : '未就绪';
+                  return <View key={currentGate.id} style={styles.integrationRow}>
+                    <View style={[styles.integrationDot, { backgroundColor: color }]} />
+                    <View style={styles.integrationRowCopy}>
+                      <View style={styles.integrationRowHeading}>
+                        <Text style={[typography.supporting, { color: p.ink, flex: 1 }]}>{currentGate.label}</Text>
+                        <Text style={[typography.supporting, { color }]}>{label}</Text>
+                      </View>
+                      <Text style={[typography.supporting, { color: p.secondary }]}>{currentGate.detail}</Text>
+                    </View>
+                  </View>;
+                })}
               </View>
             </View> : null}
-            <View style={styles.integrationRows} testID="brainstem-integration-readiness">
-              <Text style={[typography.supporting, { color: p.secondary }]}>{integration.controlBlockedReason}</Text>
-              {integration.gates.map(current => {
-                const color = current.state === 'ready' ? '#2A8A64' : current.state === 'pending' ? '#A06E18' : '#77808B';
-                const label = current.state === 'ready' ? '已满足' : current.state === 'pending' ? '待完成' : '未就绪';
-                return <View key={current.id} style={styles.integrationRow}>
-                  <View style={[styles.integrationDot, { backgroundColor: color }]} />
-                  <View style={styles.integrationRowCopy}>
-                    <View style={styles.integrationRowHeading}>
-                      <Text style={[typography.supporting, { color: p.ink, flex: 1 }]}>{current.label}</Text>
-                      <Text style={[typography.supporting, { color }]}>{label}</Text>
-                    </View>
-                    <Text style={[typography.supporting, { color: p.secondary }]}>{current.detail}</Text>
-                  </View>
-                </View>;
-              })}
-            </View>
-          </View> : null}
+          </View>
         </View>
-      </View>
-    </ScrollView>
+      </ScrollView>
     </OfficialSheet>
   </SafeAreaView>;
-}
-
-function SummaryItem({ label, value, tone, styles }: { label: string; value: string; tone: 'positive' | 'pending' | 'neutral'; styles: Styles }) {
-  return <View style={styles.summaryItem}>
-    <Text style={styles.summaryLabel}>{label}</Text>
-    <Text style={[styles.summaryValue, tone === 'positive' ? styles.summaryValuePositive : tone === 'pending' ? styles.summaryValuePending : styles.summaryValueNeutral]}>{value}</Text>
-  </View>;
 }
 
 const createStyles = () => StyleSheet.create({
   safe: { flex: 1 }, heading: { alignItems: 'center', flexDirection: 'row', gap: 8, minHeight: 64, paddingHorizontal: 20 },
   scroll: { flex: 1 }, pageContent: { paddingBottom: 24, gap: 12 },
-  summaryCard: { borderRadius: cardLayout.radius, marginHorizontal: 12, marginTop: 4, padding: 16, gap: 12 },
-  summaryHeader: { alignItems: 'center', flexDirection: 'row', gap: 12 },
-  summaryTitleCopy: { flex: 1, minWidth: 0, gap: 3 },
-  summaryStatus: { alignItems: 'center', flexDirection: 'row', gap: 6 },
-  statusDot: { backgroundColor: '#77808B', borderRadius: 4, height: 8, width: 8 },
-  statusDotPositive: { backgroundColor: '#2A8A64' },
-  statusDotPending: { backgroundColor: '#A06E18' },
-  summaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  summaryItem: { flexBasis: 96, flexGrow: 1, minWidth: 92, gap: 3 },
-  summaryLabel: { color: '#77808B', fontSize: 12, lineHeight: 17 },
-  summaryValue: { fontSize: 13, lineHeight: 19 },
-  summaryValuePositive: { color: '#2A8A64' },
-  summaryValuePending: { color: '#A06E18' },
-  summaryValueNeutral: { color: '#3F4A57' },
-  blockedReason: { alignItems: 'flex-start', flexDirection: 'row', gap: 7 },
   transportTabs: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingTop: 10 },
   transportTab: { backgroundColor: officialDark.surface, borderRadius: 14, flex: 1, minHeight: 44, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 8 },
   transportTabActive: { backgroundColor: officialDark.cta },
   transportTabLabel: { color: officialDark.muted, fontSize: 13, fontWeight: '600', lineHeight: 18 },
   transportTabLabelActive: { color: officialDark.ctaInk },
-  integrationCard: { marginHorizontal: 12, borderRadius: cardLayout.radius, padding: 16, gap: 10 },
   integrationHeader: { alignItems: 'center', flexDirection: 'row', gap: 10, minHeight: 44 },
   integrationRows: { gap: 8 },
   integrationRow: { alignItems: 'flex-start', flexDirection: 'row', gap: 8 },
@@ -525,7 +444,6 @@ const createStyles = () => StyleSheet.create({
   integrationRowHeading: { alignItems: 'center', flexDirection: 'row', gap: 8 },
   content: { alignSelf: 'center', width: '100%', maxWidth: 860, padding: 16, gap: 16, paddingBottom: 28 },
   primaryPanel: { gap: 12, padding: 20, backgroundColor: 'rgba(255,255,255,0.04)', borderColor: officialDark.line, borderWidth: 0, borderRadius: 24 },
-  addressHeading: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   panel: { flexGrow: 1, minWidth: 0, flexShrink: 1, width: '100%', borderRadius: cardLayout.radius, padding: 16, gap: 12 },
   collapsedPanel: { paddingVertical: 0, paddingHorizontal: 16 },
   input: { minHeight: 54, paddingHorizontal: 16, borderWidth: .5, borderColor: officialDark.line, borderRadius: 14, backgroundColor: officialDark.field, ...typography.body, fontVariant: ['tabular-nums'] },

@@ -17,8 +17,6 @@ import { radii, type ThemeColors, useAppTheme } from '../theme';
 type Props = {
   deviceName: string;
   onBack: () => void;
-  fromBinding?: boolean;
-  onRobotSelected?: (robotId: string) => void;
 };
 
 type DiscoveryStatus = 'idle' | 'scanning' | 'complete' | 'error' | 'interrupted';
@@ -57,7 +55,7 @@ const ERROR_COPY: Record<BleDiscoveryErrorCode, {
   },
 };
 
-export function BleDiscoveryScreen({ deviceName, onBack, fromBinding = false, onRobotSelected }: Props) {
+export function BleDiscoveryScreen({ deviceName, onBack }: Props) {
   const { colors, isDark } = useAppTheme();
   const p = getProductAppearance(isDark);
   const { height, width } = useWindowDimensions();
@@ -81,8 +79,8 @@ export function BleDiscoveryScreen({ deviceName, onBack, fromBinding = false, on
   candidatesRef.current = candidates;
   const release = () => {
     connectionCancelledRef.current = true;
-    void bleDiscoveryAdapter.stop().catch(() => {});
-    void bleConnectionAdapter.disconnect().catch(() => {});
+    void bleDiscoveryAdapter.stop().catch(() => { });
+    void bleConnectionAdapter.disconnect().catch(() => { });
   };
 
   useEffect(() => {
@@ -170,8 +168,10 @@ export function BleDiscoveryScreen({ deviceName, onBack, fromBinding = false, on
       await bleConnectionAdapter.connect(candidate.id, update);
     } catch {
       // The session publishes closed error codes, never raw native errors.
-      if (!enteredNativeSession) update({ ...INITIAL_BLE_CONNECTION_STATE, phase: 'error',
-        peripheralId: candidate.id, errorCode: 'preparation_failed' });
+      if (!enteredNativeSession) update({
+        ...INITIAL_BLE_CONNECTION_STATE, phase: 'error',
+        peripheralId: candidate.id, errorCode: 'preparation_failed'
+      });
     } finally {
       if (request === connectionRequestRef.current) {
         connectionPendingRef.current = false;
@@ -189,14 +189,6 @@ export function BleDiscoveryScreen({ deviceName, onBack, fromBinding = false, on
     }
   };
   const leaveScreen = () => { release(); onBack(); };
-  const selectRobot = async () => {
-    const current = connectionRef.current;
-    if (current.phase !== 'connected' || !current.robotId || !onRobotSelected) return;
-    const robotId = current.robotId;
-    await disconnect();
-    if (mountedRef.current && bleConnectionAdapter.getSnapshot().cleanupConfirmed
-      && !shouldStopBleScanForAppState(AppState.currentState)) onRobotSelected(robotId);
-  };
   const connectionLocked = connectionPending || !connection.cleanupConfirmed;
 
   const error = errorCode ? ERROR_COPY[errorCode] : null;
@@ -215,7 +207,7 @@ export function BleDiscoveryScreen({ deviceName, onBack, fromBinding = false, on
                 <Ionicons color={p.blueInk} name="bluetooth-outline" size={21} />
                 <View style={styles.bannerCopy}>
                   <Text style={styles.liveTitle}>查找附近设备</Text>
-                  <Text style={styles.liveText}>发现附近的 DOSO 广播。设备身份仍待确认，扫码后再确认账号绑定。</Text>
+                  <Text style={styles.liveText}>发现附近的 DOSO 广播。当前支持扫描附近设备与读取设备尾号，身份确认与配网尚未接通。</Text>
                 </View>
               </View>
             ) : null}
@@ -236,107 +228,100 @@ export function BleDiscoveryScreen({ deviceName, onBack, fromBinding = false, on
               </View>
             ) : (
               <>
-          <View style={styles.actionCard}>
-            <Text style={styles.actionTitle}>{status === 'scanning' ? '正在查找附近设备…' : '附近设备'}</Text>
-            <Text style={styles.actionText}>请保持手机靠近机器人。发现广播后，扫描随设备提供的专属二维码。</Text>
-            <Pressable
-              accessibilityLabel={status === 'scanning' ? '停止查找附近设备' : '开始查找附近设备'}
-              accessibilityRole="button"
-              accessibilityState={{ busy: status === 'scanning' }}
-              disabled={connectionLocked}
-              onPress={() => void (status === 'scanning' ? stopScan() : startScan())}
-              style={[styles.primaryButton, status === 'scanning' && styles.stopButton]}
-            >
-              <Ionicons color={p.actionInk} name={status === 'scanning' ? 'stop-circle-outline' : 'search-outline'} size={19} />
-              <Text style={styles.primaryButtonText}>{status === 'scanning' ? '停止查找' : status === 'idle' ? '开始查找附近设备' : '重新查找'}</Text>
-            </Pressable>
-          </View>
-
-          {connection.phase !== 'idle' ? <View style={styles.messageCard} testID="ble-connection-status">
-            <Text accessibilityLiveRegion="polite" style={styles.messageTitle}>{connectionTitle(connection)}</Text>
-            <Text style={styles.messageText}>{connection.phase === 'connected'
-              ? `已读取设备尾号 ${connection.robotId?.slice(-6)}，请扫描专属二维码核对。设备身份仍待验证。`
-              : connectionMessage(connection)}</Text>
-            {!connection.cleanupConfirmed && ['error', 'disconnected'].includes(connection.phase)
-              ? <Text style={styles.messageText}>系统连接的释放尚未确认，暂不能重新连接。请等待系统释放；仍未恢复时关闭并重启 App。</Text> : null}
-            {['preparing', 'connecting', 'discovering', 'reading', 'connected'].includes(connection.phase) ? <Pressable
-              accessibilityRole="button" accessibilityLabel="断开蓝牙连接" onPress={() => void disconnect()}
-              style={styles.primaryButton} testID="ble-disconnect"><Text style={styles.primaryButtonText}>断开连接</Text></Pressable> : null}
-            <Pressable accessibilityRole="button" accessibilityState={{ disabled: true }} disabled testID="ble-identity-blocked">
-              <Text style={styles.messageText}>设备身份确认尚未接通</Text>
-            </Pressable>
-            {fromBinding && onRobotSelected && connection.phase === 'connected' && connection.robotId ? <Pressable
-              accessibilityRole="button" accessibilityLabel="扫描这台机器人的二维码" onPress={() => void selectRobot()}
-              style={styles.primaryButton} testID="ble-select-robot"><Text style={styles.primaryButtonText}>扫描这台机器人的二维码</Text></Pressable> : null}
-            <Pressable accessibilityRole="button" accessibilityState={{ disabled: true }} disabled testID="ble-wifi-blocked">
-              <Text style={styles.messageText}>联网配置尚未接通</Text>
-            </Pressable>
-          </View> : null}
-
-          {error ? (
-            <View style={styles.errorCard}>
-              <Ionicons color={colors.dangerText} name="alert-circle-outline" size={25} />
-              <Text accessibilityLiveRegion="polite" style={styles.messageTitle}>{error.title}</Text>
-              <Text style={styles.messageText}>{error.message}</Text>
-              {errorNativeStatus === null ? null : (
-                <Text style={styles.diagnosticText}>Android 扫描错误码：{errorNativeStatus}</Text>
-              )}
-              {error.settings ? (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => void (error.settings === 'location'
-                    ? Linking.sendIntent('android.settings.LOCATION_SOURCE_SETTINGS')
-                    : Linking.openSettings())}
-                  style={styles.settingsButton}
-                >
-                  <Text style={styles.settingsButtonText}>{error.settings === 'location' ? '打开定位设置' : '打开应用设置'}</Text>
-                </Pressable>
-              ) : null}
-            </View>
-          ) : null}
-
-          {status === 'interrupted' ? (
-            <View style={styles.messageCard}>
-              <Ionicons color={colors.muted} name="pause-circle-outline" size={26} />
-              <Text accessibilityLiveRegion="polite" style={styles.messageTitle}>扫描已中断</Text>
-              <Text style={styles.messageText}>应用进入后台，蓝牙扫描已停止。返回前台后请重新查找附近设备。</Text>
-            </View>
-          ) : null}
-
-          {candidates.length ? (
-            <View style={styles.listSection}>
-              <Text accessibilityLiveRegion="polite" style={styles.listTitle}>候选设备（{candidates.length}）</Text>
-              {candidates.map((candidate, index) => (
-                <View key={candidate.id} style={styles.candidateCard}>
-                  <View style={styles.deviceIcon}>
-                    <Ionicons color={p.blueInk} name="hardware-chip-outline" size={23} />
-                  </View>
-                  <View style={styles.candidateCopy}>
-                    <Text style={styles.candidateName}>{candidate.displayName}</Text>
-                    <Text style={styles.candidateMeta}>{maskPeripheralId(candidate.id)}，{signalLabel(candidate.rssi)}</Text>
-                    <Text style={styles.identityLabel}>{basisLabel(candidate.matchBasis)}</Text>
-                    {candidate.connectable ? <Pressable accessibilityRole="button" accessibilityLabel={`连接${candidate.displayName}`}
-                      accessibilityState={{ disabled: status === 'scanning' || connectionLocked || !bleConnectionAdapter.supported }}
-                      disabled={status === 'scanning' || connectionLocked || !bleConnectionAdapter.supported}
-                      onPress={() => void connectCandidate(candidate)} style={styles.primaryButton} testID={`ble-connect-${index}`}>
-                      <Text style={styles.primaryButtonText}>连接设备</Text>
-                    </Pressable> : <Text style={styles.identityLabel}>已发现广播，设备身份待确认</Text>}
-                  </View>
+                <View style={styles.actionCard}>
+                  <Text style={styles.actionTitle}>{status === 'scanning' ? '正在查找附近设备…' : '附近设备'}</Text>
+                  <Text style={styles.actionText}>请保持手机靠近机器人，当前支持扫描附近广播与读取设备尾号；配网控制尚未开放。</Text>
+                  <Pressable
+                    accessibilityLabel={status === 'scanning' ? '停止查找附近设备' : '开始查找附近设备'}
+                    accessibilityRole="button"
+                    accessibilityState={{ busy: status === 'scanning' }}
+                    disabled={connectionLocked}
+                    onPress={() => void (status === 'scanning' ? stopScan() : startScan())}
+                    style={[styles.primaryButton, status === 'scanning' && styles.stopButton]}
+                  >
+                    <Ionicons color={p.actionInk} name={status === 'scanning' ? 'stop-circle-outline' : 'search-outline'} size={19} />
+                    <Text style={styles.primaryButtonText}>{status === 'scanning' ? '停止查找' : status === 'idle' ? '开始查找附近设备' : '重新查找'}</Text>
+                  </Pressable>
                 </View>
-              ))}
-              <Text style={styles.nextStep}>附近候选与二维码中的机器人尚未核对，扫码后由你确认账号绑定。</Text>
-              {fromBinding ? <Pressable accessibilityRole="button" accessibilityLabel="返回扫码绑定"
-                onPress={leaveScreen} style={styles.primaryButton} testID="ble-return-to-bind">
-                <Text style={styles.primaryButtonText}>返回扫码绑定</Text>
-              </Pressable> : null}
-            </View>
-          ) : status === 'complete' && !error ? (
-            <View style={styles.messageCard}>
-              <Ionicons color={colors.muted} name="search-outline" size={26} />
-              <Text style={styles.messageTitle}>本次没有发现候选设备</Text>
-              <Text style={styles.messageText}>请让机器人进入配网广播模式、靠近手机后重新查找。</Text>
-            </View>
-          ) : null}
+
+                {connection.phase !== 'idle' ? <View style={styles.messageCard} testID="ble-connection-status">
+                  <Text accessibilityLiveRegion="polite" style={styles.messageTitle}>{connectionTitle(connection)}</Text>
+                  <Text style={styles.messageText}>{connection.phase === 'connected'
+                    ? `已读取设备尾号 ${connection.robotId?.slice(-6)}；设备身份确认与安全配网尚未接通。`
+                    : connectionMessage(connection)}</Text>
+                  {!connection.cleanupConfirmed && ['error', 'disconnected'].includes(connection.phase)
+                    ? <Text style={styles.messageText}>系统连接的释放尚未确认，暂不能重新连接。请等待系统释放；仍未恢复时关闭并重启 App。</Text> : null}
+                  {['preparing', 'connecting', 'discovering', 'reading', 'connected'].includes(connection.phase) ? <Pressable
+                    accessibilityRole="button" accessibilityLabel="断开蓝牙连接" onPress={() => void disconnect()}
+                    style={styles.primaryButton} testID="ble-disconnect"><Text style={styles.primaryButtonText}>断开连接</Text></Pressable> : null}
+                  <Pressable accessibilityRole="button" accessibilityState={{ disabled: true }} disabled testID="ble-identity-blocked">
+                    <Text style={styles.messageText}>设备身份确认尚未接通</Text>
+                  </Pressable>
+                  <Pressable accessibilityRole="button" accessibilityState={{ disabled: true }} disabled testID="ble-wifi-blocked">
+                    <Text style={styles.messageText}>联网配置尚未接通</Text>
+                  </Pressable>
+                </View> : null}
+
+                {error ? (
+                  <View style={styles.errorCard}>
+                    <Ionicons color={colors.dangerText} name="alert-circle-outline" size={25} />
+                    <Text accessibilityLiveRegion="polite" style={styles.messageTitle}>{error.title}</Text>
+                    <Text style={styles.messageText}>{error.message}</Text>
+                    {errorNativeStatus === null ? null : (
+                      <Text style={styles.diagnosticText}>Android 扫描错误码：{errorNativeStatus}</Text>
+                    )}
+                    {error.settings ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => void (error.settings === 'location'
+                          ? Linking.sendIntent('android.settings.LOCATION_SOURCE_SETTINGS')
+                          : Linking.openSettings())}
+                        style={styles.settingsButton}
+                      >
+                        <Text style={styles.settingsButtonText}>{error.settings === 'location' ? '打开定位设置' : '打开应用设置'}</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
+
+                {status === 'interrupted' ? (
+                  <View style={styles.messageCard}>
+                    <Ionicons color={colors.muted} name="pause-circle-outline" size={26} />
+                    <Text accessibilityLiveRegion="polite" style={styles.messageTitle}>扫描已中断</Text>
+                    <Text style={styles.messageText}>应用进入后台，蓝牙扫描已停止。返回前台后请重新查找附近设备。</Text>
+                  </View>
+                ) : null}
+
+                {candidates.length ? (
+                  <View style={styles.listSection}>
+                    <Text accessibilityLiveRegion="polite" style={styles.listTitle}>候选设备（{candidates.length}）</Text>
+                    {candidates.map((candidate, index) => (
+                      <View key={candidate.id} style={styles.candidateCard}>
+                        <View style={styles.deviceIcon}>
+                          <Ionicons color={p.blueInk} name="hardware-chip-outline" size={23} />
+                        </View>
+                        <View style={styles.candidateCopy}>
+                          <Text style={styles.candidateName}>{candidate.displayName}</Text>
+                          <Text style={styles.candidateMeta}>{maskPeripheralId(candidate.id)}，{signalLabel(candidate.rssi)}</Text>
+                          <Text style={styles.identityLabel}>{basisLabel(candidate.matchBasis)}</Text>
+                          {candidate.connectable ? <Pressable accessibilityRole="button" accessibilityLabel={`连接${candidate.displayName}`}
+                            accessibilityState={{ disabled: status === 'scanning' || connectionLocked || !bleConnectionAdapter.supported }}
+                            disabled={status === 'scanning' || connectionLocked || !bleConnectionAdapter.supported}
+                            onPress={() => void connectCandidate(candidate)} style={styles.primaryButton} testID={`ble-connect-${index}`}>
+                            <Text style={styles.primaryButtonText}>连接设备</Text>
+                          </Pressable> : <Text style={styles.identityLabel}>已发现广播，设备身份待确认</Text>}
+                        </View>
+                      </View>
+                    ))}
+                    <Text style={styles.nextStep}>已列出附近候选设备；身份确认与无线配网尚未接通。</Text>
+                  </View>
+                ) : status === 'complete' && !error ? (
+                  <View style={styles.messageCard}>
+                    <Ionicons color={colors.muted} name="search-outline" size={26} />
+                    <Text style={styles.messageTitle}>本次没有发现候选设备</Text>
+                    <Text style={styles.messageText}>请让机器人进入配网广播模式、靠近手机后重新查找。</Text>
+                  </View>
+                ) : null}
               </>
             )}
           </View>
@@ -348,9 +333,11 @@ export function BleDiscoveryScreen({ deviceName, onBack, fromBinding = false, on
 
 function connectionTitle(state: BleConnectionSnapshot) {
   if (state.phase === 'disconnected' && !state.cleanupConfirmed) return '正在释放蓝牙连接…';
-  return ({ idle: '尚未连接', preparing: '正在准备蓝牙连接…', connecting: '正在连接所选设备…',
+  return ({
+    idle: '尚未连接', preparing: '正在准备蓝牙连接…', connecting: '正在连接所选设备…',
     discovering: '正在检查连接…', reading: '正在读取机器人编号…', connected: '已读取机器人编号，身份待验证', disconnecting: '正在断开连接…',
-    disconnected: '蓝牙连接已结束', error: '蓝牙连接未完成' } as const)[state.phase];
+    disconnected: '蓝牙连接已结束', error: '蓝牙连接未完成'
+  } as const)[state.phase];
 }
 
 function connectionMessage(state: BleConnectionSnapshot) {
@@ -378,43 +365,43 @@ function basisLabel(basis: BleRobotCandidate['matchBasis']) {
 const createStyles = (colors: ThemeColors, isDark: boolean) => {
   const p = getProductAppearance(isDark);
   return StyleSheet.create({
-  safe: { backgroundColor: colors.background, flex: 1 },
-  content: { backgroundColor: colors.background, flexGrow: 1, paddingBottom: 42, paddingHorizontal: 24, paddingTop: 22 },
-  compactContent: { paddingHorizontal: 16 },
-  layout: { flex: 1, gap: 16 },
-  landscapeLayout: { flexDirection: 'row', gap: 20, marginHorizontal: 'auto', maxWidth: 1040, width: '100%' },
-  introPane: { flex: 0.9, gap: 16, minWidth: 0 },
-  resultsPane: { flex: 1.1, gap: 16, minWidth: 0 },
-  back: { alignItems: 'center', backgroundColor: colors.surface, borderRadius: 22, height: 44, justifyContent: 'center', width: 44 },
-  liveBanner: { alignItems: 'flex-start', backgroundColor: p.surface, borderRadius: cardLayout.radius, flexDirection: 'row', gap: 10, padding: cardLayout.inset },
-  bannerCopy: { flex: 1 },
-  liveTitle: { ...typography.label, color: p.ink },
-  liveText: { ...typography.supporting, color: p.secondary, marginTop: 3 },
-  eyebrow: { ...typography.caption, color: p.secondary, letterSpacing: 1, marginTop: 8 },
-  title: { ...typography.compactTitle, color: p.ink },
-  compactTitle: { ...typography.compactTitle },
-  subtitle: { ...typography.supporting, color: p.secondary },
-  actionCard: { backgroundColor: p.surface, borderRadius: cardLayout.radius, gap: cardLayout.gap, padding: cardLayout.inset },
-  actionTitle: { ...typography.label, color: p.ink },
-  actionText: { ...typography.supporting, color: p.secondary },
-  primaryButton: { alignItems: 'center', backgroundColor: p.action, borderRadius: radii.pill, flexDirection: 'row', gap: 8, justifyContent: 'center', marginTop: 4, minHeight: 48, paddingHorizontal: 16 },
-  stopButton: { backgroundColor: p.action },
-  primaryButtonText: { ...typography.label, color: p.actionInk },
-  errorCard: { alignItems: 'flex-start', backgroundColor: colors.dangerSurface, borderRadius: cardLayout.radius, gap: 8, padding: cardLayout.inset },
-  messageCard: { alignItems: 'flex-start', backgroundColor: p.surface, borderRadius: cardLayout.radius, gap: cardLayout.gap, padding: cardLayout.inset },
-  messageTitle: { ...typography.label, color: p.ink },
-  messageText: { ...typography.supporting, color: p.secondary },
-  diagnosticText: { ...typography.supporting, color: colors.dangerText, fontFamily: 'monospace' },
-  settingsButton: { alignItems: 'center', borderColor: colors.dangerText, borderRadius: radii.pill, borderWidth: 1, justifyContent: 'center', marginTop: 4, minHeight: 44, paddingHorizontal: 16 },
-  settingsButtonText: { ...typography.label, color: colors.dangerText },
-  listSection: { gap: cardLayout.gap },
-  listTitle: { ...typography.label, color: p.ink },
-  candidateCard: { alignItems: 'center', backgroundColor: p.surface, borderRadius: cardLayout.radius, flexDirection: 'row', gap: cardLayout.gap, padding: cardLayout.inset },
-  deviceIcon: { alignItems: 'center', backgroundColor: 'transparent', borderRadius: 22, height: 44, justifyContent: 'center', width: 44 },
-  candidateCopy: { flex: 1 },
-  candidateName: { ...typography.label, color: p.ink },
-  candidateMeta: { ...typography.supporting, color: p.secondary, marginTop: 3 },
-  identityLabel: { ...typography.supporting, color: colors.dangerText, marginTop: 4 },
-  nextStep: { ...typography.supporting, color: p.secondary, marginTop: 2 },
+    safe: { backgroundColor: colors.background, flex: 1 },
+    content: { backgroundColor: colors.background, flexGrow: 1, paddingBottom: 42, paddingHorizontal: 24, paddingTop: 22 },
+    compactContent: { paddingHorizontal: 16 },
+    layout: { flex: 1, gap: 16 },
+    landscapeLayout: { flexDirection: 'row', gap: 20, marginHorizontal: 'auto', maxWidth: 1040, width: '100%' },
+    introPane: { flex: 0.9, gap: 16, minWidth: 0 },
+    resultsPane: { flex: 1.1, gap: 16, minWidth: 0 },
+    back: { alignItems: 'center', backgroundColor: colors.surface, borderRadius: 22, height: 44, justifyContent: 'center', width: 44 },
+    liveBanner: { alignItems: 'flex-start', backgroundColor: p.surface, borderRadius: cardLayout.radius, flexDirection: 'row', gap: 10, padding: cardLayout.inset },
+    bannerCopy: { flex: 1 },
+    liveTitle: { ...typography.label, color: p.ink },
+    liveText: { ...typography.supporting, color: p.secondary, marginTop: 3 },
+    eyebrow: { ...typography.caption, color: p.secondary, letterSpacing: 1, marginTop: 8 },
+    title: { ...typography.compactTitle, color: p.ink },
+    compactTitle: { ...typography.compactTitle },
+    subtitle: { ...typography.supporting, color: p.secondary },
+    actionCard: { backgroundColor: p.surface, borderRadius: cardLayout.radius, gap: cardLayout.gap, padding: cardLayout.inset },
+    actionTitle: { ...typography.label, color: p.ink },
+    actionText: { ...typography.supporting, color: p.secondary },
+    primaryButton: { alignItems: 'center', backgroundColor: p.action, borderRadius: radii.pill, flexDirection: 'row', gap: 8, justifyContent: 'center', marginTop: 4, minHeight: 48, paddingHorizontal: 16 },
+    stopButton: { backgroundColor: p.action },
+    primaryButtonText: { ...typography.label, color: p.actionInk },
+    errorCard: { alignItems: 'flex-start', backgroundColor: colors.dangerSurface, borderRadius: cardLayout.radius, gap: 8, padding: cardLayout.inset },
+    messageCard: { alignItems: 'flex-start', backgroundColor: p.surface, borderRadius: cardLayout.radius, gap: cardLayout.gap, padding: cardLayout.inset },
+    messageTitle: { ...typography.label, color: p.ink },
+    messageText: { ...typography.supporting, color: p.secondary },
+    diagnosticText: { ...typography.supporting, color: colors.dangerText, fontFamily: 'monospace' },
+    settingsButton: { alignItems: 'center', borderColor: colors.dangerText, borderRadius: radii.pill, borderWidth: 1, justifyContent: 'center', marginTop: 4, minHeight: 44, paddingHorizontal: 16 },
+    settingsButtonText: { ...typography.label, color: colors.dangerText },
+    listSection: { gap: cardLayout.gap },
+    listTitle: { ...typography.label, color: p.ink },
+    candidateCard: { alignItems: 'center', backgroundColor: p.surface, borderRadius: cardLayout.radius, flexDirection: 'row', gap: cardLayout.gap, padding: cardLayout.inset },
+    deviceIcon: { alignItems: 'center', backgroundColor: 'transparent', borderRadius: 22, height: 44, justifyContent: 'center', width: 44 },
+    candidateCopy: { flex: 1 },
+    candidateName: { ...typography.label, color: p.ink },
+    candidateMeta: { ...typography.supporting, color: p.secondary, marginTop: 3 },
+    identityLabel: { ...typography.supporting, color: colors.dangerText, marginTop: 4 },
+    nextStep: { ...typography.supporting, color: p.secondary, marginTop: 2 },
   });
 };

@@ -42,7 +42,11 @@ export function useBrainstemControl({ ownerKey, ready, autoConnectEndpoint, auto
       stop: () => session.interrupt(), stand: () => session.action('stand-up'), sit: () => session.action('sit-down'),
       enableMotor: () => session.action('enable'), disableMotor: () => session.action('disable'),
       switchPolicy: (id: string) => session.action('switch-profile', id),
+      setZero: () => session.action('set-zero'),
+      clearMotorFault: () => session.action('clear-motor-fault'),
+      playGesture: (name: string) => session.action('play-gesture', name),
     },
+    listGestures: () => session.listGestures(),
   }), [session, recovery]);
   useEffect(() => { recovery.setAvailable(ready); }, [recovery, ready]);
   useEffect(() => { recovery.setAutomaticEnabled(autoReconnectEnabled); }, [recovery, autoReconnectEnabled]);

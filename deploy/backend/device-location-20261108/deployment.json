@@ -1,0 +1,10 @@
+{
+  "status": "device_location_ready",
+  "backup": "/opt/doso-backend-shadow/env/device-location-2tkvsz58",
+  "running_services": 6,
+  "functions_changed": [
+    "remote-state/handler.ts"
+  ],
+  "other_services_preserved": true,
+  "environment_preserved": true
+}

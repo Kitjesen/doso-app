@@ -1,0 +1,77 @@
+{
+  "recordedAtUtc": "2026-10-25T17:11:00.837Z",
+  "scope": "Reviewed offline byte-protocol simulation fixes only; no hardware or production cryptographic acceptance",
+  "sourceInputs": [
+    {
+      "path": "tools/ble-provisioning-sim/protocol.mjs",
+      "sha256": "67890ffad5c2521976a008455ad2a47510d7e3ddc954edc8bafb63fbc20a309a"
+    },
+    {
+      "path": "tools/ble-provisioning-sim/flow.mjs",
+      "sha256": "1ee6f2247239f12737b3ca84470ace1c5ab870985ca12b307e82dc08ea624007"
+    },
+    {
+      "path": "tools/ble-provisioning-sim/fixture.mjs",
+      "sha256": "eb327dfae87da5cc060c2f61d9d75e552609e83c2327af9266fde46b8bc1a521"
+    },
+    {
+      "path": "tools/ble-provisioning-sim/run.mjs",
+      "sha256": "7ff492fab9c1a4e18ec362992f5a7aa4d5c7b3f2abb87863262d7e0df7908e06"
+    },
+    {
+      "path": "tools/ble-provisioning-sim/protocol.test.mjs",
+      "sha256": "792aa0e5f366637c073de32f836894e0778daf6861e36c1ea944aeb8d199e578"
+    },
+    {
+      "path": "tools/ble-provisioning-sim/README.md",
+      "sha256": "1a7800f9401fb28c94c8fb4713d17b054f5b941db631ce963bc4f476a7a006fe"
+    }
+  ],
+  "syntaxChecks": 5,
+  "tests": {
+    "command": "node --test tools/ble-provisioning-sim/protocol.test.mjs",
+    "log": "tests-reviewed-final.txt",
+    "exitCode": 0,
+    "tests": 22,
+    "passed": 22,
+    "failed": 0
+  },
+  "cli": {
+    "command": "node tools/ble-provisioning-sim/run.mjs all",
+    "log": "scenarios-reviewed.jsonl",
+    "exitCode": 0,
+    "scenarios": 4
+  },
+  "fixes": [
+    "Attempt/checkpoint ownership for connect, commit and rollback; late old callbacks cannot mutate new candidate",
+    "Only explicit NetworkError timeout/unavailable map to expected domain failure; internal exceptions clean own attempt and rethrow",
+    "Commit pending/committed cancellation semantics preserve truth and never claim rollback after commit",
+    "New session clears old IP proof; commit independently checks current device/request/IP/expiry and challenge",
+    "GCM fixed authTagLength16, canonical encoding and exact16-byte tag; bad packet invalidates flow and scoped attempt"
+  ],
+  "regressions": [
+    "Old A late success and TypeError rejection preserve B candidate and commit",
+    "Unexpected TypeError from network operation or report input is not masked, including code spoofing",
+    "Valid encrypted postcommit cancel is rejected; no cancelled state",
+    "Genuine signed old-session proof rejected by new service channel before and after a new probe",
+    "4/8/12-byte tags, 17-byte tag, padding and noncanonical discarded bits rejected; retry closed",
+    "Bad packet during pending network connection discards late candidate"
+  ],
+  "previousEvidence": "result-reviewed.json preserved; only README network-reachability/Android switching clarification added",
+  "mutations": {
+    "productionApp": 0,
+    "robot": 0,
+    "ble": 0,
+    "wifi": 0,
+    "cloud": 0,
+    "accounts": 0,
+    "builds": 0
+  },
+  "limitations": [
+    "No true Android/BlueZ/USB/Wi-Fi execution or cryptographic production audit",
+    "No automatic recovery for lost commit confirmation; do not claim cancellation or blindly resend",
+    "Unknown local exceptions propagate; callers must treat outcome as an error, not a fabricated device status",
+    "Virtual checkpoint ownership/rollback still requires a real system network adapter and independent hardware verification"
+  ],
+  "verificationReuse": "Runtime and test hashes unchanged; final22/22 log remains valid and no repeat tests run for prose-only update"
+}

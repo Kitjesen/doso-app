@@ -120,6 +120,7 @@ export function mountAuthScreen({ screen: screenName = 'register', width = 390, 
     : screenName === 'home' ? load('src/screens/HomeScreen.tsx').HomeScreen
     : screenName === 'home-summary' ? load('src/components/HomeSummary.tsx').HomeSummary
     : screenName === 'nav' ? load('src/components/BottomNav.tsx').BottomNav
+    : screenName === 'robot-nav' ? load('src/components/BottomNav.tsx').RobotMainNav
     : screenName === 'toast' ? load('src/components/AppToast.tsx').AppToast
     : screenName === 'social-entry' ? load('src/components/AuthEntry.tsx').AuthEntrySocial
     : screenName === 'social-legacy' ? load('src/components/SocialLoginButtons.tsx').SocialLoginButtons

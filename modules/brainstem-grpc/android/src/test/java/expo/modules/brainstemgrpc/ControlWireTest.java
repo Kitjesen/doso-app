@@ -58,6 +58,23 @@ public final class ControlWireTest {
       new byte[]{17}, ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putDouble(-.1).array(),
       new byte[]{25}, ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putDouble(.3).array());
     if (!Arrays.equals(walk, join(text(1, "token"), f(2, 300), b(3, vector)))) throw new AssertionError("wire mismatch");
+    if (ControlWire.clearFaultRequest(null).length != 0) throw new AssertionError("expected empty clear all");
+    if (ControlWire.clearFaultRequest(new int[0]).length != 0) throw new AssertionError("expected empty clear array");
+    if (!Arrays.equals(ControlWire.clearFaultRequest(new int[]{0, 3, 15}), b(1, new byte[]{0, 3, 15}))) {
+      throw new AssertionError("clearFaultRequest mismatch");
+    }
+    fail(() -> ControlWire.clearFaultRequest(new int[]{-1}));
+    fail(() -> ControlWire.clearFaultRequest(new int[]{16}));
+    fail(() -> ControlWire.clearFaultRequest(new int[]{2, 2}));
+    fail(() -> ControlWire.clearFaultRequest(new int[17]));
+    if (ControlWire.speedModeRequest("normal").length != 0) throw new AssertionError("normal speed mode");
+    if (!Arrays.equals(ControlWire.speedModeRequest("high"), f(1, 1))) throw new AssertionError("high speed mode");
+    fail(() -> ControlWire.speedModeRequest("turbo"));
+    fail(() -> ControlWire.speedModeRequest(null));
+    if (!"normal".equals(ControlWire.parseSpeedMode(new byte[0]))) throw new AssertionError("parse default speed mode");
+    if (!"high".equals(ControlWire.parseSpeedMode(f(1, 1)))) throw new AssertionError("parse high speed mode");
+    fail(() -> ControlWire.parseSpeedMode(f(1, 2)));
+    fail(() -> ControlWire.parseSpeedMode(join(f(1, 1), f(1, 0))));
     System.out.println("PASS: control wire, lease/ACK validation, owner/sequence, bounded malformed inputs");
   }
 }

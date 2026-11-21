@@ -1,0 +1,11 @@
+/functions/
+/sql/20261105110000_add_video_grants.sql
+/compose.video-access.yml
+/lds.template.yaml
+/cds.yaml
+/https.conf
+/runtime_base.py
+/database_base.py
+/deploy.py
+/video-access-20261106.tar.gz
+/__pycache__/

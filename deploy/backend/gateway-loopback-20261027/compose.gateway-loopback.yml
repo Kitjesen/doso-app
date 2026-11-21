@@ -1,0 +1,56 @@
+# Append after all eight active Shanghai layers; start only api-gw.
+services:
+  api-gw:
+    image: sha256:7e5d2c0dbac760df975f4f5f809eec5f4149bfcfc0c538f2603df4ab29af25a8
+    pull_policy: never
+    entrypoint: [node, /app/envoy-safe-entrypoint.mjs]
+    command: []
+    user: "1000:1000"
+    depends_on: !override
+      auth:
+        condition: service_healthy
+      rest:
+        condition: service_healthy
+    ports: !override
+      - "127.0.0.1:18000:8000/tcp"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ulimits:
+      core: {soft: 0, hard: 0}
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1.0
+    pids_limit: 64
+    logging:
+      driver: none
+    tmpfs:
+      - /etc/envoy:rw,noexec,nosuid,nodev,size=8388608,uid=1000,gid=1000,mode=0700
+      - /tmp:rw,noexec,nosuid,nodev,size=4194304,uid=1000,gid=1000,mode=0700
+    volumes: !override
+      - type: bind
+        source: ./doso/gateway-loopback-20261027/envoy.yaml
+        target: /etc/envoy/envoy.yaml
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ./doso/gateway-loopback-20261027/cds.yaml
+        target: /etc/envoy/cds.yaml
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ./doso/gateway-loopback-20261027/lds.template.yaml
+        target: /etc/envoy/lds.template.yaml
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ./doso/gateway-loopback-20261027/validate-config.mjs
+        target: /app/validate-config.mjs
+        read_only: true
+        bind: {create_host_path: false}
+    healthcheck:
+      test: [CMD, node, -e, "const s=require('node:net').connect(8000,'127.0.0.1');s.setTimeout(1000,()=>{s.destroy();process.exit(1)});s.once('connect',()=>{s.end();process.exit(0)});s.once('error',()=>process.exit(1));"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s

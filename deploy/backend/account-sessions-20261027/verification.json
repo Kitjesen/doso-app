@@ -1,0 +1,13 @@
+{
+  "status": "offline_verification_passed",
+  "command": "node --test deploy/backend/account-sessions-20261027/account-sessions.test.mjs deploy/backend/gateway-loopback-20261027/gateway-loopback.test.mjs deploy/backend/envoy-safe-entrypoint.test.mjs",
+  "exit_code": 0,
+  "tests": 34,
+  "passed": 34,
+  "failed": 0,
+  "new_tests": 9,
+  "manifest_sha256": "a572eea2a35aa85d568e064a829d000308b44dd6f9c1bbd75edac2aa81b5c0aa",
+  "remote_operations": false,
+  "actual_functions_runtime_verified": false,
+  "app_or_g20_verified": false
+}

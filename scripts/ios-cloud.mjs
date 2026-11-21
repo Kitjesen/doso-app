@@ -10,9 +10,9 @@ const require = createRequire(import.meta.url);
 const ignore = require('ignore');
 const cliVersion = '24.12.0';
 const requiredFiles = ['.easignore', 'package.json', 'package-lock.json', 'app.json', 'eas.json',
-  'tsconfig.json', 'App.tsx', 'index.ts', 'index.preview.ts'];
+  'tsconfig.json', 'App.tsx', 'index.ts'];
 const runtimeDirectories = ['src', 'assets', 'plugins', 'iot'];
-const usage = 'Usage: npm run ios:cloud -- build | preview | inspect | status <build-id>';
+const usage = 'Usage: npm run ios:cloud -- build | inspect | status <build-id>';
 
 function walkFiles(root, directory = '', filter = () => true) {
   const result = [];
@@ -63,7 +63,7 @@ export function assertSourceArchive(archiveRoot, sourceRoot = projectRoot) {
 // Keep build scope explicit: this app lives inside a larger, unrelated Git tree.
 export function cloudInvocation(args, env = process.env) {
   const [action, buildId, ...extra] = args;
-  if (extra.length || !['build', 'preview', 'inspect', 'status'].includes(action)) {
+  if (extra.length || !['build', 'inspect', 'status'].includes(action)) {
     throw new Error(usage);
   }
   if (action !== 'status' && buildId) throw new Error('Build takes no extra arguments.');
@@ -72,7 +72,7 @@ export function cloudInvocation(args, env = process.env) {
   }
   if (!env.npm_execpath) throw new Error('Run through npm run ios:cloud.');
 
-  const profile = action === 'preview' || action === 'inspect' ? 'ios-browser-preview' : 'ios-simulator';
+  const profile = 'ios-simulator';
   const command = action === 'status'
     ? ['build:view', buildId, '--json']
     : ['build', '--platform', 'ios', '--profile', profile, '--non-interactive', '--no-wait', '--json'];
@@ -92,22 +92,14 @@ export function cloudInvocation(args, env = process.env) {
 export function assertBuildConfig(config, eas, profile = 'ios-simulator') {
   const app = config.expo;
   if (app.extra?.eas?.projectId !== '090f78b1-5b6b-4ba8-9207-1e0c21c52f62'
-      || app.owner !== 'kitjesens-team' || app.slug !== 'hongsen') {
+    || app.owner !== 'kitjesens-team' || app.slug !== 'hongsen') {
     throw new Error('DOSO cloud project identity changed; verify the target before building.');
   }
   if (app.name !== 'DOSO' || app.ios?.bundleIdentifier !== 'com.doso.robot') {
     throw new Error('DOSO app identity changed; verify the target before building.');
   }
-  if (eas.build?.['ios-simulator']?.ios?.simulator !== true || !['ios-simulator', 'ios-browser-preview'].includes(profile)) {
+  if (eas.build?.['ios-simulator']?.ios?.simulator !== true || profile !== 'ios-simulator') {
     throw new Error('This command only builds for iOS Simulator, never TestFlight or App Store.');
-  }
-  if (profile === 'ios-browser-preview') {
-    const preview = eas.build[profile];
-    if (preview?.extends !== 'ios-simulator' || preview.ios?.simulator === false
-        || preview.ios?.buildConfiguration && preview.ios.buildConfiguration !== 'Release'
-        || preview.env?.ENTRY_FILE !== 'index.preview.ts') {
-      throw new Error('Browser preview must select the isolated entry and standalone simulator configuration.');
-    }
   }
 }
 
@@ -142,7 +134,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   try {
     const invocation = cloudInvocation(process.argv.slice(2));
     const action = process.argv[2];
-    const profile = ['preview', 'inspect'].includes(action) ? 'ios-browser-preview' : 'ios-simulator';
+    const profile = 'ios-simulator';
     assertBuildConfig(
       JSON.parse(readFileSync(path.join(projectRoot, 'app.json'), 'utf8')),
       JSON.parse(readFileSync(path.join(projectRoot, 'eas.json'), 'utf8')),

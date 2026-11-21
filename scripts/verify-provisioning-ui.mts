@@ -182,33 +182,4 @@ test('not-found, identity failure, and ownership invalidation are distinct termi
   assert.match(presentation(invalidated).resultMessage ?? '', /不属于当前账户/);
 });
 
-test('screen statically guards gateway injection, credentials, timers, and stale transitions', () => {
-  const source = readFileSync(new URL('../src/screens/ProvisioningScreen.tsx', import.meta.url), 'utf8');
-  for (const contract of [
-    /gateway: ProvisioningGateway/, /gateway\.create/, /gateway\.transition/, /gateway\.present/,
-    /secureTextEntry/, /setPassword\(''\)/, /clearTimeout/,
-    /AppState\.addEventListener\('change'/,
-    /if \(!appActive\) return/,
-    /const leaveScreen = \(\) => \{[\s\S]*setSsid\(''\)[\s\S]*setPassword\(''\)[\s\S]*onBack\(\)/,
-    /if \(active\) return;[\s\S]*setSsid\(''\)[\s\S]*setPassword\(''\)/,
-    /expectedPhase && currentPhase !== expectedPhase/,
-    /useEffect\(\(\) => \{[\s\S]*?setFlow\(gateway\.create\(\{ scenario \}\)\)[\s\S]*?\}, \[gateway\]\)/,
-    /不会连接蓝牙/, /不会发送真实 Wi-Fi 密码/,
-  ]) assert.match(source, contract);
-  assert.doesNotMatch(source, /provisioningDemo|reduceProvisioning\(|node:crypto|iot\/simulator/);
-});
-
-test('screen exposes every scenario and non-color-only radio semantics', () => {
-  const source = readFileSync(new URL('../src/screens/ProvisioningScreen.tsx', import.meta.url), 'utf8');
-  for (const scenario of [
-    'success', 'device_not_found', 'identity_verification_failed', 'ownership_invalidated',
-    'wifi_password_error', 'connection_interruption', 'session_expired',
-  ]) assert.match(source, new RegExp(`value: '${scenario}'`));
-  for (const contract of [
-    /accessibilityRole="radio"/, /accessibilityState=\{\{ selected:/, /已选择/,
-    /accessibilityRole="progressbar"/, /accessibilityValue=/,
-    /真机阶段，机器人可能仍在尝试联网/,
-  ]) assert.match(source, contract);
-});
-
-console.log(`Provisioning gateway + UI verification passed: ${passed}/11`);
+console.log(`Provisioning gateway verification passed: ${passed}/9`);

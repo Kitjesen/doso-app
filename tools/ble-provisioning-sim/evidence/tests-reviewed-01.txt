@@ -1,0 +1,33 @@
+(node:145072) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/99563/Documents/ChatGPT/New%20project/doso-app/src/domain/device-provisioning/index.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\Users\99563\Documents\ChatGPT\New project\doso-app\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ both peers complete simulated network verification at ATT MTU 23 without claiming ownership (21.3947ms)
+✔ both peers complete simulated network verification at ATT MTU 185 without claiming ownership (7.6752ms)
+✔ trusted configuration grant and pinned manufacturing signature are both required (7.5398ms)
+✔ revoked epoch, expired authorization and altered account/session binding cannot reach the network adapter (1.721ms)
+✔ authenticated encrypted configuration hides credentials and invalidates the flow on the first bad packet (9.5704ms)
+✔ keys, nonces and AAD separate both directions, target/session and ordered records (2.8715ms)
+✔ GCM requires canonical 16-byte tags and the first truncated, oversized or noncanonical tag closes the channel (17.635ms)
+✔ bounded fragments fit the negotiated ATT payload at MTU 23 (2.9978ms)
+✔ bounded fragments fit the negotiated ATT payload at MTU 185 (0.435ms)
+✔ fragment duplicate, reordering, mixed sizes, expiry and clear discard partial data (0.7716ms)
+✔ SSID uses UTF8 byte bounds and WPA2 personal passphrase rules without trimming (0.8038ms)
+✔ wrong password and timeout preserve the prior network and never report configured (6.3306ms)
+✔ cancel while connect is in flight ignores a late success and prevents subsequent reports (4.2119ms)
+✔ session expiry during connect rolls back candidate and a used grant cannot reopen the service (5.0324ms)
+✔ cancel after a device report was prepared still rejects that late report and rolls back the candidate (3.7583ms)
+✔ an old session late success or unexpected rejection cannot set or roll back a new session candidate (15.1908ms)
+✔ unexpected network exceptions propagate after scoped cleanup instead of becoming a device rejection report (7.9347ms)
+✔ a new encrypted session cannot commit using a genuine signed IP proof from the previous session (12.6648ms)
+✔ commit is irreversible within the session and later cancel or expiry cannot claim a rollback (7.05ms)
+✔ IP side proof is necessary before persistence and binds the current nonce/device/session (6.4186ms)
+✔ CLI accepts only fixed synthetic scenarios and public results contain no credentials (223.761ms)
+ℹ tests 21
+ℹ suites 0
+ℹ pass 21
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 690.3767

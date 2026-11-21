@@ -1,0 +1,53 @@
+# Merge after the locked upstream base and Caddy files, from the docker/ directory.
+name: doso-backend-shadow
+
+services:
+  api-gw:
+    ports: !reset []
+
+  supavisor:
+    ports: !reset []
+
+  auth:
+    environment:
+      GOTRUE_JWT_KEYS: ${JWT_KEYS:?Generate new signing keys on the target server}
+      GOTRUE_PASSWORD_MIN_LENGTH: 10
+      GOTRUE_PASSWORD_REQUIRED_CHARACTERS: abcdefghijklmnopqrstuvwxyz:ABCDEFGHIJKLMNOPQRSTUVWXYZ:0123456789
+      GOTRUE_MAILER_AUTOCONFIRM: "false"
+      GOTRUE_MAILER_OTP_LENGTH: 8
+      GOTRUE_MAILER_OTP_EXP: 600
+      GOTRUE_SMTP_MAX_FREQUENCY: 60s
+      GOTRUE_EXTERNAL_PHONE_ENABLED: "false"
+      GOTRUE_SMS_AUTOCONFIRM: "false"
+      GOTRUE_SECURITY_REFRESH_TOKEN_ROTATION_ENABLED: "true"
+      GOTRUE_SECURITY_SB_FORWARDED_FOR_ENABLED: "true"
+      GOTRUE_SMTP_HOST: ${SMTP_HOST:?Configure the test mail service on the target server}
+      GOTRUE_SMTP_USER: ${SMTP_USER:?Configure the test mail service on the target server}
+      GOTRUE_SMTP_PASS: ${SMTP_PASS:?Configure the test mail service on the target server}
+
+  realtime:
+    environment:
+      API_JWT_JWKS: ${JWT_JWKS:?Generate new signing keys on the target server}
+
+  storage:
+    environment:
+      JWT_JWKS: ${JWT_JWKS:?Generate new signing keys on the target server}
+
+  functions:
+    environment:
+      SUPABASE_JWKS: ${JWT_JWKS:?Generate new signing keys on the target server}
+      DOSO_ALLOWED_WEB_ORIGINS: ${DOSO_ALLOWED_WEB_ORIGINS:-}
+      # DOSO handlers verify Auth, terminal authority and RLS themselves.
+      # Copy only reviewed handlers after their matching SQL baseline is accepted.
+      VERIFY_JWT: "false"
+
+  caddy:
+    image: caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f
+    environment:
+      PROXY_DOMAIN: ${PROXY_DOMAIN:?Set the approved API hostname on the target server}
+    command: [caddy, run, --config, /etc/caddy/Caddyfile, --adapter, caddyfile]
+    volumes: !override
+      - ./doso/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+

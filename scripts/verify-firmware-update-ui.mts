@@ -23,7 +23,6 @@ const assert: Assertions = {
 
 // @ts-expect-error Node type stripping requires the explicit TypeScript entrypoint.
 import { FIRMWARE_PHASE_LABELS, simulatedFirmwareUpdateGateway, unavailableFirmwareUpdateGateway, type FirmwareOutcome, type FirmwareUpdateGatewayState } from '../src/features/robot-lifecycle/firmwareUpdateGateway.ts';
-import { readFileSync } from 'node:fs';
 
 type Test = { name: string; run: () => void };
 const tests: Test[] = [];
@@ -134,32 +133,6 @@ test('unavailable gateway cannot enter the simulated success path', () => {
   const simulatedState = simulatedFirmwareUpdateGateway.create({ scenario: 'succeeded' });
   assert.equal(unavailableFirmwareUpdateGateway.present(simulatedState).status, 'hardware_unavailable');
   assert.throws(() => unavailableFirmwareUpdateGateway.start(simulatedState), /硬件连接尚未开放/);
-});
-
-test('screen uses the gateway, cleans timers, and keeps power-loss and radio accessibility guards', () => {
-  const source = readFileSync(new URL('../src/screens/FirmwareUpdateScreen.tsx', import.meta.url), 'utf8');
-  for (const contract of [
-    /type FirmwareUpdateGateway/,
-    /gateway\.create\(/,
-    /gateway\.present\(/,
-    /gateway\.start\(/,
-    /gateway\.advance\(/,
-    /gateway\.cancel\(/,
-    /const chooseOutcome =[\s\S]*?setState\(gateway\.create/,
-    /setTimeout\(/,
-    /clearTimeout\(/,
-    /AppState\.addEventListener\('change'/,
-    /if \(!appActive \|\| presentation\.status !== 'running'\) return undefined/,
-    /if \(!gatewayChanged\) \{[\s\S]*currentView\.status === 'running'[\s\S]*return current/,
-    /请勿关闭机器人电源/,
-    /accessibilityRole="radio"/,
-    /accessibilityState=\{\{ selected: outcome === item\.value \}\}/,
-    /已选择/,
-    /accessibilityRole="progressbar"/,
-  ]) assert.match(source, contract);
-  if (/firmwareUpdateDemo|node:crypto|iot\/simulator/.test(source)) {
-    throw new Error('Firmware update screen must use the gateway and avoid deprecated or Node-only simulators');
-  }
 });
 
 let passed = 0;

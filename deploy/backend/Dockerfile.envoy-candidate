@@ -1,0 +1,9 @@
+# Candidate packaging, not the original Envoy OCI image.
+# Build context must contain the reviewed public binary as "envoy":
+# v1.39.1, 105039832 bytes, SHA256 002c6e1c69ed0fa0ea381887247cadadfaec9481375fa8d8d2b1731eeabf40b8.
+FROM public.ecr.aws/supabase/postgres-meta@sha256:822227a8d12c109b24b8d8f1dae98a9c089a698b4586d35527dadf929e655136
+COPY envoy /app/envoy
+COPY envoy-safe-entrypoint.mjs /app/envoy-safe-entrypoint.mjs
+USER 1000:1000
+ENTRYPOINT ["node", "/app/envoy-safe-entrypoint.mjs"]
+CMD []

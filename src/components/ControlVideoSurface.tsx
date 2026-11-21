@@ -19,6 +19,7 @@ export type ControlVideoPresentation = Readonly<{
 type Props = Readonly<{
   statusTop?: number;
   statusColor?: string;
+  backgroundColor?: string;
   presentation?: ControlVideoPresentation;
   surface?: ReactNode;
   active: boolean;
@@ -32,7 +33,7 @@ const messages = {
   error: '视频连接失败',
 } as const;
 
-export function ControlVideoSurface({ presentation, surface, active, onInterrupted, statusTop, statusColor }: Props) {
+export function ControlVideoSurface({ presentation, surface, active, onInterrupted, statusTop, statusColor, backgroundColor }: Props) {
   const suspendedId = useRef<string | undefined>(undefined);
   if (!active && presentation) suspendedId.current = presentation.id;
   const hasSurface = surface !== null && surface !== undefined && surface !== false;
@@ -62,7 +63,7 @@ export function ControlVideoSurface({ presentation, surface, active, onInterrupt
     : presentation?.error === 'authorization' ? '视频授权失败' : messages[phase];
 
   return (
-    <View testID="control-video-surface" pointerEvents="none" style={styles.stage}>
+    <View testID="control-video-surface" pointerEvents="none" style={[styles.stage, backgroundColor ? { backgroundColor } : null]}>
       {canMountSurface ? <View testID="control-video-player" style={StyleSheet.absoluteFill}>{surface}</View> : null}
       {message ? (
         <View testID="control-video-status" style={[styles.status, statusTop === undefined ? null : { top: statusTop }]}>

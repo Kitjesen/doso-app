@@ -1,6 +1,6 @@
-// Enter local public client configuration on the login screen.
-// Never place a service-role key or a password here.
+// Public client configuration only. Never put a service_role key in this file.
+// These values can also be entered on the login screen for local testing.
 window.DOSO_ADMIN_CONFIG = Object.freeze({
-  supabaseUrl: '',
-  publishableKey: '',
+  supabaseUrl: 'https://vchvqfdlkomlrjenkdhj.supabase.co',
+  publishableKey: 'sb_publishable__QZFvI5bf2ObKkXD2Ghiug_jjYZgZUK',
 });

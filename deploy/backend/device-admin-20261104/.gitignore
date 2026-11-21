@@ -1,0 +1,11 @@
+/functions/
+/sql/20261104090000_claim_device_by_uuid.sql
+/sql/20261104100000_create_device_inventory.sql
+/compose.device-admin.yml
+/lds.template.yaml
+/cds.yaml
+/https.conf
+/runtime_base.py
+/database_base.py
+/device-admin-20261104.tar.gz
+/__pycache__/

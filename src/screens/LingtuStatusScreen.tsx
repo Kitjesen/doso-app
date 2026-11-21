@@ -11,8 +11,6 @@ import {
   isLingtuStatusFresh, LingtuReadOnlyError, readCameraDiagnostics, readLingtuStatus,
   type CameraDiagnosticsSnapshot, type LingtuReadOnlySnapshot,
 } from '../services/lingtuReadOnly';
-import { LingtuMapsScreen } from './LingtuMapsScreen';
-import { LingtuTaskScreen } from './LingtuTaskScreen';
 
 const elapsedNow = () => {
   try { return typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : NaN; }
@@ -46,7 +44,7 @@ function localizationLabel(snapshot: LingtuReadOnlySnapshot): string {
   return labelFor(locations, state, '未知');
 }
 
-export function LingtuStatusScreen({ onBack, allowLocalHttp = false, onUseNavigation, onViewVideo, useNavigationLabel = '用于地图与任务', allowViewerToken = false }: {
+export function LingtuStatusScreen({ onBack, allowLocalHttp = false, onUseNavigation, onViewVideo, useNavigationLabel = '用于控制台视频', allowViewerToken = false }: {
   onBack: () => void; allowLocalHttp?: boolean; onUseNavigation?: (endpoint: string, viewerToken?: string) => boolean; onViewVideo?: (endpoint: string, viewerToken?: string) => boolean; useNavigationLabel?: string; allowViewerToken?: boolean;
 }) {
   const { colors, isDark } = useAppTheme();
@@ -59,7 +57,6 @@ export function LingtuStatusScreen({ onBack, allowLocalHttp = false, onUseNaviga
   const [depthPreviewNonce, setDepthPreviewNonce] = useState(0);
   const [depthPreviewError, setDepthPreviewError] = useState(false);
   const [message, setMessage] = useState('未读取');
-  const [page, setPage] = useState<{ kind: 'maps' | 'task'; endpoint: string } | null>(null);
   const mounted = useRef(true);
   const active = useRef(AppState.currentState === 'active');
   const generation = useRef(0);
@@ -74,14 +71,14 @@ export function LingtuStatusScreen({ onBack, allowLocalHttp = false, onUseNaviga
     const subscription = AppState.addEventListener('change', state => {
       active.current = state === 'active';
       if (active.current) return;
-      stop(); setPage(null); setBusy(false); setSnapshot(null); setCameraDiagnostics(null); setDepthPreviewError(false); setViewerToken(''); setMessage('读取已暂停');
+      stop(); setBusy(false); setSnapshot(null); setCameraDiagnostics(null); setDepthPreviewError(false); setViewerToken(''); setMessage('读取已暂停');
     });
     return () => { mounted.current = false; stop(); subscription.remove(); };
   }, []);
 
   const changeEndpoint = (value: string) => {
     if (!current(renderedGeneration)) return;
-    stop(); setPage(null); setEndpoint(value); setViewerToken(''); setBusy(false); setSnapshot(null); setCameraDiagnostics(null); setDepthPreviewError(false); setMessage('未读取');
+    stop(); setEndpoint(value); setViewerToken(''); setBusy(false); setSnapshot(null); setCameraDiagnostics(null); setDepthPreviewError(false); setMessage('未读取');
   };
   const cancel = () => {
     if (!current(renderedGeneration)) return;
@@ -122,20 +119,13 @@ export function LingtuStatusScreen({ onBack, allowLocalHttp = false, onUseNaviga
   </View>;
   const blocked = snapshot && !snapshot.readiness.ready
     ? [...new Set(snapshot.readiness.reasons.map(reason => labelFor(reasons, reason, '服务报告未就绪')))].slice(0, 4) : [];
-  const open = (kind: 'maps' | 'task') => {
-    if (!current(renderedGeneration) || pending.current || !snapshot || !isLingtuStatusFresh(snapshot)) return;
-    stop(); setSnapshot(null); setCameraDiagnostics(null); setDepthPreviewError(false); setMessage('未读取');
-    setPage({ kind, endpoint: snapshot.endpoint });
-  };
-  const closePage = () => { if (mounted.current && active.current) setPage(null); };
-  if (page?.kind === 'maps') return <LingtuMapsScreen endpoint={page.endpoint} allowLocalHttp={allowLocalHttp} onBack={closePage} />;
-  if (page?.kind === 'task') return <LingtuTaskScreen endpoint={page.endpoint} allowLocalHttp={allowLocalHttp} onBack={closePage} />;
+
   return <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} testID="lingtu-status-screen">
     <View style={styles.header}>
       <Pressable accessibilityRole="button" accessibilityLabel="返回连接设置" onPress={back} style={styles.back} testID="lingtu-back">
         <Ionicons name="arrow-back" size={22} color={appearance.ink} />
       </Pressable>
-      <Text accessibilityRole="header" style={[typography.compactTitle, { color: appearance.ink }]}>导航服务</Text>
+      <Text accessibilityRole="header" style={[typography.compactTitle, { color: appearance.ink }]}>视频与诊断</Text>
     </View>
     <ScrollView keyboardShouldPersistTaps="handled" contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.content}>
       <View style={[styles.panel, { backgroundColor: appearance.surface }]}>
@@ -172,12 +162,6 @@ export function LingtuStatusScreen({ onBack, allowLocalHttp = false, onUseNaviga
         <Text style={[typography.label, { color: appearance.ink }]}>接口能力</Text>
         {features.map(([key, label]) => row(`feature-${key}`, label,
           snapshot.features[key] === true ? '已声明' : snapshot.features[key] === false ? '不支持' : '未声明'))}
-        <Pressable accessibilityRole="button" testID="lingtu-open-maps" onPress={() => open('maps')} style={[styles.button, { backgroundColor: appearance.blue }]}>
-          <Text style={[typography.label, { color: appearance.blueInk }]}>地图与定位</Text>
-        </Pressable>
-        <Pressable accessibilityRole="button" testID="lingtu-open-task" onPress={() => open('task')} style={[styles.button, { backgroundColor: appearance.blue }]}>
-          <Text style={[typography.label, { color: appearance.blueInk }]}>查询导航任务</Text>
-        </Pressable>
         {onUseNavigation ? <Pressable accessibilityRole="button" testID="lingtu-use-navigation" style={[styles.button, { backgroundColor: appearance.blue }]}
           onPress={() => {
             if (!current(renderedGeneration) || pending.current || !snapshot || !isLingtuStatusFresh(snapshot)) return;

@@ -39,7 +39,7 @@ const deferred = () => {
 const settle = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
 
 function fixture() {
-  const state = { stage: 'login', selectedModel: null, device: null, activeTab: 'home', accountBusy: false, deviceLoadError: null,
+  const state = { stage: 'login', selectedModel: null, device: null, accountBusy: false, deviceLoadError: null,
     deviceBusy: false, authError: null, accountDevices: [], deviceBootstrapBusy: false };
   const requests = [], claims = [];
   const context = vm.createContext({
@@ -47,6 +47,7 @@ function fixture() {
     preparedUserId: 'user-a', preparedSessionKey: 'prepared-a-1', authLoading: false, initializationError: null,
     deviceLoadAttempt: 0, mfaVerificationPending: false, mfaProbeFailed: false, recovery: false, recoveryLink: false,
     deviceBusy: false, accountBusy: false, guestMode: false,
+    setProfileDeviceOpen() {},
     selectedDeviceStore: { load: async () => null },
     deviceSettingsContext: { current: {} },
     deviceSelectionRevision: { current: 0 },
@@ -85,7 +86,7 @@ function fixture() {
   }
   context.completedDeviceBootstrapKey = evaluate(`(${initializer('completedDeviceBootstrapKey')})`);
   if (initializer('deviceBootstrapIntent')) context.deviceBootstrapIntent = evaluate(`(${initializer('deviceBootstrapIntent')})`);
-  for (const name of ['bindDeviceAbortControllerRef', 'pendingBindDeviceIdRef', 'bindDeviceAttemptRef', 'currentUserIdRef']) {
+  for (const name of ['bindDeviceAbortControllerRef', 'pendingBindDeviceIdRef', 'bindDeviceAttemptRef', 'currentUserIdRef', 'bleRobotIdRef']) {
     context[name] = evaluate(`(${initializer(name)})`);
   }
   context.returnToDeviceSettings = evaluate(`(${initializer('returnToDeviceSettings')})`);
@@ -108,12 +109,12 @@ function fixture() {
     modelIsBusy: () => evaluate(`(${modelBusy})`),
     bind: () => evaluate(`(${initializer('handleBindDevice')})`)('8f7e1c62-0a4d-4b89-96e2-6c47b03db1a5', 'fixture-code'),
     cancelBind: () => evaluate(`(${initializer('cancelBindDeviceAttempt')})`)(),
-    chooseTab: tab => { state.activeTab = tab; },
+    choosePage: stage => context.setStage(stage),
     async showModels() { render(); requests.at(-1).resolve([]); await settle(); assert.equal(state.stage, 'models'); },
   };
 }
 
-test('Continue during same-account rebootstrap keeps the chosen model and current tab after a late empty list', async () => {
+test('Continue during same-account rebootstrap keeps the chosen model and current workspace page after a late empty list', async () => {
   const app = fixture();
   await app.showModels();
   app.render({ authLoading: true, preparedSessionKey: null });
@@ -122,12 +123,12 @@ test('Continue during same-account rebootstrap keeps the chosen model and curren
   const pending = app.requests.at(-1);
   const model = { id: 'thunder-01', name: 'THUNDER 01' };
   await app.enter(model);
-  app.chooseTab('tasks');
+  assert.equal(app.state.stage, 'control');
+  app.choosePage('joint-status');
   pending.resolve([]);
   await settle();
-  assert.equal(app.state.stage, 'main');
+  assert.equal(app.state.stage, 'joint-status');
   assert.equal(app.state.selectedModel, model);
-  assert.equal(app.state.activeTab, 'tasks');
   assert.equal(app.state.device, null);
 });
 
@@ -136,11 +137,11 @@ test('failed session preparation cannot accept another local model entry or pres
   await app.showModels();
   const chosen = { id: 'thunder-01', name: 'THUNDER 01' };
   await app.enter(chosen);
-  app.chooseTab('tasks');
+  app.choosePage('joint-status');
   app.render({ initializationError: new Error('synthetic preparation failure') });
   await app.enter({ id: 'other-model', name: 'Other model' });
   assert.equal(app.state.selectedModel, chosen);
-  assert.equal(app.state.activeTab, 'tasks');
+  assert.equal(app.state.stage, 'joint-status');
   app.render({ initializationError: null, appleRecoveryProbeResolved: false });
   app.render({ appleRecoveryProbeResolved: true });
   app.requests.at(-1).resolve([]);
@@ -154,22 +155,22 @@ test('the local Skip entry has the same navigation ownership as Continue', async
   await app.showModels();
   app.skip();
   const chosen = app.state.selectedModel;
-  app.chooseTab('analysis');
+  assert.equal(app.state.stage, 'control');
+  app.choosePage('joint-status');
   app.render({ appleRecoveryProbeResolved: false, preparedSessionKey: 'prepared-a-2' });
   app.render({ appleRecoveryProbeResolved: true });
   app.requests.at(-1).resolve([]);
   await settle();
-  assert.equal(app.state.stage, 'main');
+  assert.equal(app.state.stage, 'joint-status');
   assert.equal(app.state.selectedModel, chosen);
-  assert.equal(app.state.activeTab, 'analysis');
 });
 
-test('an already-open Home keeps its local model and selected tab through same-account preparation and an empty rebootstrap', async () => {
+test('an already-open robot workspace keeps its local model and selected page through same-account preparation and an empty rebootstrap', async () => {
   const app = fixture();
   await app.showModels();
   const model = { id: 'thunder-01', name: 'THUNDER 01' };
   await app.enter(model);
-  app.chooseTab('profile');
+  app.choosePage('main');
   app.render({ authLoading: true, preparedSessionKey: null, profile: null });
   app.render({ authLoading: false, preparedSessionKey: 'prepared-a-2',
     profile: { id: 'user-a', username_claimed_at: 'fixture', username_provenance: 'registration' }, appleRecoveryProbeResolved: false });
@@ -178,7 +179,6 @@ test('an already-open Home keeps its local model and selected tab through same-a
   await settle();
   assert.equal(app.state.stage, 'main');
   assert.equal(app.state.selectedModel, model);
-  assert.equal(app.state.activeTab, 'profile');
 });
 
 test('logout and account replacement prevent an older device response from committing', async () => {

@@ -1,0 +1,43 @@
+{
+  "time": "2026-11-08T04:05:59.999Z",
+  "status": "PASS",
+  "cases": [
+    {
+      "name": "admin-devices",
+      "origin": "http://localhost:8081",
+      "status": 401,
+      "error": "missing_authorization"
+    },
+    {
+      "name": "admin-devices",
+      "origin": "https://unapproved.example",
+      "status": 403,
+      "error": "origin_not_allowed"
+    },
+    {
+      "name": "remote-state",
+      "origin": "http://localhost:8081",
+      "status": 401,
+      "error": "missing_authorization"
+    },
+    {
+      "name": "remote-state",
+      "origin": "https://unapproved.example",
+      "status": 403,
+      "error": "origin_not_allowed"
+    },
+    {
+      "name": "account-sessions",
+      "origin": "http://localhost:8081",
+      "status": 401,
+      "error": "missing_authorization"
+    },
+    {
+      "name": "account-sessions",
+      "origin": "https://unapproved.example",
+      "status": 403,
+      "error": "origin_not_allowed"
+    }
+  ],
+  "scope": "public TLS auth and allowed origin preserved; location SQL behavior checked by production readonly postflight"
+}

@@ -201,29 +201,20 @@ test('cancelled state cannot be revived by a delayed timer ACK', () => {
 test('UI wiring preserves fail-closed production controls and avoids Node simulator imports', () => {
   const app = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
   const control = readFileSync(new URL('../src/screens/ControlScreen.tsx', import.meta.url), 'utf8');
-  const home = readFileSync(new URL('../src/screens/HomeScreen.tsx', import.meta.url), 'utf8');
-  const panel = readFileSync(new URL('../src/features/robot-lifecycle/robotDiagnosticsPanel.tsx', import.meta.url), 'utf8');
   const gatewaySource = readFileSync(new URL('../src/features/robot-lifecycle/robotDiagnosticsGateway.ts', import.meta.url), 'utf8');
   const capabilitySource = readFileSync(new URL('../src/features/robot-lifecycle/robotCapabilityReadiness.ts', import.meta.url), 'utf8');
-  const combined = [app, control, home, panel, gatewaySource, capabilitySource].join('\n');
+  const combined = [app, control, gatewaySource, capabilitySource].join('\n');
 
-  assert.match(app, /createRobotCapabilityReadiness\(\{/);
   assert.match(capabilitySource, /PHYSICAL_ROBOT_CAPABILITY_EVIDENCE = EMPTY_EVIDENCE/);
   assert.match(capabilitySource, /diagnosticsHealth: true/);
   assert.match(capabilitySource, /routeStart: false/);
   assert.match(capabilitySource, /manualControl: false/);
-  assert.match(app, /diagnosticsDeviceClass=\{lifecycleDemoEnabled \? 'demo' : 'physical'\}/);
-  assert.match(home, /accessibilityLabel="控制中心"/);
-  assert.match(home, /实际操作需连接设备并获得控制权限/);
-  assert.match(home, /disabled=\{!canRecall\}/);
-  assert.match(home, /if \(canRecall\) onRecall\(\)/);
+  assert.match(app, /diagnosticsDeviceClass="physical"/);
+  assert.match(app, /diagnosticsGateway=\{robotDiagnosticsGateway\}/);
+  assert.match(app, /canRecall=\{false\}/);
+  assert.match(app, /allowInteractionPreview=\{false\}/);
   assert.doesNotMatch(control, /RobotDiagnosticsPanel|control-brainstem-connection|diagnosticsDeviceClass\}/, 'focused control surface must not render diagnostic chrome');
   assert.match(control, /diagnosticsDeviceClass: RobotDiagnosticsDeviceClass;/, 'legacy caller compatibility is type-only');
-  assert.match(panel, /开始非运动健康检查模拟|view\.actionLabel/);
-  assert.match(panel, /clearTimeout\(timer\)/, 'diagnostic UI must cancel pending transitions and stale-snapshot timers');
-  assert.match(panel, /current\.deviceClass !== 'demo' \|\| current\.status !== 'published'/, 'delayed ACK timers must ignore device switches and stale status');
-  assert.match(panel, /const checked = gateway\.expire\(current\)/, 'every delayed transition must apply command expiry first');
-  assert.match(panel, /current\.deviceClass === 'demo' && ACTIVE_STATUSES\.has\(current\.status\)/, 'cancel must be race-safe after a device/status change');
   assert.doesNotMatch(combined, /iot[\\/]simulator|node:|crypto|mqtt|service[_-]?role/i);
   assert.doesNotMatch(combined, /commandProtocolReady|canCommand/, 'diagnostics must not share a global production-motion switch');
 });

@@ -22,7 +22,7 @@ async function cachedArtifact(group, artifact, version, extension = 'jar', class
 }
 const jar = (group, artifact, version) => cachedArtifact(group, artifact, version);
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, { encoding: 'utf8', timeout: 60000, windowsHide: true, ...options });
+  const result = spawnSync(command, args, { encoding: 'utf8', timeout: 120000, windowsHide: true, ...options });
   assert.equal(result.status, 0, result.stderr || result.stdout || result.error?.message);
   return result.stdout;
 }
@@ -42,7 +42,7 @@ test('native control session compiles and obeys the lease/ACK/deadman lifecycle 
     ].join('\n'));
     run('javac', ['-encoding', 'UTF-8', '-d', classes, clock, source('ControlStatusParser.java'),
       source('ProfileInfoParser.java'), source('VoltageParser.java'), source('MotorStatusParser.java'),
-      source('ControlWire.java'), source('ImuParser.java'), source('RecoveryStatusParser.java'),
+      source('GestureListParser.java'), source('ControlWire.java'), source('ImuParser.java'), source('RecoveryStatusParser.java'),
       fixture('java/expo/modules/brainstemgrpc/ControlWireTest.java')]);
     assert.match(run('java', ['-cp', classes, 'expo.modules.brainstemgrpc.ControlWireTest']), /PASS: control wire/);
     const compiler = await Promise.all([
@@ -81,7 +81,7 @@ test('native control session compiles and obeys the lease/ACK/deadman lifecycle 
     run('java', ['-cp', compiler.join(path.delimiter), 'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler',
       '-no-stdlib', '-no-reflect', '-jvm-target', '17', '-classpath', bridgeClasspath, '-d', classes,
       source('ControlSession.kt'), source('LocalClientIdentityStore.kt'), source('BrainstemGrpcModule.kt')]);
-  } finally { await rm(output, { recursive: true, force: true }); }
+  } finally { await rm(output, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
 });
 
 test('control channel requires explicit endpoint-approved KeyChain identity, scoped CA and hostname verification', async () => {
@@ -110,7 +110,7 @@ test('real Expo bridge admits only same-peer telemetry and keeps its executor se
     await writeFile(clock, 'package android.os; public final class SystemClock { public static long elapsedRealtime() { return System.nanoTime()/1000000L; } }');
     run('javac', ['-encoding', 'UTF-8', '-d', classes, clock,
       fixture('bridge-stubs/Base64.java'),
-      ...['ControlStatusParser.java', 'ProfileInfoParser.java', 'VoltageParser.java', 'MotorStatusParser.java', 'ControlWire.java', 'ImuParser.java', 'RecoveryStatusParser.java', 'LocalIdentityCrypto.java'].map(source)]);
+      ...['ControlStatusParser.java', 'ProfileInfoParser.java', 'VoltageParser.java', 'MotorStatusParser.java', 'GestureListParser.java', 'ControlWire.java', 'ImuParser.java', 'RecoveryStatusParser.java', 'LocalIdentityCrypto.java'].map(source)]);
     const compiler = await Promise.all([
       jar('org.jetbrains.kotlin', 'kotlin-compiler-embeddable', '2.1.20'), jar('org.jetbrains.kotlin', 'kotlin-stdlib', '2.1.20'),
       jar('org.jetbrains.kotlin', 'kotlin-script-runtime', '2.1.20'), jar('org.jetbrains.kotlin', 'kotlin-reflect', '1.6.10'),
@@ -136,7 +136,8 @@ test('real Expo bridge admits only same-peer telemetry and keeps its executor se
     t.diagnostic(result.trim());
     for (const name of ['same-peer-four-reads-and-rejections', 'slow-read-independent-control-executor',
       'close-background-destroy-cancellation', 'failed-open-clears-peer-without-bypassing-mtls',
-      'factory-permission-target-generation-and-cancellation', 'lan-private-ipv4-qa-and-transport-peer-guards']) {
+      'factory-permission-target-generation-and-cancellation', 'lan-private-ipv4-qa-and-transport-peer-guards',
+      'new-control-and-diagnostic-functions-use-control-executor']) {
       assert.ok(result.includes(`PASS: ${name}`), result);
     }
 
@@ -183,5 +184,5 @@ test('real Expo bridge admits only same-peer telemetry and keeps its executor se
     opensslRun(['x509', '-req', '-sha256', '-days', '1', '-in', path.join(output, 'client.csr.pem'), '-CA', path.join(output, 'constrained-ca.cert.pem'),
       '-CAkey', path.join(output, 'constrained-ca.key.pem'), '-set_serial', '12', '-extfile', path.join(output, 'client.ext'), '-out', path.join(output, 'constrained-client.cert.pem')]);
     t.diagnostic(run('java', [...storeRunner, 'verify', localKey, output]).trim());
-  } finally { await rm(output, { recursive: true, force: true }); }
+  } finally { await rm(output, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
 });

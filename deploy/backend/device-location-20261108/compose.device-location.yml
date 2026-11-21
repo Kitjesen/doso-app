@@ -1,0 +1,12 @@
+# Append as layer 15; change only the functions source mount.
+services:
+  functions:
+    volumes: !override
+      - type: bind
+        source: ./doso/device-location-20261108/functions
+        target: /home/deno/functions
+        read_only: true
+        bind: {create_host_path: false}
+      - type: volume
+        source: deno-cache
+        target: /root/.cache/deno

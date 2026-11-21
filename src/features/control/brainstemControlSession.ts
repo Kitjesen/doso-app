@@ -1,4 +1,4 @@
-import type { BrainstemControlAction, BrainstemControlReply, BrainstemControlTransport } from '../../services/brainstemControl';
+import type { BrainstemControlAction, BrainstemControlReply, BrainstemControlTransport, BrainstemGesture } from '../../services/brainstemControl';
 import type { ControlImuReading } from './controlOperations';
 // @ts-expect-error Node 24 type stripping requires explicit TypeScript extensions.
 import { projectBrainstemImu } from '../../services/brainstemImu.ts';
@@ -61,7 +61,7 @@ const failureMessage = (error: unknown) => error && typeof error === 'object' &&
     ? '机器人当前状态不允许此操作。'
   : error && typeof error === 'object' && 'code' in error && error.code === 'timeout'
     ? '控制请求超时，连接已断开，请检查机器人状态。'
-  : '控制连接已中断，请重新连接并申请控制权。';
+  : '控制已断开，请重新连接';
 
 /** Owns one foreground connection. No credentials, lease tokens or input replay in JS. */
 export class BrainstemControlSession {
@@ -361,7 +361,16 @@ export class BrainstemControlSession {
         || status.fsmKind === 'walking' && !status.grpcLeaseActive && !this.state.leaseActive), '电机须已使能，行走后请先停止并释放控制；站立或切换中不可起立'),
       sit: result(!!safe && !!status?.motorOutputEnabled && (status.fsmKind === 'standing' || status.fsmKind === 'walking'), '电机须已使能，且机器狗当前已站立'),
       switchPolicy: result(!!safe && (status?.fsmKind === 'grounded' || status?.fsmKind === 'standing') && !status.grpcLeaseActive && !!this.currentProfile() && profileOptions(this.currentProfile()!).length > 0, '请先站稳或趴地、释放控制并同步策略目录；行走中不可切换'),
+      setZero: result(!!base && status?.owner !== 'yunzhuo' && status?.fsmKind === 'grounded' && !status.grpcLeaseActive, '请先趴地并释放控制'),
+      clearMotorFault: result(!!base && status?.owner !== 'yunzhuo' && status?.fsmKind !== 'transitioning', '请先连接机器狗'),
+      playGesture: result(!!safe && status?.motorOutputEnabled === true && status.fsmKind === 'standing' && !status.grpcLeaseActive, '请先站立'),
     };
+  }
+
+  async listGestures(): Promise<readonly BrainstemGesture[]> {
+    const id = this.sessionId;
+    if (!id || typeof this.transport.listGestures !== 'function') return [];
+    return this.transport.listGestures(id);
   }
 
   async action(action: BrainstemControlAction, profileId?: string): Promise<void> {
@@ -369,8 +378,10 @@ export class BrainstemControlSession {
     const epoch = this.epoch; const id = this.sessionId;
     if (!id || !this.valid(epoch) || this.sessionId !== id) throw new Error('控制连接已变化，请重新操作。');
     if (this.busy || this.pendingAction) throw new Error('上一项操作尚未结束，请等待设备响应。');
-    const names = { enable: 'enableMotor', disable: 'disableMotor', 'stand-up': 'stand', 'sit-down': 'sit', 'switch-profile': 'switchPolicy' } as const;
-    const profileAllowed = () => action !== 'switch-profile' || !!profileId && !!this.currentProfile()
+    const names = { enable: 'enableMotor', disable: 'disableMotor', 'stand-up': 'stand', 'sit-down': 'sit', 'switch-profile': 'switchPolicy',
+      'set-zero': 'setZero', 'clear-motor-fault': 'clearMotorFault', 'play-gesture': 'playGesture' } as const;
+    const profileAllowed = () => action === 'play-gesture' ? !!profileId && profileId.length <= 64
+      : action !== 'switch-profile' || !!profileId && !!this.currentProfile()
       && profileOptions(this.currentProfile()!).some(option => option.id === profileId);
     const request = {};
     this.pendingAction = request;

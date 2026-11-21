@@ -1,27 +1,10 @@
-export type MainTab = 'home' | 'map' | 'tasks' | 'analysis' | 'profile';
-
 export type AppStage =
-  | 'login'
-  | 'register'
-  | 'verify-email'
-  | 'forgot-password'
-  | 'verify-recovery'
-  | 'reset-password'
-  | 'account-security'
-  | 'edit-profile'
-  | 'mfa-setup'
-  | 'username-onboarding'
-  | 'display-name-confirmation'
-  | 'bind-device'
-  | 'device-enrollment'
-  | 'ble-discovery'
-  | 'provisioning'
-  | 'firmware-update'
-  | 'device-error'
-  | 'models'
+  | 'control'
   | 'joint-status'
   | 'main'
-  | 'control';
+  | 'ble-discovery'
+  | 'provisioning'
+  | 'firmware-update';
 
 export type RobotModel = {
   id: string;

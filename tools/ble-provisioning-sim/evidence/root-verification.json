@@ -1,0 +1,33 @@
+{
+  "recordedAtUtc": "2026-10-25T17:17:20.648Z",
+  "scope": "Final offline BLE WiFi simulation validation and end of obsolete CSR branch",
+  "simulationSourceFilesVerified": 6,
+  "simulationEvidence": "result-reviewed-final.json",
+  "tests": 22,
+  "cliCommandActuallyRunByRoot": "node tools/ble-provisioning-sim/run.mjs all",
+  "cliExitCode": 0,
+  "cliScenarios": 4,
+  "rootCliToolChunk": "2dd15f",
+  "independentReview": "security-review.md",
+  "realBleUsed": false,
+  "realWifiUsed": false,
+  "cloudBindingCommitted": false,
+  "productionDeployments": 0,
+  "currentWorkBoundary": "No App/Brainstem/G20 edits or new cross-chat tasks here; APP centrally owns new LAN development/build/device verification",
+  "obsoleteQuestion": "The prior request to enter THUNDER-01 for CSR is no longer required",
+  "verifiedNewHumanDirection": {
+    "threadId": "01a04381-1f9a-7270-be1d-39ec64be6484",
+    "messageIds": [
+      "01a173f5-e419-76f1-b6dc-28d3f4deb2bd",
+      "01a173fd-2d15-7c22-98dd-526d08208cc5"
+    ],
+    "summary": "Current version first validates App robot control using LAN IP; certificate/handshake/CSR work deferred"
+  },
+  "deliveredCode16": {
+    "sha256": "a1ae7c574a9d80e16b17b34ac4cbd6c90c715a1c2bd3ca093a04e3f61448af18",
+    "uidPreserved": true,
+    "firstInstallTimePreserved": true,
+    "evidence": "../../../artifacts/release-readiness/20261026-g20-local-identity-code16/qa-code16-attempt-02/g20-install.json"
+  },
+  "release": "NO_GO; local simulation is not hardware acceptance"
+}

@@ -9,6 +9,9 @@
   },
   "scripts": {
     "start": "node src/index.js",
+    "dev:web-lan-bridge": "node tools/start-web-dev-bridge.mjs",
+    "dev:local-sim": "node tools/start-local-brainstem-sim.mjs",
+    "dev:mujoco-video": "node tools/start-local-mujoco-video.mjs",
     "test": "node --test --test-concurrency=1",
     "preflight:config": "node tools/preflight-config.js"
   },

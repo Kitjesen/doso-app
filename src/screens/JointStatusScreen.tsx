@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { AppState, Image, type ImageSourcePropType, Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -21,6 +21,9 @@ type BodyStatus = {
 };
 
 type Props = {
+  isWorkspace?: boolean;
+  connectionLabel?: string;
+  remoteStatus?: ReactNode;
   body?: BodyStatus; imu?: ControlImuReading | null; showImu?: boolean;
   deviceName: string;
   robotDiagram?: ImageSourcePropType;
@@ -67,7 +70,7 @@ function quaternionLabel(vector: ControlImuReading['quaternion'] | null | undefi
   return `${vector.w.toFixed(3)}  ${vector.x.toFixed(3)}  ${vector.y.toFixed(3)}  ${vector.z.toFixed(3)}`;
 }
 
-export function JointStatusScreen({ deviceName, robotDiagram, body, imu = null, showImu = false, joints = [], observedAt, refreshing = false, error, onRefresh, onBack }: Props) {
+export function JointStatusScreen({ isWorkspace = false, connectionLabel, remoteStatus, deviceName, robotDiagram, body, imu = null, showImu = false, joints = [], observedAt, refreshing = false, error, onRefresh, onBack }: Props) {
   const [selectedMotor, setSelectedMotor] = useState<{ id: string; label: string } | null>(null);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
   const { width, height } = useWindowDimensions();
@@ -122,13 +125,14 @@ export function JointStatusScreen({ deviceName, robotDiagram, body, imu = null, 
   return (
     <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={[styles.safe, { backgroundColor: appearance.canvas }]} testID="joint-status-screen">
       <View style={styles.header}>
-        <Pressable accessibilityLabel="返回控制中心" accessibilityRole="button" onPress={onBack} style={({ pressed }) => [styles.back, { backgroundColor: appearance.surface }, pressed && styles.pressed]} testID="joint-status-back">
+        {!isWorkspace ? <Pressable accessibilityLabel="返回控制中心" accessibilityRole="button" onPress={onBack} style={({ pressed }) => [styles.back, { backgroundColor: appearance.surface }, pressed && styles.pressed]} testID="joint-status-back">
           <Ionicons color={appearance.ink} name="arrow-back" size={22} />
-        </Pressable>
+        </Pressable> : null}
         <View style={styles.headerCopy}>
-          <Text accessibilityRole="header" style={[styles.title, { color: appearance.ink }]}>关节状态</Text>
+          <Text accessibilityRole="header" style={[styles.title, { color: appearance.ink }]}>{isWorkspace ? '机器人状态' : '关节状态'}</Text>
           <Text numberOfLines={1} style={[styles.deviceName, { color: appearance.secondary }]}>{deviceName}</Text>
         </View>
+        {connectionLabel ? <Text style={[styles.sourceText, { color: appearance.ink }]} testID="robot-status-connection">{connectionLabel}</Text> : null}
         <View style={[styles.sourcePill, { backgroundColor: appearance.surface }]} testID="joint-status-source">
           <View style={[styles.sourceDot, { backgroundColor: hasDeviceSnapshot ? appearance.blueInk : appearance.secondary }]} />
           <Text style={[styles.sourceText, { color: appearance.ink }]}>{hasDeviceSnapshot ? '设备状态' : '未同步'}</Text>
@@ -140,6 +144,7 @@ export function JointStatusScreen({ deviceName, robotDiagram, body, imu = null, 
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {error ? <Text accessibilityLiveRegion="polite" style={[styles.subtitle, { color: appearance.secondary }]} testID="joint-status-error">{error}</Text> : null}
+        {remoteStatus}
         {body ? <View style={[styles.row, { backgroundColor: appearance.surface }]} testID="joint-status-body">
           <View style={styles.metric}><Text style={[styles.metricLabel, { color: appearance.secondary }]}>姿态</Text><Text style={[styles.metricValue, { color: appearance.ink }]}>{body.posture === 'standing' ? '站立' : body.posture === 'sitting' ? '坐下' : '—'}</Text></View>
           <View style={styles.metric}><Text style={[styles.metricLabel, { color: appearance.secondary }]}>电机</Text><Text style={[styles.metricValue, { color: appearance.ink }]}>{body.motorState === 'enabled' ? '已使能' : body.motorState === 'disabled' ? '已失能' : '—'}</Text></View>

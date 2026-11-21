@@ -1,0 +1,203 @@
+{
+  "repository": "supabase/supabase",
+  "release": "self-hosted/v0.8.3",
+  "commit": "bc27d2661edd09a5d0b8d76ce33da6d4071a756e",
+  "files": [
+    {
+      "path": "docker/.env.example",
+      "gitBlobSha": "eb130e1cfe9da16117e5f1d9b11ebb9805b21f55",
+      "sha256": "d27fb4516702358ac5965fb06d207736abeb3c26c7d949f19b90e88b25e694ef",
+      "size": 12294,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/volumes/snippets/.gitkeep",
+      "gitBlobSha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/volumes/proxy/caddy/Caddyfile",
+      "gitBlobSha": "f067c935d0ac569515bed2edb1ea3bab50195edf",
+      "sha256": "a5116edc1ec748e0b0533ff1c6cce49b9372b5a96b036aa37a0bc3679aa3ec1e",
+      "size": 490,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/volumes/pooler/pooler.exs",
+      "gitBlobSha": "06f05e1b4acde4c34b25a136c6a701e651655a44",
+      "sha256": "d844e49f8915021ccbf6af6b769fef7909a723346bfc8f94ddb0433a328e49b1",
+      "size": 1103,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/volumes/functions/main/index.ts",
+      "gitBlobSha": "7a2b16f8482b33143690a4522f1e4a569eaa37a1",
+      "sha256": "ed402c31abf346198d71cc7bab3b7eead03b91d6b9d638b30fc5e5fada25802b",
+      "size": 12494,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/volumes/functions/hello/index.ts",
+      "gitBlobSha": "50d0e6be8c46df9090503441a92f2fc4c522f93c",
+      "sha256": "65e7d7ce5d898dd285e660cbab54521fca4bf990c41370f51fad5b4d4cae5f42",
+      "size": 1341,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/volumes/functions/deno.jsonc",
+      "gitBlobSha": "db206e8f4672a6a07efdc38f487de0ecfd3dee52",
+      "sha256": "a9a29da36c2576f755dd868b9f553a02afdf7d7bccf52e97e65c7f68cf36bfef",
+      "size": 136,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/volumes/db/webhooks.sql",
+      "gitBlobSha": "fe273decb89efc18c75e6f4a77953402c8f36555",
+      "sha256": "05a61316b899374253891cbba66ce073d9273f33983c3f47961eda3aa26c2823",
+      "size": 9070,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/volumes/db/roles.sql",
+      "gitBlobSha": "8f7161a6db66d75288722b60577ed30c81cc4f62",
+      "sha256": "3ad717b225daa38aa982da26750f35641eb404e1eb5e69a763c22236ab96c1b2",
+      "size": 379,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/volumes/db/realtime.sql",
+      "gitBlobSha": "4d4b9ffb912b9312dd78257956c180f12913264d",
+      "sha256": "7e9e442e7fc4dae05544c07b67bede37a00d84644304dfce4d937134cb4c8f88",
+      "size": 117,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/volumes/db/pooler.sql",
+      "gitBlobSha": "162c5b96aae50ab4c03b034a2d096898b1df4cd0",
+      "sha256": "df97ebe148d94cfb92a5e37ebf972dfd496be195f0915ecf14396b2cf50efecb",
+      "size": 144,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/volumes/db/logs.sql",
+      "gitBlobSha": "255c0f407b8d5b1c72b75c4daad0ca4fe3ff3eef",
+      "sha256": "f0463ce5030907acef49326d2bffd36002df0718035071be7c99bd7fc897c63d",
+      "size": 144,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/volumes/db/jwt.sql",
+      "gitBlobSha": "09a728366624abe35e2a54cdda333a5c5d5f3ebe",
+      "sha256": "c1d3f5c01e44646c2e533c5a1c111821cc49cb5a4c2534e08cddad61d8fb0339",
+      "size": 98,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/volumes/db/init/data.sql",
+      "gitBlobSha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "mode": "100755"
+    },
+    {
+      "path": "docker/volumes/db/_supabase.sql",
+      "gitBlobSha": "6236ae1bccc21f929362bb617947174ccd1519d3",
+      "sha256": "9dce462adc04137d6afabcf28efa60a6c355270a4b32d7af58891ac4eb964c5f",
+      "size": 83,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/volumes/api/envoy/lds.template.yaml",
+      "gitBlobSha": "aff4b7b6d29d6e96beb8ec08877a5f69935d105e",
+      "sha256": "f6b7e2c7a58abf54fe0f5eba6ad144c9f0d2a8c445ab66e05b298fb64bf6fa32",
+      "size": 58423,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/volumes/api/envoy/envoy.yaml",
+      "gitBlobSha": "def443b68817921d98180b58d558006a2f86233f",
+      "sha256": "3697f23b0be9ec5b829f937c600eb9b878f1f778ab510b42ad5e4f14742447e9",
+      "size": 677,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/volumes/api/envoy/docker-entrypoint.sh",
+      "gitBlobSha": "2c67584a30e151879e11b21939b9f1ed9857a38f",
+      "sha256": "8a0c9503764de32ba39e0d81e73629457b13ec42ef19897e30e4918c996d0508",
+      "size": 1366,
+      "mode": "100755"
+    },
+    {
+      "path": "docker/volumes/api/envoy/cds.yaml",
+      "gitBlobSha": "2d47842d6b44dfc0e05619086c00a5a17d28fcd1",
+      "sha256": "1d7514b891370ed27c25911df008887402e16ab09273e6e433225bb7f09f7905",
+      "size": 5901,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/utils/generate-keys.sh",
+      "gitBlobSha": "da1fc19218cf50146e9ca6f7313248ba94d22a2e",
+      "sha256": "6299efc24ce94d771ca4abb8ac96b67624cc4ac9a4b13ee0c2a8f0071aa3d619",
+      "size": 4727,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/utils/add-new-auth-keys.sh",
+      "gitBlobSha": "f921b6e876ab783de4077434c07bace2741a27e1",
+      "sha256": "afeddcb0c4e2f6a4ee5775a357d90ae7e804a6ff3e5160725468ce7ac0daad0f",
+      "size": 7601,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/docker-compose.yml",
+      "gitBlobSha": "2a478896b9dbe32a078a01dbce28131754b0a45c",
+      "sha256": "1bf8df5776dd81e9be15790851b46cdca1d0be8556450d4c88d73089d3b97a8b",
+      "size": 21304,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/docker-compose.caddy.yml",
+      "gitBlobSha": "9f99ff3b2a84569517dcbfa66f0d3378e84e399f",
+      "sha256": "efd31215990e16d8ac1ef77777a79e06aba3ced6578e555a2839f38e972a1c9b",
+      "size": 1170,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/README.md",
+      "gitBlobSha": "8d6f6774b48a0309db7ec7de234b923f6f6e5cc2",
+      "sha256": "b326e2a0de29f02e3c109cf5008872a4764a5f1048ec44e343634f42258614ac",
+      "size": 5267,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/CONFIG.md",
+      "gitBlobSha": "0cc6a74784b9f548194afedd42943381e8c5248a",
+      "sha256": "31f191c6333f630b49cde8ea6ef995677725239b71131f0121b8db108f63cba4",
+      "size": 144887,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/.gitignore",
+      "gitBlobSha": "1f9c3436196b0344538482ffbca81676e0a67759",
+      "sha256": "70924bc1b93a97d5d799d4ca48118286de1af0f848cfee34f09d4f379d989efc",
+      "size": 340,
+      "mode": "100644"
+    },
+    {
+      "path": "docker/volumes/storage/.gitkeep",
+      "gitBlobSha": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0,
+      "mode": "100644"
+    },
+    {
+      "path": "LICENSE",
+      "gitBlobSha": "49ea124025275674563eeff03af0f653ca49fdc0",
+      "sha256": "c29468abcd629e248c2f76848155c386b733872bcabcc4cf65ef1e7c61431042",
+      "size": 11338,
+      "mode": "100644"
+    }
+  ]
+}

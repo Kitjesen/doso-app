@@ -50,6 +50,8 @@ export type ControlJoystickPairProps = {
   showLabels?: boolean;
   gap?: number;
   floating?: boolean;
+  /** Keep the touch target and accessibility surface while optionally suppressing the painted dial. */
+  showVisuals?: boolean;
   touchAreaWidth?: number;
   touchAreaHeight?: number;
   layout?: ResolvedJoystickLayout;
@@ -191,6 +193,7 @@ function JoystickVisual({
   onAccessibilityAction,
   showLabel = true,
   floating = false,
+  showVisuals = true,
   robotControl = false,
   backdrop,
   anchor,
@@ -201,6 +204,7 @@ function JoystickVisual({
   onAccessibilityAction: (actionName: string) => void;
   showLabel?: boolean;
   floating?: boolean;
+  showVisuals?: boolean;
   robotControl?: boolean;
   backdrop?: ReactNode;
   anchor?: Readonly<{ x: number; y: number }> | null;
@@ -218,6 +222,11 @@ function JoystickVisual({
   const dialDirectionColor = glass || isDark ? 'rgba(255,255,255,0.85)' : 'rgba(57,72,88,0.75)';
   const thumbX = value.x * knobTravel;
   const thumbY = value.y * knobTravel;
+  const glassStroke = Math.max(1, Math.round(size * 0.008));
+  const glassTickLen = Math.max(7, Math.round(size * 0.065));
+  const glassTickInset = Math.max(5, Math.round(size * 0.038));
+  const glassYawStemLen = Math.max(10, Math.round(size * 0.085));
+  const glassYawChevron = Math.max(6, Math.round(size * 0.042));
   const floatingStyle: StyleProp<ViewStyle> = floating && anchor
     ? { left: anchor.x - radius, position: 'absolute', top: anchor.y - radius }
     : undefined;
@@ -247,33 +256,58 @@ function JoystickVisual({
             width: size,
             height: size,
             borderRadius: radius,
-            backgroundColor: glass ? 'rgba(203,215,231,0.29)' : dial ? isDark ? 'rgba(215,228,240,0.16)' : 'rgba(225,236,246,0.52)' : variant === 'cross' ? 'transparent' : trackColor,
-            borderColor: glass ? 'rgba(245,248,255,0.45)' : dial || variant === 'cross' ? 'transparent' : trackBorderColor,
-            borderWidth: glass ? 1 : dial || variant === 'cross' ? 0 : StyleSheet.hairlineWidth,
+            backgroundColor: !showVisuals ? 'transparent' : glass ? (active ? 'rgba(28,34,38,0.34)' : 'rgba(18,22,24,0.18)') : dial ? isDark ? 'rgba(215,228,240,0.16)' : 'rgba(225,236,246,0.52)' : variant === 'cross' ? 'transparent' : trackColor,
+            borderColor: !showVisuals ? 'transparent' : glass ? 'rgba(255,255,255,0.38)' : dial || variant === 'cross' ? 'transparent' : trackBorderColor,
+            borderWidth: !showVisuals ? 0 : glass ? glassStroke : dial || variant === 'cross' ? 0 : StyleSheet.hairlineWidth,
             opacity: disabled ? 0.8 : 1,
           },
         ]}
       >
-        {glass ? backdrop : null}
-        {variant === 'cross' ? <>
+        {showVisuals && glass ? backdrop : null}
+        {showVisuals && glass ? (
+          <View
+            pointerEvents="none"
+            style={[
+              styles.glassInnerRing,
+              { width: size * 0.64, height: size * 0.64, borderRadius: size * 0.32, borderWidth: glassStroke },
+            ]}
+          />
+        ) : null}
+        {showVisuals && variant === 'cross' ? <>
           <View style={[styles.crossArmVertical, { width: size * 0.38, height: size, backgroundColor: trackColor, borderColor: trackBorderColor }]} />
           <View style={[styles.crossArmHorizontal, { width: size, height: size * 0.38, backgroundColor: trackColor, borderColor: trackBorderColor }]} />
         </> : null}
-        {dial ? <>
-          {!glass ? <View pointerEvents="none" style={[styles.dialArc, { width: size * 0.8, height: size * 0.8, borderRadius: size / 2,
-            borderWidth: Math.max(1.5, size * 0.007), borderTopColor: appearance.action }]} /> : null}
-          <View style={[styles.dialDirection, styles.dialDirectionLeft, { borderColor: dialDirectionColor }]} />
-          <View style={[styles.dialDirection, styles.dialDirectionRight, { borderColor: dialDirectionColor }]} />
-          {axis === 'xy' ? <>
-            <View style={[styles.dialDirection, styles.dialDirectionUp, { borderColor: dialDirectionColor }]} />
-            <View style={[styles.dialDirection, styles.dialDirectionDown, { borderColor: dialDirectionColor }]} />
+        {showVisuals && dial ? <>
+          {!glass ? <View pointerEvents="none" style={[styles.dialArc, {
+            width: size * 0.8, height: size * 0.8, borderRadius: size / 2,
+            borderWidth: Math.max(1.5, size * 0.007), borderTopColor: appearance.action
+          }]} /> : null}
+          {glass ? <>
+            <View pointerEvents="none" style={[styles.glassTickH, { left: glassTickInset, width: glassTickLen, height: glassStroke }]} />
+            <View pointerEvents="none" style={[styles.glassTickH, { right: glassTickInset, width: glassTickLen, height: glassStroke }]} />
+            <View pointerEvents="none" style={[styles.glassTickV, { top: glassTickInset, width: glassStroke, height: glassTickLen }]} />
+            <View pointerEvents="none" style={[styles.glassTickV, { bottom: glassTickInset, width: glassStroke, height: glassTickLen }]} />
           </> : null}
-        </> : <>
+          {glass && axis === 'x' ? <>
+            <View pointerEvents="none" style={[styles.glassYawStem, styles.glassYawStemLeft, { width: glassYawStemLen, height: glassStroke }]} />
+            <View pointerEvents="none" style={[styles.glassYawStem, styles.glassYawStemRight, { width: glassYawStemLen, height: glassStroke }]} />
+            <View pointerEvents="none" style={[styles.dialDirection, styles.dialDirectionLeft, { borderColor: 'rgba(255,255,255,0.65)', width: glassYawChevron, height: glassYawChevron, borderTopWidth: glassStroke, borderRightWidth: glassStroke }]} />
+            <View pointerEvents="none" style={[styles.dialDirection, styles.dialDirectionRight, { borderColor: 'rgba(255,255,255,0.65)', width: glassYawChevron, height: glassYawChevron, borderTopWidth: glassStroke, borderRightWidth: glassStroke }]} />
+          </> : null}
+          {!glass ? <>
+            <View style={[styles.dialDirection, styles.dialDirectionLeft, { borderColor: dialDirectionColor }]} />
+            <View style={[styles.dialDirection, styles.dialDirectionRight, { borderColor: dialDirectionColor }]} />
+            {axis === 'xy' ? <>
+              <View style={[styles.dialDirection, styles.dialDirectionUp, { borderColor: dialDirectionColor }]} />
+              <View style={[styles.dialDirection, styles.dialDirectionDown, { borderColor: dialDirectionColor }]} />
+            </> : null}
+          </> : null}
+        </> : showVisuals ? <>
           <View style={[styles.travelRing, { width: size * 0.79, height: size * 0.79, borderRadius: size, borderColor: appearance.border }]} />
           <View style={[styles.axisHorizontal, { backgroundColor: colors.line }]} />
           {axis === 'xy' ? <View style={[styles.axisVertical, { backgroundColor: colors.line }]} /> : null}
-        </>}
-        <View
+        </> : null}
+        {showVisuals ? <View
           testID={`${testID}-thumb`}
           style={[
             styles.knob,
@@ -281,9 +315,9 @@ function JoystickVisual({
               width: knobSize,
               height: knobSize,
               borderRadius: knobSize / 2,
-              backgroundColor: glass ? 'rgba(213,224,239,0.47)' : dial ? active ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.76)' : knobColor,
-              borderColor: dial ? 'rgba(255,255,255,0.7)' : active ? appearance.blueInk : appearance.border,
-              borderWidth: dial ? 0.5 : StyleSheet.hairlineWidth,
+              backgroundColor: glass ? (active ? 'rgba(240,246,252,0.36)' : 'rgba(240,246,252,0.12)') : dial ? active ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.76)' : knobColor,
+              borderColor: glass ? 'rgba(255,255,255,0.56)' : dial ? 'rgba(255,255,255,0.7)' : active ? appearance.blueInk : appearance.border,
+              borderWidth: glass ? 1 : dial ? 0.5 : StyleSheet.hairlineWidth,
               transform: [
                 { translateX: thumbX },
                 { translateY: thumbY },
@@ -294,7 +328,7 @@ function JoystickVisual({
           {!dial ? <View style={[styles.thumbRing, { borderColor: active ? 'rgba(255,255,255,0.42)' : colors.line }]} /> : null}
           {dial && active ? <Text testID={`${testID}-value`} style={[styles.dialValue, { color: '#214F71' }]}>{Math.round(Math.min(1, Math.hypot(value.x, value.y)) * 100)}%</Text>
             : !dial ? <View style={[styles.thumbCenter, { backgroundColor: active ? '#FFFFFF' : appearance.blueInk }]} /> : null}
-        </View>
+        </View> : null}
       </View>
       {showLabel ? <Text style={[styles.label, { color: disabled ? colors.muted : colors.ink }]}>{label}</Text> : null}
     </View>
@@ -306,6 +340,7 @@ export function ControlJoystickPair({
   showLabels = true,
   gap = 24,
   floating = false,
+  showVisuals = true,
   touchAreaWidth,
   touchAreaHeight,
   layout,
@@ -492,7 +527,7 @@ export function ControlJoystickPair({
       onTouchEnd={Platform.OS === 'android' ? handleEnd : undefined}
       onTouchCancel={Platform.OS === 'android' ? cancelBoth : undefined}
       onResponderTerminationRequest={() => false}
-       style={[floating || layout ? styles.floatingPair : styles.pair, { gap: safeGap, height: pairHeight, width: pairWidth }]}
+      style={[floating || layout ? styles.floatingPair : styles.pair, { gap: safeGap, height: pairHeight, width: pairWidth }]}
     >
       <JoystickVisual
         {...leftDefinition}
@@ -505,6 +540,7 @@ export function ControlJoystickPair({
         active={left.active}
         anchor={left.anchor ?? (layout ? { x: layout.left.centerX, y: layout.left.centerY } : floating ? { x: radius, y: pairHeight / 2 } : null)}
         floating={floating || Boolean(layout)}
+        showVisuals={showVisuals}
         value={left.value}
         onAccessibilityAction={actionName => {
           if (!geometryCurrent()) return;
@@ -525,6 +561,7 @@ export function ControlJoystickPair({
         active={right.active}
         anchor={right.anchor ?? (layout ? { x: layout.right.centerX, y: layout.right.centerY } : floating ? { x: pairWidth - radius, y: pairHeight / 2 } : null)}
         floating={floating || Boolean(layout)}
+        showVisuals={showVisuals}
         value={right.value}
         onAccessibilityAction={actionName => {
           if (!geometryCurrent()) return;
@@ -766,6 +803,16 @@ const styles = StyleSheet.create({
   directionUp: { top: 14, transform: [{ rotate: '-45deg' }] },
   directionDown: { bottom: 14, transform: [{ rotate: '135deg' }] },
   dialArc: { position: 'absolute', borderColor: 'transparent' },
+  glassInnerRing: { position: 'absolute', borderColor: 'rgba(255, 255, 255, 0.18)', borderWidth: 1 },
+  glassYawStem: { position: 'absolute', width: 10, height: 1, backgroundColor: 'rgba(255, 255, 255, 0.55)' },
+  glassYawStemLeft: { left: '19%' },
+  glassYawStemRight: { right: '19%' },
+  glassTickH: { position: 'absolute', width: 8, height: 1, backgroundColor: 'rgba(255, 255, 255, 0.36)' },
+  glassTickV: { position: 'absolute', width: 1, height: 8, backgroundColor: 'rgba(255, 255, 255, 0.36)' },
+  glassTickLeft: { left: 6 },
+  glassTickRight: { right: 6 },
+  glassTickTop: { top: 6 },
+  glassTickBottom: { bottom: 6 },
   dialDirection: { position: 'absolute', width: 6, height: 6, borderTopWidth: 1, borderRightWidth: 1 },
   dialDirectionLeft: { left: '18%', transform: [{ rotate: '-135deg' }] },
   dialDirectionRight: { right: '18%', transform: [{ rotate: '45deg' }] },

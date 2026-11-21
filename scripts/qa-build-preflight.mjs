@@ -17,8 +17,10 @@ export function assessBuildResources({ freeMemoryKiB, environment = {}, competin
     blockers.push('competing_tasks_or_unknown');
   }
   if (environment.EXPO_NO_DOTENV !== '1') blockers.push('dotenv_not_disabled');
-  return { ready: blockers.length === 0, blockers, freeMemoryKiB,
-    minimumFreeMemoryKiB: MINIMUM_FREE_MEMORY_KIB, buildStarts: 0 };
+  return {
+    ready: blockers.length === 0, blockers, freeMemoryKiB,
+    minimumFreeMemoryKiB: MINIMUM_FREE_MEMORY_KIB, buildStarts: 0
+  };
 }
 
 export function assessQaBuildReadiness(observation) {
@@ -27,8 +29,8 @@ export function assessQaBuildReadiness(observation) {
   const blockers = [...resources.blockers];
   const expectedUrl = 'https://api-test.dosorobotics.com';
   if (environment.EXPO_PUBLIC_SUPABASE_URL !== expectedUrl ||
-      environment.EXPO_PUBLIC_SUPABASE_URL_ANDROID !== expectedUrl ||
-      !/^sb_publishable_[A-Za-z0-9_-]+$/.test(environment.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? '')) {
+    environment.EXPO_PUBLIC_SUPABASE_URL_ANDROID !== expectedUrl ||
+    !/^sb_publishable_[A-Za-z0-9_-]+$/.test(environment.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? '')) {
     blockers.push('public_configuration_missing_or_wrong_target');
   }
   for (const flag of ['EXPO_PUBLIC_DESIGN_QA', 'EXPO_PUBLIC_CONNECTION_DIAGNOSTICS',
@@ -66,7 +68,7 @@ export function snapshotQaBuildInputs(root, sdkRoot) {
     if (!existsSync(join(base, name))) throw new Error('required_input_missing');
     visit(name);
   }
-  for (const name of ['index.preview.ts', 'index.video-test.ts', 'eas.json', 'babel.config.js', 'babel.config.cjs', 'babel.config.mjs',
+  for (const name of ['eas.json', 'babel.config.js', 'babel.config.cjs', 'babel.config.mjs',
     'metro.config.js', 'metro.config.cjs', 'metro.config.mjs', 'react-native.config.js', 'modules']) {
     if (existsSync(join(base, name))) visit(name);
   }
@@ -97,22 +99,26 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     try {
       const text = execFileSync('powershell.exe', ['-NoProfile', '-Command',
         `$os=Get-CimInstance Win32_OperatingSystem -ErrorAction Stop; $tasks=@(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { ${QA_COMPETING_TASK_PREDICATE} }); @{freeMemoryKiB=[long]$os.FreePhysicalMemory; competingTaskCount=$tasks.Count} | ConvertTo-Json -Compress`],
-      { encoding: 'utf8', timeout: 15000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+        { encoding: 'utf8', timeout: 15000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
       const parsed = JSON.parse(text);
       if (!Number.isSafeInteger(parsed.freeMemoryKiB) || !Number.isSafeInteger(parsed.competingTaskCount) ||
-          parsed.competingTaskCount < 0 || parsed.competingTaskCount > 10000) throw new Error('invalid_resource_observation');
-      observation = { freeMemoryKiB: parsed.freeMemoryKiB,
-        competingProcesses: Array.from({ length: parsed.competingTaskCount }, () => ({})) };
+        parsed.competingTaskCount < 0 || parsed.competingTaskCount > 10000) throw new Error('invalid_resource_observation');
+      observation = {
+        freeMemoryKiB: parsed.freeMemoryKiB,
+        competingProcesses: Array.from({ length: parsed.competingTaskCount }, () => ({}))
+      };
     } catch { /* Unknown resources are blockers; no raw process output retained. */ }
     const assessment = assessQaBuildReadiness({ ...observation, environment: process.env });
     const inputs = snapshotQaBuildInputs(root, process.env.DOSO_SDK_ROOT);
-    const report = { observedAt: new Date().toISOString(), mode: 'read_only_preflight', assessment,
+    const report = {
+      observedAt: new Date().toISOString(), mode: 'read_only_preflight', assessment,
       entry: 'index.ts', taskNotStarted: ':app:assembleQa', inputs,
       limits: ['Not a build or native/auth acceptance', 'No private env or signing input digest',
         'Installed node_modules/dependency caches/toolchain binaries are not frozen',
         'Publishable key syntax is checked, not opaque key project ownership',
         'Readiness is a point-in-time prerequisite only'],
-      excluded: ['private env/keystore/credentials/local.properties', 'android generated outputs/caches'] };
+      excluded: ['private env/keystore/credentials/local.properties', 'android generated outputs/caches']
+    };
     writeFileSync(join(reportDir, 'preflight.json'), `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx' });
     console.log(JSON.stringify({ mode: report.mode, ...assessment, inputCount: inputs.length }));
     process.exitCode = assessment.ready ? 0 : 2;

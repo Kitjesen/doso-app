@@ -1,0 +1,45 @@
+# Append after the active account-sessions layer. Only api-gw and functions may change.
+services:
+  api-gw:
+    volumes: !override
+      - type: bind
+        source: ./doso/gateway-loopback-20261027/envoy.yaml
+        target: /etc/envoy/envoy.yaml
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ./doso/device-cloud-20261103/cds.yaml
+        target: /etc/envoy/cds.yaml
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ./doso/device-cloud-20261103/lds.template.yaml
+        target: /etc/envoy/lds.template.yaml
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ./doso/gateway-loopback-20261027/validate-config.mjs
+        target: /app/validate-config.mjs
+        read_only: true
+        bind: {create_host_path: false}
+
+  functions:
+    environment: !override
+      SUPABASE_URL: http://api-gw:8000
+      SUPABASE_PUBLIC_URL: ${SUPABASE_PUBLIC_URL:?Use the existing approved test origin}
+      SUPABASE_ANON_KEY: ${ANON_KEY:?Use the existing new test public key}
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:?Use the existing server-only test key}
+      SUPABASE_SECRET_KEYS: ${SUPABASE_SECRET_KEYS:?Configure the dedicated remote-state-sync named key in the private self-hosted env}
+      DOSO_REMOTE_SYNC_SECRET_NAME: remote-state-sync
+      VERIFY_JWT: "false"
+      DOSO_ALLOWED_WEB_ORIGINS: ${DOSO_ALLOWED_WEB_ORIGINS:-}
+      DENO_DIR: /root/.cache/deno
+    volumes: !override
+      - type: bind
+        source: ./doso/device-cloud-20261103/functions
+        target: /home/deno/functions
+        read_only: true
+        bind: {create_host_path: false}
+      - type: volume
+        source: deno-cache
+        target: /root/.cache/deno

@@ -154,20 +154,35 @@ try {
   // Old APKs and unsupported runtimes can load this screen without a native-module exception.
 }
 
+function webDevModule(): NativeGrpc | null {
+  if (typeof __DEV__ === 'undefined' || __DEV__ !== true || Platform.OS !== 'web') return null;
+  const candidate = (globalThis as { __dosoWebDevBrainstemBridge?: NativeGrpc | null }).__dosoWebDevBrainstemBridge;
+  return candidate && typeof candidate === 'object' ? candidate : null;
+}
+
+function activeModule(): NativeGrpc | null {
+  return Platform.OS === 'android' ? nativeGrpc : webDevModule();
+}
+
 export function isBrainstemGrpcAvailable(): boolean {
-  return Platform.OS === 'android' && nativeGrpc !== null &&
-    typeof nativeGrpc.readStatus === 'function' && typeof nativeGrpc.cancelStatus === 'function' &&
-    typeof nativeGrpc.chooseClientIdentity === 'function';
+  if (Platform.OS === 'android') {
+    return nativeGrpc !== null &&
+      typeof nativeGrpc.readStatus === 'function' && typeof nativeGrpc.cancelStatus === 'function' &&
+      typeof nativeGrpc.chooseClientIdentity === 'function';
+  }
+  const bridge = webDevModule();
+  return bridge !== null && typeof bridge.readLanStatus === 'function' && typeof bridge.cancelStatus === 'function';
 }
 
 export function isBrainstemLocalIdentityAvailable(): boolean {
-  return isBrainstemGrpcAvailable() && typeof nativeGrpc?.getLocalClientIdentity === 'function' &&
+  return Platform.OS === 'android' && isBrainstemGrpcAvailable() && typeof nativeGrpc?.getLocalClientIdentity === 'function' &&
     typeof nativeGrpc.prepareLocalClientIdentity === 'function' && typeof nativeGrpc.completeLocalClientIdentity === 'function' &&
     typeof nativeGrpc.cancelLocalClientIdentity === 'function';
 }
 
 export function isBrainstemLanAvailable(): boolean {
-  return isBrainstemGrpcAvailable() && nativeGrpc?.lanDevAvailable === true && typeof nativeGrpc.readLanStatus === 'function';
+  const bridge = activeModule();
+  return isBrainstemGrpcAvailable() && bridge?.lanDevAvailable === true && typeof bridge.readLanStatus === 'function';
 }
 
 export async function setControlNavigationHidden(hidden: boolean): Promise<number> {
@@ -212,8 +227,9 @@ export function validateBrainstemEndpoint(host: string, port: string | number, t
 }
 
 function nativeOrThrow(): NativeGrpc {
-  if (!isBrainstemGrpcAvailable()) throw new BrainstemGrpcError('native_unavailable');
-  return nativeGrpc!;
+  const bridge = activeModule();
+  if (!isBrainstemGrpcAvailable() || !bridge) throw new BrainstemGrpcError('native_unavailable');
+  return bridge;
 }
 
 function safeError(value: unknown): BrainstemGrpcError {
@@ -245,6 +261,9 @@ function waitForPickerForeground(): Promise<void> {
  */
 export async function chooseBrainstemClientIdentity(host: string, port: number): Promise<string | null> {
   const endpoint = validateBrainstemEndpoint(host, port);
+  if (Platform.OS !== 'android' || !nativeGrpc || typeof nativeGrpc.chooseClientIdentity !== 'function') {
+    throw new BrainstemGrpcError('native_unavailable');
+  }
   const native = nativeOrThrow();
   if (readActive || identityActive) throw new BrainstemGrpcError('busy');
   if (AppState.currentState !== 'active') throw new BrainstemGrpcError('background');
@@ -572,6 +591,9 @@ function readNativeUnary<T>(options: {
     void Promise.resolve().then(async () => {
       if (done) return;
       dispatched = true;
+      if (options.endpoint.transport !== 'lan-dev' && Platform.OS !== 'android') {
+        throw new BrainstemGrpcError('native_unavailable');
+      }
       const value = options.endpoint.transport === 'lan-dev'
         ? await native[lanMethod]!(endpoint.host, endpoint.port, requestId)
         : await invoke(native, endpoint.host, endpoint.port, alias ?? null, requestId);

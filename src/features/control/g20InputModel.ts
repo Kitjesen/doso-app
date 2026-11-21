@@ -1,5 +1,5 @@
 export type G20Axis = 'leftX' | 'leftY' | 'rightX' | 'rightY';
-export type G20ButtonAction = 'stand' | 'sit' | 'stop' | 'enableMotor' | 'disableMotor' | 'switchPolicy';
+export type G20ButtonAction = 'stand' | 'sit' | 'stop' | 'enableMotor' | 'disableMotor' | 'switchPolicy' | 'toggleJointParams';
 export type G20ChannelSetting = Readonly<{
   channelIndex: number; index: number; mapping: number;
   min: number; middle: number; max: number; reverse: boolean;
@@ -18,7 +18,7 @@ export type G20Calibration = Readonly<{
 }>;
 export type G20Vector = Readonly<Record<G20Axis, number>>;
 export const G20_AXES: readonly G20Axis[] = ['leftX', 'leftY', 'rightX', 'rightY'];
-export const G20_BUTTON_ACTIONS: readonly G20ButtonAction[] = ['stand', 'sit', 'stop', 'enableMotor', 'disableMotor', 'switchPolicy'];
+export const G20_BUTTON_ACTIONS: readonly G20ButtonAction[] = ['stand', 'sit', 'stop', 'enableMotor', 'disableMotor', 'switchPolicy', 'toggleJointParams'];
 export const G20_INPUT_MAX_AGE_MS = 150;
 
 const record = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object';
@@ -44,15 +44,19 @@ export function parseG20Sample(value: unknown): G20Sample | null {
         || !integer(item.index) || !integer(item.mapping) || !bounded(item.min) || !bounded(item.middle) || !bounded(item.max)
         || !(item.min < item.middle && item.middle < item.max) || typeof item.reverse !== 'boolean') return null;
       seen.add(item.channelIndex);
-      settings.push({ channelIndex: item.channelIndex, index: item.index, mapping: item.mapping,
-        min: item.min, middle: item.middle, max: item.max, reverse: item.reverse });
+      settings.push({
+        channelIndex: item.channelIndex, index: item.index, mapping: item.mapping,
+        min: item.min, middle: item.middle, max: item.max, reverse: item.reverse
+      });
     }
   }
   if (value.configurationReady && (!settings || !value.controlMode)) return null;
-  return { requestId: value.requestId, generation: value.generation, sequence: value.sequence,
+  return {
+    requestId: value.requestId, generation: value.generation, sequence: value.sequence,
     receivedAtMonotonicMs: value.receivedAtMonotonicMs, requestStartedAtMonotonicMs: value.requestStartedAtMonotonicMs,
     channels: [...value.channels], channelSettings: settings,
-    controlMode: value.controlMode, configurationReady: value.configurationReady };
+    controlMode: value.controlMode, configurationReady: value.configurationReady
+  };
 }
 
 function signature(sample: G20Sample) {
@@ -72,14 +76,18 @@ function assertSame(calibration: G20Calibration, sample: G20Sample) {
 }
 export function beginG20Calibration(sample: G20Sample): G20Calibration {
   assertConfiguration(sample);
-  return { generation: sample.generation, requestId: sample.requestId, configuration: signature(sample),
-    baseline: [...sample.channels], axes: {}, buttons: {} };
+  return {
+    generation: sample.generation, requestId: sample.requestId, configuration: signature(sample),
+    baseline: [...sample.channels], axes: {}, buttons: {}
+  };
 }
 
 function changedChannel(calibration: G20Calibration, sample: G20Sample) {
   assertSame(calibration, sample);
-  const changes = sample.channelSettings!.map(setting => ({ setting,
-    change: Math.abs(sample.channels[setting.channelIndex] - calibration.baseline[setting.channelIndex]) / (setting.max - setting.min) }));
+  const changes = sample.channelSettings!.map(setting => ({
+    setting,
+    change: Math.abs(sample.channels[setting.channelIndex] - calibration.baseline[setting.channelIndex]) / (setting.max - setting.min)
+  }));
   const changed = changes.filter(item => item.change >= 0.22);
   if (changed.length !== 1 || changes.some(item => item !== changed[0] && item.change > 0.08)) throw Error('请只操作当前摇杆轴或按键');
   return changed[0].setting;
@@ -103,9 +111,13 @@ export function learnG20Button(calibration: G20Calibration, action: G20ButtonAct
   const setting = changedChannel(calibration, sample);
   const channel = setting.channelIndex;
   if (channelUsed(calibration, channel, action)) throw Error('此通道已用于其他操作');
-  return { ...calibration, buttons: { ...calibration.buttons, [action]: {
-    channel, rest: calibration.baseline[channel], pressed: sample.channels[channel], tolerance: (setting.max - setting.min) * 0.08,
-  } } };
+  return {
+    ...calibration, buttons: {
+      ...calibration.buttons, [action]: {
+        channel, rest: calibration.baseline[channel], pressed: sample.channels[channel], tolerance: (setting.max - setting.min) * 0.08,
+      }
+    }
+  };
 }
 export function isG20Calibrated(calibration: G20Calibration | null): boolean {
   return !!calibration && G20_AXES.every(axis => !!calibration.axes[axis]);

@@ -23,7 +23,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.doso.robot",
-      "versionCode": 53,
+      "versionCode": 54,
       "intentFilters": [
         {
           "action": "VIEW",
@@ -105,8 +105,6 @@
       "./plugins/withLegacyBleLocationPermissions",
       "./plugins/withPinnedWebRtcAndroid",
       "./plugins/withReceiveOnlyWebRtc",
-      "./plugins/withOfflinePreview",
-      "./plugins/withVideoAcceptance",
       "./plugins/withLocalAcceptance"
     ],
     "extra": {

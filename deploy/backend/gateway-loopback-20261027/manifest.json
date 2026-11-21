@@ -1,0 +1,32 @@
+{
+  "upstream_commit": "bc27d2661edd09a5d0b8d76ce33da6d4071a756e",
+  "source_sha256": {
+    "envoy.yaml": "3697f23b0be9ec5b829f937c600eb9b878f1f778ab510b42ad5e4f14742447e9",
+    "cds.yaml": "1d7514b891370ed27c25911df008887402e16ab09273e6e433225bb7f09f7905",
+    "lds.template.yaml": "f6b7e2c7a58abf54fe0f5eba6ad144c9f0d2a8c445ab66e05b298fb64bf6fa32"
+  },
+  "candidate_image_id": "sha256:7e5d2c0dbac760df975f4f5f809eec5f4149bfcfc0c538f2603df4ab29af25a8",
+  "wrapper_sha256": "fa95b1e7395af631f6baabfee764793e9c7b7fdd2e69ca9168ffae6443f6e711",
+  "files": {
+    "envoy.yaml": {
+      "bytes": 677,
+      "sha256": "3697f23b0be9ec5b829f937c600eb9b878f1f778ab510b42ad5e4f14742447e9"
+    },
+    "cds.yaml": {
+      "bytes": 1677,
+      "sha256": "db294e83bd2a7f8ae4177246306e85af754b4bdbb7041d01df0c93b8f3ca3c0a"
+    },
+    "lds.template.yaml": {
+      "bytes": 44667,
+      "sha256": "f4a5c61d50fd7f9c6c371d42d522b53964d85fe08d44c55536768c826905058e"
+    },
+    "compose.gateway-loopback.yml": {
+      "bytes": 1957,
+      "sha256": "448e1d0f599e672964db6ab8f28335dbf9a9dd4e2890b764fb2657d25ce8f336"
+    },
+    "validate-config.mjs": {
+      "bytes": 1344,
+      "sha256": "d6b8bf43dc45107b041543afd9b37ad102884da0ee6af7e6c1cfa7b3bf6cf3aa"
+    }
+  }
+}

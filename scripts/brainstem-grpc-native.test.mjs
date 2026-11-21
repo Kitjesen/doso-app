@@ -11,7 +11,7 @@ const javaRoot = new URL('android/src/main/java/expo/modules/brainstemgrpc/', mo
 const read = async (file) => readFile(new URL(file, moduleRoot), 'utf8');
 
 test('native read-only protobuf parser agrees with the real brainstem proto contract', async () => {
-  const proto = await readFile(process.env.BRAINSTEM_CMS_PROTO || 'D:/inovxio/brain/brainstem/brainstem_api/brainstem_api/cms.proto', 'utf8');
+  const proto = await readFile(process.env.BRAINSTEM_CMS_PROTO || new URL('../contracts/brainstem_api/cms.proto', import.meta.url), 'utf8');
   assert.match(proto, /package brainstem\.api\.v1;/);
   assert.match(proto, /rpc GetControlStatus\(google\.protobuf\.Empty\) returns \(ControlStatus\)/);
   const fields = (message) => [...proto.match(new RegExp(`message ${message} \\{([^}]+)\\}`))[1]
@@ -42,9 +42,11 @@ test('native read-only protobuf parser agrees with the real brainstem proto cont
       fileURLToPath(new URL('ProfileInfoParser.java', javaRoot)),
       fileURLToPath(new URL('VoltageParser.java', javaRoot)),
       fileURLToPath(new URL('MotorStatusParser.java', javaRoot)),
+      fileURLToPath(new URL('GestureListParser.java', javaRoot)),
       fileURLToPath(new URL('android/src/test/java/expo/modules/brainstemgrpc/ControlStatusParserTest.java', moduleRoot)),
       fileURLToPath(new URL('android/src/test/java/expo/modules/brainstemgrpc/ProfileInfoParserTest.java', moduleRoot)),
       fileURLToPath(new URL('android/src/test/java/expo/modules/brainstemgrpc/DiagnosticsParserTest.java', moduleRoot)),
+      fileURLToPath(new URL('android/src/test/java/expo/modules/brainstemgrpc/GestureListParserTest.java', moduleRoot)),
     ], { encoding: 'utf8' });
     assert.equal(compile.status, 0, compile.stderr || compile.error?.message);
     const run = spawnSync('java', ['-cp', output, 'expo.modules.brainstemgrpc.ControlStatusParserTest'], { encoding: 'utf8' });
@@ -56,6 +58,9 @@ test('native read-only protobuf parser agrees with the real brainstem proto cont
     const diagnosticsRun = spawnSync('java', ['-cp', output, 'expo.modules.brainstemgrpc.DiagnosticsParserTest'], { encoding: 'utf8' });
     assert.equal(diagnosticsRun.status, 0, diagnosticsRun.stderr || diagnosticsRun.error?.message);
     assert.match(diagnosticsRun.stdout, /PASS: voltage and motor diagnostics/);
+    const gestureRun = spawnSync('java', ['-cp', output, 'expo.modules.brainstemgrpc.GestureListParserTest'], { encoding: 'utf8' });
+    assert.equal(gestureRun.status, 0, gestureRun.stderr || gestureRun.error?.message);
+    assert.match(gestureRun.stdout, /PASS: gesture list protobuf projections and bounds/);
   } finally {
     await rm(output, { recursive: true, force: true });
   }
