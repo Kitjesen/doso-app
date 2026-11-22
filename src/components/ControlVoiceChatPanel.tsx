@@ -1,7 +1,7 @@
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-import { Text } from './AppText';
+import { Text, TextInput } from './AppText';
 import type { RobotVoiceController } from '../features/control/useRobotVoiceChat';
 
 const QUICK_PROMPTS = ['查看状态', '观察周围', '你能做什么'] as const;
