@@ -1723,3 +1723,62 @@ test('speedMode queries device mode, scales high-speed walk vectors to 2.5 m/s, 
     f.session.dispose();
   }
 });
+
+test('apply() suppresses idle no-op poll re-renders and throttles 50Hz walking UI notifications while keeping state synchronous', async () => {
+  const f = fixture();
+  let rtt = 12;
+  f.transport.read = async () => { f.advance(rtt); return f.reply(); };
+  f.transport.input = async (id, forward, lateral, yaw) => {
+    f.advance(8);
+    f.calls.push(['input', forward, lateral, yaw]);
+    const nextSeq = (f.session.state.sequence || 1) + 1;
+    return f.reply({ sequence: nextSeq });
+  };
+  try {
+    await f.session.connect(endpoint, 'doso-g20@robot');
+    f.advance(500);
+    await f.session.refresh(); // records baseline 12ms latency at steady-state poll interval
+    assert.equal(f.session.latencyMs, 12);
+    let notifications = 0;
+    const unsub = f.session.subscribe(() => { notifications++; });
+
+    // 1. Identical idle polls with +-1ms RTT jitter must not trigger full-tree React re-renders,
+    // while observedAt still advances synchronously so freshness never expires.
+    const beforeObserved = f.session.state.observedAt;
+    rtt = 13;
+    f.advance(500);
+    await f.session.refresh();
+    assert.equal(notifications, 0, 'identical idle poll with 1ms jitter skips UI notification');
+    assert.ok(f.session.state.observedAt > beforeObserved, 'observedAt still updates synchronously');
+    assert.equal(f.session.latencyMs, 13);
+
+    // 2. Meaningful RTT shift (>=3ms after >=500ms) DOES notify UI so HUD RTT stays responsive.
+    rtt = 20;
+    f.advance(500);
+    await f.session.refresh();
+    assert.equal(notifications, 1, 'meaningful RTT shift notifies HUD');
+
+    // 3. Real posture/motor change always notifies immediately with zero throttling.
+    f.set({ fsmKind: 'standing', motorOutputEnabled: true });
+    f.advance(100);
+    await f.session.refresh();
+    assert.equal(notifications, 2, 'real state change notifies immediately');
+
+    // 4. During 50Hz walking, 5 consecutive ACKs over ~100ms update sequence synchronously every frame
+    // while capping UI re-renders to <=10Hz (at most 2 notifications across 5 frames).
+    await f.session.acquire();
+    const afterAcquire = notifications;
+    for (let i = 1; i <= 5; i++) {
+      f.advance(20);
+      await f.session.drive({ x: 0, y: -0.2 * i });
+      if (i < 5) await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    await new Promise(resolve => setTimeout(resolve, 25));
+    assert.ok(f.session.state.sequence >= 5, `50Hz WalkChecked sequences advance synchronously (got ${f.session.state.sequence})`);
+    assert.ok(notifications - afterAcquire <= 2, `50Hz walking notifications throttled (got ${notifications - afterAcquire})`);
+
+    unsub();
+  } finally {
+    f.session.dispose();
+  }
+});

@@ -1,4 +1,4 @@
-import { createElement, useEffect, useRef, useState } from 'react';
+import { createElement, memo, useEffect, useRef, useState } from 'react';
 
 import {
   LoopbackSimVideoReceiver,
@@ -156,7 +156,7 @@ function WhepVideoElementPlayer({ stream, rotation }: { stream: VideoStream; rot
       style: { position: 'absolute', left: (size.width - width) / 2, top: (size.height - height) / 2, width, height, objectFit: 'cover', transform: `rotate(${rotation}deg)` } }));
 }
 
-export function VideoPlayer({ stream, rotation }: { stream: VideoStream; rotation: number }) {
+export const VideoPlayer = memo(function VideoPlayer({ stream, rotation }: { stream: VideoStream; rotation: number }) {
   if ((stream as Partial<LoopbackSimVideoStream>)?.kind === 'doso-dev-sim-canvas') {
     return createElement(SimCanvasVideoPlayer, {
       stream: stream as LoopbackSimVideoStream,
@@ -164,4 +164,4 @@ export function VideoPlayer({ stream, rotation }: { stream: VideoStream; rotatio
     });
   }
   return createElement(WhepVideoElementPlayer, { stream, rotation });
-}
+});

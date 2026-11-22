@@ -38,16 +38,19 @@ export function useBrainstemTelemetry({ ownerKey, endpoint, active }: Owner) {
   const [, render] = useState(0);
   const valid = () => mounted.current && owner.current === captured && !!captured.ownerKey
     && !!captured.endpoint && captured.active && AppState.currentState === 'active';
-  const refresh = async () => {
+  const refresh = async (silent = false) => {
     if (!valid() || pending.current) return;
     const request = { owner: captured, controller: new AbortController() };
     pending.current = request;
-    setReading(value => ({
-      owner: captured,
-      snapshot: value?.owner === captured && value.snapshot && isDirectRobotConnectionFresh(value.snapshot) ? value.snapshot : null,
-      latencyMs: value?.owner === captured ? value.latencyMs : null,
-      error: null, refreshing: true
-    }));
+    // Skip the intermediate refreshing:true render on background 5s ticks when a fresh snapshot already exists.
+    if (!silent) {
+      setReading(value => ({
+        owner: captured,
+        snapshot: value?.owner === captured && value.snapshot && isDirectRobotConnectionFresh(value.snapshot) ? value.snapshot : null,
+        latencyMs: value?.owner === captured ? value.latencyMs : null,
+        error: null, refreshing: true
+      }));
+    }
     try {
       const options = () => ({ endpoint: captured.endpoint!, requestId: requestId(), signal: request.controller.signal });
       const startedAt = elapsedNow();
@@ -91,8 +94,8 @@ export function useBrainstemTelemetry({ ownerKey, endpoint, active }: Owner) {
     return () => { mounted.current = false; lifecycle.remove(); pending.current?.controller.abort(); pending.current = null; };
   }, []);
   useEffect(() => {
-    void refresh();
-    const timer = valid() ? setInterval(() => { void refresh(); }, 5000) : null;
+    void refresh(false);
+    const timer = valid() ? setInterval(() => { void refresh(true); }, 5000) : null;
     return () => {
       if (timer !== null) clearInterval(timer);
       if (pending.current?.owner === captured) { pending.current.controller.abort(); pending.current = null; }

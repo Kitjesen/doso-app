@@ -51,6 +51,7 @@ export function useBrainstemControl({ ownerKey, ready, autoConnectEndpoint, auto
       playGesture: (name: string) => session.action('play-gesture', name),
     },
     listGestures: () => session.listGestures(),
+    recoveryCommand: session.recoveryCommand.bind(session),
   }), [session, recovery]);
   useEffect(() => { session.setImuNotifyEnabled(imuNotifyEnabled); }, [session, imuNotifyEnabled]);
   useEffect(() => { recovery.setAvailable(ready); }, [recovery, ready]);
@@ -93,7 +94,7 @@ export function useBrainstemControl({ ownerKey, ready, autoConnectEndpoint, auto
     return () => { mounted.current = false; unsubscribe(); lifecycle.remove(); clearInterval(timer); void recovery.suspend(); };
   }, [session, recovery]);
   const signal = useControllerWifiSignal(ready && session.state.connected);
-  return { state: session.state, runtimeState: { ...session.runtimeState, signal }, latencyMs: session.latencyMs, speedMode: session.speedMode, recoveryStatus: session.recoveryStatus, recoveryCommand: session.recoveryCommand.bind(session), operationReadiness: session.operationReadiness,
+  return { state: session.state, runtimeState: { ...session.runtimeState, signal }, latencyMs: session.latencyMs, speedMode: session.speedMode, recoveryStatus: session.recoveryStatus, operationReadiness: session.operationReadiness,
     canAcquire: session.canAcquire, canUseManualControl: session.canUseManualControl,
     canBeginManualControl: session.canBeginManualControl, canBeginTouchControl: session.canBeginTouchControl,
     touchBlockedReason: session.touchBlockedReason, manualPrepared: session.state.manualPrepared,

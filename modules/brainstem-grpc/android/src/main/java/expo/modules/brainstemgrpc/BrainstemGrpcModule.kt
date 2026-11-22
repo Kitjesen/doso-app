@@ -9,6 +9,7 @@ import android.content.IntentFilter
 import android.os.Build
 import android.os.SystemClock
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
@@ -43,6 +44,7 @@ import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONObject
+import javax.net.SocketFactory
 import javax.net.ssl.KeyManager
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
@@ -110,9 +112,8 @@ class BrainstemGrpcModule : Module() {
         val context = appContext.reactContext ?: return@runCatching null
         if (paused || destroyed || !isForeground()) return@runCatching null
         val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val network = manager.activeNetwork ?: return@runCatching null
+        val network = findWifiNetwork(manager) ?: return@runCatching null
         val capabilities = manager.getNetworkCapabilities(network) ?: return@runCatching null
-        if (!capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return@runCatching null
         val info = if (Build.VERSION.SDK_INT >= 29) capabilities.transportInfo as? WifiInfo else null
         @Suppress("DEPRECATION")
         val rssi = (info ?: (context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager).connectionInfo).rssi
@@ -494,15 +495,59 @@ class BrainstemGrpcModule : Module() {
   private fun isForeground(): Boolean =
     (appContext.currentActivity as? LifecycleOwner)?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) == true
 
+  private fun findWifiNetwork(connectivity: ConnectivityManager): Network? {
+    val active = connectivity.activeNetwork
+    if (active != null && connectivity.getNetworkCapabilities(active)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
+      return active
+    }
+    @Suppress("DEPRECATION")
+    return connectivity.allNetworks.firstOrNull { candidate ->
+      connectivity.getNetworkCapabilities(candidate)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+    }
+  }
+
+  private fun isPrivateWifiTarget(host: String): Boolean {
+    if (!host.matches(Regex("[0-9.]+"))) return false
+    val bytes = host.split('.').mapNotNull { it.toIntOrNull() }
+    if (bytes.size != 4 || bytes.any { it !in 0..255 }) return false
+    return bytes[0] == 10 || (bytes[0] == 172 && bytes[1] in 16..31) || (bytes[0] == 192 && bytes[1] == 168)
+  }
+
+  private class LowLatencySocketFactory(
+    private val delegate: SocketFactory,
+    private val trafficClassTos: Int = DSCP_EF_TOS,
+  ) : SocketFactory() {
+    private fun tune(socket: Socket): Socket {
+      runCatching { socket.tcpNoDelay = true }
+      runCatching { socket.trafficClass = trafficClassTos }
+      return socket
+    }
+    override fun createSocket(): Socket = tune(delegate.createSocket())
+    override fun createSocket(host: String?, port: Int): Socket = tune(delegate.createSocket(host, port))
+    override fun createSocket(host: String?, port: Int, localHost: InetAddress?, localPort: Int): Socket =
+      tune(delegate.createSocket(host, port, localHost, localPort))
+    override fun createSocket(host: InetAddress?, port: Int): Socket = tune(delegate.createSocket(host, port))
+    override fun createSocket(address: InetAddress?, port: Int, localAddress: InetAddress?, localPort: Int): Socket =
+      tune(delegate.createSocket(address, port, localAddress, localPort))
+  }
+
+  private fun lowLatencySocketFactory(host: String): SocketFactory {
+    val base = runCatching {
+      if (!isPrivateWifiTarget(host)) return@runCatching SocketFactory.getDefault()
+      val context = appContext.reactContext ?: return@runCatching SocketFactory.getDefault()
+      val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+      findWifiNetwork(connectivity)?.socketFactory ?: SocketFactory.getDefault()
+    }.getOrDefault(SocketFactory.getDefault())
+    return LowLatencySocketFactory(base)
+  }
+
   private fun acquireControlWifiLock() {
     if (controlWifiLock != null) return
     runCatching {
       val context = appContext.reactContext ?: return
       val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
       val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-      val hasWifiTransport = connectivity.activeNetwork?.let {
-        connectivity.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
-      } == true
+      val hasWifiTransport = findWifiNetwork(connectivity) != null
       @Suppress("DEPRECATION")
       if (!hasWifiTransport && !wifi.isWifiEnabled) return
       @Suppress("DEPRECATION")
@@ -549,6 +594,7 @@ class BrainstemGrpcModule : Module() {
         try {
           val tls = if (lanDev) null else selectedIdentityTls(host, port, alias!!)
           val builder = OkHttpChannelBuilder.forAddress(host, port)
+            .socketFactory(lowLatencySocketFactory(host))
           if (lanDev) builder.usePlaintext() else builder.useTransportSecurity().sslSocketFactory(tls!!.context.socketFactory)
           val channel = builder.maxInboundMessageSize(ControlStatusParser.MAX_BYTES)
             .maxInboundMetadataSize(8192).disableRetry().build()
@@ -679,6 +725,7 @@ class BrainstemGrpcModule : Module() {
         sharedChannel
       } else {
         val builder = OkHttpChannelBuilder.forAddress(host, port)
+          .socketFactory(lowLatencySocketFactory(host))
         if (lanDev) builder.usePlaintext() else builder.useTransportSecurity().sslSocketFactory(tls!!.socketFactory)
         builder.maxInboundMessageSize(ControlStatusParser.MAX_BYTES)
           .maxInboundMetadataSize(8192)
@@ -838,6 +885,8 @@ class BrainstemGrpcModule : Module() {
 
   companion object {
     private const val DEADLINE_MS = 3000L
+    // DSCP EF (46 << 2 = 0xB8) maps to WMM AC_VO hardware queue matching the robot AP EDCA policy.
+    private const val DSCP_EF_TOS = 0xB8
     private val STATUS_METHOD: MethodDescriptor<ByteArray, ByteArray> = MethodDescriptor.newBuilder<ByteArray, ByteArray>()
       .setType(MethodDescriptor.MethodType.UNARY)
       .setFullMethodName("brainstem.api.v1.RobotControl/GetControlStatus")

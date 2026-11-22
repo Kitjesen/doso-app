@@ -573,13 +573,26 @@ internal class ControlSession(
     const val MOTION_DEADLINE_MS = 100L
     private val DEV_CLIENT = Metadata.Key.of("x-doso-dev-client", Metadata.ASCII_STRING_MARSHALLER)
     private val EMPTY = byteArrayOf()
+    private val RAW_REQUEST_MARSHALLER = object : MethodDescriptor.Marshaller<ByteArray> {
+      override fun stream(value: ByteArray): InputStream = ByteArrayInputStream(value)
+      override fun parse(stream: InputStream): ByteArray = throw UnsupportedOperationException()
+    }
+    private val EMPTY_REQUEST_MARSHALLER = object : MethodDescriptor.Marshaller<ByteArray> {
+      override fun stream(value: ByteArray): InputStream = ByteArrayInputStream(EMPTY)
+      override fun parse(stream: InputStream): ByteArray = throw UnsupportedOperationException()
+    }
+    private val CONTROL_RESPONSE_MARSHALLER = object : MethodDescriptor.Marshaller<ByteArray> {
+      override fun stream(value: ByteArray): InputStream = throw UnsupportedOperationException()
+      override fun parse(stream: InputStream): ByteArray = ControlStatusParser.readBounded(stream)
+    }
+    private val RECOVERY_RESPONSE_MARSHALLER = object : MethodDescriptor.Marshaller<ByteArray> {
+      override fun stream(value: ByteArray): InputStream = throw UnsupportedOperationException()
+      override fun parse(stream: InputStream): ByteArray = RecoveryStatusParser.readBounded(stream)
+    }
     private val LISTEN_IMU: MethodDescriptor<ByteArray, ByteArray> = MethodDescriptor.newBuilder<ByteArray, ByteArray>()
       .setType(MethodDescriptor.MethodType.SERVER_STREAMING)
       .setFullMethodName("brainstem.api.v1.RobotControl/ListenImu")
-      .setRequestMarshaller(object : MethodDescriptor.Marshaller<ByteArray> {
-        override fun stream(value: ByteArray): InputStream = ByteArrayInputStream(value)
-        override fun parse(stream: InputStream): ByteArray = throw UnsupportedOperationException()
-      })
+      .setRequestMarshaller(RAW_REQUEST_MARSHALLER)
       .setResponseMarshaller(object : MethodDescriptor.Marshaller<ByteArray> {
         override fun stream(value: ByteArray): InputStream = throw UnsupportedOperationException()
         override fun parse(stream: InputStream): ByteArray = ImuParser.readBounded(stream)
@@ -587,33 +600,27 @@ internal class ControlSession(
     private val allowedMethods = setOf("GetControlStatus", "GetProfile", "AcquireControl", "RenewControlLease",
       "ReleaseControl", "WalkChecked", "Enable", "Disable", "StandUp", "SitDown", "SwitchProfile",
       "SetZero", "ClearMotorFault", "PlayGesture", "ListGestures", "SetSpeedMode", "GetSpeedMode")
-    private fun recoveryMethod(name: String): MethodDescriptor<ByteArray, ByteArray> {
-      if (name !in setOf("GetStatus", "Enter", "Enable", "Heartbeat", "Start", "Cancel", "Exit")) throw Failure("config")
-      return MethodDescriptor.newBuilder<ByteArray, ByteArray>()
-        .setType(MethodDescriptor.MethodType.UNARY)
-        .setFullMethodName("brainstem.api.v1.RobotRecovery/$name")
-        .setRequestMarshaller(object : MethodDescriptor.Marshaller<ByteArray> {
-          override fun stream(value: ByteArray): InputStream = ByteArrayInputStream(value)
-          override fun parse(stream: InputStream): ByteArray = throw UnsupportedOperationException()
-        })
-        .setResponseMarshaller(object : MethodDescriptor.Marshaller<ByteArray> {
-          override fun stream(value: ByteArray): InputStream = throw UnsupportedOperationException()
-          override fun parse(stream: InputStream): ByteArray = RecoveryStatusParser.readBounded(stream)
-        }).build()
-    }
-    private fun method(name: String): MethodDescriptor<ByteArray, ByteArray> {
-      if (name !in allowedMethods) throw Failure("config")
-      return MethodDescriptor.newBuilder<ByteArray, ByteArray>()
+    // Pre-built static descriptors avoid allocating MethodDescriptor + Marshallers on every 50Hz WalkChecked RPC.
+    private val CONTROL_METHODS: Map<String, MethodDescriptor<ByteArray, ByteArray>> = allowedMethods.associateWith { name ->
+      MethodDescriptor.newBuilder<ByteArray, ByteArray>()
         .setType(MethodDescriptor.MethodType.UNARY)
         .setFullMethodName("brainstem.api.v1.RobotControl/$name")
-        .setRequestMarshaller(object : MethodDescriptor.Marshaller<ByteArray> {
-          override fun stream(value: ByteArray): InputStream = ByteArrayInputStream(value)
-          override fun parse(stream: InputStream): ByteArray = throw UnsupportedOperationException()
-        })
-        .setResponseMarshaller(object : MethodDescriptor.Marshaller<ByteArray> {
-          override fun stream(value: ByteArray): InputStream = throw UnsupportedOperationException()
-          override fun parse(stream: InputStream): ByteArray = ControlStatusParser.readBounded(stream)
-        }).build()
+        .setRequestMarshaller(RAW_REQUEST_MARSHALLER)
+        .setResponseMarshaller(CONTROL_RESPONSE_MARSHALLER)
+        .build()
     }
+    private val RECOVERY_METHODS: Map<String, MethodDescriptor<ByteArray, ByteArray>> =
+      setOf("GetStatus", "Enter", "Enable", "Heartbeat", "Start", "Cancel", "Exit").associateWith { name ->
+        MethodDescriptor.newBuilder<ByteArray, ByteArray>()
+          .setType(MethodDescriptor.MethodType.UNARY)
+          .setFullMethodName("brainstem.api.v1.RobotRecovery/$name")
+          .setRequestMarshaller(EMPTY_REQUEST_MARSHALLER)
+          .setResponseMarshaller(RECOVERY_RESPONSE_MARSHALLER)
+          .build()
+      }
+    private fun recoveryMethod(name: String): MethodDescriptor<ByteArray, ByteArray> =
+      RECOVERY_METHODS[name] ?: throw Failure("config")
+    private fun method(name: String): MethodDescriptor<ByteArray, ByteArray> =
+      CONTROL_METHODS[name] ?: throw Failure("config")
   }
 }

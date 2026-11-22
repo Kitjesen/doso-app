@@ -98,3 +98,44 @@ cat /dev/shm/lingtu/camera_status.json && echo ""
 2. `wlan1` 显示 `channel 149 (5745 MHz)` 且 `txpower 18.00 dBm`；
 3. `camera_status.json` 中 `"status":"running"`、`"last_error":""`、`color_frames` 持续递增；
 4. G20 安装最新 `main` 分支编译的 APK，连接 `DOSOrobotics` 热点并输入 `192.168.50.1` 点击「连接机器狗」，状态栏绿灯在线且画面流畅不中断。
+
+---
+
+## 四、常见问题与本体进阶服务开启（`RobotRecovery` 与机载动作库）
+
+### 1. Android 12/13 掌机连接 `DOSOrobotics` 四次握手被拒（Reason Code 17）
+Broadcom `brcmfmac`（BCM43569）在热点模式下若配置 `ieee80211w=1`（PMF 可选），其固件信标 RSN IE 与 `hostapd` EAPOL Msg3 RSN IE 不一致，会导致 Android 12/13 掌机在 `FOUR_WAY_HANDSHAKE` 阶段断开（`reasonCode: 17 / REASON_IE_IN_4WAY_DIFFERS`）。
+- **必须保持 `ieee80211w=0`**（`hostapd.conf` 中设置 `ieee80211w=0`，或 NetworkManager 执行 `nmcli connection modify dog-hotspot 802-11-wireless-security.pmf 1`）。
+
+### 2. 开启机器狗本体“摔倒恢复（`RobotRecovery`）”服务
+App 端 UI、安全确认、原生 `brainstem.api.v1.RobotRecovery` 全部 7 个 RPC 与 100ms 硬件守护心跳均已就绪；机器狗本体默认因安全冻结关闭该模块（`THUNDER_RECOVERY_MODEL_CONFIG` 为空）。开启步骤如下：
+
+1. **准备 ONNX 起身模型与校验清单**（例如 `/etc/brainstem/recovery-model.json`，契约须匹配 `mujica-v89-history60x6-raw16-features56`）：
+   ```json
+   {
+     "schema_version": 1,
+     "contract": "mujica-v89-history60x6-raw16-features56",
+     "model": "/opt/brainstem/models/recovery_v89.onnx",
+     "sha256": "<对应 onnx 文件的 64 位小写 sha256>"
+   }
+   ```
+2. **在 `/etc/brainstem/brainstem.env` 中配置开关**：
+   ```bash
+   THUNDER_RECOVERY_MODEL_CONFIG=/etc/brainstem/recovery-model.json
+   # 仅在吊装/架空完成硬件使能顺序实测核验后，才允许设为 true：
+   THUNDER_NORMAL_RECOVERY_ENABLE_SEQUENCE_VERIFIED=true
+   ```
+3. **重启 Brainstem 并验证日志**：
+   ```bash
+   sudo systemctl restart brainstem.service
+   journalctl -u brainstem.service -n 40 --no-pager | grep -i recovery
+   ```
+   确认日志打印 `RobotRecovery configured from /etc/brainstem/recovery-model.json`，且未出现 SHA-256 校验失败报错；此时 App 端 `姿态 -> 摔倒恢复` 按钮会自动解锁（**请务必先在架空保护下实测验证**）。
+
+### 3. 开启机器狗本体 35 预设动作服务（`ListGestures` / `PlayGesture`）
+在 `/etc/brainstem/brainstem.env` 中配置机载动作目录与关键帧库路径并重启 `brainstem.service`：
+```bash
+THUNDER_GESTURE_CATALOG=/home/sunrise/gesture-library/gestures/index.json
+THUNDER_GESTURE_LIBRARY=/home/sunrise/gesture-library/gestures/library.json
+```
+确保固件为支持动作库的版本（`cms.proto` `ListGestures`/`PlayGesture`）；重启后 App 端 `动作 ▾` 抽屉将自动从「仅可预览动作库」解锁为站立态可执行。

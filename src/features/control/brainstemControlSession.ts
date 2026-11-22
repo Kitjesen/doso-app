@@ -101,6 +101,9 @@ export class BrainstemControlSession {
   private recovery: RobotRecoveryStatus | null = null;
   private recoveryHeartbeat = false;
   private measuredLatencyMs: number | null = null;
+  private lastNotifiedAt = -Infinity;
+  private lastNotifiedLatencyMs: number | null = null;
+  private lastNotifiedSpeed = { linearMps: 0, lateralMps: 0, yawRps: 0 };
   private currentSpeedMode: 'normal' | 'high' | 'unsupported' | null = null;
 
   private readonly transport: BrainstemControlTransport;
@@ -257,6 +260,9 @@ export class BrainstemControlSession {
   }
   private publish(patch: Partial<BrainstemControlState>) {
     this.state = { ...this.state, ...patch };
+    this.lastNotifiedAt = this.now();
+    this.lastNotifiedLatencyMs = this.measuredLatencyMs;
+    this.lastNotifiedSpeed = { ...this.commandSpeed };
     this.listeners.forEach(listener => listener());
   }
   private valid(epoch: number) { return !this.retired && this.allowed() && epoch === this.epoch; }
@@ -307,6 +313,36 @@ export class BrainstemControlSession {
     this.stopUnconfirmed = true;
     this.publish({ error: STOP_UNCONFIRMED_MESSAGE, failureCode: 'stop_unconfirmed', ...(this.state.phase === 'connecting' ? {} : { phase: 'error' as const }) });
   }
+  private sameStatus(a: BrainstemGrpcStatus | null, b: BrainstemGrpcStatus | null): boolean {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    return a.fsmKind === b.fsmKind
+      && a.transition === b.transition
+      && a.owner === b.owner
+      && a.motorOutputEnabled === b.motorOutputEnabled
+      && a.criticalMotorFault === b.criticalMotorFault
+      && a.grpcLeaseActive === b.grpcLeaseActive
+      && a.readyForWalk === b.readyForWalk;
+  }
+  private sameProfile(a: BrainstemGrpcProfile | null, b: BrainstemGrpcProfile | null): boolean {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    if (a.current !== b.current || a.currentDescription !== b.currentDescription || a.activeModeId !== b.activeModeId) return false;
+    if (a.available.length !== b.available.length || a.descriptions.length !== b.descriptions.length) return false;
+    for (let i = 0; i < a.available.length; i++) {
+      if (a.available[i] !== b.available[i] || a.descriptions[i] !== b.descriptions[i]) return false;
+    }
+    const capsA = a.modeCapabilities ?? [];
+    const capsB = b.modeCapabilities ?? [];
+    if (capsA.length !== capsB.length) return false;
+    for (let i = 0; i < capsA.length; i++) {
+      const ca = capsA[i], cb = capsB[i];
+      if (ca.id !== cb.id || ca.kind !== cb.kind || ca.available !== cb.available
+        || ca.availability !== cb.availability || ca.profileId !== cb.profileId
+        || ca.unavailableReason !== cb.unavailableReason) return false;
+    }
+    return true;
+  }
   private apply(reply: BrainstemControlReply) {
     if (reply.transport !== undefined && reply.transport !== this.state.transport) throw new Error('Control transport changed');
     if (this.state.transport === 'grpc-lan' && (reply.principalVerified || typeof reply.leaseOwnerMatched !== 'boolean')) throw new Error('Invalid LAN authority');
@@ -317,14 +353,57 @@ export class BrainstemControlSession {
       || !['standing', 'walking'].includes(reply.status.fsmKind);
     // A live lease keeps its safety clock; unsafe status cannot retain a target.
     if (!reply.leaseActive || loseIntent) this.resetInput(!reply.leaseActive);
-    this.publish({ connected: true, status: reply.status, leaseActive: reply.leaseActive,
-      principalVerified: reply.principalVerified, sequence: reply.sequence ?? this.state.sequence,
+    const prev = this.state;
+    const now = this.now();
+    const nextProfile = reply.profileUnavailable ? null : reply.profile ?? this.currentProfile();
+    const nextState: BrainstemControlState = {
+      ...prev,
+      connected: true,
+      status: reply.status,
+      leaseActive: reply.leaseActive,
+      principalVerified: reply.principalVerified,
+      sequence: reply.sequence ?? prev.sequence,
       leaseOwnerMatched: reply.leaseOwnerMatched ?? (reply.leaseActive && reply.principalVerified),
-      profile: reply.profileUnavailable ? null : reply.profile ?? this.currentProfile(),
-      profileObservedAt: reply.profileUnavailable ? null : reply.profile ? this.now() : this.state.profileObservedAt,
-      observedAt: this.now(), error: null, failureCode: null,
-      manualPrepared: loseIntent ? false : this.state.manualPrepared,
-      phase: this.pendingAction ? 'operating' : reply.leaseActive ? 'armed' : 'ready' });
+      profile: nextProfile,
+      profileObservedAt: reply.profileUnavailable ? null : reply.profile ? now : prev.profileObservedAt,
+      observedAt: now,
+      error: null,
+      failureCode: null,
+      manualPrepared: loseIntent ? false : prev.manualPrepared,
+      phase: this.pendingAction ? 'operating' : reply.leaseActive ? 'armed' : 'ready',
+    };
+    this.state = nextState;
+
+    const coreChanged = prev.connected !== nextState.connected
+      || prev.phase !== nextState.phase
+      || prev.leaseActive !== nextState.leaseActive
+      || prev.manualPrepared !== nextState.manualPrepared
+      || prev.principalVerified !== nextState.principalVerified
+      || prev.leaseOwnerMatched !== nextState.leaseOwnerMatched
+      || prev.error !== nextState.error
+      || prev.failureCode !== nextState.failureCode
+      || (prev.sequence === 0) !== (nextState.sequence === 0);
+    const statusChanged = !this.sameStatus(prev.status, nextState.status);
+    const profileChanged = !this.sameProfile(prev.profile, nextState.profile);
+    const elapsedSinceNotify = Number.isFinite(now) && Number.isFinite(this.lastNotifiedAt) ? now - this.lastNotifiedAt : Infinity;
+    const speedChanged = this.commandSpeed.linearMps !== this.lastNotifiedSpeed.linearMps
+      || this.commandSpeed.lateralMps !== this.lastNotifiedSpeed.lateralMps
+      || this.commandSpeed.yawRps !== this.lastNotifiedSpeed.yawRps;
+    const latencyChanged = this.measuredLatencyMs !== this.lastNotifiedLatencyMs
+      && (this.lastNotifiedLatencyMs === null
+        || this.measuredLatencyMs === null
+        || (Math.abs(this.measuredLatencyMs - this.lastNotifiedLatencyMs) >= 3 && elapsedSinceNotify >= 500));
+    const shouldNotify = coreChanged
+      || statusChanged
+      || profileChanged
+      || (speedChanged && (!nextState.leaseActive || elapsedSinceNotify >= 100))
+      || latencyChanged;
+    if (shouldNotify) {
+      this.lastNotifiedAt = now;
+      this.lastNotifiedLatencyMs = this.measuredLatencyMs;
+      this.lastNotifiedSpeed = { ...this.commandSpeed };
+      this.listeners.forEach(listener => listener());
+    }
   }
   private async fail(epoch: number, error: unknown) {
     if (!this.valid(epoch)) return;
