@@ -7,9 +7,10 @@ import { BrainstemConnectionRecovery } from './brainstemConnectionRecovery';
 import { useControllerWifiSignal } from './useControllerWifiSignal';
 
 /** Account/lifecycle ownership never restores or acquires a lease automatically. */
-export function useBrainstemControl({ ownerKey, ready, autoConnectEndpoint, autoConnectPrincipal = '', autoReconnectEnabled = true, onConnected }: {
+export function useBrainstemControl({ ownerKey, ready, autoConnectEndpoint, autoConnectPrincipal = '', autoReconnectEnabled = true, imuNotifyEnabled = true, onConnected }: {
   ownerKey: string | null; ready: boolean; autoConnectEndpoint?: BrainstemGrpcEndpoint | null; autoConnectPrincipal?: string;
   autoReconnectEnabled?: boolean;
+  imuNotifyEnabled?: boolean;
   onConnected?: (endpoint: BrainstemGrpcEndpoint, principal: string) => void;
 }) {
   const mounted = useRef(true);
@@ -29,6 +30,9 @@ export function useBrainstemControl({ ownerKey, ready, autoConnectEndpoint, auto
     (endpoint, principal) => connectedCallback.current?.(endpoint, principal)), [session]);
   const callbacks = useMemo(() => ({
     connect: recovery.connect.bind(recovery), action: session.action.bind(session), acquire: session.acquire.bind(session),
+    retryNow: () => recovery.retryNow(),
+    setImuNotifyEnabled: (enabled: boolean) => session.setImuNotifyEnabled(enabled),
+    setSpeedMode: (mode: 'normal' | 'high') => session.setSpeedMode(mode),
     prepareManualControl: session.prepareManualControl.bind(session),
     endTouchGesture: () => session.endTouchGesture().catch(() => undefined),
     // Automatic touch/lifecycle cleanup publishes failures without creating unhandled rejections.
@@ -48,6 +52,7 @@ export function useBrainstemControl({ ownerKey, ready, autoConnectEndpoint, auto
     },
     listGestures: () => session.listGestures(),
   }), [session, recovery]);
+  useEffect(() => { session.setImuNotifyEnabled(imuNotifyEnabled); }, [session, imuNotifyEnabled]);
   useEffect(() => { recovery.setAvailable(ready); }, [recovery, ready]);
   useEffect(() => { recovery.setAutomaticEnabled(autoReconnectEnabled); }, [recovery, autoReconnectEnabled]);
   const autoTargetKey = JSON.stringify([autoConnectEndpoint, autoConnectPrincipal]);
@@ -67,11 +72,28 @@ export function useBrainstemControl({ ownerKey, ready, autoConnectEndpoint, auto
       if (state === 'active') void recovery.tick();
     });
     void session.refreshRecovery();
-    const timer = setInterval(() => { void session.refresh(); void recovery.tick(); void session.refreshRecovery(); }, 500);
+    let recoveryPollTick = 0;
+    const timer = setInterval(() => {
+      void recovery.tick();
+      void session.refresh().then(() => {
+        if (session.speedMode === null && session.state.connected) {
+          void session.refreshSpeedMode();
+        }
+        const urgentRecovery = Boolean(
+          session.recoveryStatus === null
+          || session.recoveryStatus.sessionSelected
+          || session.runtimeState.recoveryMode?.selected
+          || session.runtimeState.faultStatus === 'active',
+        );
+        if (urgentRecovery || (++recoveryPollTick % 3 === 0)) {
+          void session.refreshRecovery();
+        }
+      });
+    }, 500);
     return () => { mounted.current = false; unsubscribe(); lifecycle.remove(); clearInterval(timer); void recovery.suspend(); };
   }, [session, recovery]);
   const signal = useControllerWifiSignal(ready && session.state.connected);
-  return { state: session.state, runtimeState: { ...session.runtimeState, signal }, recoveryStatus: session.recoveryStatus, recoveryCommand: session.recoveryCommand.bind(session), operationReadiness: session.operationReadiness,
+  return { state: session.state, runtimeState: { ...session.runtimeState, signal }, latencyMs: session.latencyMs, speedMode: session.speedMode, recoveryStatus: session.recoveryStatus, recoveryCommand: session.recoveryCommand.bind(session), operationReadiness: session.operationReadiness,
     canAcquire: session.canAcquire, canUseManualControl: session.canUseManualControl,
     canBeginManualControl: session.canBeginManualControl, canBeginTouchControl: session.canBeginTouchControl,
     touchBlockedReason: session.touchBlockedReason, manualPrepared: session.state.manualPrepared,

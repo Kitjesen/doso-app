@@ -1207,6 +1207,65 @@ export async function createDevLanBridge({
         data = await handleSessionInput(requireSession(body.sessionId), body);
       } else if (url.pathname === '/api/v1/dev-lan/session/action') {
         data = await handleSessionAction(requireSession(body.sessionId), body);
+      } else if (url.pathname === '/api/v1/dev-lan/session/speed-mode') {
+        const session = requireSession(body.sessionId);
+        if (body.action === 'get') {
+          let raw;
+          try {
+            raw = await callGrpcUnary(session.controlClient, 'GetSpeedMode', {}, {
+              deadlineMs: readDeadlineMs,
+              principal: session.principal,
+              signal: abortController.signal,
+            });
+          } catch (error) {
+            throw new BridgeFailure(mapGrpcErrorToCode(error), 502);
+          }
+          const rawMode = raw?.mode;
+          data = {
+            speedMode: rawMode === 1 || rawMode === 'SPEED_MODE_HIGH' ? 'high' : 'normal',
+          };
+        } else if (body.action === 'set') {
+          const targetMode = typeof body.mode === 'string' ? body.mode.trim().toLowerCase() : '';
+          if (targetMode !== 'normal' && targetMode !== 'high') {
+            throw new BridgeFailure('config', 400);
+          }
+          data = await enqueueSessionWork(session, async () => {
+            if (session.closed) throw new BridgeFailure('cancelled', 404);
+            session.rpcBusy = true;
+            try {
+              if (session.token || session.stopUnconfirmed) {
+                await performInterrupt(session);
+              }
+              session.stopping = false;
+              const before = projectRawStatus(await callGrpcUnary(session.controlClient, 'GetControlStatus', {}, {
+                deadlineMs: actionDeadlineMs,
+                principal: session.principal,
+              }));
+              if (before.status.owner === 'yunzhuo' || before.status.criticalMotorFault || before.status.fsmKind === 'transitioning') {
+                throw new BridgeFailure('precondition', 409);
+              }
+              await callGrpcUnary(session.controlClient, 'SetSpeedMode', { mode: targetMode === 'high' ? 1 : 0 }, {
+                deadlineMs: actionDeadlineMs,
+                principal: session.principal,
+              });
+              const statusProj = projectRawStatus(await callGrpcUnary(session.controlClient, 'GetControlStatus', {}, {
+                deadlineMs: actionDeadlineMs,
+                principal: session.principal,
+              }));
+              return {
+                ...buildSessionEnvelope(session, statusProj, { leaseActive: false, leaseOwnerMatched: false }),
+                speedMode: targetMode,
+              };
+            } catch (error) {
+              if (error instanceof BridgeFailure) throw error;
+              throw new BridgeFailure(mapGrpcErrorToCode(error, { invalidArgCode: 'precondition' }), 502);
+            } finally {
+              session.rpcBusy = false;
+            }
+          });
+        } else {
+          throw new BridgeFailure('config', 400);
+        }
       } else if (url.pathname === '/api/v1/dev-lan/session/gestures') {
         const session = requireSession(body.sessionId);
         let raw;

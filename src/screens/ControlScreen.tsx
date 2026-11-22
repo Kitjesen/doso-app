@@ -5,7 +5,7 @@ import { useControlMediaCapture } from '../features/video/useControlMediaCapture
 import { beginRobotRecovery, presentRobotRecovery, type RobotRecoveryCommand, type RobotRecoveryOperatorAction, type RobotRecoveryStatus } from '../features/control/robotRecovery';
 import { controlLandscapeHud } from '../components/controlLandscapeHud';
 import { GestureDeckPanel } from '../components/ControlHudPanels';
-import { clampSpeedLimitPercent, scaleControlVector, type HudCameraPosition, type HudForwardDirection, type HudGestureCategoryId, type HudGestureInput, type HudHeadlightMode, type HudJointModuleKind, type HudLeftCategory, type HudLegId } from '../components/controlHudModel';
+import { clampSpeedLimitPercent, DEFAULT_THUNDER_GESTURES, projectHudGestures, scaleControlVector, type HudCameraPosition, type HudForwardDirection, type HudGestureCategoryId, type HudGestureInput, type HudHeadlightMode, type HudJointModuleKind, type HudLeftCategory, type HudLegId } from '../components/controlHudModel';
 import { RobotRecoveryControls } from '../components/RobotRecoveryControls';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -131,6 +131,10 @@ type Props = {
   stageDimensions?: Readonly<{ width: number; height: number }>;
   webStageMode?: 'g20-16-9' | 'fill';
   onToggleWebStageMode?: () => void;
+  speedMode?: 'normal' | 'high' | 'unsupported' | null;
+  onChangeSpeedMode?: (mode: 'normal' | 'high') => Promise<void>;
+  onReconnect?: () => void;
+  hasDedicatedRearCamera?: boolean;
 };
 
 // Offline preview callers keep a no-op. Only the explicitly selected development
@@ -190,7 +194,7 @@ export function ControlScreen({
   canRecall, recallBlockedReason, onRecall,
   runtimeState, operationReadiness, operationCallbacks, onListGestures, operationStates, operationTargetKey, brainstemIntegration,
   inputSource, physicalInputAvailable = false, g20Controller, onInputSourceChange, onNotifications,
-  stageDimensions, webStageMode, onToggleWebStageMode,
+  stageDimensions, webStageMode, onToggleWebStageMode, speedMode = null, onChangeSpeedMode, onReconnect, hasDedicatedRearCamera,
 }: Props) {
   const { colors, isDark } = useAppTheme();
   const appearance = getProductAppearance(isDark);
@@ -219,6 +223,8 @@ export function ControlScreen({
   const speedLimitRef = useRef(100);
   speedLimitRef.current = speedLimitPercent;
   const [speedLimitExpanded, setSpeedLimitExpanded] = useState(false);
+  const [confirmingHighSpeed, setConfirmingHighSpeed] = useState(false);
+  const [speedModePending, setSpeedModePending] = useState(false);
   const [jointParamsOpen, setJointParamsOpen] = useState(false);
   const [selectedLegId, setSelectedLegId] = useState<HudLegId>('front-left');
   const [jointTempOpen, setJointTempOpen] = useState(false);
@@ -241,24 +247,54 @@ export function ControlScreen({
   const [forwardDirection] = useState<HudForwardDirection>('front');
   const [selectedBasicAction, setSelectedBasicAction] = useState('walk');
   const [robotGestures, setRobotGestures] = useState<readonly HudGestureInput[]>([]);
+  const [gestureListUnimplemented, setGestureListUnimplemented] = useState(false);
   const [gestureCategory, setGestureCategory] = useState<HudGestureCategoryId>('all');
   const [selectedGestureName, setSelectedGestureName] = useState<string | null>(null);
   const [gestureGifPreview, setGestureGifPreview] = useState(true);
-  const gestureLinkReady = runtimeState?.controlLink === 'connected' && typeof onListGestures === 'function';
+  const hasGestureCatalogSupport = typeof onListGestures === 'function';
+  const gestureLinkReady = runtimeState?.controlLink === 'connected' && hasGestureCatalogSupport;
   useEffect(() => {
-    if (!gestureLinkReady || !onListGestures) { setRobotGestures([]); return; }
+    if (!gestureLinkReady || !onListGestures) {
+      setRobotGestures([]);
+      setGestureListUnimplemented(false);
+      return;
+    }
     let cancelled = false;
     onListGestures().then(list => {
       if (!cancelled) {
-        setRobotGestures(list.map(item => ({
-          name: item.name,
-          label: item.description || item.name,
-          durationMs: item.durationMs,
-        })));
+        setGestureListUnimplemented(false);
+        setRobotGestures(list
+          .filter(item => item?.name && item.name !== 'stand_up' && item.name !== 'wake_stand')
+          .map(item => ({
+            name: item.name,
+            label: item.description || item.name,
+            durationMs: item.durationMs,
+          })));
       }
-    }).catch(() => { if (!cancelled) setRobotGestures([]); });
+    }).catch(caught => {
+      if (!cancelled) {
+        setRobotGestures([]);
+        const unimpl = Boolean(caught && typeof caught === 'object' && (
+          ('code' in caught && (caught as { code?: unknown }).code === 'unimplemented')
+          || ('message' in caught && /unimplemented/i.test(String((caught as { message?: unknown }).message)))
+        ));
+        setGestureListUnimplemented(unimpl);
+      }
+    });
     return () => { cancelled = true; };
   }, [gestureLinkReady, onListGestures]);
+  const syncedGestureNames = useMemo(() => new Set(robotGestures.map(item => item.name)), [robotGestures]);
+  const displayedGestures = useMemo<readonly HudGestureInput[]>(() => {
+    if (!hasGestureCatalogSupport) return [];
+    const byName = new Map(robotGestures.map(item => [item.name, item]));
+    const defaults = DEFAULT_THUNDER_GESTURES
+      .filter(item => item.name !== 'stand_up' && item.name !== 'wake_stand')
+      .map(item => byName.get(item.name) ?? item);
+    const defaultSet = new Set(defaults.map(item => item.name));
+    const extras = robotGestures.filter(item => !defaultSet.has(item.name));
+    return [...defaults, ...extras];
+  }, [hasGestureCatalogSupport, robotGestures]);
+  const gestureCatalogSynced = robotGestures.length > 0 && !gestureListUnimplemented;
   const [hudNotice, setHudNotice] = useState<string | null>(null);
   const hudNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearHudNotice = useCallback(() => {
@@ -466,6 +502,7 @@ export function ControlScreen({
   const revokeOperationIntent = useCallback(() => {
     closeSettingsMenu();
     setPostureMenuOpen(false);
+    setConfirmingHighSpeed(false);
     operationGeneration.current++;
     confirmationRef.current = null;
     policySelectionRef.current = null;
@@ -1110,7 +1147,36 @@ export function ControlScreen({
         </Pressable>)}
       </ScrollView>
     </ControlPanelMotion>
-  </> : !visibleConfirmation ? null : <View
+  </> : confirmingHighSpeed ? <View
+    style={[styles.immersiveIntent, { top: Math.max(76, Math.round((immersiveCanvasHeight || height) * 0.24)), maxHeight: Math.max(180, (immersiveCanvasHeight || height) - 96) }]}
+    testID="control-high-speed-confirm-dialog"
+  >
+    <Text style={styles.immersiveIntentTitle}>确认切换高速档位（最高 2.5 m/s）</Text>
+    <Text style={styles.immersiveIntentSubtitle}>高速档位将机身最大线速度上限提升至 2.5 m/s，请确认处于开阔平坦场地且急停可用。</Text>
+    <View style={styles.immersiveIntentActions}>
+      <Pressable accessibilityRole="button" onPress={() => setConfirmingHighSpeed(false)} style={({ pressed }) => [styles.immersiveIntentBtn, styles.immersiveIntentCancelBtn, pressed && styles.pressed]}>
+        <Text style={styles.immersiveIntentCancelText}>取消</Text>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="确认切换高速档位"
+        disabled={speedModePending}
+        testID="control-high-speed-confirm"
+        style={({ pressed }) => [styles.immersiveIntentBtn, styles.immersiveIntentConfirmBtn, pressed && styles.pressed]}
+        onPress={() => {
+          if (!onChangeSpeedMode || speedModePending) return;
+          setConfirmingHighSpeed(false);
+          setSpeedModePending(true);
+          void onChangeSpeedMode('high')
+            .then(() => { showHudNotice('已切换至高速档位（最高 2.5 m/s）'); })
+            .catch(caught => { showHudNotice(caught instanceof Error && caught.message ? caught.message : '高速档位切换失败'); })
+            .finally(() => { if (mountedRef.current) setSpeedModePending(false); });
+        }}
+      >
+        <Text style={styles.immersiveIntentConfirmText}>确认切换</Text>
+      </Pressable>
+    </View>
+  </View> : !visibleConfirmation ? null : <View
     style={[styles.immersiveIntent, { top: Math.max(76, Math.round((immersiveCanvasHeight || height) * 0.24)), maxHeight: Math.max(180, (immersiveCanvasHeight || height) - 96) }]}>
     <Text style={styles.immersiveIntentTitle}>确认{controlOperationLabels[visibleConfirmation.action]}{visibleConfirmation.policyId ? `：${policyOptions.find(option => option.id === visibleConfirmation.policyId)?.label ?? ''}` : ''}</Text>
     <Text style={styles.immersiveIntentSubtitle}>{visibleConfirmation.action === 'disableMotor' ? '失能后设备可能失去支撑，请确认已固定。' : visibleConfirmation.action === 'setZero' ? '当前姿态将保存为零点。' : '请确认机器狗周围安全，急停可用。'}</Text>
@@ -1238,6 +1304,7 @@ export function ControlScreen({
       else if (jointParamsOpen) setJointParamsOpen(false);
       else if (jointTempOpen) setJointTempOpen(false);
       else if (speedLimitExpanded) setSpeedLimitExpanded(false);
+      else if (leftCategory !== 'policy') setLeftCategory('policy');
       else if (gestureLibraryOpen) closeRecovery();
       else if (joystickSettingsOpen) closeJoystickSettings();
       else if (inputSettingsOpen) closeInputSettings();
@@ -1305,6 +1372,41 @@ export function ControlScreen({
     ? { ready: false, blockedReason: '请先确认或取消当前操作。' }
     : getControlOperationReadiness({ action, readiness: operationReadiness, callbacks: operationCallbacks, runtimeState, foreground: appActive, leaving, inFlight: operationInFlight !== null });
   const gestureReadiness = maintenanceReadiness('playGesture');
+  const projectedGestureSelection = useMemo(
+    () => projectHudGestures(displayedGestures, gestureCategory, selectedGestureName),
+    [displayedGestures, gestureCategory, selectedGestureName],
+  );
+  const resolvedSelectedGestureName = projectedGestureSelection.selectedItem?.name ?? null;
+  const selectedGestureSynced = Boolean(
+    gestureLinkReady
+    && gestureCatalogSynced
+    && resolvedSelectedGestureName
+    && syncedGestureNames.has(resolvedSelectedGestureName),
+  );
+  const effectiveGestureReady = Boolean(
+    gestureLinkReady
+    && runtimeState?.controlLink === 'connected'
+    && runtimeState.posture === 'standing'
+    && runtimeState.motorState === 'enabled'
+    && selectedGestureSynced
+    && gestureReadiness.ready,
+  );
+  const effectiveGestureHint = runtimeState?.controlLink !== 'connected'
+    ? '请先连接机器狗（当前可预览全部 35 个动作）'
+    : !gestureCatalogSynced
+      ? '当前固件动作服务尚未启用（仅可预览动作库）'
+      : resolvedSelectedGestureName && !syncedGestureNames.has(resolvedSelectedGestureName)
+        ? '当前固件未收录该动作（仅可预览动图）'
+        : gestureReadiness.blockedReason;
+  const handleLeftCategoryChange = (next: HudLeftCategory) => {
+    setLeftCategory(next);
+    if (next !== 'policy') {
+      setSpeedLimitExpanded(false);
+      setJointParamsOpen(false);
+      setJointTempOpen(false);
+      setFaultPanelOpen(false);
+    }
+  };
   const zeroReadiness = maintenanceReadiness('setZero');
   const clearFaultReadiness = maintenanceReadiness('clearMotorFault');
   const runFromSettings = (action: 'setZero' | 'clearMotorFault' | 'playGesture' | 'switchPolicy', argument?: string) => {
@@ -1401,18 +1503,22 @@ export function ControlScreen({
       onToggleMotor: () => { if (motorTarget && !hudMotorDisabled) runOperation(motorTarget, renderGeneration); },
       postures: landscapePostures,
       leftCategory,
-      onLeftCategoryChange: setLeftCategory,
+      onLeftCategoryChange: handleLeftCategoryChange,
       selectedBasicAction,
-      gestures: robotGestures,
+      gestures: displayedGestures,
       gestureCategory,
       onGestureCategoryChange: setGestureCategory,
-      selectedGestureName,
+      selectedGestureName: resolvedSelectedGestureName,
       onSelectGesture: setSelectedGestureName,
       gestureGifPreview,
       onToggleGestureGifPreview: () => setGestureGifPreview(prev => !prev),
-      gestureDisabled: !gestureReadiness.ready,
-      gestureHint: gestureReadiness.blockedReason,
-      onPlayGesture: name => runOperation('playGesture', renderGeneration, name),
+      gestureDisabled: !effectiveGestureReady,
+      gestureHint: effectiveGestureHint,
+      onPlayGesture: name => {
+        if (effectiveGestureReady && syncedGestureNames.has(name)) {
+          runOperation('playGesture', renderGeneration, name);
+        }
+      },
       onSelectBasicAction: (id, supported, label) => {
         if (supported) { setSelectedBasicAction(id); return; }
         showHudNotice(`${label} 动作暂未接入机器狗协议`);
@@ -1421,6 +1527,23 @@ export function ControlScreen({
       speedLimitExpanded,
       onToggleSpeedLimitExpanded: () => setSpeedLimitExpanded(value => !value),
       onChangeSpeedLimit: next => setSpeedLimitPercent(clampSpeedLimitPercent(next)),
+      speedMode,
+      onSelectSpeedMode: onChangeSpeedMode ? mode => {
+        if (speedModePending || !appActive || leaving) return;
+        if (mode === 'high') {
+          handleCancel();
+          setSpeedLimitExpanded(false);
+          setConfirmingHighSpeed(true);
+          return;
+        }
+        setSpeedModePending(true);
+        void onChangeSpeedMode('normal')
+          .then(() => { showHudNotice('已恢复标准速度档位（1.0 m/s）'); })
+          .catch(caught => { showHudNotice(caught instanceof Error && caught.message ? caught.message : '速度档位切换失败'); })
+          .finally(() => { if (mountedRef.current) setSpeedModePending(false); });
+      } : undefined,
+      onReconnect,
+      hasDedicatedRearCamera,
       batteryPercent: resolvedBatteryPercent,
       voltageV: runtimeState?.battery?.voltageV ?? null,
       remainingRangeKm: runtimeState?.remainingRangeKm ?? null,
@@ -1457,8 +1580,9 @@ export function ControlScreen({
         onInput: g20Controller ? openInputSettings : undefined,
         onConnection: onOpenConnection || onOpenConnectionDiagnostics ? () => openView(onOpenConnection || onOpenConnectionDiagnostics) : undefined,
         onDiagnostics: onOpenJointStatus || onOpenConnectionDiagnostics ? () => openView(onOpenJointStatus || onOpenConnectionDiagnostics) : undefined,
-        onPostures: () => { handleCancel(); setLeftCategory('posture'); },
-        onPolicy: () => { handleCancel(); setLeftCategory('policy'); },
+        onPostures: () => { handleCancel(); handleLeftCategoryChange('posture'); },
+        onActions: hasGestureCatalogSupport ? () => { handleCancel(); handleLeftCategoryChange('action'); } : undefined,
+        onPolicy: () => { handleCancel(); handleLeftCategoryChange('policy'); },
         ownerLabel: controlOwnerLabel,
         lease: controlSession ? renderControlLease(true) : null,
         robotName,
@@ -1472,6 +1596,21 @@ export function ControlScreen({
         onToggleDocks: () => setDocksExpanded(value => !value),
         speedLimitPercent,
         onChangeSpeedLimit: next => setSpeedLimitPercent(clampSpeedLimitPercent(next)),
+        speedMode,
+        onSelectSpeedMode: onChangeSpeedMode ? mode => {
+          closeSettingsMenu();
+          if (speedModePending || !appActive || leaving) return;
+          if (mode === 'high') {
+            handleCancel();
+            setConfirmingHighSpeed(true);
+            return;
+          }
+          setSpeedModePending(true);
+          void onChangeSpeedMode('normal')
+            .then(() => { showHudNotice('已恢复标准速度档位（1.0 m/s）'); })
+            .catch(caught => { showHudNotice(caught instanceof Error && caught.message ? caught.message : '速度档位切换失败'); })
+            .finally(() => { if (mountedRef.current) setSpeedModePending(false); });
+        } : undefined,
         physicalInputReady: physicalAvailable,
         onSelectInputSource: setInputSource,
         primaryCamera,
@@ -1492,23 +1631,27 @@ export function ControlScreen({
         onToggleWebStageMode,
         policies: hudPolicies,
         onSelectPolicy: id => { closeSettingsMenu(); handleSelectHudPolicy(id); },
-        gestures: robotGestures,
+        gestures: displayedGestures,
         gestureCategory,
         onGestureCategoryChange: setGestureCategory,
-        selectedGestureName,
+        selectedGestureName: resolvedSelectedGestureName,
         onSelectGesture: setSelectedGestureName,
         gestureGifPreview,
         onToggleGestureGifPreview: () => setGestureGifPreview(prev => !prev),
-        gestureReady: gestureReadiness.ready,
-        gestureHint: gestureReadiness.blockedReason,
-        onPlayGesture: name => runFromSettings('playGesture', name),
+        gestureReady: effectiveGestureReady,
+        gestureHint: effectiveGestureHint,
+        onPlayGesture: name => {
+          if (effectiveGestureReady && syncedGestureNames.has(name)) {
+            runFromSettings('playGesture', name);
+          }
+        },
         zeroReady: zeroReadiness.ready,
         zeroHint: zeroReadiness.blockedReason,
         onSetZero: () => runFromSettings('setZero'),
         clearFaultReady: clearFaultReadiness.ready,
         onClearMotorFault: () => runFromSettings('clearMotorFault'),
-        onOpenHudJointParams: () => { closeSettingsMenu(); setJointParamsOpen(true); },
-        onOpenHudJointTemp: () => { closeSettingsMenu(); setJointTempOpen(true); },
+        onOpenHudJointParams: () => { closeSettingsMenu(); setLeftCategory('policy'); setJointParamsOpen(true); },
+        onOpenHudJointTemp: () => { closeSettingsMenu(); setLeftCategory('policy'); setJointTempOpen(true); },
       }) : null,
       headlightMode,
       onToggleHeadlight: toggleHeadlight,
@@ -1539,15 +1682,27 @@ export function ControlScreen({
       onReverseDirection: () => showHudNotice('机器狗端运动换向协议暂未接入，当前运动正方向保持前方'),
       onChargePress: () => showHudNotice('自主充电需导航任务协议支持，当前暂未接入'),
       jointTempOpen,
-      onToggleJointTemp: () => setJointTempOpen(prev => !prev),
+      onToggleJointTemp: () => setJointTempOpen(prev => {
+        const next = !prev;
+        if (next) setLeftCategory('policy');
+        return next;
+      }),
       tempModuleKind,
       onTempModuleKindChange: setTempModuleKind,
       jointParamsOpen,
-      onToggleJointParams: () => setJointParamsOpen(prev => !prev),
+      onToggleJointParams: () => setJointParamsOpen(prev => {
+        const next = !prev;
+        if (next) setLeftCategory('policy');
+        return next;
+      }),
       selectedLegId,
       onSelectLegId: setSelectedLegId,
       faultPanelOpen,
-      onToggleFaultPanel: () => setFaultPanelOpen(prev => !prev),
+      onToggleFaultPanel: () => setFaultPanelOpen(prev => {
+        const next = !prev;
+        if (next) setLeftCategory('policy');
+        return next;
+      }),
       joints: runtimeState?.joints,
       hudNotice,
       joystick: configuredJoystickLayout.usable ? <ControlJoystickPair
@@ -1872,21 +2027,26 @@ export function ControlScreen({
                       })}
                     </View>
                   </View>)}
-                  {!layout.useColumns && robotGestures.length > 0 ? (
+                  {!layout.useColumns && displayedGestures.length > 0 ? (
                     <View style={[styles.operationGroup, { width: layout.operationGroupWidth, backgroundColor: appearance.surface }]} testID="control-portrait-gesture-group">
-                      <Text accessibilityRole="header" style={[styles.label, { color: colors.ink }]}>{`预设动作 (${robotGestures.length})`}</Text>
+                      <Text accessibilityRole="header" style={[styles.label, { color: colors.ink }]}>{`预设动作 (${displayedGestures.length})`}</Text>
                       {GestureDeckPanel({
-                        gestures: robotGestures,
+                        gestures: displayedGestures,
                         category: gestureCategory,
                         onSelectCategory: setGestureCategory,
-                        selectedGestureName,
+                        selectedGestureName: resolvedSelectedGestureName,
                         onSelectGesture: setSelectedGestureName,
                         showGifPreview: gestureGifPreview,
                         onToggleGifPreview: () => setGestureGifPreview(prev => !prev),
-                        gestureDisabled: !gestureReadiness.ready,
-                        gestureHint: gestureReadiness.blockedReason,
-                        onPlayGesture: name => runOperation('playGesture', renderGeneration, name),
+                        gestureDisabled: !effectiveGestureReady,
+                        gestureHint: effectiveGestureHint,
+                        onPlayGesture: name => {
+                          if (effectiveGestureReady && syncedGestureNames.has(name)) {
+                            runOperation('playGesture', renderGeneration, name);
+                          }
+                        },
                         variant: 'settings',
+                        surfaceTone: isDark ? 'dark' : 'light',
                       })}
                     </View>
                   ) : null}

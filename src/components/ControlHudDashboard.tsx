@@ -7,6 +7,7 @@ import type { HudForwardDirection, HudHeadlightMode, HudTemperatureSeverity } fr
 export type ControlHudDashboardProps = Readonly<{
   expanded: boolean;
   inlineCollapsed?: boolean;
+  compactInline?: boolean;
   scale?: number;
   onToggleExpanded: () => void;
   headlightMode: HudHeadlightMode;
@@ -73,6 +74,7 @@ function resolveEnergyState(batteryPercent?: number | null, voltageV?: number | 
 export function ControlHudDashboard({
   expanded,
   inlineCollapsed = false,
+  compactInline = false,
   scale = 1,
   onToggleExpanded,
   headlightMode,
@@ -112,31 +114,35 @@ export function ControlHudDashboard({
 
   if (!expanded) {
     if (inlineCollapsed) {
+      const indSize = compactInline ? 18 : sp(22);
+      const indIcon = compactInline ? 11 : sp(13);
+      const inlineFont = compactInline ? 11 : fMeta;
+      const inlineLine = compactInline ? 14 : fMetaLine;
       return (
-        <View pointerEvents="box-none" style={[styles.inlineRoot, { gap: sp(7) }]} testID="control-hud-dashboard">
-          <View style={[styles.inlineTray, { borderRadius: sp(16), gap: sp(8), minHeight: sp(32), paddingHorizontal: sp(10), paddingVertical: sp(4) }]} testID="control-hud-dashboard-collapsed">
+        <View pointerEvents="box-none" style={[styles.inlineRoot, { gap: compactInline ? 4 : sp(6) }]} testID="control-hud-dashboard">
+          <View style={[styles.inlineTray, { borderRadius: sp(16), gap: compactInline ? 4 : sp(6), minHeight: compactInline ? 28 : sp(32), paddingHorizontal: compactInline ? 5 : sp(8), paddingVertical: compactInline ? 3 : sp(4) }]} testID="control-hud-dashboard-collapsed">
             <View
               accessible
               accessibilityLabel={anyLightOn ? '照明灯已开启' : '照明灯关闭'}
-              style={[styles.sideIndicator, { borderRadius: sp(11), height: sp(22), width: sp(22) }, anyLightOn && styles.sideIndicatorActive]}
+              style={[styles.sideIndicator, { borderRadius: Math.round(indSize / 2), height: indSize, width: indSize }, anyLightOn && styles.sideIndicatorActive]}
               testID="control-hud-indicator-light"
             >
-              <Ionicons color={anyLightOn ? ACTIVE_CYAN : MUTED_INK} name="flashlight-outline" size={sp(13)} />
+              <Ionicons color={anyLightOn ? ACTIVE_CYAN : MUTED_INK} name="flashlight-outline" size={indIcon} />
             </View>
-            <View style={[styles.inlineMetaRow, { gap: sp(6) }]} testID="control-hud-battery-bar">
-              <Text numberOfLines={1} style={[styles.inlineRangeText, { fontSize: fMeta, lineHeight: fMetaLine }]} testID="control-hud-range-readout">{rangeText}</Text>
-              <View style={[styles.energyTrackCompact, styles.inlineEnergyTrack, { borderRadius: sp(3), height: sp(5), width: sp(44) }]}>
+            <View style={[styles.inlineMetaRow, { gap: compactInline ? 4 : sp(5) }]} testID="control-hud-battery-bar">
+              <Text numberOfLines={1} style={[styles.inlineRangeText, { fontSize: inlineFont, lineHeight: inlineLine }]} testID="control-hud-range-readout">{rangeText}</Text>
+              <View style={[styles.energyTrackCompact, styles.inlineEnergyTrack, { borderRadius: sp(3), height: compactInline ? 4 : sp(5), width: compactInline ? 22 : sp(34) }]}>
                 <View style={[styles.energyFillCompact, { width: `${Math.round(energy.fillRatio * 100)}%`, backgroundColor: energy.fillColor }]} />
               </View>
-              <Text style={[styles.energyCompactText, { fontSize: fMeta, lineHeight: fMetaLine }, energy.live && { color: INK }]}>{energy.text}</Text>
+              <Text numberOfLines={1} style={[styles.energyCompactText, { fontSize: inlineFont, lineHeight: inlineLine }, energy.live && { color: INK }]}>{energy.text}</Text>
             </View>
             <View
               accessible
               accessibilityLabel={anyVideoOn ? '图传接收中' : '图传未开启'}
-              style={[styles.sideIndicator, { borderRadius: sp(11), height: sp(22), width: sp(22) }, anyVideoOn && styles.sideIndicatorActive]}
+              style={[styles.sideIndicator, { borderRadius: Math.round(indSize / 2), height: indSize, width: indSize }, anyVideoOn && styles.sideIndicatorActive]}
               testID="control-hud-indicator-video"
             >
-              <Ionicons color={anyVideoOn ? ACTIVE_CYAN : MUTED_INK} name="videocam-outline" size={sp(13)} />
+              <Ionicons color={anyVideoOn ? ACTIVE_CYAN : MUTED_INK} name="videocam-outline" size={indIcon} />
             </View>
           </View>
           <Pressable
@@ -144,10 +150,10 @@ export function ControlHudDashboard({
             accessibilityRole="button"
             accessibilityState={{ expanded: false }}
             onPress={onToggleExpanded}
-            style={({ pressed }) => [styles.inlineToggleOrb, { borderRadius: sp(14), height: sp(28), width: sp(28) }, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.inlineToggleOrb, { borderRadius: compactInline ? 12 : sp(14), height: compactInline ? 24 : sp(28), width: compactInline ? 24 : sp(28) }, pressed && styles.pressed]}
             testID="control-hud-dashboard-toggle"
           >
-            <Ionicons color={INK} name="chevron-up" size={sp(15)} />
+            <Ionicons color={INK} name="chevron-up" size={compactInline ? 13 : sp(15)} />
           </Pressable>
         </View>
       );
@@ -406,6 +412,7 @@ const styles = StyleSheet.create({
   },
   inlineEnergyTrack: {
     flex: 0,
+    width: 34,
   },
   inlineToggleOrb: {
     alignItems: 'center',

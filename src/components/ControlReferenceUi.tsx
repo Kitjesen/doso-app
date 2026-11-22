@@ -61,7 +61,7 @@ type SettingsProps = {
   width: number; height: number; category: ControlSettingsCategory; onCategory: (value: ControlSettingsCategory) => void;
   snapshot?: ControlSettingsSnapshot; overlay: boolean; onOverlay: () => void; onClose: () => void;
   onLayout: () => void; onInput?: () => void; onConnection?: () => void; onDiagnostics?: () => void;
-  onPostures: () => void; onPolicy: () => void; ownerLabel: string;
+  onPostures: () => void; onActions?: () => void; onPolicy: () => void; ownerLabel: string;
   lease: ReactNode;
   robotName: string; connected: boolean; endpointLabel?: string;
   runtimeState?: ControlRuntimeState; inputSource: ControlInputSource; videoLabel: string;
@@ -70,6 +70,8 @@ type SettingsProps = {
   onToggleDocks?: () => void;
   speedLimitPercent?: number;
   onChangeSpeedLimit?: (next: number) => void;
+  speedMode?: 'normal' | 'high' | 'unsupported' | null;
+  onSelectSpeedMode?: (mode: 'normal' | 'high') => void;
   physicalInputReady?: boolean;
   onSelectInputSource?: (source: ControlInputSource) => void;
   primaryCamera?: 'front' | 'rear';
@@ -332,11 +334,41 @@ export function renderControlSettings(p: SettingsProps) {
         {panel('圆盘布局', 'move-outline', <>{layoutLink()}{row('松手回零', value('自动 · 50Hz 零速清零'))}</>)}
       </>, <>
         {panel('运动设置', 'speedometer-outline', <>
+          {p.onSelectSpeedMode ? row('速度档位', (
+            <View style={st.inlineSegmentRow}>
+              <Pressable
+                accessibilityLabel="标准档位 1.0 m/s"
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !observed || p.speedMode === 'unsupported', selected: p.speedMode !== 'high' }}
+                disabled={!observed || p.speedMode === 'unsupported'}
+                onPress={() => { if (p.speedMode === 'high') p.onSelectSpeedMode?.('normal'); }}
+                style={[st.inlineSegmentChip, p.speedMode !== 'high' && st.inlineSegmentChipActive, (!observed || p.speedMode === 'unsupported') && st.stepBtnDisabled]}
+                testID="control-setting-speed-mode-normal"
+              >
+                <Text style={[st.inlineSegmentText, p.speedMode !== 'high' && st.inlineSegmentTextActive]}>标准 1.0</Text>
+              </Pressable>
+              <Pressable
+                accessibilityLabel="高速档位 2.5 m/s"
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !observed || p.speedMode === 'unsupported', selected: p.speedMode === 'high' }}
+                disabled={!observed || p.speedMode === 'unsupported'}
+                onPress={() => { if (p.speedMode !== 'high') p.onSelectSpeedMode?.('high'); }}
+                style={[st.inlineSegmentChip, p.speedMode === 'high' && st.inlineSegmentChipActive, (!observed || p.speedMode === 'unsupported') && st.stepBtnDisabled]}
+                testID="control-setting-speed-mode-high"
+              >
+                <Text style={[st.inlineSegmentText, p.speedMode === 'high' && st.inlineSegmentTextActive]}>高速 2.5</Text>
+              </Pressable>
+            </View>
+          ), p.speedMode === 'unsupported' ? '当前固件未开放底层速度档位切换' : '高速档位最高 2.5 m/s，需开阔平坦场地') : null}
           {speedLimitControl}
           {row('低延迟模式', toggle('control-setting-latency', snapshot.lowLatency))}
           {row('当前控制者', value(ownerLabel))}
         </>, 1.35)}
-        {panel('姿态与模式', 'walk-outline', <>{postureLink()}{modeLink()}</>)}
+        {panel('姿态与模式', 'walk-outline', <>
+          {postureLink()}
+          {p.onActions ? link('control-open-action-deck', '预设动作抽屉', p.onActions, p.gestures?.length ? `${p.gestures.length} 个动作` : undefined) : null}
+          {modeLink()}
+        </>)}
       </>); break;
     case '视频':
       content = columns(<>
@@ -465,28 +497,62 @@ export function renderControlSettings(p: SettingsProps) {
         ? <Text numberOfLines={1} style={[small, { paddingTop: 4 }]}>{hint}</Text> : null;
       const motorHealth = (joint: (typeof joints)[number]) => joint.fault === 'active' || (joint.errors?.length ?? 0) > 0 ? '故障'
         : joint.online !== true ? '离线' : joint.statusCode === 2 ? '运行' : joint.statusCode === 1 ? '待机' : joint.statusCode === 0 ? '复位' : '在线';
-      content = columns(<>
-        {panel('机器人状态', 'hardware-chip-outline', <>
-          {row('姿态 · 电机', value(`${postureLabel} · ${motorLabel}`, observed?.motorState === 'enabled'))}
-          {row('当前模式', value(policyLabel))}
-        </>)}
-        {panel('标定与维护', 'construct-outline', <>
-          <View style={st.chipWrap}>
-            {chip('control-settings-set-zero', '电机标零', p.onSetZero, { disabled: !observed || !p.zeroReady, hint: p.zeroHint, danger: true })}
-            {chip('control-settings-clear-fault', '清除故障', p.onClearMotorFault, { disabled: !observed || !p.clearFaultReady })}
+      content = <View style={{ gap: 12 }} testID="control-settings-page-机器人">
+        <View style={[st.columns, !twoCol && st.columnsStacked]}>
+          <View style={st.column}>
+            {panel('机器人状态', 'hardware-chip-outline', <>
+              {row('姿态 · 电机', value(`${postureLabel} · ${motorLabel}`, observed?.motorState === 'enabled'))}
+              {row('当前模式', value(policyLabel))}
+            </>)}
+            {panel('标定与维护', 'construct-outline', <>
+              <View style={st.chipWrap}>
+                {chip('control-settings-set-zero', '电机标零', p.onSetZero, { disabled: !observed || !p.zeroReady, hint: p.zeroHint, danger: true })}
+                {chip('control-settings-clear-fault', '清除故障', p.onClearMotorFault, { disabled: !observed || !p.clearFaultReady })}
+              </View>
+              {blockedNote(p.zeroReady, p.zeroHint)}
+            </>)}
+            {panel('运动模式', 'git-branch-outline', <>
+              <View style={st.chipWrap} testID="control-settings-mode-list">
+                {livePolicies.length > 0
+                  ? livePolicies.map(option => chip(`control-settings-mode-${option.id}`, option.label,
+                    p.onSelectPolicy ? () => p.onSelectPolicy?.(option.id) : undefined,
+                    { active: option.selected, disabled: option.disabled || option.selected, hint: option.hint }))
+                  : <Text style={small}>未读取</Text>}
+              </View>
+              {livePolicies.length > 0 ? blockedNote(!livePolicies.every(option => option.disabled && !option.selected), livePolicies.find(option => option.hint)?.hint) : null}
+            </>)}
           </View>
-          {blockedNote(p.zeroReady, p.zeroHint)}
-        </>)}
-        {panel('运动模式', 'git-branch-outline', <>
-          <View style={st.chipWrap} testID="control-settings-mode-list">
-            {livePolicies.length > 0
-              ? livePolicies.map(option => chip(`control-settings-mode-${option.id}`, option.label,
-                p.onSelectPolicy ? () => p.onSelectPolicy?.(option.id) : undefined,
-                { active: option.selected, disabled: option.disabled || option.selected, hint: option.hint }))
-              : <Text style={small}>未读取</Text>}
+          <View style={st.column}>
+            {panel(`电机状态 ${joints.length ? `${onlineCount}/${joints.length}` : ''}`.trim(), 'speedometer-outline', <>
+              {joints.length === 0 ? <Text style={small}>未读取</Text> : (
+                <View style={st.motorGrid} testID="control-settings-motor-list">
+                  {joints.map(joint => {
+                    const health = motorHealth(joint);
+                    const bad = health === '故障' || health === '离线';
+                    return (
+                      <View key={joint.id} style={[st.motorCell, bad && st.motorCellBad]} testID={`control-settings-motor-${joint.id}`}
+                        accessible accessibilityLabel={`${joint.label} ${health}`}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <View style={[st.motorDot, { backgroundColor: bad ? '#F87171' : joint.online ? '#34D399' : '#737B80' }]} />
+                          <Text numberOfLines={1} style={[text, { flex: 1, fontSize: sp(12.5), lineHeight: sp(17) }]}>{joint.label}</Text>
+                        </View>
+                        <Text numberOfLines={1} style={[small, { fontSize: sp(12), lineHeight: sp(16), fontVariant: ['tabular-nums'] }]}>
+                          {[health,
+                            typeof joint.temperatureC === 'number' && Number.isFinite(joint.temperatureC) ? `${Math.round(joint.temperatureC)}°C` : null,
+                            typeof joint.positionDeg === 'number' && Number.isFinite(joint.positionDeg) ? `${Math.round(joint.positionDeg)}°` : null,
+                          ].filter(Boolean).join(' · ')}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+              {p.onOpenHudJointParams ? link('control-settings-open-joint-params', '关节参数浮窗', p.onOpenHudJointParams, 'L1') : null}
+              {p.onOpenHudJointTemp ? link('control-settings-open-joint-temp', '关节温度浮窗', p.onOpenHudJointTemp) : null}
+              {link('control-open-diagnostics', '电机诊断', p.onDiagnostics)}
+            </>, 1.4)}
           </View>
-          {livePolicies.length > 0 ? blockedNote(!livePolicies.every(option => option.disabled && !option.selected), livePolicies.find(option => option.hint)?.hint) : null}
-        </>)}
+        </View>
         {panel(`动作${liveGestures.length ? ` (${liveGestures.length})` : ''}`, 'body-outline', <>
           {liveGestures.length > 0
             ? GestureDeckPanel({
@@ -498,42 +564,13 @@ export function renderControlSettings(p: SettingsProps) {
               showGifPreview: p.gestureGifPreview ?? true,
               onToggleGifPreview: () => p.onToggleGestureGifPreview?.(),
               gestureDisabled: !observed || !p.gestureReady,
-              gestureHint: !observed ? '请先连接机器狗（当前可预览全部动作库）' : p.gestureHint,
+              gestureHint: p.gestureHint ?? (!observed ? '请先连接机器狗（当前可预览全部 35 个动作）' : undefined),
               onPlayGesture: p.onPlayGesture,
               variant: 'settings',
             })
             : <View style={st.chipWrap} testID="control-settings-gesture-list"><Text style={small}>{observed ? '暂无动作' : '未读取'}</Text></View>}
         </>)}
-      </>, <>
-        {panel(`电机状态 ${joints.length ? `${onlineCount}/${joints.length}` : ''}`.trim(), 'speedometer-outline', <>
-          {joints.length === 0 ? <Text style={small}>未读取</Text> : (
-            <View style={st.motorGrid} testID="control-settings-motor-list">
-              {joints.map(joint => {
-                const health = motorHealth(joint);
-                const bad = health === '故障' || health === '离线';
-                return (
-                  <View key={joint.id} style={[st.motorCell, bad && st.motorCellBad]} testID={`control-settings-motor-${joint.id}`}
-                    accessible accessibilityLabel={`${joint.label} ${health}`}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <View style={[st.motorDot, { backgroundColor: bad ? '#F87171' : joint.online ? '#34D399' : '#737B80' }]} />
-                      <Text numberOfLines={1} style={[text, { flex: 1, fontSize: sp(12.5), lineHeight: sp(17) }]}>{joint.label}</Text>
-                    </View>
-                    <Text numberOfLines={1} style={[small, { fontSize: sp(12), lineHeight: sp(16), fontVariant: ['tabular-nums'] }]}>
-                      {[health,
-                        typeof joint.temperatureC === 'number' && Number.isFinite(joint.temperatureC) ? `${Math.round(joint.temperatureC)}°C` : null,
-                        typeof joint.positionDeg === 'number' && Number.isFinite(joint.positionDeg) ? `${Math.round(joint.positionDeg)}°` : null,
-                      ].filter(Boolean).join(' · ')}
-                    </Text>
-                  </View>
-                );
-              })}
-            </View>
-          )}
-          {p.onOpenHudJointParams ? link('control-settings-open-joint-params', '关节参数浮窗', p.onOpenHudJointParams, 'L1') : null}
-          {p.onOpenHudJointTemp ? link('control-settings-open-joint-temp', '关节温度浮窗', p.onOpenHudJointTemp) : null}
-          {link('control-open-diagnostics', '电机诊断', p.onDiagnostics)}
-        </>, 1.4)}
-      </>); break;
+      </View>; break;
     }
     case '安全':
       content = columns(<>

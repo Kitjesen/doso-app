@@ -1642,3 +1642,84 @@ test('playGesture strictly disallows Grounded even with motors enabled and allow
     f.session.dispose();
   }
 });
+
+test('latencyMs tracks fresh RPC round-trip time, IMU notify gate suppresses idle re-renders, and refreshRecovery skips busy/active-lease collisions', async () => {
+  const f = fixture();
+  let emitImu = null;
+  f.transport.listenImu = (_id, cb) => { emitImu = cb; return () => { emitImu = null; }; };
+  f.transport.open = async (target, principal) => {
+    f.advance(7);
+    return { ...f.reply(), leaseActive: false, principalVerified: false, sessionId: 's1', transport: 'grpc-mtls', mutualTlsVerified: true,
+      profile: { current: 'flat', available: ['flat'], descriptions: [], currentDescription: '' } };
+  };
+  f.transport.read = async () => { f.advance(5); return f.reply(); };
+  let recoveryReads = 0;
+  const baseRec = { service: 'ready', phase: 'absent', modelConfigured: true, enableSequenceVerified: true, sessionSelected: false, stableStand: false, locomotionAvailable: false, activeModeId: '', reason: 'none', detail: '', heartbeatFresh: false, heartbeatError: null };
+  f.transport.readRecovery = async () => { recoveryReads++; return { ...baseRec }; };
+  try {
+    await f.session.connect(endpoint, 'doso-g20@robot');
+    assert.equal(f.session.latencyMs, 7);
+    await f.session.refresh();
+    assert.equal(f.session.latencyMs, 5);
+
+    let notifications = 0;
+    const unsub = f.session.subscribe(() => { notifications++; });
+    await f.session.refreshRecovery();
+    assert.equal(notifications, 1);
+    await f.session.refreshRecovery();
+    assert.equal(notifications, 1, 'identical recovery status must not re-render UI');
+
+    f.transport.readRecovery = async () => { throw { code: 'busy' }; };
+    await f.session.refreshRecovery();
+    assert.equal(notifications, 1, 'transient bridge busy must not wipe recovery or notify');
+    assert.equal(f.session.recoveryStatus?.service, 'ready');
+
+    f.session.setImuNotifyEnabled(false);
+    emitImu({ gyroX: 0.1, gyroY: 0, gyroZ: 0, quatW: 1, quatX: 0, quatY: 0, quatZ: 0 });
+    assert.equal(notifications, 1, 'IMU sample stored silently when notify gate disabled');
+    assert.equal(f.session.runtimeState.imu?.gyroscope.x, 0.1);
+    f.session.setImuNotifyEnabled(true);
+    assert.equal(notifications, 2, 'enabling IMU notify publishes fresh sample immediately');
+
+    // Active lease blocks non-recovery polling so 50Hz motion is never starved
+    f.transport.readRecovery = async () => { recoveryReads++; return { ...baseRec }; };
+    f.set({ fsmKind: 'standing', motorOutputEnabled: true });
+    await f.session.refresh();
+    await f.session.acquire();
+    const beforeLeasePoll = recoveryReads;
+    await f.session.refreshRecovery();
+    assert.equal(recoveryReads, beforeLeasePoll);
+
+    unsub();
+    f.advance(1600);
+    assert.equal(f.session.latencyMs, null, 'stale session clears latencyMs');
+  } finally {
+    f.session.dispose();
+  }
+});
+
+test('speedMode queries device mode, scales high-speed walk vectors to 2.5 m/s, and marks unimplemented cleanly', async () => {
+  const f = fixture();
+  let deviceSpeedMode = 'normal';
+  f.transport.getSpeedMode = async () => deviceSpeedMode;
+  f.transport.setSpeedMode = async (_id, next) => {
+    deviceSpeedMode = next;
+    return { ...f.reply({ leaseActive: false, principalVerified: true }), speedMode: next };
+  };
+  try {
+    await f.session.connect(endpoint, 'doso-g20@robot');
+    await f.session.refreshSpeedMode();
+    assert.equal(f.session.speedMode, 'normal');
+
+    f.set({ fsmKind: 'standing', motorOutputEnabled: true });
+    await f.session.refresh();
+    await f.session.setSpeedMode('high');
+    assert.equal(f.session.speedMode, 'high');
+
+    await f.session.acquire();
+    await f.session.drive({ x: 0, y: -1 });
+    assert.deepEqual(f.calls.filter(c => c[0] === 'input').at(-1), ['input', 2.5, 0, 0]);
+  } finally {
+    f.session.dispose();
+  }
+});

@@ -96,9 +96,12 @@ export class BrainstemControlSession {
   private watchdog: ReturnType<typeof setInterval> | null = null;
   private imu: ControlImuReading | null = null;
   private imuObservedAt = 0;
+  private imuNotifyEnabled = true;
   private stopImu: (() => void) | null = null;
   private recovery: RobotRecoveryStatus | null = null;
   private recoveryHeartbeat = false;
+  private measuredLatencyMs: number | null = null;
+  private currentSpeedMode: 'normal' | 'high' | 'unsupported' | null = null;
 
   private readonly transport: BrainstemControlTransport;
   private readonly allowed: () => boolean;
@@ -109,6 +112,22 @@ export class BrainstemControlSession {
 
   subscribe(listener: () => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   get recoveryStatus() { return this.recovery; }
+  get latencyMs(): number | null { return this.fresh() ? this.measuredLatencyMs : null; }
+  get speedMode(): 'normal' | 'high' | 'unsupported' | null { return this.state.connected ? this.currentSpeedMode : null; }
+  setImuNotifyEnabled(enabled: boolean) {
+    if (this.imuNotifyEnabled === enabled) return;
+    this.imuNotifyEnabled = enabled;
+    if (enabled && this.imu && this.now() - this.imuObservedAt >= 0 && this.now() - this.imuObservedAt < 1000) {
+      this.notify();
+    }
+  }
+  private recordLatency(startedAt: number) {
+    const finishedAt = this.now();
+    const rtt = finishedAt - startedAt;
+    if (Number.isFinite(startedAt) && Number.isFinite(finishedAt) && Number.isFinite(rtt) && rtt >= 0 && rtt < 15000) {
+      this.measuredLatencyMs = Math.round(rtt);
+    }
+  }
   private notify() { this.listeners.forEach(listener => listener()); }
   private stopRecoveryHeartbeat() {
     if (this.sessionId && this.recoveryHeartbeat) this.transport.setRecoveryHeartbeat?.(this.sessionId, false);
@@ -116,16 +135,33 @@ export class BrainstemControlSession {
     this.recovery = null;
   }
   private applyRecovery(status: RobotRecoveryStatus) {
-    this.recovery = status;
+    const prev = this.recovery;
     const selected = status.service === 'ready' && status.sessionSelected;
+    const heartbeatChanged = Boolean(this.sessionId && selected !== this.recoveryHeartbeat);
     if (this.sessionId && selected !== this.recoveryHeartbeat) {
       this.recoveryHeartbeat = selected;
       this.transport.setRecoveryHeartbeat?.(this.sessionId, selected);
     }
-    this.notify();
+    const unchanged = prev !== null
+      && prev.service === status.service
+      && prev.phase === status.phase
+      && prev.modelConfigured === status.modelConfigured
+      && prev.enableSequenceVerified === status.enableSequenceVerified
+      && prev.sessionSelected === status.sessionSelected
+      && prev.stableStand === status.stableStand
+      && prev.locomotionAvailable === status.locomotionAvailable
+      && prev.activeModeId === status.activeModeId
+      && prev.reason === status.reason
+      && prev.detail === status.detail
+      && prev.heartbeatFresh === status.heartbeatFresh
+      && prev.heartbeatError === status.heartbeatError;
+    this.recovery = status;
+    if (!unchanged || heartbeatChanged) this.notify();
   }
   async refreshRecovery(): Promise<void> {
     if (!this.sessionId || !this.transport.readRecovery || this.retired) return;
+    if (this.busy || this.reading || this.inputBusy || this.moving || this.pendingAction !== null
+      || (this.state.leaseActive && !this.recoveryHeartbeat)) return;
     const epoch = this.epoch;
     const id = this.sessionId;
     try {
@@ -135,7 +171,81 @@ export class BrainstemControlSession {
     } catch (error) {
       if (!this.valid(epoch) || this.sessionId !== id) return;
       const code = error && typeof error === 'object' && 'code' in error ? String((error as { code: unknown }).code) : '';
+      if (code === 'busy') return;
       this.applyRecovery(emptyRecoveryStatus(code === 'unimplemented' ? 'missing' : 'unavailable'));
+    }
+  }
+  async refreshSpeedMode(): Promise<void> {
+    if (!this.sessionId || !this.transport.getSpeedMode || this.retired) {
+      if (this.sessionId && !this.transport.getSpeedMode && this.currentSpeedMode === null) {
+        this.currentSpeedMode = 'unsupported';
+      }
+      return;
+    }
+    if (this.busy || this.reading || this.inputBusy || this.moving || this.pendingAction !== null || this.state.leaseActive) return;
+    const epoch = this.epoch;
+    const id = this.sessionId;
+    try {
+      const mode = await this.transport.getSpeedMode(id);
+      if (!this.valid(epoch) || this.sessionId !== id) return;
+      if (this.currentSpeedMode !== mode) {
+        this.currentSpeedMode = mode;
+        this.notify();
+      }
+    } catch (error) {
+      if (!this.valid(epoch) || this.sessionId !== id) return;
+      const code = error && typeof error === 'object' && 'code' in error ? String((error as { code: unknown }).code) : '';
+      if (code === 'busy') return;
+      if (code === 'unimplemented' && this.currentSpeedMode !== 'unsupported') {
+        this.currentSpeedMode = 'unsupported';
+        this.notify();
+      }
+    }
+  }
+  async setSpeedMode(mode: 'normal' | 'high'): Promise<void> {
+    const epoch = this.epoch;
+    const id = this.sessionId;
+    if (!id || !this.valid(epoch) || this.sessionId !== id) throw new Error('控制连接已变化，请重新操作。');
+    if (typeof this.transport.setSpeedMode !== 'function' || this.currentSpeedMode === 'unsupported') {
+      throw Object.assign(new Error('机器人服务未开放此操作。'), { code: 'unimplemented' });
+    }
+    if (this.busy || this.pendingAction) throw new Error('上一项操作尚未结束，请等待设备响应。');
+    const request = {};
+    this.pendingAction = request;
+    this.busy = true;
+    this.resetInput();
+    this.publish({ phase: 'operating', leaseActive: false, manualPrepared: false });
+    try {
+      if (this.readDone) await this.readDone;
+      if (!this.valid(epoch) || this.sessionId !== id || this.pendingAction !== request) throw new Error('控制连接已变化，请重新操作。');
+      const s = this.fresh() ? this.state.status : null;
+      if (!s || s.owner === 'yunzhuo' || s.criticalMotorFault || s.fsmKind === 'transitioning'
+        || this.currentProfile()?.activeModeId === 'recovery') {
+        throw Object.assign(new Error('机器人当前状态不允许此操作。'), { code: 'precondition' });
+      }
+      this.authorityTouched = true;
+      const reply = await this.transport.setSpeedMode(id, mode);
+      if (!this.valid(epoch) || this.pendingAction !== request) throw new Error('控制连接已变化，请重新操作。');
+      this.currentSpeedMode = reply.speedMode;
+      this.pendingAction = null;
+      this.busy = false;
+      this.apply(reply);
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error ? String((error as { code: unknown }).code) : '';
+      if ((code === 'precondition' || code === 'unimplemented') && this.valid(epoch) && this.sessionId === id && this.pendingAction === request) {
+        if (code === 'unimplemented') this.currentSpeedMode = 'unsupported';
+        this.pendingAction = null;
+        this.busy = false;
+        this.publish({ phase: this.state.leaseActive ? 'armed' : 'ready', error: failureMessage(error), failureCode: null });
+        throw Object.assign(new Error(failureMessage(error)), { code });
+      }
+      await this.fail(epoch, error);
+      throw Object.assign(new Error(failureMessage(error)), { code: failureCodes.has(code) ? code : 'unknown' });
+    } finally {
+      if (this.pendingAction === request) {
+        this.pendingAction = null;
+        if (this.valid(epoch)) { this.busy = false; this.publish({ phase: this.state.leaseActive ? 'armed' : 'ready' }); }
+      }
     }
   }
   async recoveryCommand(command: RobotRecoveryCommand): Promise<RobotRecoveryStatus> {
@@ -172,7 +282,7 @@ export class BrainstemControlSession {
         if (!sample) return;
         this.imu = sample;
         this.imuObservedAt = this.now();
-        this.listeners.forEach(listener => listener());
+        if (this.imuNotifyEnabled) this.listeners.forEach(listener => listener());
       });
     } catch { this.stopImu = null; }
   }
@@ -230,6 +340,8 @@ export class BrainstemControlSession {
     const id = this.sessionId;
     const connection = this.verifiedConnection;
     this.stopRecoveryHeartbeat();
+    this.measuredLatencyMs = null;
+    this.currentSpeedMode = null;
     this.sessionId = null; this.epoch += 1; this.busy = false; this.pendingAction = null; this.reading = false; this.inputBusy = false; this.acquiring = false;
     this.releaseImu();
     this.resetInput();
@@ -254,6 +366,8 @@ export class BrainstemControlSession {
     const previousConnection = this.verifiedConnection;
     this.stopRecoveryHeartbeat();
     this.releaseImu();
+    this.measuredLatencyMs = null;
+    this.currentSpeedMode = null;
     const previousAuthorityTouched = this.authorityTouched;
     this.sessionId = null; this.resetInput();
     const epoch = ++this.epoch;
@@ -264,7 +378,9 @@ export class BrainstemControlSession {
         await this.transport.close(previousId).catch(() => undefined);
       }
       if (!this.valid(epoch)) return false;
+      const openStartedAt = this.now();
       const reply = await this.transport.open(endpoint, principal);
+      this.recordLatency(openStartedAt);
       if (!this.valid(epoch)) { await this.transport.close(reply.sessionId).catch(() => undefined); return false; }
       // A status read proves transport, not actuator authorization or a lease.
       const lanDev = endpoint.transport === 'lan-dev';
@@ -290,7 +406,15 @@ export class BrainstemControlSession {
     let finishRead: () => void = () => {};
     const done = new Promise<void>(resolve => { finishRead = resolve; });
     this.readDone = done;
-    try { const reply = await this.transport.read(id); if (this.valid(epoch)) { this.reading = false; this.apply(reply); } }
+    try {
+      const readStartedAt = this.now();
+      const reply = await this.transport.read(id);
+      if (this.valid(epoch)) {
+        this.recordLatency(readStartedAt);
+        this.reading = false;
+        this.apply(reply);
+      }
+    }
     catch (error) { await this.fail(epoch, error); }
     finally {
       if (this.valid(epoch)) this.reading = false;
@@ -528,14 +652,17 @@ export class BrainstemControlSession {
       const previousSequence = this.state.sequence;
       try {
         // Operator/screen +X points right; Brainstem body +Y is left and +Z is CCW.
-        // Both deployed operator profiles map full stick travel to 1 m/s and 1 rad/s.
-        const forward = -input.drive.y;
-        const lateral = -input.drive.x;
+        // Normal mode maps full stick travel to 1.0 m/s; confirmed high-speed mode maps to 2.5 m/s.
+        const linearScale = this.currentSpeedMode === 'high' ? 2.5 : 1;
+        const forward = -input.drive.y * linearScale;
+        const lateral = -input.drive.x * linearScale;
         const yawRate = -input.turn.x;
         this.authorityTouched = true;
+        const inputStartedAt = this.now();
         const reply = await this.transport.input(id, forward === 0 ? 0 : forward, lateral === 0 ? 0 : lateral,
           yawRate === 0 ? 0 : yawRate, input.sampledAtMonotonicMs);
         if (!this.valid(epoch)) return;
+        this.recordLatency(inputStartedAt);
         if (!reply.leaseActive || !(reply.leaseOwnerMatched ?? reply.principalVerified) || this.state.transport !== 'grpc-lan' && !reply.principalVerified || reply.sequence !== previousSequence + 1) throw { code: 'ack_mismatch' };
         this.commandSpeed = { linearMps: forward === 0 ? 0 : forward, lateralMps: lateral === 0 ? 0 : lateral, yawRps: yawRate === 0 ? 0 : yawRate };
         this.apply(reply);
@@ -594,6 +721,8 @@ export class BrainstemControlSession {
   async disconnect(): Promise<void> {
     const id = this.sessionId; const connection = this.verifiedConnection;
     this.stopRecoveryHeartbeat();
+    this.measuredLatencyMs = null;
+    this.currentSpeedMode = null;
     this.sessionId = null; this.epoch++;
     this.releaseImu();
     const authorityTouched = this.authorityTouched;

@@ -3133,3 +3133,134 @@ test('landscape and settings gesture decks group 35 gestures, toggle single-inst
   assert.deepEqual(played, ['flip_play_bow', 'dance']);
   screen.unmount();
 });
+
+test('gesture catalog always previews all 35 gestures when disconnected or UNIMPLEMENTED while keeping execution safely disabled, and HUD popovers are mutually exclusive', async () => {
+  const defaultNames = controlHudModelModule.exports.DEFAULT_THUNDER_GESTURES.map(item => item.name);
+  assert.equal(defaultNames.length, 35);
+  assert.equal(defaultNames.includes('stand_up'), false);
+  assert.equal(defaultNames.includes('wake_stand'), false);
+
+  const played = [];
+  const screen = mount({
+    landscapeDocksExpanded: true,
+    dev: false,
+    dimensions: { width: 960, height: 540, fontScale: 1 },
+    video: { id: 'sim-front', phase: 'receiving' },
+    videoSurface: 'plate',
+    connected: false,
+    runtimeState: { controlLink: 'disconnected', controlAuthority: 'not-held', posture: 'unknown', motorState: 'unknown' },
+    onListGestures: async () => {
+      throw Object.assign(new Error('UNIMPLEMENTED: ListGestures not supported'), { code: 'unimplemented' });
+    },
+    operationReadiness: {
+      playGesture: { ready: false, blockedReason: '未连接' },
+      stop: { ready: false, blockedReason: '未连接' },
+    },
+    operationCallbacks: {
+      playGesture: async name => { played.push(name); },
+      stop: async () => {},
+    },
+  });
+  await screen.settle();
+
+  // (a1) Disconnected: 动作 ▾ still renders all 35 gestures + GIF preview, execute disabled with honest hint.
+  selectLeftCategory(screen, 'action');
+  assert.ok(screen.find('control-hud-gesture-deck'));
+  assert.ok(screen.find('control-hud-gesture-preview-image'));
+  for (const name of defaultNames) {
+    assert.ok(screen.find(`control-hud-gesture-${name}`), `missing HUD gesture ${name}`);
+  }
+  assert.equal(screen.find('control-hud-gesture-stand_up'), undefined);
+  assert.equal(screen.find('control-hud-gesture-wake_stand'), undefined);
+  assert.equal(screen.find('control-hud-gesture-execute').props.disabled, true);
+  assert.match(screen.copy, /请先连接机器狗/);
+  screen.find('control-hud-gesture-execute').props.onPress();
+  await screen.settle();
+  assert.deepEqual(played, []);
+
+  // Settings -> 操控 quick link & 机器人 full-width deck also render all 35 gestures + GIF preview while disabled.
+  screen.find('control-hud-settings').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-open-action-deck'));
+  assert.match(screen.copy, /35 个动作/);
+  screen.find('control-settings-tab-机器人').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-settings-page-机器人'));
+  assert.ok(screen.find('control-settings-gesture-list'));
+  assert.ok(screen.find('control-settings-gesture-preview-image'));
+  for (const name of defaultNames) {
+    assert.ok(screen.find(`control-settings-gesture-${name}`), `missing Settings gesture ${name}`);
+  }
+  assert.equal(screen.find('control-settings-gesture-stand_up'), undefined);
+  assert.equal(screen.find('control-settings-gesture-wake_stand'), undefined);
+  assert.equal(screen.find('control-settings-gesture-execute').props.disabled, true);
+  assert.match(screen.copy, /请先连接机器狗/);
+
+  // 操控 -> 预设动作抽屉 jumps back to HUD action drawer in 1 tap.
+  screen.find('control-settings-tab-操控').props.onPress();
+  screen.render();
+  screen.find('control-open-action-deck').props.onPress();
+  screen.render();
+  assert.equal(screen.find('control-settings-menu'), undefined);
+  assert.ok(screen.find('control-hud-gesture-deck'));
+
+  // (a2) Connected to real robot where ListGestures rejects with UNIMPLEMENTED:
+  // still previews all 35 gestures + GIF, while execute stays disabled with 动作服务尚未启用 hint!
+  screen.render({
+    connected: true,
+    runtimeState: { controlLink: 'connected', controlAuthority: 'not-held', posture: 'standing', motorState: 'enabled' },
+    operationReadiness: {
+      playGesture: { ready: true },
+      stop: { ready: true },
+    },
+  });
+  await screen.settle();
+  assert.ok(screen.find('control-hud-gesture-deck'));
+  assert.ok(screen.find('control-hud-gesture-preview-image'));
+  for (const name of defaultNames) {
+    assert.ok(screen.find(`control-hud-gesture-${name}`), `missing HUD gesture after UNIMPLEMENTED ${name}`);
+  }
+  assert.equal(screen.find('control-hud-gesture-stand_up'), undefined);
+  assert.equal(screen.find('control-hud-gesture-wake_stand'), undefined);
+  assert.equal(screen.find('control-hud-gesture-execute').props.disabled, true);
+  assert.match(screen.copy, /动作服务尚未启用/);
+  screen.find('control-hud-gesture-execute').props.onPress();
+  await screen.settle();
+  assert.deepEqual(played, []);
+
+  screen.find('control-hud-settings').props.onPress();
+  screen.render();
+  screen.find('control-settings-tab-机器人').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-settings-gesture-list'));
+  assert.ok(screen.find('control-settings-gesture-preview-image'));
+  for (const name of defaultNames) {
+    assert.ok(screen.find(`control-settings-gesture-${name}`), `missing Settings gesture after UNIMPLEMENTED ${name}`);
+  }
+  assert.equal(screen.find('control-settings-gesture-stand_up'), undefined);
+  assert.equal(screen.find('control-settings-gesture-wake_stand'), undefined);
+  assert.equal(screen.find('control-settings-gesture-execute').props.disabled, true);
+  assert.match(screen.copy, /动作服务尚未启用/);
+  screen.find('control-close-settings').props.onPress();
+  screen.render();
+
+  // (b) Mutual exclusion: opening 关节参数 resets leftCategory back to 'policy',
+  // and opening 动作 ▾ closes speedLimitExpanded and jointParamsOpen.
+  assert.ok(screen.find('control-hud-action-dock'));
+  screen.find('control-hud-joint-params-toggle').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-hud-joint-params-panel'));
+  assert.equal(screen.find('control-hud-action-dock'), undefined, 'opening 关节参数 resets leftCategory back to policy');
+
+  screen.find('control-hud-speed-limit-toggle').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-hud-speed-limit-bar'));
+
+  screen.find('control-hud-category-action').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-hud-gesture-deck'));
+  assert.equal(screen.find('control-hud-speed-limit-bar'), undefined, 'opening 动作 ▾ closes speedLimitExpanded');
+  assert.equal(screen.find('control-hud-joint-params-panel'), undefined, 'opening 动作 ▾ closes jointParamsOpen');
+
+  screen.unmount();
+});

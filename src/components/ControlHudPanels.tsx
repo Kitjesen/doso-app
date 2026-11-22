@@ -326,7 +326,9 @@ export function GestureDeckPanel({
   gestureHint,
   onPlayGesture,
   variant = 'hud',
+  surfaceTone = 'dark',
   deckWidth,
+  maxListHeight = 168,
 }: {
   gestures: readonly HudGestureInput[];
   category: HudGestureCategoryId;
@@ -339,7 +341,9 @@ export function GestureDeckPanel({
   gestureHint?: string;
   onPlayGesture?: (name: string) => void;
   variant?: 'hud' | 'settings';
+  surfaceTone?: 'dark' | 'light';
   deckWidth?: number;
+  maxListHeight?: number;
 }) {
   const projected = projectHudGestures(gestures, category, selectedGestureName);
   const selected = projected.selectedItem;
@@ -347,14 +351,29 @@ export function GestureDeckPanel({
   const previewSource = selected && showGifPreview ? gesturePreviews[selected.previewKey] : undefined;
   const executeDisabled = Boolean(gestureDisabled || !selected || !onPlayGesture);
   const isSettings = variant === 'settings';
+  const isLight = isSettings && surfaceTone === 'light';
+  const compactHud = !isSettings && maxListHeight <= 164;
 
   const inspectorNode = selected ? (
     <View
-      style={[styles.gestureInspector, isSettings && styles.gestureInspectorBanner]}
+      style={[
+        styles.gestureInspector,
+        compactHud && styles.gestureInspectorCompact,
+        isSettings && styles.gestureInspectorBanner,
+        isLight && styles.gestureInspectorLight,
+      ]}
       testID={`${prefix}-inspector`}
     >
       {showGifPreview ? (
-        <View style={[styles.gesturePreviewFrame, isSettings && styles.gesturePreviewFrameBanner]} testID={`${prefix}-preview-box`}>
+        <View
+          style={[
+            styles.gesturePreviewFrame,
+            compactHud && styles.gesturePreviewFrameCompact,
+            isSettings && styles.gesturePreviewFrameBanner,
+            isLight && styles.gesturePreviewFrameLight,
+          ]}
+          testID={`${prefix}-preview-box`}
+        >
           {previewSource ? (
             <Image
               accessibilityLabel={`${selected.label} 动作预览`}
@@ -365,8 +384,8 @@ export function GestureDeckPanel({
             />
           ) : (
             <View style={styles.gesturePreviewPlaceholder}>
-              <Ionicons color={MUTED} name="sparkles-outline" size={18} />
-              <Text style={styles.gesturePreviewPlaceholderText}>无内置预览</Text>
+              <Ionicons color={isLight ? '#64748B' : MUTED} name="sparkles-outline" size={18} />
+              <Text style={[styles.gesturePreviewPlaceholderText, isLight && styles.gestureTextMutedLight]}>无内置预览</Text>
             </View>
           )}
           <View style={styles.gesturePreviewCornerBadge}>
@@ -375,13 +394,21 @@ export function GestureDeckPanel({
         </View>
       ) : null}
 
-      <View style={[styles.gestureInspectorRightCol, isSettings && styles.gestureInspectorBannerRight]}>
+      <View style={[styles.gestureInspectorRightCol, compactHud && styles.gestureInspectorRightColCompact, isSettings && styles.gestureInspectorBannerRight]}>
         <View style={styles.gestureInspectorMeta}>
-          <Text numberOfLines={1} style={styles.gestureSelectedTitle}>
+          <Text numberOfLines={1} style={[styles.gestureSelectedTitle, compactHud && styles.gestureSelectedTitleCompact, isLight && styles.gestureSelectedTitleLight]}>
             {selected.label}
             {!showGifPreview ? ` · ${selected.durationText}` : ''}
           </Text>
-          <Text numberOfLines={2} style={[styles.gestureSelectedNote, gestureDisabled && styles.gestureBlockedNote]}>
+          <Text
+            numberOfLines={2}
+            style={[
+              styles.gestureSelectedNote,
+              compactHud && styles.gestureSelectedNoteCompact,
+              isLight && styles.gestureTextMutedLight,
+              gestureDisabled && (isLight ? styles.gestureBlockedNoteLight : styles.gestureBlockedNote),
+            ]}
+          >
             {gestureDisabled && gestureHint ? gestureHint : selected.endPoseNote}
           </Text>
         </View>
@@ -397,14 +424,15 @@ export function GestureDeckPanel({
           }}
           style={({ pressed }) => [
             styles.gestureExecuteBtn,
+            compactHud && styles.gestureExecuteBtnCompactHud,
             isSettings && styles.gestureExecuteBtnCompact,
-            executeDisabled && styles.gestureExecuteBtnDisabled,
+            executeDisabled && (isLight ? styles.gestureExecuteBtnDisabledLight : styles.gestureExecuteBtnDisabled),
             pressed && !executeDisabled && styles.pressed,
           ]}
           testID={`${prefix}-execute`}
         >
-          <Ionicons color="#FFFFFF" name="play" size={12} />
-          <Text numberOfLines={1} style={styles.gestureExecuteText}>
+          <Ionicons color={isLight && executeDisabled ? '#475569' : '#FFFFFF'} name="play" size={12} />
+          <Text numberOfLines={1} style={[styles.gestureExecuteText, isLight && executeDisabled && styles.gestureExecuteTextDisabledLight]}>
             {gestureDisabled ? '暂不可执行' : '执行动作'}
           </Text>
         </Pressable>
@@ -441,12 +469,13 @@ export function GestureDeckPanel({
                 onPress={() => onSelectCategory(cat.id)}
                 style={({ pressed }) => [
                   styles.gestureCatPill,
+                  isLight && !active && styles.gestureCatPillLight,
                   active && styles.gestureCatPillActive,
                   pressed && styles.pressed,
                 ]}
                 testID={`${prefix}-cat-${cat.id}`}
               >
-                <Text numberOfLines={1} style={[styles.gestureCatText, active && styles.gestureCatTextActive]}>
+                <Text numberOfLines={1} style={[styles.gestureCatText, isLight && !active && styles.gestureCatTextLight, active && styles.gestureCatTextActive]}>
                   {`${cat.label} ${count}`}
                 </Text>
               </Pressable>
@@ -461,25 +490,33 @@ export function GestureDeckPanel({
           onPress={onToggleGifPreview}
           style={({ pressed }) => [
             styles.gestureGifToggle,
-            showGifPreview && styles.gestureGifToggleActive,
+            isLight && styles.gestureGifToggleLight,
+            showGifPreview && (isLight ? styles.gestureGifToggleActiveLight : styles.gestureGifToggleActive),
             pressed && styles.pressed,
           ]}
           testID={`${prefix}-gif-toggle`}
         >
-          <Ionicons color={showGifPreview ? '#93C5FD' : MUTED} name={showGifPreview ? 'play-circle' : 'play-circle-outline'} size={13} />
-          <Text style={[styles.gestureGifToggleText, showGifPreview && styles.gestureGifToggleTextActive]}>动图</Text>
+          <Ionicons
+            color={showGifPreview ? (isLight ? '#1D4ED8' : '#93C5FD') : (isLight ? '#475569' : MUTED)}
+            name={showGifPreview ? 'play-circle' : 'play-circle-outline'}
+            size={13}
+          />
+          <Text
+            style={[
+              styles.gestureGifToggleText,
+              isLight && styles.gestureCatTextLight,
+              showGifPreview && (isLight ? styles.gestureGifToggleTextActiveLight : styles.gestureGifToggleTextActive),
+            ]}
+          >
+            动图
+          </Text>
         </Pressable>
       </View>
 
       {isSettings ? (
         <View style={styles.gestureSettingsStack}>
           {inspectorNode}
-          <ScrollView
-            showsVerticalScrollIndicator
-            nestedScrollEnabled
-            style={styles.gestureListScrollSettings}
-            contentContainerStyle={styles.gestureGridSettings}
-          >
+          <View style={styles.gestureGridSettings}>
             {projected.filteredItems.map(item => {
               const isSelected = selected?.name === item.name;
               return (
@@ -493,33 +530,41 @@ export function GestureDeckPanel({
                   style={({ pressed }) => [
                     styles.gestureRowBtn,
                     styles.gestureGridCellSettings,
-                    isSelected && styles.gestureRowBtnSelected,
+                    isLight && styles.gestureRowBtnLight,
+                    isSelected && (isLight ? styles.gestureRowBtnSelectedLight : styles.gestureRowBtnSelected),
                     pressed && styles.pressed,
                   ]}
                   testID={`${prefix}-${item.name}`}
                 >
-                  <Text numberOfLines={1} style={[styles.gestureRowLabel, isSelected && styles.gestureRowLabelSelected]}>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.gestureRowLabel,
+                      isLight && styles.gestureRowLabelLight,
+                      isSelected && (isLight ? styles.gestureRowLabelSelectedLight : styles.gestureRowLabelSelected),
+                    ]}
+                  >
                     {item.label}
                   </Text>
                   <View style={styles.gestureRowMeta}>
                     {item.cautionTag ? (
-                      <View style={styles.gestureCautionBadge}>
-                        <Text style={styles.gestureCautionText}>{item.cautionTag}</Text>
+                      <View style={[styles.gestureCautionBadge, isLight && styles.gestureCautionBadgeLight]}>
+                        <Text style={[styles.gestureCautionText, isLight && styles.gestureCautionTextLight]}>{item.cautionTag}</Text>
                       </View>
                     ) : null}
-                    <Text style={styles.gestureDurationText}>{item.durationText}</Text>
+                    <Text style={[styles.gestureDurationText, isLight && styles.gestureTextMutedLight]}>{item.durationText}</Text>
                   </View>
                 </Pressable>
               );
             })}
-          </ScrollView>
+          </View>
         </View>
       ) : (
-        <View style={styles.gestureSplitBody}>
+        <View style={[styles.gestureSplitBody, { maxHeight: maxListHeight }]}>
           <ScrollView
             showsVerticalScrollIndicator
             nestedScrollEnabled
-            style={styles.gestureListScroll}
+            style={[styles.gestureListScroll, { maxHeight: maxListHeight }]}
             contentContainerStyle={styles.gestureListContent}
           >
             {projected.filteredItems.map(item => {
@@ -846,7 +891,7 @@ const styles = StyleSheet.create({
   },
   gestureDeckRoot: {
     gap: 6,
-    minWidth: 300,
+    minWidth: 280,
     width: 428,
     maxWidth: '100%',
   },
@@ -928,14 +973,11 @@ const styles = StyleSheet.create({
   gestureSplitBody: {
     flexDirection: 'row',
     gap: 8,
-    maxHeight: 154,
+    maxHeight: 168,
   },
   gestureListScroll: {
     flex: 1,
-    maxHeight: 154,
-  },
-  gestureListScrollSettings: {
-    maxHeight: 196,
+    maxHeight: 168,
   },
   gestureListContent: {
     gap: 4,
@@ -947,8 +989,9 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   gestureGridCellSettings: {
-    flexBasis: '48.5%',
+    flexBasis: '48%',
     flexGrow: 1,
+    minWidth: 148,
   },
   gestureRowBtn: {
     alignItems: 'center',
@@ -1013,8 +1056,14 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     gap: 5,
     justifyContent: 'space-between',
+    overflow: 'hidden',
     padding: 7,
     width: 162,
+  },
+  gestureInspectorCompact: {
+    gap: 4,
+    padding: 5,
+    width: 156,
   },
   gestureInspectorBanner: {
     alignItems: 'center',
@@ -1023,9 +1072,16 @@ const styles = StyleSheet.create({
     width: '100%',
     padding: 8,
   },
+  gestureInspectorLight: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#CBD5E1',
+  },
   gestureInspectorRightCol: {
     gap: 5,
     justifyContent: 'space-between',
+  },
+  gestureInspectorRightColCompact: {
+    gap: 4,
   },
   gestureInspectorBannerRight: {
     flex: 1,
@@ -1041,10 +1097,17 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     width: '100%',
   },
+  gesturePreviewFrameCompact: {
+    height: 58,
+  },
   gesturePreviewFrameBanner: {
     height: 68,
     width: 120,
     flexShrink: 0,
+  },
+  gesturePreviewFrameLight: {
+    backgroundColor: '#0F172A',
+    borderColor: '#CBD5E1',
   },
   gesturePreviewImage: {
     height: '100%',
@@ -1086,13 +1149,27 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 16,
   },
+  gestureSelectedTitleCompact: {
+    fontSize: 12,
+    lineHeight: 15,
+  },
+  gestureSelectedTitleLight: {
+    color: '#0F172A',
+  },
   gestureSelectedNote: {
     color: MUTED,
     fontSize: 10.5,
     lineHeight: 14,
   },
+  gestureSelectedNoteCompact: {
+    fontSize: 10,
+    lineHeight: 13,
+  },
   gestureBlockedNote: {
     color: '#FBBF24',
+  },
+  gestureBlockedNoteLight: {
+    color: '#B45309',
   },
   gestureExecuteBtn: {
     alignItems: 'center',
@@ -1105,6 +1182,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
+  gestureExecuteBtnCompactHud: {
+    minHeight: 26,
+    paddingVertical: 3,
+  },
   gestureExecuteBtnCompact: {
     alignSelf: 'flex-start',
     paddingHorizontal: 14,
@@ -1113,11 +1194,62 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.10)',
     opacity: 0.62,
   },
+  gestureExecuteBtnDisabledLight: {
+    backgroundColor: '#E2E8F0',
+    borderColor: '#CBD5E1',
+    borderWidth: 1,
+  },
   gestureExecuteText: {
     color: '#FFFFFF',
     fontSize: 11.5,
     fontWeight: '600',
     lineHeight: 15,
+  },
+  gestureExecuteTextDisabledLight: {
+    color: '#475569',
+  },
+  gestureCatPillLight: {
+    backgroundColor: '#E8EEF5',
+    borderColor: '#CBD5E1',
+  },
+  gestureCatTextLight: {
+    color: '#475569',
+  },
+  gestureGifToggleLight: {
+    backgroundColor: '#E8EEF5',
+    borderColor: '#CBD5E1',
+  },
+  gestureGifToggleActiveLight: {
+    backgroundColor: '#DBEAFE',
+    borderColor: '#60A5FA',
+  },
+  gestureGifToggleTextActiveLight: {
+    color: '#1D4ED8',
+  },
+  gestureRowBtnLight: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#D6DEE8',
+  },
+  gestureRowBtnSelectedLight: {
+    backgroundColor: '#EFF6FF',
+    borderColor: ACTIVE_BLUE,
+  },
+  gestureRowLabelLight: {
+    color: '#1E293B',
+  },
+  gestureRowLabelSelectedLight: {
+    color: '#1D4ED8',
+    fontWeight: '600',
+  },
+  gestureCautionBadgeLight: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#F59E0B',
+  },
+  gestureCautionTextLight: {
+    color: '#92400E',
+  },
+  gestureTextMutedLight: {
+    color: '#475569',
   },
   pressed: { opacity: 0.7 },
 });
