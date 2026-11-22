@@ -229,6 +229,17 @@ export function getControlOperationReadiness({ action, readiness, callbacks, run
   if (inFlight) return { ready: false, blockedReason: '上一项操作尚未结束，请等待设备响应。' };
   if (readiness?.[action]?.ready !== true) return { ready: false, blockedReason: readiness?.[action]?.blockedReason || `${controlOperationLabels[action]}尚未接通，请检查连接与控制权限。` };
   if (typeof callbacks?.[action] !== 'function') return { ready: false, blockedReason: `应用尚未接通${controlOperationLabels[action]}操作链路。` };
+  if (action === 'playGesture') {
+    if (runtimeState?.controlLink !== 'connected') {
+      return { ready: false, blockedReason: readiness?.playGesture?.blockedReason || '请先连接机器狗。' };
+    }
+    if (runtimeState.motorState !== 'enabled') {
+      return { ready: false, blockedReason: readiness?.playGesture?.blockedReason || '请先使能电机。' };
+    }
+    if (runtimeState.posture !== 'standing') {
+      return { ready: false, blockedReason: readiness?.playGesture?.blockedReason || '请先站立。' };
+    }
+  }
   if (action === 'switchPolicy') {
     const options = getControlPolicyOptions(runtimeState);
     if (!options.length) return { ready: false, blockedReason: '尚未读取机器人策略列表，暂无可切换策略。' };

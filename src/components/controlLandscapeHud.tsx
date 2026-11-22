@@ -164,8 +164,8 @@ export type ControlLandscapeHudProps = Readonly<{
   previewSafeAreaGuides?: boolean;
 }>;
 
-function Chip({ children, testID, sp }: { children: ReactNode; testID?: string; sp: (value: number) => number }) {
-  return <View style={[styles.chip, { borderRadius: sp(6), gap: sp(3), paddingHorizontal: sp(6), paddingVertical: sp(2) }]} testID={testID}>{children}</View>;
+function Chip({ children, testID, sp, compact = false }: { children: ReactNode; testID?: string; sp: (value: number) => number; compact?: boolean }) {
+  return <View style={[styles.chip, { borderRadius: sp(6), gap: compact ? 2 : sp(3), paddingHorizontal: compact ? 4 : sp(6), paddingVertical: compact ? 1 : sp(2) }]} testID={testID}>{children}</View>;
 }
 
 function SafeAreaGuides({ insets }: { insets: LandscapeSafeInsets }) {
@@ -298,8 +298,12 @@ export function controlLandscapeHud({
     bottom: Math.max(0, safeInsets?.bottom ?? 0),
     left: Math.max(0, safeInsets?.left ?? 0),
   };
+  const rawStageW = stageWidth && stageWidth > 0 ? stageWidth : 960;
+  const rawStageH = stageHeight && stageHeight > 0 ? stageHeight : 540;
+  const effectiveStageW = Math.max(320, rawStageW - insets.left - insets.right);
+  const effectiveStageH = Math.max(240, rawStageH - insets.top - insets.bottom);
   const rawRatio = stageWidth && stageHeight && stageWidth > 0 && stageHeight > 0
-    ? Math.min(stageWidth / 960, stageHeight / 540)
+    ? Math.min(effectiveStageW / 960, effectiveStageH / 540)
     : 1;
   const hudScale = rawRatio < 1
     ? Math.max(0.90, rawRatio)
@@ -311,35 +315,38 @@ export function controlLandscapeHud({
   const fBodyLine = sp(18);
   const fMeta = Math.max(11, sp(11.5));
   const fMetaLine = sp(16);
-  const effectiveStageW = stageWidth && stageWidth > 0 ? stageWidth : 960;
-  const effectiveStageH = stageHeight && stageHeight > 0 ? stageHeight : 540;
+  const ultraCompactTop = effectiveStageW < 900;
   const compactTopBar = effectiveStageW < 1080;
   const ultraShortStage = effectiveStageH < 460;
   const compactRightRail = effectiveStageH < 560;
+  const topBarMinHeight = ultraShortStage ? 34 : compactTopBar ? 36 : sp(38);
+  const topBtnHeight = ultraShortStage ? 26 : compactTopBar ? 28 : sp(30);
+  const topFont = compactTopBar ? 11.5 : fBody;
+  const topFontLine = compactTopBar ? 15 : fBodyLine;
   const pipW = ultraShortStage
     ? sp(148)
     : stageWidth && stageWidth > 0
-      ? Math.max(152, Math.min(compactRightRail ? 166 : 236, Math.round(stageWidth * (compactRightRail ? 0.172 : 0.18))))
-      : sp(166);
+      ? Math.max(168, Math.min(compactRightRail ? 172 : 236, Math.round(effectiveStageW * (compactRightRail ? 0.176 : 0.18))))
+      : sp(168);
   const pipH = Math.round((pipW * 9) / 16);
-  const pipTop = sp(ultraShortStage ? 50 : compactRightRail ? 52 : 58);
-  const pipRight = sp(ultraShortStage ? 14 : compactTopBar ? 14 : 18);
+  const pipTop = ultraShortStage ? 46 : compactRightRail ? 54 : sp(60);
+  const pipRight = ultraShortStage ? 12 : compactTopBar ? 14 : sp(18);
   const rightRailBesidePip = ultraShortStage && dualCameraEnabled;
   const rightRailTop = rightRailBesidePip || !dualCameraEnabled
     ? pipTop
     : pipTop + pipH + sp(compactRightRail ? 6 : 10);
-  const rightRailRight = rightRailBesidePip ? pipRight + pipW + sp(8) : pipRight;
-  const rightRailWidth = ultraShortStage ? sp(142) : pipW;
+  const rightRailRight = rightRailBesidePip ? pipRight + pipW + 6 : pipRight;
+  const rightRailWidth = ultraShortStage ? 144 : pipW;
   const circleSize = sp(ultraShortStage ? 30 : compactRightRail ? 32 : 38);
   const circleRadius = Math.round(circleSize / 2);
   const circleIconSize = sp(ultraShortStage ? 15 : compactRightRail ? 16 : 18);
-  const railMetaLine = ultraShortStage ? sp(13) : compactRightRail ? sp(14) : fMetaLine;
+  const railMetaLine = ultraShortStage ? 13 : compactRightRail ? 14 : fMetaLine;
   const overlayW = Math.min(440, Math.max(350, Math.round(effectiveStageW * 0.44)));
   const centerStackInset = Math.round((joystickSize || 220) + sp(24));
   const stickCorridorEachSide = Math.round((joystickSize || 156) + sp(36));
   const centerFreeWidth = Math.max(308, effectiveStageW - stickCorridorEachSide * 2);
   const gestureDeckWidth = Math.min(sp(476), centerFreeWidth - sp(24));
-  const gestureMaxListHeight = effectiveStageH >= 620 ? 248 : effectiveStageH >= 500 ? 198 : 144;
+  const gestureMaxListHeight = effectiveStageH >= 620 ? 248 : effectiveStageH >= 500 ? 198 : 156;
   const faults = collectHudFaults({ runtimeState, sessionError, recoveryError });
   const signals = projectTopSignalBadges({ connection, runtimeState });
   const tempSummary = projectJointTemperatures('motor', joints);
@@ -386,23 +393,23 @@ export function controlLandscapeHud({
         ) : null}
 
         {/* Concept A-1 Top Floating Three-Island Bar */}
-        <View style={[styles.header, { left: sp(compactTopBar ? 12 : 18), right: sp(compactTopBar ? 12 : 18), top: sp(12) }]} pointerEvents="box-none">
-          <View style={[styles.topBarRow, { gap: sp(compactTopBar ? 6 : 10), minHeight: sp(38) }]} pointerEvents="box-none" testID="control-hud-status-bar">
+        <View style={[styles.header, { left: compactTopBar ? 8 : sp(18), right: compactTopBar ? 8 : sp(18), top: ultraShortStage ? 6 : compactTopBar ? 8 : sp(12) }]} pointerEvents="box-none">
+          <View style={[styles.topBarRow, { gap: ultraCompactTop ? 4 : compactTopBar ? 5 : sp(10), minHeight: topBarMinHeight }]} pointerEvents="box-none" testID="control-hud-status-bar">
             {/* Island 1 (Top-Left): Identity + Connection + Auth + Status + Control Settings + Workspace Settings */}
-            <View style={[styles.islandLeft, { gap: sp(compactTopBar ? 5 : 7), minHeight: sp(38), paddingHorizontal: sp(compactTopBar ? 10 : 13), paddingVertical: sp(3) }]} pointerEvents="box-none">
+            <View style={[styles.islandLeft, { gap: ultraCompactTop ? 4 : compactTopBar ? 5 : sp(7), minHeight: topBarMinHeight, paddingHorizontal: ultraCompactTop ? 6 : compactTopBar ? 8 : sp(13), paddingVertical: compactTopBar ? 2 : sp(3) }]} pointerEvents="box-none">
               <Pressable
                 accessibilityLabel={'设备连接' + connectionLabel}
                 accessibilityRole="button"
                 accessibilityState={{ disabled: !onOpenConnection }}
                 disabled={!onOpenConnection}
                 onPress={onOpenConnection}
-                style={({ pressed }) => [styles.identityTrigger, { gap: sp(7) }, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.identityTrigger, { gap: compactTopBar ? 4 : sp(7) }, pressed && styles.pressed]}
                 testID="control-open-connection"
               >
-                <View style={[styles.connectionDot, { borderRadius: sp(4), height: sp(8), width: sp(8) }, connection === 'connected' ? styles.connectedDot : connection === 'readonly' ? styles.readonlyDot : null]} testID="control-hud-connection-dot" />
-                <Text numberOfLines={1} style={[styles.identityText, { fontSize: fTitle, lineHeight: fTitleLine }, compactTopBar ? { maxWidth: sp(effectiveStageW < 900 ? 88 : 118) } : null]}>{robotName}</Text>
-                <View style={[styles.connPillBadge, { borderRadius: sp(6), paddingHorizontal: sp(7), paddingVertical: sp(2) }]}>
-                  <Text numberOfLines={1} style={[styles.connPillText, { fontSize: fMeta, lineHeight: fMetaLine }]}>{connectionLabel}</Text>
+                <View style={[styles.connectionDot, { borderRadius: sp(4), height: compactTopBar ? 7 : sp(8), width: compactTopBar ? 7 : sp(8) }, connection === 'connected' ? styles.connectedDot : connection === 'readonly' ? styles.readonlyDot : null]} testID="control-hud-connection-dot" />
+                <Text numberOfLines={1} style={[styles.identityText, { fontSize: compactTopBar ? 12 : fTitle, lineHeight: compactTopBar ? 16 : fTitleLine }, compactTopBar ? { maxWidth: ultraCompactTop ? 72 : 102 } : null]}>{robotName}</Text>
+                <View style={[styles.connPillBadge, { borderRadius: sp(6), paddingHorizontal: compactTopBar ? 5 : sp(7), paddingVertical: compactTopBar ? 1 : sp(2) }]}>
+                  <Text numberOfLines={1} style={[styles.connPillText, { fontSize: compactTopBar ? 11 : fMeta, lineHeight: compactTopBar ? 14 : fMetaLine }]}>{connectionLabel}</Text>
                 </View>
               </Pressable>
 
@@ -411,23 +418,23 @@ export function controlLandscapeHud({
                   accessibilityLabel="立即重连机器狗与图传"
                   accessibilityRole="button"
                   onPress={onReconnect}
-                  style={({ pressed }) => [styles.reconnectPillBtn, { borderRadius: sp(999), gap: sp(4), minHeight: sp(26), paddingHorizontal: sp(9), paddingVertical: sp(2) }, pressed && styles.pressed]}
+                  style={({ pressed }) => [styles.reconnectPillBtn, { borderRadius: sp(999), gap: 3, minHeight: compactTopBar ? 24 : sp(26), paddingHorizontal: compactTopBar ? 7 : sp(9), paddingVertical: compactTopBar ? 1 : sp(2) }, pressed && styles.pressed]}
                   testID="control-hud-reconnect"
                 >
                   <Ionicons color="#FFFFFF" name="refresh-outline" size={sp(12)} />
-                  <Text numberOfLines={1} style={[styles.reconnectPillText, { fontSize: fMeta, lineHeight: fMetaLine }]}>重连</Text>
+                  <Text numberOfLines={1} style={[styles.reconnectPillText, { fontSize: compactTopBar ? 11 : fMeta, lineHeight: compactTopBar ? 14 : fMetaLine }]}>重连</Text>
                 </Pressable>
               ) : null}
 
               {showLocalControl ? (
-                <Chip sp={sp} testID="control-hud-local-control">
-                  <Text style={[styles.chipText, { fontSize: fMeta, lineHeight: fMetaLine }]}>本设备控制</Text>
+                <Chip compact={compactTopBar} sp={sp} testID="control-hud-local-control">
+                  <Text numberOfLines={1} style={[styles.chipText, { fontSize: compactTopBar ? 10.5 : fMeta, lineHeight: compactTopBar ? 14 : fMetaLine }]}>本设备控制</Text>
                 </Chip>
               ) : null}
               {showUnlocked ? (
-                <Chip sp={sp} testID="control-hud-unlocked">
-                  <Ionicons color={EMERALD_INK} name="lock-open-outline" size={sp(12)} />
-                  <Text style={[styles.chipText, { fontSize: fMeta, lineHeight: fMetaLine }]}>设备已解锁</Text>
+                <Chip compact={compactTopBar} sp={sp} testID="control-hud-unlocked">
+                  <Ionicons color={EMERALD_INK} name="lock-open-outline" size={compactTopBar ? 10 : sp(12)} />
+                  <Text numberOfLines={1} style={[styles.chipText, { fontSize: compactTopBar ? 10.5 : fMeta, lineHeight: compactTopBar ? 14 : fMetaLine }]}>设备已解锁</Text>
                 </Chip>
               ) : null}
 
@@ -437,11 +444,11 @@ export function controlLandscapeHud({
                 accessibilityLabel="状态"
                 accessibilityRole="button"
                 onPress={onOpenJointStatus ?? onBack}
-                style={({ pressed }) => [styles.islandNavBtn, { gap: sp(compactTopBar ? 4 : 5), minHeight: sp(32), paddingHorizontal: sp(compactTopBar ? 7 : 9) }, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.islandNavBtn, { gap: compactTopBar ? 3 : sp(5), minHeight: topBtnHeight, paddingHorizontal: ultraCompactTop ? 5 : compactTopBar ? 6 : sp(9) }, pressed && styles.pressed]}
                 testID="control-hud-open-status"
               >
-                <Ionicons color={INK} name="pulse-outline" size={sp(14)} />
-                <Text style={[styles.islandNavText, { fontSize: fBody, lineHeight: fBodyLine }]}>状态</Text>
+                {!(ultraCompactTop && (showLocalControl || showUnlocked)) ? <Ionicons color={INK} name="pulse-outline" size={compactTopBar ? 12 : sp(14)} /> : null}
+                <Text numberOfLines={1} style={[styles.islandNavText, { fontSize: topFont, lineHeight: topFontLine }]}>状态</Text>
               </Pressable>
 
               <Pressable
@@ -449,11 +456,11 @@ export function controlLandscapeHud({
                 accessibilityRole="button"
                 accessibilityState={{ expanded: settingsOpen }}
                 onPress={onOpenSettings}
-                style={({ pressed }) => [styles.islandNavBtn, { gap: sp(compactTopBar ? 4 : 5), minHeight: sp(32), paddingHorizontal: sp(compactTopBar ? 7 : 9) }, settingsOpen && styles.islandNavBtnActive, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.islandNavBtn, { gap: compactTopBar ? 3 : sp(5), minHeight: topBtnHeight, paddingHorizontal: ultraCompactTop ? 5 : compactTopBar ? 6 : sp(9) }, settingsOpen && styles.islandNavBtnActive, pressed && styles.pressed]}
                 testID="control-hud-settings"
               >
-                <Ionicons color={settingsOpen ? '#93C5FD' : INK} name="options-outline" size={sp(14)} />
-                <Text style={[styles.islandNavText, { fontSize: fBody, lineHeight: fBodyLine }, settingsOpen && styles.islandNavTextActive]}>操控</Text>
+                {!(ultraCompactTop && (showLocalControl || showUnlocked)) ? <Ionicons color={settingsOpen ? '#93C5FD' : INK} name="options-outline" size={compactTopBar ? 12 : sp(14)} /> : null}
+                <Text numberOfLines={1} style={[styles.islandNavText, { fontSize: topFont, lineHeight: topFontLine }, settingsOpen && styles.islandNavTextActive]}>操控</Text>
               </Pressable>
 
               {onOpenWorkspaceSettings ? (
@@ -461,28 +468,28 @@ export function controlLandscapeHud({
                   accessibilityLabel="设置"
                   accessibilityRole="button"
                   onPress={onOpenWorkspaceSettings}
-                  style={({ pressed }) => [styles.islandNavBtn, { gap: sp(compactTopBar ? 4 : 5), minHeight: sp(32), paddingHorizontal: sp(compactTopBar ? 7 : 9) }, pressed && styles.pressed]}
+                  style={({ pressed }) => [styles.islandNavBtn, { gap: compactTopBar ? 3 : sp(5), minHeight: topBtnHeight, paddingHorizontal: ultraCompactTop ? 5 : compactTopBar ? 6 : sp(9) }, pressed && styles.pressed]}
                   testID="control-hud-open-workspace-settings"
                 >
-                  <Ionicons color={INK} name="settings-outline" size={sp(14)} />
-                  <Text style={[styles.islandNavText, { fontSize: fBody, lineHeight: fBodyLine }]}>设置</Text>
+                  {!(ultraCompactTop && (showLocalControl || showUnlocked)) ? <Ionicons color={INK} name="settings-outline" size={compactTopBar ? 12 : sp(14)} /> : null}
+                  <Text numberOfLines={1} style={[styles.islandNavText, { fontSize: topFont, lineHeight: topFontLine }]}>设置</Text>
                 </Pressable>
               ) : null}
             </View>
 
             {/* Island 2 (Top-Center): Mode + Segmented Terrain Capsules + Speed Chip */}
-            <View style={[styles.islandCenter, { gap: sp(compactTopBar ? 4 : 6), minHeight: sp(38), paddingHorizontal: sp(compactTopBar ? 5 : 7), paddingVertical: sp(3) }]} pointerEvents="box-none">
+            <View style={[styles.islandCenter, { gap: compactTopBar ? 3 : sp(6), minHeight: topBarMinHeight, paddingHorizontal: compactTopBar ? 4 : sp(7), paddingVertical: compactTopBar ? 2 : sp(3) }]} pointerEvents="box-none">
               <Pressable
                 accessibilityLabel={recoveryModeSelected ? '恢复模式' : '常规模式，切换左侧控制组'}
                 accessibilityRole="button"
                 onPress={cycleLeftCategory}
-                style={({ pressed }) => [styles.modeMiniBtn, { paddingHorizontal: sp(8), paddingVertical: sp(4) }, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.modeMiniBtn, { paddingHorizontal: compactTopBar ? 5 : sp(8), paddingVertical: compactTopBar ? 3 : sp(4) }, pressed && styles.pressed]}
                 testID="control-hud-mode-header"
               >
-                <Ionicons color="#C5CED4" name={recoveryModeSelected ? 'medkit-outline' : 'apps-outline'} size={sp(14)} />
+                <Ionicons color="#C5CED4" name={recoveryModeSelected ? 'medkit-outline' : 'apps-outline'} size={compactTopBar ? 13 : sp(14)} />
               </Pressable>
 
-              <View style={[styles.terrainTrack, { gap: sp(2), padding: 2 }]}>
+              <View style={[styles.terrainTrack, { gap: 2, padding: ultraShortStage ? 1 : 2 }]}>
                 {visiblePolicies.map(option => (
                   <Pressable
                     key={option.id}
@@ -496,14 +503,14 @@ export function controlLandscapeHud({
                     }}
                     style={({ pressed }) => [
                       styles.terrainSegBtn,
-                      { minHeight: sp(30), paddingHorizontal: sp(compactTopBar ? 10 : 14) },
+                      { minHeight: topBtnHeight, paddingHorizontal: ultraCompactTop ? 7 : compactTopBar ? 8 : sp(14) },
                       option.selected && styles.terrainSegBtnSelected,
                       option.disabled && !option.selected && styles.disabled,
                       pressed && styles.pressed,
                     ]}
                     testID={`control-hud-terrain-capsule-${option.id}`}
                   >
-                    <Text numberOfLines={1} style={[styles.terrainSegText, { fontSize: fBody, lineHeight: fBodyLine }, option.selected && styles.terrainSegTextSelected]}>
+                    <Text numberOfLines={1} style={[styles.terrainSegText, { fontSize: compactTopBar ? 12 : fBody, lineHeight: topFontLine }, option.selected && styles.terrainSegTextSelected]}>
                       {option.label}
                     </Text>
                   </Pressable>
@@ -519,13 +526,13 @@ export function controlLandscapeHud({
                 onPress={onToggleSpeedLimitExpanded}
                 style={({ pressed }) => [
                   styles.speedPillBtn,
-                  { minHeight: sp(30), paddingHorizontal: sp(12) },
+                  { minHeight: topBtnHeight, paddingHorizontal: compactTopBar ? 7 : sp(12) },
                   (speedLimitExpanded || speedLimitClamped < 100 || speedMode === 'high') && styles.speedPillBtnActive,
                   pressed && styles.pressed,
                 ]}
                 testID="control-hud-speed-limit-toggle"
               >
-                <Text style={[styles.speedPillText, { fontSize: fBody, lineHeight: fBodyLine }]}>
+                <Text numberOfLines={1} style={[styles.speedPillText, { fontSize: topFont, lineHeight: topFontLine }]}>
                   {speedMode === 'high'
                     ? (speedLimitClamped < 100 ? `高速 ${speedLimitClamped}%` : '2.5 m/s')
                     : (speedLimitClamped < 100 ? `${speedLimitClamped}%` : '1.0 m/s')}
@@ -534,57 +541,59 @@ export function controlLandscapeHud({
             </View>
 
             {/* Island 3 (Top-Right): Signal / Voltage / Thermal Telemetry + Guarded Crimson E-Stop */}
-            <View style={[styles.islandRight, { flexShrink: 1, gap: sp(compactTopBar ? 6 : 10), minHeight: sp(38), paddingLeft: sp(compactTopBar ? 9 : 13), paddingRight: sp(5), paddingVertical: sp(3) }]} pointerEvents="box-none" testID="control-telemetry">
-              {faults.length > 0 ? (
-                <Pressable
-                  accessibilityLabel={`异常列表，共 ${faults.length} 项`}
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded: faultPanelOpen }}
-                  onPress={onToggleFaultPanel}
-                  style={({ pressed }) => [styles.faultBadgeBtn, { borderRadius: sp(12), height: sp(24), minWidth: sp(24), paddingHorizontal: sp(6) }, faultPanelOpen && styles.faultBadgeBtnActive, pressed && styles.pressed]}
-                  testID="control-hud-fault-badge"
-                >
-                  <Text style={[styles.faultBadgeText, { fontSize: fMeta, lineHeight: fMetaLine }]}>{faults.length > 1 ? String(faults.length) : '!'}</Text>
-                </Pressable>
-              ) : null}
+            <View style={[styles.islandRight, { flexShrink: 1, gap: ultraCompactTop ? 5 : compactTopBar ? 6 : sp(7), minHeight: topBarMinHeight, paddingLeft: compactTopBar ? 8 : sp(13), paddingRight: compactTopBar ? 4 : sp(5), paddingVertical: compactTopBar ? 2 : sp(3) }]} pointerEvents="box-none" testID="control-telemetry">
+              <View style={[styles.telemetryCluster, { gap: ultraCompactTop ? 5 : compactTopBar ? 6 : sp(7) }]} pointerEvents="box-none">
+                {faults.length > 0 ? (
+                  <Pressable
+                    accessibilityLabel={`异常列表，共 ${faults.length} 项`}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: faultPanelOpen }}
+                    onPress={onToggleFaultPanel}
+                    style={({ pressed }) => [styles.faultBadgeBtn, { borderRadius: sp(12), height: compactTopBar ? 22 : sp(24), minWidth: compactTopBar ? 22 : sp(24), paddingHorizontal: compactTopBar ? 5 : sp(6) }, faultPanelOpen && styles.faultBadgeBtnActive, pressed && styles.pressed]}
+                    testID="control-hud-fault-badge"
+                  >
+                    <Text numberOfLines={1} style={[styles.faultBadgeText, { fontSize: compactTopBar ? 11 : fMeta, lineHeight: compactTopBar ? 14 : fMetaLine }]}>{faults.length > 1 ? String(faults.length) : '!'}</Text>
+                  </Pressable>
+                ) : null}
 
-              {signals.cellularVisible ? (
-                <View accessible accessibilityLabel={`移动数据 ${signals.cellularText}`} style={[styles.telemetryItem, { gap: sp(4) }]} testID="control-hud-cellular">
-                  <Ionicons color={INK} name="cellular" size={sp(14)} />
-                  <Text style={[styles.telemetryText, { fontSize: fBody, lineHeight: fBodyLine }]}>{signals.cellularText}</Text>
-                </View>
-              ) : null}
+                {signals.cellularVisible ? (
+                  <View accessible accessibilityLabel={`移动数据 ${signals.cellularText}`} style={[styles.telemetryItem, { gap: compactTopBar ? 2 : sp(4) }]} testID="control-hud-cellular">
+                    <Ionicons color={INK} name="cellular" size={compactTopBar ? 12 : sp(14)} />
+                    <Text numberOfLines={1} style={[styles.telemetryText, { fontSize: topFont, lineHeight: topFontLine }]}>{signals.cellularText}</Text>
+                  </View>
+                ) : null}
 
-              {signals.robotVisible ? (
-                <View accessible accessibilityLabel={`机器人信号 ${signals.robotText}`} style={[styles.telemetryItem, { gap: sp(4) }]} testID="control-hud-robot-signal">
-                  <Ionicons color="#7DD3FC" name="hardware-chip-outline" size={sp(14)} />
-                  <Text style={[styles.telemetryText, { fontSize: fBody, lineHeight: fBodyLine }]}>{signals.robotText}</Text>
-                </View>
-              ) : null}
+                {signals.robotVisible ? (
+                  <View accessible accessibilityLabel={`机器人信号 ${signals.robotText}`} style={[styles.telemetryItem, { gap: compactTopBar ? 2 : sp(4) }]} testID="control-hud-robot-signal">
+                    <Ionicons color="#7DD3FC" name="hardware-chip-outline" size={compactTopBar ? 12 : sp(14)} />
+                    <Text numberOfLines={1} style={[styles.telemetryText, { fontSize: topFont, lineHeight: topFontLine }]}>{signals.robotText}</Text>
+                  </View>
+                ) : null}
 
-              {signals.wifiVisible ? (
-                <View accessible accessibilityLabel={`WiFi ${signals.wifiText}`} style={[styles.telemetryItem, { gap: sp(4) }]} testID="control-hud-wifi-signal">
-                  <Ionicons color={EMERALD_INK} name="wifi" size={sp(14)} />
-                  <Text style={[styles.telemetryText, { fontSize: fBody, lineHeight: fBodyLine }]}>{signals.wifiText}</Text>
-                </View>
-              ) : null}
+                {signals.wifiVisible ? (
+                  <View accessible accessibilityLabel={`WiFi ${signals.wifiText}`} style={[styles.telemetryItem, { gap: compactTopBar ? 2 : sp(4) }]} testID="control-hud-wifi-signal">
+                    <Ionicons color={EMERALD_INK} name="wifi" size={compactTopBar ? 12 : sp(14)} />
+                    <Text numberOfLines={1} style={[styles.telemetryText, { fontSize: topFont, lineHeight: topFontLine }]}>{compactTopBar ? signals.wifiCompactText : signals.wifiText}</Text>
+                  </View>
+                ) : null}
 
-              {inlineVoltageText || inlineBatteryText ? (
-                <Text style={[styles.telemetryText, { fontSize: fBody, lineHeight: fBodyLine }]}>
-                  {[inlineVoltageText, inlineBatteryText].filter(Boolean).join(' · ')}
-                </Text>
-              ) : null}
+                {inlineVoltageText || inlineBatteryText ? (
+                  <Text numberOfLines={1} style={[styles.telemetryText, { fontSize: topFont, lineHeight: topFontLine }]}>
+                    {[inlineVoltageText, inlineBatteryText].filter(Boolean).join(compactTopBar ? '·' : ' · ')}
+                  </Text>
+                ) : null}
 
-              {inlineTempText ? (
-                <Text style={[styles.telemetryText, { fontSize: fBody, lineHeight: fBodyLine }]}>{inlineTempText}</Text>
-              ) : null}
+                {inlineTempText ? (
+                  <Text numberOfLines={1} style={[styles.telemetryText, { fontSize: topFont, lineHeight: topFontLine }]}>{inlineTempText}</Text>
+                ) : null}
 
-              {recordingActive ? (
-                <View accessible accessibilityLabel={`正在录制视频 ${recordingDurationLabel ?? ''}`} style={[styles.recordingBadge, { gap: sp(4), paddingHorizontal: sp(8), paddingVertical: sp(3) }]} testID="control-hud-recording-badge">
-                  <View style={[styles.recordingDot, { borderRadius: sp(3.5), height: sp(7), width: sp(7) }]} />
-                  <Text style={[styles.recordingBadgeText, { fontSize: fMeta, lineHeight: fMetaLine }]}>{recordingDurationLabel ? `REC ${recordingDurationLabel}` : 'REC'}</Text>
-                </View>
-              ) : null}
+                {recordingActive ? (
+                  <View accessible accessibilityLabel={`正在录制视频 ${recordingDurationLabel ?? ''}`} style={[styles.recordingBadge, { gap: compactTopBar ? 3 : sp(4), paddingHorizontal: compactTopBar ? 6 : sp(8), paddingVertical: compactTopBar ? 2 : sp(3) }]} testID="control-hud-recording-badge">
+                    <View style={[styles.recordingDot, { borderRadius: sp(3.5), height: sp(7), width: sp(7) }]} />
+                    <Text numberOfLines={1} style={[styles.recordingBadgeText, { fontSize: compactTopBar ? 11 : fMeta, lineHeight: compactTopBar ? 14 : fMetaLine }]}>{recordingDurationLabel ? `REC ${recordingDurationLabel}` : 'REC'}</Text>
+                  </View>
+                ) : null}
+              </View>
 
               <Pressable
                 accessibilityHint={stopHint}
@@ -593,13 +602,13 @@ export function controlLandscapeHud({
                 accessibilityState={{ disabled: stopDisabled }}
                 disabled={stopDisabled}
                 onPress={onStop}
-                style={({ pressed }) => [styles.stop, { gap: sp(6), minHeight: sp(32), minWidth: sp(74), paddingHorizontal: sp(14) }, stopDisabled && styles.stopDisabled, pressed && !stopDisabled && styles.pressed]}
+                style={({ pressed }) => [styles.stop, { gap: compactTopBar ? 4 : sp(6), minHeight: topBtnHeight, minWidth: compactTopBar ? 60 : sp(74), paddingHorizontal: compactTopBar ? 10 : sp(14) }, stopDisabled && styles.stopDisabled, pressed && !stopDisabled && styles.pressed]}
                 testID="control-hud-stop"
               >
-                <View style={[styles.stopRing, { borderRadius: sp(7), height: sp(14), width: sp(14) }]}>
-                  <View style={[styles.stopCore, { borderRadius: sp(2.5), height: sp(5), width: sp(5) }]} />
+                <View style={[styles.stopRing, { borderRadius: compactTopBar ? 6 : sp(7), height: compactTopBar ? 12 : sp(14), width: compactTopBar ? 12 : sp(14) }]}>
+                  <View style={[styles.stopCore, { borderRadius: 2, height: 4, width: 4 }]} />
                 </View>
-                <Text style={[styles.stopText, { fontSize: fTitle, lineHeight: fTitleLine }]}>急停</Text>
+                <Text numberOfLines={1} style={[styles.stopText, { fontSize: compactTopBar ? 12.5 : fTitle, lineHeight: compactTopBar ? 16 : fTitleLine }]}>急停</Text>
               </Pressable>
             </View>
           </View>
@@ -766,17 +775,17 @@ export function controlLandscapeHud({
             </Pressable>
           </View>
 
-          <View style={[styles.secondaryUtilityStrip, { gap: sp(ultraShortStage ? 2 : 3), justifyContent: 'space-between' as const, paddingHorizontal: sp(ultraShortStage ? 3 : 5), paddingVertical: sp(2), width: '100%' }]}>
+          <View style={[styles.secondaryUtilityStrip, { gap: 2, justifyContent: 'space-between' as const, paddingHorizontal: ultraShortStage ? 3 : 4, paddingVertical: 2, width: '100%' }]}>
             <Pressable
               accessibilityLabel={`切换相机视角，当前${showMainFront ? '前视角' : '后视角'}`}
               accessibilityRole="button"
               accessibilityState={{ selected: !showMainFront }}
               onPress={onSwapCamera}
-              style={({ pressed }) => [styles.utilityMiniPill, { flex: 1, gap: sp(ultraShortStage ? 2 : 3), justifyContent: 'center' as const, paddingHorizontal: sp(ultraShortStage ? 3 : 5), paddingVertical: sp(ultraShortStage ? 2 : compactRightRail ? 3 : 4) }, !showMainFront && styles.utilityMiniPillActive, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.utilityMiniPill, { flex: 1, gap: 2, justifyContent: 'center' as const, paddingHorizontal: ultraShortStage ? 3 : 4, paddingVertical: ultraShortStage ? 2 : compactRightRail ? 3 : 4 }, !showMainFront && styles.utilityMiniPillActive, pressed && styles.pressed]}
               testID="control-hud-camera-swap"
             >
-              <Ionicons color={INK} name="camera-reverse-outline" size={sp(ultraShortStage ? 11 : 13)} />
-              <Text numberOfLines={1} style={[styles.utilityMiniText, { fontSize: fMeta, lineHeight: railMetaLine }]}>{showMainFront ? '前视' : '后视'}</Text>
+              <Ionicons color={INK} name="camera-reverse-outline" size={ultraShortStage ? 10 : compactRightRail ? 11 : sp(13)} />
+              <Text numberOfLines={1} style={[styles.utilityMiniText, { fontSize: compactRightRail ? 10.5 : fMeta, lineHeight: railMetaLine }]}>{showMainFront ? '前视' : '后视'}</Text>
             </Pressable>
 
             <Pressable
@@ -784,11 +793,11 @@ export function controlLandscapeHud({
               accessibilityRole="button"
               accessibilityState={{ selected: headlightMode !== 'off' }}
               onPress={onToggleHeadlight}
-              style={({ pressed }) => [styles.utilityMiniPill, { flex: 1, gap: sp(ultraShortStage ? 2 : 3), justifyContent: 'center' as const, paddingHorizontal: sp(ultraShortStage ? 3 : 5), paddingVertical: sp(ultraShortStage ? 2 : compactRightRail ? 3 : 4) }, headlightMode !== 'off' && styles.utilityMiniPillActive, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.utilityMiniPill, { flex: 1, gap: 2, justifyContent: 'center' as const, paddingHorizontal: ultraShortStage ? 3 : 4, paddingVertical: ultraShortStage ? 2 : compactRightRail ? 3 : 4 }, headlightMode !== 'off' && styles.utilityMiniPillActive, pressed && styles.pressed]}
               testID="control-hud-light-toggle"
             >
-              <Ionicons color={headlightMode !== 'off' ? EMERALD_INK : INK} name="flashlight-outline" size={sp(ultraShortStage ? 11 : 13)} />
-              <Text numberOfLines={1} style={[styles.utilityMiniText, { fontSize: fMeta, lineHeight: railMetaLine }]}>{headlightMode === 'off' ? '车灯' : headlightMode === 'front' ? '前灯' : '双灯'}</Text>
+              <Ionicons color={headlightMode !== 'off' ? EMERALD_INK : INK} name="flashlight-outline" size={ultraShortStage ? 10 : compactRightRail ? 11 : sp(13)} />
+              <Text numberOfLines={1} style={[styles.utilityMiniText, { fontSize: compactRightRail ? 10.5 : fMeta, lineHeight: railMetaLine }]}>{headlightMode === 'off' ? '车灯' : headlightMode === 'front' ? '前灯' : '双灯'}</Text>
             </Pressable>
 
             <Pressable
@@ -796,18 +805,18 @@ export function controlLandscapeHud({
               accessibilityRole="button"
               accessibilityState={{ selected: recordingActive }}
               onPress={onToggleRecord}
-              style={({ pressed }) => [styles.utilityMiniPill, { flex: 1, gap: sp(ultraShortStage ? 2 : 3), justifyContent: 'center' as const, paddingHorizontal: sp(ultraShortStage ? 3 : 5), paddingVertical: sp(ultraShortStage ? 2 : compactRightRail ? 3 : 4) }, recordingActive && styles.utilityMiniPillDanger, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.utilityMiniPill, { flex: 1, gap: 2, justifyContent: 'center' as const, paddingHorizontal: ultraShortStage ? 3 : 4, paddingVertical: ultraShortStage ? 2 : compactRightRail ? 3 : 4 }, recordingActive && styles.utilityMiniPillDanger, pressed && styles.pressed]}
               testID="control-hud-record-toggle"
             >
-              <Ionicons color={INK} name={recordingActive ? 'stop-circle-outline' : 'videocam-outline'} size={sp(ultraShortStage ? 11 : 13)} />
-              <Text numberOfLines={1} style={[styles.utilityMiniText, { fontSize: fMeta, lineHeight: railMetaLine }]}>{recordingActive && recordingDurationLabel ? `录屏 ${recordingDurationLabel}` : '录屏'}</Text>
+              <Ionicons color={INK} name={recordingActive ? 'stop-circle-outline' : 'videocam-outline'} size={ultraShortStage ? 10 : compactRightRail ? 11 : sp(13)} />
+              <Text numberOfLines={1} style={[styles.utilityMiniText, { fontSize: compactRightRail ? 10.5 : fMeta, lineHeight: railMetaLine }]}>录屏</Text>
             </Pressable>
           </View>
         </View> : null}
 
         {/* Floating Joint Params / Joint Temp / Faults / Recovery */}
         {anyFloatingPanel && !settingsMenu ? (
-          <View pointerEvents="box-none" style={[styles.floatingPanelsOverlay, { bottom: sp(116), top: sp(64) + (feedback ? sp(46) : 0) + (hudNotice ? sp(46) : 0), transform: [{ translateX: -Math.round(overlayW / 2) }], width: overlayW }]} testID="control-hud-overlay-stack">
+          <View pointerEvents="box-none" style={[styles.floatingPanelsOverlay, { bottom: sp(116), top: sp(64) + (speedLimitExpanded ? sp(46) : 0) + (feedback ? sp(46) : 0) + (hudNotice ? sp(46) : 0), transform: [{ translateX: -Math.round(overlayW / 2) }], width: overlayW }]} testID="control-hud-overlay-stack">
             <ScrollView
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.floatingPanelsContent}
@@ -968,7 +977,18 @@ export function controlLandscapeHud({
             </View>
           ) : null}
 
-          <View style={[styles.bottomDockBar, { gap: sp(8), minHeight: sp(44), paddingHorizontal: sp(14), paddingVertical: sp(5) }]}>
+          <View
+            style={[
+              styles.bottomDockBar,
+              {
+                gap: !docksExpanded && compactTopBar ? (ultraCompactTop ? 4 : 5) : sp(8),
+                maxWidth: !docksExpanded && compactTopBar ? centerFreeWidth : undefined,
+                minHeight: !docksExpanded && compactTopBar ? (ultraShortStage ? 38 : 40) : sp(44),
+                paddingHorizontal: !docksExpanded && compactTopBar ? (ultraCompactTop ? 8 : 10) : sp(14),
+                paddingVertical: !docksExpanded && compactTopBar ? 3 : sp(5),
+              },
+            ]}
+          >
             <Pressable
               accessibilityHint={motorHint}
               accessibilityLabel={motorEnabled ? '失能电机' : '使能电机'}
@@ -978,21 +998,21 @@ export function controlLandscapeHud({
               onPress={onToggleMotor}
               style={({ pressed }) => [
                 styles.dockMotorBtn,
-                { gap: sp(6), minHeight: sp(32), paddingHorizontal: sp(4) },
+                { gap: !docksExpanded && compactTopBar ? 4 : sp(6), minHeight: !docksExpanded && compactTopBar ? 26 : sp(32), paddingHorizontal: !docksExpanded && compactTopBar ? 2 : sp(4) },
                 (motorDisabled || motorBusy) && styles.disabled,
                 pressed && styles.pressed,
               ]}
               testID="control-hud-motor-power"
             >
-              <View style={[styles.motorDot, { borderRadius: sp(4), height: sp(8), width: sp(8) }, motorEnabled ? styles.motorDotArmed : styles.motorDotOff]} />
-              <Text style={[styles.dockMotorText, { fontSize: fBody, lineHeight: fBodyLine }, motorEnabled && styles.dockMotorTextArmed]}>
+              <View style={[styles.motorDot, { borderRadius: sp(4), height: !docksExpanded && compactTopBar ? 7 : sp(8), width: !docksExpanded && compactTopBar ? 7 : sp(8) }, motorEnabled ? styles.motorDotArmed : styles.motorDotOff]} />
+              <Text numberOfLines={1} style={[styles.dockMotorText, { fontSize: !docksExpanded && compactTopBar ? 12 : fBody, lineHeight: !docksExpanded && compactTopBar ? 16 : fBodyLine }, motorEnabled && styles.dockMotorTextArmed]}>
                 {motorEnabled ? '失能电机' : '使能电机'}
               </Text>
             </Pressable>
 
             <View style={[styles.dockDivider, { height: sp(16) }]} />
 
-            <View style={[styles.dockPostureGroup, { gap: sp(4) }]} testID="control-hud-quick-posture">
+            <View style={[styles.dockPostureGroup, { gap: !docksExpanded && compactTopBar ? 2 : sp(4) }]} testID="control-hud-quick-posture">
               <Pressable
                 accessibilityHint={standOption?.hint}
                 accessibilityLabel="起立"
@@ -1002,14 +1022,14 @@ export function controlLandscapeHud({
                 onPress={() => standOption?.onPress()}
                 style={({ pressed }) => [
                   styles.dockItemBtn,
-                  { minHeight: sp(30), paddingHorizontal: sp(10) },
+                  { minHeight: !docksExpanded && compactTopBar ? 26 : sp(30), paddingHorizontal: !docksExpanded && compactTopBar ? (ultraCompactTop ? 7 : 8) : sp(10) },
                   standOption?.selected && styles.dockItemBtnActive,
                   (standOption?.disabled ?? true) && styles.disabled,
                   pressed && styles.pressed,
                 ]}
                 testID="control-hud-quick-stand"
               >
-                <Text style={[styles.dockItemText, { fontSize: fBody, lineHeight: fBodyLine }, standOption?.selected && styles.dockItemTextActive]}>站立</Text>
+                <Text numberOfLines={1} style={[styles.dockItemText, { fontSize: !docksExpanded && compactTopBar ? 12 : fBody, lineHeight: !docksExpanded && compactTopBar ? 16 : fBodyLine }, standOption?.selected && styles.dockItemTextActive]}>站立</Text>
               </Pressable>
 
               <Pressable
@@ -1021,20 +1041,20 @@ export function controlLandscapeHud({
                 onPress={() => sitOption?.onPress()}
                 style={({ pressed }) => [
                   styles.dockItemBtn,
-                  { minHeight: sp(30), paddingHorizontal: sp(10) },
+                  { minHeight: !docksExpanded && compactTopBar ? 26 : sp(30), paddingHorizontal: !docksExpanded && compactTopBar ? (ultraCompactTop ? 7 : 8) : sp(10) },
                   sitOption?.selected && styles.dockItemBtnActive,
                   (sitOption?.disabled ?? true) && styles.disabled,
                   pressed && styles.pressed,
                 ]}
                 testID="control-hud-quick-sit"
               >
-                <Text style={[styles.dockItemText, { fontSize: fBody, lineHeight: fBodyLine }, sitOption?.selected && styles.dockItemTextActive]}>坐下</Text>
+                <Text numberOfLines={1} style={[styles.dockItemText, { fontSize: !docksExpanded && compactTopBar ? 12 : fBody, lineHeight: !docksExpanded && compactTopBar ? 16 : fBodyLine }, sitOption?.selected && styles.dockItemTextActive]}>坐下</Text>
               </Pressable>
             </View>
 
             <View style={[styles.dockDivider, { height: sp(16) }]} />
 
-            <View style={[styles.dockCategories, { gap: sp(2) }]} testID="control-hud-left-category-tabs">
+            <View style={[styles.dockCategories, { gap: 2 }]} testID="control-hud-left-category-tabs">
               {LEFT_CATEGORIES.filter(tab => tab.id !== 'policy').map(tab => {
                 const selected = leftCategory === tab.id;
                 const toggleNext = tab.id === 'policy' ? 'policy' : selected ? 'policy' : tab.id;
@@ -1047,13 +1067,13 @@ export function controlLandscapeHud({
                     onPress={() => onLeftCategoryChange(toggleNext)}
                     style={({ pressed }) => [
                       styles.dockCatBtn,
-                      { minHeight: sp(30), paddingHorizontal: sp(10) },
+                      { minHeight: !docksExpanded && compactTopBar ? 26 : sp(30), paddingHorizontal: !docksExpanded && compactTopBar ? (ultraCompactTop ? 7 : 8) : sp(10) },
                       selected && tab.id !== 'policy' && styles.dockCatBtnActive,
                       pressed && styles.pressed,
                     ]}
                     testID={`control-hud-category-${tab.id}`}
                   >
-                    <Text style={[styles.dockItemText, { fontSize: fBody, lineHeight: fBodyLine }, selected && tab.id !== 'policy' && styles.dockItemTextActive]}>
+                    <Text numberOfLines={1} style={[styles.dockItemText, { fontSize: !docksExpanded && compactTopBar ? 12 : fBody, lineHeight: !docksExpanded && compactTopBar ? 16 : fBodyLine }, selected && tab.id !== 'policy' && styles.dockItemTextActive]}>
                       {tab.id === 'action' ? '动作 ▾' : tab.label}
                     </Text>
                   </Pressable>
@@ -1067,6 +1087,7 @@ export function controlLandscapeHud({
                 {ControlHudDashboard({
                   expanded: false,
                   inlineCollapsed: true,
+                  compactInline: compactTopBar,
                   scale: hudScale,
                   onToggleExpanded: onToggleDocks,
                   headlightMode,
@@ -1103,12 +1124,12 @@ export function controlLandscapeHud({
         ) : null}
         {settingsMenu}
         {feedback ? (
-          <View pointerEvents="none" style={[styles.feedback, { borderRadius: sp(12), paddingHorizontal: sp(16), paddingVertical: sp(8), top: sp(64) }]} testID="control-operation-feedback">
+          <View pointerEvents="none" style={[styles.feedback, { borderRadius: sp(12), paddingHorizontal: sp(16), paddingVertical: sp(8), top: sp(speedLimitExpanded ? 110 : 64) }]} testID="control-operation-feedback">
             <Text numberOfLines={2} style={[styles.feedbackText, { fontSize: fBody, lineHeight: fBodyLine }]}>{feedback}</Text>
           </View>
         ) : null}
         {hudNotice ? (
-          <View pointerEvents="none" style={[styles.feedback, { borderRadius: sp(12), paddingHorizontal: sp(16), paddingVertical: sp(8), top: sp(64) }, feedback ? { top: sp(110) } : null]} testID="control-hud-notice">
+          <View pointerEvents="none" style={[styles.feedback, { borderRadius: sp(12), paddingHorizontal: sp(16), paddingVertical: sp(8), top: sp(speedLimitExpanded ? 110 : 64) }, feedback ? { top: sp(speedLimitExpanded ? 156 : 110) } : null]} testID="control-hud-notice">
             <Text numberOfLines={2} style={[styles.feedbackText, { fontSize: fBody, lineHeight: fBodyLine }]}>{hudNotice}</Text>
           </View>
         ) : null}
@@ -1141,8 +1162,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexShrink: 1,
     gap: 6,
-    minHeight: 36,
+    minHeight: 34,
     minWidth: 0,
+    overflow: 'hidden',
     paddingHorizontal: 10,
     paddingVertical: 3,
   },
@@ -1204,14 +1226,17 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     flexDirection: 'row',
-    flexShrink: 0,
+    flexShrink: 1,
     gap: 8,
-    minHeight: 36,
+    minHeight: 34,
+    minWidth: 0,
+    overflow: 'hidden',
     paddingLeft: 10,
     paddingRight: 4,
     paddingVertical: 3,
   },
-  telemetryItem: { alignItems: 'center', flexDirection: 'row', gap: 4 },
+  telemetryCluster: { alignItems: 'center', flexDirection: 'row', flexShrink: 1, gap: 6, minWidth: 0, overflow: 'hidden' },
+  telemetryItem: { alignItems: 'center', flexDirection: 'row', flexShrink: 0, gap: 4 },
   telemetryText: { color: '#DCE3E8', fontSize: 13, fontVariant: ['tabular-nums'], fontWeight: '500', lineHeight: 18 },
   faultBadgeBtn: {
     alignItems: 'center',
