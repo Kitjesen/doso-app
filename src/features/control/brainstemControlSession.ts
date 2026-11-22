@@ -1,5 +1,5 @@
-import type { BrainstemControlAction, BrainstemControlReply, BrainstemControlTransport, BrainstemGesture } from '../../services/brainstemControl';
-import type { ControlImuReading } from './controlOperations';
+import type { BrainstemBodyHeightStatus, BrainstemControlAction, BrainstemControlReply, BrainstemControlTransport, BrainstemGesture } from '../../services/brainstemControl';
+import type { ControlBodyHeightState, ControlImuReading } from './controlOperations';
 // @ts-expect-error Node 24 type stripping requires explicit TypeScript extensions.
 import { projectBrainstemImu } from '../../services/brainstemImu.ts';
 // @ts-expect-error Node 24 type stripping requires explicit TypeScript extensions.
@@ -10,6 +10,11 @@ import type { ControlActionReadiness, ControlOperation, ControlRuntimeState } fr
 import { currentPolicyFromProfile, profileOptions, terrainModeFromProfile } from '../../services/directRobotConnection.ts';
 // @ts-expect-error Node 24 type stripping requires explicit TypeScript extensions.
 import { recoveryModeFromProfile } from './robotModeCapabilities.ts';
+
+export type { ControlBodyHeightState };
+const DEFAULT_BODY_HEIGHT_MIN_M = 0.15;
+const DEFAULT_BODY_HEIGHT_MAX_M = 0.50;
+const DEFAULT_BODY_HEIGHT_M = 0.375;
 
 export type BrainstemControlState = Readonly<{
   phase: 'disconnected' | 'connecting' | 'ready' | 'operating' | 'armed' | 'error';
@@ -101,7 +106,14 @@ export class BrainstemControlSession {
   private recovery: RobotRecoveryStatus | null = null;
   private recoveryHeartbeat = false;
   private measuredLatencyMs: number | null = null;
+  private lastNotifiedAt = -Infinity;
+  private lastNotifiedLatencyMs: number | null = null;
+  private lastNotifiedSpeed = { linearMps: 0, lateralMps: 0, yawRps: 0 };
   private currentSpeedMode: 'normal' | 'high' | 'unsupported' | null = null;
+  private bodyHeightStatus: BrainstemBodyHeightStatus | null = null;
+  private bodyHeightUnsupported = false;
+  private bodyHeightReading: Promise<void> | null = null;
+  private auxReads = 0;
 
   private readonly transport: BrainstemControlTransport;
   private readonly allowed: () => boolean;
@@ -114,6 +126,73 @@ export class BrainstemControlSession {
   get recoveryStatus() { return this.recovery; }
   get latencyMs(): number | null { return this.fresh() ? this.measuredLatencyMs : null; }
   get speedMode(): 'normal' | 'high' | 'unsupported' | null { return this.state.connected ? this.currentSpeedMode : null; }
+  get bodyHeightStatusSynced(): boolean { return this.bodyHeightUnsupported || this.bodyHeightStatus !== null; }
+  get bodyHeight(): ControlBodyHeightState {
+    const fresh = this.fresh();
+    const profile = fresh ? this.currentProfile() : null;
+    const cap = profile ? this.bodyHeightCapability(profile) : null;
+    const live = fresh && !this.bodyHeightUnsupported ? this.bodyHeightStatus : null;
+    const capRangeValid = Boolean(cap?.bodyHeight && cap.bodyHeight.minHeightM > 0 && cap.bodyHeight.maxHeightM >= cap.bodyHeight.minHeightM);
+    const liveRangeValid = Boolean(live && live.minHeightM > 0 && live.maxHeightM >= live.minHeightM);
+    const minHeightM = liveRangeValid ? live!.minHeightM : capRangeValid ? cap!.bodyHeight!.minHeightM : DEFAULT_BODY_HEIGHT_MIN_M;
+    const maxHeightM = liveRangeValid ? live!.maxHeightM : capRangeValid ? cap!.bodyHeight!.maxHeightM : DEFAULT_BODY_HEIGHT_MAX_M;
+    const rawDefault = cap?.bodyHeight && cap.bodyHeight.defaultHeightM > 0 ? cap.bodyHeight.defaultHeightM : DEFAULT_BODY_HEIGHT_M;
+    const defaultHeightM = Math.min(maxHeightM, Math.max(minHeightM, rawDefault));
+    const rateMps = live && live.rateMps > 0 ? live.rateMps : cap?.bodyHeight && cap.bodyHeight.rateMps > 0 ? cap.bodyHeight.rateMps : null;
+    const available = Boolean(cap && cap.available && cap.availability === 'available');
+    const modeId = cap ? cap.id : null;
+    const active = Boolean(cap && profile?.activeModeId === cap.id);
+    const supported = Boolean(live?.supported);
+    const currentHeightM = live && live.supported && live.currentHeightM > 0 ? live.currentHeightM : null;
+    const targetHeightM = live && live.supported && live.targetHeightM > 0 ? live.targetHeightM : null;
+    return {
+      available,
+      modeId,
+      active,
+      supported,
+      currentHeightM,
+      targetHeightM,
+      defaultHeightM,
+      minHeightM,
+      maxHeightM,
+      rateMps,
+    };
+  }
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => { setTimeout(resolve, ms); });
+  }
+  private bodyHeightCapability(profile: BrainstemGrpcProfile | null = this.currentProfile()) {
+    const caps = profile?.modeCapabilities;
+    if (!caps?.length) return null;
+    const matches = caps.filter(mode => mode.kind === 'body-height');
+    if (matches.length !== 1) return null;
+    const candidate = matches[0];
+    if (caps.filter(other => other.id === candidate.id).length !== 1) return null;
+    return candidate;
+  }
+  private hasModernModeCapabilities(profile: BrainstemGrpcProfile | null): boolean {
+    return Boolean(profile?.modeCapabilities?.some(mode => mode.kind === 'locomotion' || mode.kind === 'body-height'));
+  }
+  private isSwitchableProfile(profile: BrainstemGrpcProfile, profileId: string): boolean {
+    if (this.hasModernModeCapabilities(profile)) {
+      const matches = profile.modeCapabilities!.filter(mode => mode.id === profileId);
+      if (matches.length !== 1) return false;
+      const mode = matches[0];
+      return (mode.kind === 'locomotion' || mode.kind === 'body-height')
+        && mode.available === true && mode.availability === 'available';
+    }
+    return profileOptions(profile).some(option => option.id === profileId);
+  }
+  private sameBodyHeightStatus(a: BrainstemBodyHeightStatus | null, b: BrainstemBodyHeightStatus | null): boolean {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    return a.supported === b.supported
+      && a.currentHeightM === b.currentHeightM
+      && a.targetHeightM === b.targetHeightM
+      && a.minHeightM === b.minHeightM
+      && a.maxHeightM === b.maxHeightM
+      && a.rateMps === b.rateMps;
+  }
   setImuNotifyEnabled(enabled: boolean) {
     if (this.imuNotifyEnabled === enabled) return;
     this.imuNotifyEnabled = enabled;
@@ -161,9 +240,10 @@ export class BrainstemControlSession {
   async refreshRecovery(): Promise<void> {
     if (!this.sessionId || !this.transport.readRecovery || this.retired) return;
     if (this.busy || this.reading || this.inputBusy || this.moving || this.pendingAction !== null
-      || (this.state.leaseActive && !this.recoveryHeartbeat)) return;
+      || this.auxReads > 0 || (this.state.leaseActive && !this.recoveryHeartbeat)) return;
     const epoch = this.epoch;
     const id = this.sessionId;
+    this.auxReads++;
     try {
       const status = await this.transport.readRecovery(id);
       if (!this.valid(epoch) || this.sessionId !== id) return;
@@ -173,6 +253,8 @@ export class BrainstemControlSession {
       const code = error && typeof error === 'object' && 'code' in error ? String((error as { code: unknown }).code) : '';
       if (code === 'busy') return;
       this.applyRecovery(emptyRecoveryStatus(code === 'unimplemented' ? 'missing' : 'unavailable'));
+    } finally {
+      this.auxReads = Math.max(0, this.auxReads - 1);
     }
   }
   async refreshSpeedMode(): Promise<void> {
@@ -182,9 +264,10 @@ export class BrainstemControlSession {
       }
       return;
     }
-    if (this.busy || this.reading || this.inputBusy || this.moving || this.pendingAction !== null || this.state.leaseActive) return;
+    if (this.busy || this.reading || this.inputBusy || this.moving || this.pendingAction !== null || this.auxReads > 0 || this.state.leaseActive) return;
     const epoch = this.epoch;
     const id = this.sessionId;
+    this.auxReads++;
     try {
       const mode = await this.transport.getSpeedMode(id);
       if (!this.valid(epoch) || this.sessionId !== id) return;
@@ -200,6 +283,8 @@ export class BrainstemControlSession {
         this.currentSpeedMode = 'unsupported';
         this.notify();
       }
+    } finally {
+      this.auxReads = Math.max(0, this.auxReads - 1);
     }
   }
   async setSpeedMode(mode: 'normal' | 'high'): Promise<void> {
@@ -248,6 +333,152 @@ export class BrainstemControlSession {
       }
     }
   }
+  async refreshBodyHeight(options?: { retryOnBusy?: boolean }): Promise<void> {
+    if (this.bodyHeightReading) return this.bodyHeightReading;
+    if (!this.sessionId || !this.transport.getBodyHeightStatus || this.retired || this.bodyHeightUnsupported) return;
+    const epoch = this.epoch;
+    const id = this.sessionId;
+    const retryDelays = options?.retryOnBusy ? [120, 250] : [];
+    const task = (async () => {
+      let attempt = 0;
+      while (true) {
+        if (this.readDone) await this.readDone;
+        if (!this.valid(epoch) || this.sessionId !== id || this.bodyHeightUnsupported) return;
+        if (this.busy || this.reading || this.inputBusy || this.moving || this.pendingAction !== null || this.auxReads > 0 || this.state.leaseActive) {
+          if (attempt >= retryDelays.length) return;
+          await this.sleep(retryDelays[attempt++]);
+          continue;
+        }
+        this.auxReads++;
+        try {
+          const next = await this.transport.getBodyHeightStatus!(id);
+          if (!this.valid(epoch) || this.sessionId !== id) return;
+          const changed = !this.sameBodyHeightStatus(this.bodyHeightStatus, next);
+          this.bodyHeightStatus = next;
+          if (changed) this.notify();
+          return;
+        } catch (error) {
+          if (!this.valid(epoch) || this.sessionId !== id) return;
+          const code = error && typeof error === 'object' && 'code' in error ? String((error as { code: unknown }).code) : '';
+          if (code === 'busy') {
+            if (attempt < retryDelays.length) {
+              await this.sleep(retryDelays[attempt++]);
+              continue;
+            }
+            return;
+          }
+          if (code === 'unimplemented') {
+            const changed = !this.bodyHeightUnsupported || this.bodyHeightStatus !== null;
+            this.bodyHeightUnsupported = true;
+            this.bodyHeightStatus = null;
+            if (changed) this.notify();
+          }
+          return;
+        } finally {
+          this.auxReads = Math.max(0, this.auxReads - 1);
+        }
+      }
+    })();
+    this.bodyHeightReading = task;
+    try { await task; } finally { if (this.bodyHeightReading === task) this.bodyHeightReading = null; }
+  }
+  async setBodyHeightMode(enabled: boolean): Promise<void> {
+    const epoch = this.epoch;
+    const id = this.sessionId;
+    if (!id || !this.valid(epoch) || this.sessionId !== id) {
+      throw Object.assign(new Error('控制连接已变化，请重新操作。'), { code: 'cancelled' });
+    }
+    const profile = this.currentProfile();
+    if (!profile) {
+      throw Object.assign(new Error('机器人当前状态不允许此操作。'), { code: 'precondition' });
+    }
+    const cap = this.bodyHeightCapability(profile);
+    if (enabled) {
+      if (!cap || !cap.available || cap.availability !== 'available') {
+        throw Object.assign(new Error('机器人当前状态不允许此操作。'), { code: 'precondition' });
+      }
+      if (profile.activeModeId !== cap.id) {
+        await this.action('switch-profile', cap.id);
+      }
+    } else if (!cap || profile.activeModeId === cap.id) {
+      const locomotion = profileOptions(profile);
+      const target = locomotion.find(option => option.id === 'flat')?.id ?? locomotion[0]?.id;
+      if (!target) {
+        throw Object.assign(new Error('机器人当前状态不允许此操作。'), { code: 'precondition' });
+      }
+      await this.action('switch-profile', target);
+    }
+    if (this.valid(epoch) && this.sessionId === id) {
+      await this.refreshBodyHeight({ retryOnBusy: true });
+    }
+  }
+  async setBodyHeight(heightM: number): Promise<void> {
+    if (typeof heightM !== 'number' || !Number.isFinite(heightM)) {
+      throw Object.assign(new Error('目标高度无效。'), { code: 'config' });
+    }
+    const epoch = this.epoch;
+    const id = this.sessionId;
+    if (!id || !this.valid(epoch) || this.sessionId !== id) {
+      throw Object.assign(new Error('控制连接已变化，请重新操作。'), { code: 'cancelled' });
+    }
+    if (typeof this.transport.setBodyHeight !== 'function' || this.bodyHeightUnsupported) {
+      throw Object.assign(new Error('机器人服务未开放此操作。'), { code: 'unimplemented' });
+    }
+    if (this.busy || this.pendingAction) {
+      throw Object.assign(new Error('上一项操作尚未结束，请等待设备响应。'), { code: 'busy' });
+    }
+    const request = {};
+    this.pendingAction = request;
+    this.busy = true;
+    this.resetInput();
+    this.publish({ phase: 'operating', leaseActive: false, manualPrepared: false });
+    try {
+      if (this.readDone) await this.readDone;
+      if (this.bodyHeightReading) await this.bodyHeightReading;
+      if (!this.valid(epoch) || this.sessionId !== id || this.pendingAction !== request) {
+        throw Object.assign(new Error('控制连接已变化，请重新操作。'), { code: 'cancelled' });
+      }
+      const s = this.fresh() ? this.state.status : null;
+      const bh = this.bodyHeight;
+      if (!s || !bh.active || s.owner === 'yunzhuo' || s.criticalMotorFault
+        || s.fsmKind === 'transitioning' || s.grpcLeaseActive || this.currentProfile()?.activeModeId === 'recovery') {
+        throw Object.assign(new Error('机器人当前状态不允许此操作。'), { code: 'precondition' });
+      }
+      const clamped = heightM <= bh.minHeightM
+        ? bh.minHeightM
+        : heightM >= bh.maxHeightM
+          ? bh.maxHeightM
+          : Math.min(bh.maxHeightM, Math.max(bh.minHeightM, Math.round(heightM * 1000) / 1000));
+      this.authorityTouched = true;
+      const reply = await this.transport.setBodyHeight(id, clamped);
+      if (!this.valid(epoch) || this.pendingAction !== request) {
+        throw Object.assign(new Error('控制连接已变化，请重新操作。'), { code: 'cancelled' });
+      }
+      this.bodyHeightStatus = reply.bodyHeight;
+      this.pendingAction = null;
+      this.busy = false;
+      this.apply(reply);
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error ? String((error as { code: unknown }).code) : '';
+      if ((code === 'precondition' || code === 'unimplemented' || code === 'config') && this.valid(epoch) && this.sessionId === id && this.pendingAction === request) {
+        if (code === 'unimplemented') {
+          this.bodyHeightUnsupported = true;
+          this.bodyHeightStatus = null;
+        }
+        this.pendingAction = null;
+        this.busy = false;
+        this.publish({ phase: this.state.leaseActive ? 'armed' : 'ready', error: failureMessage(error), failureCode: null });
+        throw Object.assign(new Error(failureMessage(error)), { code });
+      }
+      await this.fail(epoch, error);
+      throw Object.assign(new Error(failureMessage(error)), { code: failureCodes.has(code) ? code : 'unknown' });
+    } finally {
+      if (this.pendingAction === request) {
+        this.pendingAction = null;
+        if (this.valid(epoch)) { this.busy = false; this.publish({ phase: this.state.leaseActive ? 'armed' : 'ready' }); }
+      }
+    }
+  }
   async recoveryCommand(command: RobotRecoveryCommand): Promise<RobotRecoveryStatus> {
     if (!this.sessionId || !this.transport.recoveryCommand) throw new Error('当前安装包尚未包含摔倒恢复。');
     const id = this.sessionId;
@@ -257,6 +488,9 @@ export class BrainstemControlSession {
   }
   private publish(patch: Partial<BrainstemControlState>) {
     this.state = { ...this.state, ...patch };
+    this.lastNotifiedAt = this.now();
+    this.lastNotifiedLatencyMs = this.measuredLatencyMs;
+    this.lastNotifiedSpeed = { ...this.commandSpeed };
     this.listeners.forEach(listener => listener());
   }
   private valid(epoch: number) { return !this.retired && this.allowed() && epoch === this.epoch; }
@@ -307,6 +541,40 @@ export class BrainstemControlSession {
     this.stopUnconfirmed = true;
     this.publish({ error: STOP_UNCONFIRMED_MESSAGE, failureCode: 'stop_unconfirmed', ...(this.state.phase === 'connecting' ? {} : { phase: 'error' as const }) });
   }
+  private sameStatus(a: BrainstemGrpcStatus | null, b: BrainstemGrpcStatus | null): boolean {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    return a.fsmKind === b.fsmKind
+      && a.transition === b.transition
+      && a.owner === b.owner
+      && a.motorOutputEnabled === b.motorOutputEnabled
+      && a.criticalMotorFault === b.criticalMotorFault
+      && a.grpcLeaseActive === b.grpcLeaseActive
+      && a.readyForWalk === b.readyForWalk;
+  }
+  private sameProfile(a: BrainstemGrpcProfile | null, b: BrainstemGrpcProfile | null): boolean {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    if (a.current !== b.current || a.currentDescription !== b.currentDescription || a.activeModeId !== b.activeModeId) return false;
+    if (a.available.length !== b.available.length || a.descriptions.length !== b.descriptions.length) return false;
+    for (let i = 0; i < a.available.length; i++) {
+      if (a.available[i] !== b.available[i] || a.descriptions[i] !== b.descriptions[i]) return false;
+    }
+    const capsA = a.modeCapabilities ?? [];
+    const capsB = b.modeCapabilities ?? [];
+    if (capsA.length !== capsB.length) return false;
+    for (let i = 0; i < capsA.length; i++) {
+      const ca = capsA[i], cb = capsB[i];
+      if (ca.id !== cb.id || ca.kind !== cb.kind || ca.available !== cb.available
+        || ca.availability !== cb.availability || ca.profileId !== cb.profileId
+        || ca.unavailableReason !== cb.unavailableReason
+        || ca.bodyHeight?.defaultHeightM !== cb.bodyHeight?.defaultHeightM
+        || ca.bodyHeight?.minHeightM !== cb.bodyHeight?.minHeightM
+        || ca.bodyHeight?.maxHeightM !== cb.bodyHeight?.maxHeightM
+        || ca.bodyHeight?.rateMps !== cb.bodyHeight?.rateMps) return false;
+    }
+    return true;
+  }
   private apply(reply: BrainstemControlReply) {
     if (reply.transport !== undefined && reply.transport !== this.state.transport) throw new Error('Control transport changed');
     if (this.state.transport === 'grpc-lan' && (reply.principalVerified || typeof reply.leaseOwnerMatched !== 'boolean')) throw new Error('Invalid LAN authority');
@@ -317,14 +585,78 @@ export class BrainstemControlSession {
       || !['standing', 'walking'].includes(reply.status.fsmKind);
     // A live lease keeps its safety clock; unsafe status cannot retain a target.
     if (!reply.leaseActive || loseIntent) this.resetInput(!reply.leaseActive);
-    this.publish({ connected: true, status: reply.status, leaseActive: reply.leaseActive,
-      principalVerified: reply.principalVerified, sequence: reply.sequence ?? this.state.sequence,
+    const prev = this.state;
+    const prevHeightCap = prev.profile ? this.bodyHeightCapability(prev.profile) : null;
+    const prevHeightActive = Boolean(prevHeightCap && prev.profile?.activeModeId === prevHeightCap.id);
+    const now = this.now();
+    const nextProfile = reply.profileUnavailable ? null : reply.profile ?? this.currentProfile();
+    const nextHeightCap = nextProfile ? this.bodyHeightCapability(nextProfile) : null;
+    const nextHeightActive = Boolean(nextHeightCap && nextProfile?.activeModeId === nextHeightCap.id);
+    if (prevHeightActive && !nextHeightActive && this.bodyHeightStatus?.supported) {
+      this.bodyHeightStatus = Object.freeze({
+        ...this.bodyHeightStatus,
+        supported: false,
+        currentHeightM: 0,
+        targetHeightM: 0,
+      });
+    }
+    const nextState: BrainstemControlState = {
+      ...prev,
+      connected: true,
+      status: reply.status,
+      leaseActive: reply.leaseActive,
+      principalVerified: reply.principalVerified,
+      sequence: reply.sequence ?? prev.sequence,
       leaseOwnerMatched: reply.leaseOwnerMatched ?? (reply.leaseActive && reply.principalVerified),
-      profile: reply.profileUnavailable ? null : reply.profile ?? this.currentProfile(),
-      profileObservedAt: reply.profileUnavailable ? null : reply.profile ? this.now() : this.state.profileObservedAt,
-      observedAt: this.now(), error: null, failureCode: null,
-      manualPrepared: loseIntent ? false : this.state.manualPrepared,
-      phase: this.pendingAction ? 'operating' : reply.leaseActive ? 'armed' : 'ready' });
+      profile: nextProfile,
+      profileObservedAt: reply.profileUnavailable ? null : reply.profile ? now : prev.profileObservedAt,
+      observedAt: now,
+      error: null,
+      failureCode: null,
+      manualPrepared: loseIntent ? false : prev.manualPrepared,
+      phase: this.pendingAction ? 'operating' : reply.leaseActive ? 'armed' : 'ready',
+    };
+    this.state = nextState;
+
+    const coreChanged = prev.connected !== nextState.connected
+      || prev.phase !== nextState.phase
+      || prev.leaseActive !== nextState.leaseActive
+      || prev.manualPrepared !== nextState.manualPrepared
+      || prev.principalVerified !== nextState.principalVerified
+      || prev.leaseOwnerMatched !== nextState.leaseOwnerMatched
+      || prev.error !== nextState.error
+      || prev.failureCode !== nextState.failureCode
+      || (prev.sequence === 0) !== (nextState.sequence === 0);
+    const statusChanged = !this.sameStatus(prev.status, nextState.status);
+    const profileChanged = !this.sameProfile(prev.profile, nextState.profile);
+    const elapsedSinceNotify = Number.isFinite(now) && Number.isFinite(this.lastNotifiedAt) ? now - this.lastNotifiedAt : Infinity;
+    const speedChanged = this.commandSpeed.linearMps !== this.lastNotifiedSpeed.linearMps
+      || this.commandSpeed.lateralMps !== this.lastNotifiedSpeed.lateralMps
+      || this.commandSpeed.yawRps !== this.lastNotifiedSpeed.yawRps;
+    const latencyChanged = this.measuredLatencyMs !== this.lastNotifiedLatencyMs
+      && (this.lastNotifiedLatencyMs === null
+        || this.measuredLatencyMs === null
+        || (Math.abs(this.measuredLatencyMs - this.lastNotifiedLatencyMs) >= 3 && elapsedSinceNotify >= 500));
+    const shouldNotify = coreChanged
+      || statusChanged
+      || profileChanged
+      || (speedChanged && (!nextState.leaseActive || elapsedSinceNotify >= 100))
+      || latencyChanged;
+    if (shouldNotify) {
+      this.lastNotifiedAt = now;
+      this.lastNotifiedLatencyMs = this.measuredLatencyMs;
+      this.lastNotifiedSpeed = { ...this.commandSpeed };
+      this.listeners.forEach(listener => listener());
+    }
+    if (!prevHeightActive && nextHeightActive && this.sessionId && this.transport.getBodyHeightStatus
+      && !this.bodyHeightUnsupported && !this.bodyHeightReading) {
+      const targetSessionId = this.sessionId;
+      queueMicrotask(() => {
+        if (!this.retired && this.sessionId === targetSessionId && !this.busy && !this.pendingAction && !this.state.leaseActive) {
+          void this.refreshBodyHeight({ retryOnBusy: true });
+        }
+      });
+    }
   }
   private async fail(epoch: number, error: unknown) {
     if (!this.valid(epoch)) return;
@@ -342,6 +674,10 @@ export class BrainstemControlSession {
     this.stopRecoveryHeartbeat();
     this.measuredLatencyMs = null;
     this.currentSpeedMode = null;
+    this.bodyHeightStatus = null;
+    this.bodyHeightUnsupported = false;
+    this.bodyHeightReading = null;
+    this.auxReads = 0;
     this.sessionId = null; this.epoch += 1; this.busy = false; this.pendingAction = null; this.reading = false; this.inputBusy = false; this.acquiring = false;
     this.releaseImu();
     this.resetInput();
@@ -368,6 +704,10 @@ export class BrainstemControlSession {
     this.releaseImu();
     this.measuredLatencyMs = null;
     this.currentSpeedMode = null;
+    this.bodyHeightStatus = null;
+    this.bodyHeightUnsupported = false;
+    this.bodyHeightReading = null;
+    this.auxReads = 0;
     const previousAuthorityTouched = this.authorityTouched;
     this.sessionId = null; this.resetInput();
     const epoch = ++this.epoch;
@@ -401,7 +741,7 @@ export class BrainstemControlSession {
       this.publish({ status: null, profile: null, observedAt: null, manualPrepared: false });
     }
     // WalkChecked ACKs already carry status; polling this serial channel can starve live input.
-    if (!this.sessionId || !this.allowed() || this.retired || this.busy || this.reading || this.inputBusy || this.moving) return;
+    if (!this.sessionId || !this.allowed() || this.retired || this.busy || this.reading || this.inputBusy || this.moving || this.auxReads > 0) return;
     const epoch = this.epoch; const id = this.sessionId; this.reading = true;
     let finishRead: () => void = () => {};
     const done = new Promise<void>(resolve => { finishRead = resolve; });
@@ -484,7 +824,7 @@ export class BrainstemControlSession {
       stand: result(!!safe && !!status?.motorOutputEnabled && (status.fsmKind === 'grounded' || status.fsmKind === 'zero'
         || status.fsmKind === 'walking' && !status.grpcLeaseActive && !this.state.leaseActive), '电机须已使能，行走后请先停止并释放控制；站立或切换中不可起立'),
       sit: result(!!safe && !!status?.motorOutputEnabled && (status.fsmKind === 'standing' || status.fsmKind === 'walking'), '电机须已使能，且机器狗当前已站立'),
-      switchPolicy: result(!!safe && (status?.fsmKind === 'grounded' || status?.fsmKind === 'standing') && !status.grpcLeaseActive && !!this.currentProfile() && profileOptions(this.currentProfile()!).length > 0, '请先站稳或趴地、释放控制并同步策略目录；行走中不可切换'),
+      switchPolicy: result(!!safe && (status?.fsmKind === 'grounded' || status?.fsmKind === 'standing') && !status.grpcLeaseActive && !!this.currentProfile() && (profileOptions(this.currentProfile()!).length > 0 || Boolean(this.bodyHeightCapability(this.currentProfile())?.available && this.bodyHeightCapability(this.currentProfile())?.availability === 'available')), '请先站稳或趴地、释放控制并同步策略目录；行走中不可切换'),
       setZero: result(!!base && status?.owner !== 'yunzhuo' && status?.fsmKind === 'grounded' && !status.grpcLeaseActive, '请先趴地并释放控制'),
       clearMotorFault: result(!!base && status?.owner !== 'yunzhuo' && status?.fsmKind !== 'transitioning', '请先连接机器狗'),
       playGesture: result(!!safe && status?.motorOutputEnabled === true && status.fsmKind === 'standing' && !status.grpcLeaseActive, '请先站立'),
@@ -492,9 +832,45 @@ export class BrainstemControlSession {
   }
 
   async listGestures(): Promise<readonly BrainstemGesture[]> {
+    const epoch = this.epoch;
     const id = this.sessionId;
     if (!id || typeof this.transport.listGestures !== 'function') return [];
-    return this.transport.listGestures(id);
+    const retryDelays = [150, 300, 500];
+    let attempt = 0;
+    while (true) {
+      if (this.readDone) await this.readDone;
+      if (this.bodyHeightReading) await this.bodyHeightReading;
+      if (!this.valid(epoch) || this.sessionId !== id) {
+        throw Object.assign(new Error('控制已断开，请重新连接'), { code: 'cancelled' });
+      }
+      if (this.busy || this.reading || this.inputBusy || this.moving || this.pendingAction !== null || this.auxReads > 0 || this.state.leaseActive) {
+        if (attempt >= retryDelays.length) {
+          throw Object.assign(new Error('上一项操作正在处理，请等待机器狗响应。'), { code: 'busy' });
+        }
+        await this.sleep(retryDelays[attempt++]);
+        continue;
+      }
+      this.auxReads++;
+      try {
+        const gestures = await this.transport.listGestures(id);
+        if (!this.valid(epoch) || this.sessionId !== id) {
+          throw Object.assign(new Error('控制已断开，请重新连接'), { code: 'cancelled' });
+        }
+        return gestures;
+      } catch (error) {
+        if (!this.valid(epoch) || this.sessionId !== id) {
+          throw Object.assign(new Error('控制已断开，请重新连接'), { code: 'cancelled' });
+        }
+        const code = error && typeof error === 'object' && 'code' in error ? String((error as { code: unknown }).code) : '';
+        if (code === 'busy' && attempt < retryDelays.length) {
+          await this.sleep(retryDelays[attempt++]);
+          continue;
+        }
+        throw error;
+      } finally {
+        this.auxReads = Math.max(0, this.auxReads - 1);
+      }
+    }
   }
 
   async action(action: BrainstemControlAction, profileId?: string): Promise<void> {
@@ -506,7 +882,7 @@ export class BrainstemControlSession {
       'set-zero': 'setZero', 'clear-motor-fault': 'clearMotorFault', 'play-gesture': 'playGesture' } as const;
     const profileAllowed = () => action === 'play-gesture' ? !!profileId && profileId.length <= 64
       : action !== 'switch-profile' || !!profileId && !!this.currentProfile()
-      && profileOptions(this.currentProfile()!).some(option => option.id === profileId);
+      && this.isSwitchableProfile(this.currentProfile()!, profileId);
     const request = {};
     this.pendingAction = request;
     this.busy = true; this.resetInput();
@@ -517,7 +893,7 @@ export class BrainstemControlSession {
       if (!this.valid(epoch) || this.sessionId !== id || this.pendingAction !== request) throw new Error('控制连接已变化，请重新操作。');
       if (this.readiness(request)[names[action]]?.ready !== true) throw new Error('机器狗当前状态不允许此操作。');
       if (!profileAllowed()) throw new Error('所选策略已不可用，请刷新状态。');
-      const slotRequest = action === 'switch-profile' && this.state.profile?.modeCapabilities?.some(mode => mode.kind === 'locomotion');
+      const slotRequest = action === 'switch-profile' && this.hasModernModeCapabilities(this.state.profile);
       // Native action sends zero/release before posture, power or profile changes.
       this.publish({ phase: 'operating', leaseActive: false, manualPrepared: false });
       if (!this.valid(epoch) || this.sessionId !== id || this.pendingAction !== request) throw new Error('控制连接已变化，请重新操作。');
@@ -723,6 +1099,10 @@ export class BrainstemControlSession {
     this.stopRecoveryHeartbeat();
     this.measuredLatencyMs = null;
     this.currentSpeedMode = null;
+    this.bodyHeightStatus = null;
+    this.bodyHeightUnsupported = false;
+    this.bodyHeightReading = null;
+    this.auxReads = 0;
     this.sessionId = null; this.epoch++;
     this.releaseImu();
     const authorityTouched = this.authorityTouched;

@@ -1,4 +1,5 @@
 const FINE = 'android.permission.ACCESS_FINE_LOCATION';
+const COARSE = 'android.permission.ACCESS_COARSE_LOCATION';
 const NEARBY = 'android.permission.NEARBY_WIFI_DEVICES';
 const WIFI_STATE = 'android.permission.ACCESS_WIFI_STATE';
 const CHANGE_WIFI = 'android.permission.CHANGE_WIFI_STATE';
@@ -7,7 +8,8 @@ const NETWORK_STATE = 'android.permission.ACCESS_NETWORK_STATE';
 const WIFI_LOCATION_USAGE = '用于确认手机是否已连上机器狗热点。不会记录位置，也不能列出附近的全部网络。';
 const LOCAL_NETWORK_USAGE = '用于连接已经加入的机器狗热点。不会列出附近的全部网络。';
 
-const WIFI_PERMISSIONS = new Set([FINE, NEARBY, WIFI_STATE, CHANGE_WIFI, NETWORK_STATE]);
+const WIFI_PERMISSIONS = new Set([FINE, COARSE, NEARBY, WIFI_STATE, CHANGE_WIFI, NETWORK_STATE]);
+const LOCATION_PERMISSIONS = new Set([FINE, COARSE]);
 
 function permission(name, extra = {}) {
   return { $: { 'android:name': name, ...extra } };
@@ -19,14 +21,17 @@ function applyRobotWifiManifest(manifest) {
   const uses = manifest['uses-permission'] ?? [];
   manifest['uses-permission'] = [
     ...uses.filter(entry => !WIFI_PERMISSIONS.has(entry.$?.['android:name'])),
-    permission(FINE, { 'android:maxSdkVersion': '32' }),
+    // Android 12+/13+ WifiManager.startScan()/getScanResults()/WifiInfo.ssid require
+    // uncapped ACCESS_FINE_LOCATION paired with ACCESS_COARSE_LOCATION in the manifest.
+    permission(COARSE),
+    permission(FINE),
     permission(NETWORK_STATE),
     permission(WIFI_STATE),
     permission(CHANGE_WIFI),
     permission(NEARBY, { 'android:usesPermissionFlags': 'neverForLocation', 'tools:targetApi': 'tiramisu' }),
   ];
   manifest['uses-permission-sdk-23'] = (manifest['uses-permission-sdk-23'] ?? [])
-    .filter(entry => entry.$?.['android:name'] !== FINE);
+    .filter(entry => !LOCATION_PERMISSIONS.has(entry.$?.['android:name']));
   return manifest;
 }
 
@@ -46,7 +51,7 @@ function applyRobotWifiEntitlements(entitlements) {
 }
 
 module.exports = {
-  FINE, NEARBY, WIFI_STATE, CHANGE_WIFI, NETWORK_STATE,
+  FINE, COARSE, NEARBY, WIFI_STATE, CHANGE_WIFI, NETWORK_STATE,
   WIFI_LOCATION_USAGE, LOCAL_NETWORK_USAGE,
   applyRobotWifiManifest, applyRobotWifiPlist, applyRobotWifiEntitlements,
 };

@@ -75,6 +75,17 @@ public final class ControlWireTest {
     if (!"high".equals(ControlWire.parseSpeedMode(f(1, 1)))) throw new AssertionError("parse high speed mode");
     fail(() -> ControlWire.parseSpeedMode(f(1, 2)));
     fail(() -> ControlWire.parseSpeedMode(join(f(1, 1), f(1, 0))));
+    byte[] heightCmd = ControlWire.bodyHeightCommand(0.375);
+    byte[] expectedHeight = join(new byte[]{9}, ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putDouble(0.375).array());
+    if (!Arrays.equals(heightCmd, expectedHeight)) throw new AssertionError("bodyHeightCommand wire mismatch");
+    if (ControlWire.bodyHeightCommand(0.25).length != 9) throw new AssertionError("bodyHeightCommand min");
+    if (ControlWire.bodyHeightCommand(0.50).length != 9) throw new AssertionError("bodyHeightCommand max");
+    fail(() -> ControlWire.bodyHeightCommand(0.0));
+    fail(() -> ControlWire.bodyHeightCommand(0.04));
+    fail(() -> ControlWire.bodyHeightCommand(1.51));
+    fail(() -> ControlWire.bodyHeightCommand(-0.2));
+    fail(() -> ControlWire.bodyHeightCommand(Double.NaN));
+    fail(() -> ControlWire.bodyHeightCommand(Double.POSITIVE_INFINITY));
     System.out.println("PASS: control wire, lease/ACK validation, owner/sequence, bounded malformed inputs");
   }
 }

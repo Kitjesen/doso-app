@@ -40,7 +40,7 @@ jobs:
         run: npm run typecheck
 
       - name: Recovery and control tests
-        run: node --experimental-strip-types --test scripts/robot-recovery.test.mjs scripts/brainstem-control-session.test.mjs scripts/control-screen-interaction.test.mjs
+        run: node --experimental-strip-types --test scripts/robot-recovery.test.mjs scripts/brainstem-control-session.test.mjs scripts/control-screen-interaction.test.mjs scripts/lingtu-voice-chat.test.mjs
 
       - name: Local Node tests
         run: |

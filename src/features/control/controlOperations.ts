@@ -10,6 +10,21 @@ export type ControlTerrainModeState = Readonly<{
   source: 'device' | 'unknown';
   updatedAt?: string | null;
 }>;
+export type ControlBodyHeightState = Readonly<{
+  available: boolean;
+  modeId: string | null;
+  active: boolean;
+  supported: boolean;
+  currentHeightM: number | null;
+  targetHeightM: number | null;
+  defaultHeightM: number;
+  minHeightM: number;
+  maxHeightM: number;
+  rateMps: number | null;
+}>;
+export const DEFAULT_BODY_HEIGHT_MIN_M = 0.15;
+export const DEFAULT_BODY_HEIGHT_MAX_M = 0.50;
+export const DEFAULT_BODY_HEIGHT_M = 0.375;
 export type ControlOperationStatus = 'idle' | 'blocked' | 'submitted' | 'accepted' | 'executing' | 'completed' | 'failed' | 'timeout';
 export type ControlOperationState = Readonly<{ status: ControlOperationStatus; detail?: string; updatedAt?: string }>;
 export type ControlInputSource = 'touch' | 'physical';

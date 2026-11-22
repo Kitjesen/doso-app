@@ -11,19 +11,16 @@ const config = JSON.parse(readFileSync(new URL('../app.json', import.meta.url), 
 const description = config.expo.plugins.find(plugin => Array.isArray(plugin) && plugin[0] === 'react-native-ble-manager')[1].bluetoothAlwaysPermission;
 const { WIFI_LOCATION_USAGE } = require('../plugins/robotWifiPermissions');
 function introspection(text) {
-  const coarse = 'android.permission.ACCESS_COARSE_LOCATION';
   return { _internal: { modResults: {
     android: { manifest: { manifest: {
       'uses-permission': [
-        { $: { 'android:name': coarse, 'tools:node': 'remove' } },
-        { $: { 'android:name': 'android.permission.ACCESS_FINE_LOCATION', 'android:maxSdkVersion': '32' } },
+        { $: { 'android:name': 'android.permission.ACCESS_COARSE_LOCATION' } },
+        { $: { 'android:name': 'android.permission.ACCESS_FINE_LOCATION' } },
         { $: { 'android:name': 'android.permission.ACCESS_WIFI_STATE' } },
         { $: { 'android:name': 'android.permission.CHANGE_WIFI_STATE' } },
         { $: { 'android:name': 'android.permission.NEARBY_WIFI_DEVICES', 'android:usesPermissionFlags': 'neverForLocation' } },
       ],
-      'uses-permission-sdk-23': [
-        { $: { 'android:name': coarse, 'android:maxSdkVersion': '30' } },
-      ],
+      'uses-permission-sdk-23': [],
     } } },
     ios: { infoPlist: { NSBluetoothAlwaysUsageDescription: text, NSLocationWhenInUseUsageDescription: WIFI_LOCATION_USAGE } },
   } } };
@@ -33,21 +30,28 @@ function validate(input) {
     input: JSON.stringify(input), timeout: 5000, maxBuffer: 32768,
     env: { SystemRoot: 'C:/WINDOWS' }, windowsHide: true });
 }
-test('the real permission validator accepts the configured scan-and-connect description with unchanged legacy permissions', () => {
+test('the real permission validator accepts the configured scan-and-connect description with Android 13+ Wi-Fi location grants', () => {
   assert.equal(description, '允许 DOSO 扫描并连接附近蓝牙设备');
   const result = validate(introspection(description));
   assert.equal(result.status, 0);
   assert.match(result.stdout, /BLE native permission introspection PASS/);
 });
-test('the permission validator rejects always-on location and an unrestricted fine-location grant', () => {
+test('the permission validator rejects always-on location, background location, and capped fine location', () => {
   assert.notEqual(validate(introspection('允许 DOSO 扫描附近机器人发出的蓝牙广播')).status, 0);
   const alwaysOn = introspection(description);
   alwaysOn._internal.modResults.ios.infoPlist.NSLocationAlwaysUsageDescription = 'unwanted';
   assert.notEqual(validate(alwaysOn).status, 0);
-  const unrestricted = introspection(description);
-  unrestricted._internal.modResults.android.manifest.manifest['uses-permission'] =
-    unrestricted._internal.modResults.android.manifest.manifest['uses-permission'].map(entry => (
-      entry.$['android:name'] === 'android.permission.ACCESS_FINE_LOCATION' ? { $: { 'android:name': entry.$['android:name'] } } : entry
+  const background = introspection(description);
+  background._internal.modResults.android.manifest.manifest['uses-permission'].push(
+    { $: { 'android:name': 'android.permission.ACCESS_BACKGROUND_LOCATION' } },
+  );
+  assert.notEqual(validate(background).status, 0);
+  const capped = introspection(description);
+  capped._internal.modResults.android.manifest.manifest['uses-permission'] =
+    capped._internal.modResults.android.manifest.manifest['uses-permission'].map(entry => (
+      entry.$['android:name'] === 'android.permission.ACCESS_FINE_LOCATION'
+        ? { $: { 'android:name': entry.$['android:name'], 'android:maxSdkVersion': '32' } }
+        : entry
     ));
-  assert.notEqual(validate(unrestricted).status, 0);
+  assert.notEqual(validate(capped).status, 0);
 });

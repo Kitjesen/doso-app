@@ -1,11 +1,19 @@
 import { requireOptionalNativeModule } from 'expo';
 import { Platform } from 'react-native';
-import { validateBrainstemEndpoint, type BrainstemGrpcEndpoint, type BrainstemGrpcStatus, type BrainstemGrpcProfile } from './brainstemGrpc';
+import { validateBrainstemEndpoint, type BrainstemBodyHeightCapability, type BrainstemGrpcEndpoint, type BrainstemGrpcStatus, type BrainstemGrpcProfile } from './brainstemGrpc';
 import { projectRobotRecoveryStatus, type RobotRecoveryCommand, type RobotRecoveryStatus } from '../features/control/robotRecovery';
 
 export type BrainstemControlAction = 'enable' | 'disable' | 'stand-up' | 'sit-down' | 'switch-profile' | 'set-zero' | 'clear-motor-fault' | 'play-gesture';
 export type BrainstemSpeedMode = 'normal' | 'high';
 export type BrainstemGesture = Readonly<{ name: string; description: string; durationMs: number }>;
+export type BrainstemBodyHeightStatus = Readonly<{
+  supported: boolean;
+  currentHeightM: number;
+  targetHeightM: number;
+  minHeightM: number;
+  maxHeightM: number;
+  rateMps: number;
+}>;
 export type BrainstemControlReply = Readonly<{
   transport?: 'grpc-mtls' | 'grpc-lan';
   status: BrainstemGrpcStatus;
@@ -33,6 +41,8 @@ export interface BrainstemControlTransport {
   listGestures?(sessionId: string): Promise<readonly BrainstemGesture[]>;
   getSpeedMode?(sessionId: string): Promise<BrainstemSpeedMode>;
   setSpeedMode?(sessionId: string, mode: BrainstemSpeedMode): Promise<BrainstemControlReply & Readonly<{ speedMode: BrainstemSpeedMode }>>;
+  getBodyHeightStatus?(sessionId: string): Promise<BrainstemBodyHeightStatus>;
+  setBodyHeight?(sessionId: string, heightM: number): Promise<BrainstemControlReply & Readonly<{ bodyHeight: BrainstemBodyHeightStatus }>>;
 }
 
 export class BrainstemControlError extends Error {
@@ -62,6 +72,35 @@ export function safeBrainstemControlError(error: unknown): BrainstemControlError
   return new BrainstemControlError(code, errorMessages[code]);
 }
 function invalid(): never { throw new BrainstemControlError('invalid_response', errorMessages.invalid_response); }
+function copyBodyHeightCapability(value: unknown): BrainstemBodyHeightCapability | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const h = value as Record<string, unknown>;
+  const ok = (v: unknown, max: number): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= max;
+  if (!ok(h.defaultHeightM, 5) || !ok(h.minHeightM, 5) || !ok(h.maxHeightM, 5) || !ok(h.rateMps, 10)) return undefined;
+  if (h.minHeightM > 0 && h.maxHeightM > 0 && h.minHeightM > h.maxHeightM) return undefined;
+  return Object.freeze({
+    defaultHeightM: h.defaultHeightM,
+    minHeightM: h.minHeightM,
+    maxHeightM: h.maxHeightM,
+    rateMps: h.rateMps,
+  });
+}
+function projectBodyHeightStatus(value: unknown): BrainstemBodyHeightStatus {
+  if (!value || typeof value !== 'object') invalid();
+  const h = value as Record<string, unknown>;
+  const ok = (v: unknown, max: number): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= max;
+  if (typeof h.supported !== 'boolean' || !ok(h.currentHeightM, 5) || !ok(h.targetHeightM, 5)
+    || !ok(h.minHeightM, 5) || !ok(h.maxHeightM, 5) || !ok(h.rateMps, 10)) invalid();
+  if (h.minHeightM > 0 && h.maxHeightM > 0 && h.minHeightM > h.maxHeightM) invalid();
+  return Object.freeze({
+    supported: h.supported,
+    currentHeightM: h.currentHeightM,
+    targetHeightM: h.targetHeightM,
+    minHeightM: h.minHeightM,
+    maxHeightM: h.maxHeightM,
+    rateMps: h.rateMps,
+  });
+}
 function copyModeCapabilities(value: unknown): BrainstemGrpcProfile['modeCapabilities'] | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value) || value.length > 16) return undefined;
@@ -94,11 +133,18 @@ function copyModeCapabilities(value: unknown): BrainstemGrpcProfile['modeCapabil
       if (typeof capability.profileId !== 'string' || capability.profileId.length > 128 || capability.profileId.includes('\0')) return undefined;
       profileId = capability.profileId;
     }
+    let bodyHeight: BrainstemBodyHeightCapability | undefined;
+    if (capability.bodyHeight !== undefined) {
+      const copied = copyBodyHeightCapability(capability.bodyHeight);
+      if (!copied) return undefined;
+      bodyHeight = copied;
+    }
     items.push({
       id: capability.id, kind: capability.kind as 'unspecified' | 'locomotion' | 'recovery-action' | 'body-height', label,
       available, unavailableReason: capability.unavailableReason,
       ...(availability ? { availability } : {}),
       ...(profileId !== undefined ? { profileId } : {}),
+      ...(bodyHeight !== undefined ? { bodyHeight } : {}),
     });
   }
   return items;
@@ -170,6 +216,8 @@ type NativeControl = {
   listGestures?(sessionId: string): Promise<unknown>;
   getSpeedMode?(sessionId: string): Promise<unknown>;
   setSpeedMode?(sessionId: string, mode: string): Promise<unknown>;
+  getBodyHeightStatus?(sessionId: string): Promise<unknown>;
+  setBodyHeight?(sessionId: string, heightM: number): Promise<unknown>;
   addListener?(event: string, listener: (payload: unknown) => void): { remove: () => void };
   startListenImu?(sessionId: string): Promise<unknown>;
   stopListenImu?(sessionId: string): Promise<void>;
@@ -311,6 +359,28 @@ export const brainstemControlTransport: BrainstemControlTransport = {
       const confirmed = raw && typeof raw === 'object' ? (raw as { speedMode?: unknown }).speedMode : undefined;
       if (confirmed !== mode) invalid();
       return { ...projected, speedMode: mode };
+    } catch (error) { throw safeBrainstemControlError(error); }
+  },
+  async getBodyHeightStatus(sessionId) {
+    try {
+      const bridge = client();
+      if (typeof bridge.getBodyHeightStatus !== 'function') throw new BrainstemControlError('unimplemented', errorMessages.unimplemented);
+      const raw = await bridge.getBodyHeightStatus(sessionId);
+      const nested = raw && typeof raw === 'object' ? (raw as { bodyHeight?: unknown }).bodyHeight : undefined;
+      return projectBodyHeightStatus(nested);
+    } catch (error) { throw safeBrainstemControlError(error); }
+  },
+  async setBodyHeight(sessionId, heightM) {
+    try {
+      if (typeof heightM !== 'number' || !Number.isFinite(heightM) || heightM < 0.05 || heightM > 1.50) {
+        throw new BrainstemControlError('config', errorMessages.config);
+      }
+      const bridge = client();
+      if (typeof bridge.setBodyHeight !== 'function') throw new BrainstemControlError('unimplemented', errorMessages.unimplemented);
+      const raw = await bridge.setBodyHeight(sessionId, heightM);
+      const projected = projectBrainstemControlReply(raw);
+      const nested = raw && typeof raw === 'object' ? (raw as { bodyHeight?: unknown }).bodyHeight : undefined;
+      return { ...projected, bodyHeight: projectBodyHeightStatus(nested) };
     } catch (error) { throw safeBrainstemControlError(error); }
   },
   listenImu(sessionId, onSample) {

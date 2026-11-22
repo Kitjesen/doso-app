@@ -9,6 +9,8 @@ export type ControlHudDashboardProps = Readonly<{
   inlineCollapsed?: boolean;
   compactInline?: boolean;
   scale?: number;
+  maxWidth?: number;
+  bottomOffset?: number;
   onToggleExpanded: () => void;
   headlightMode: HudHeadlightMode;
   frontVideoReceiving: boolean;
@@ -76,6 +78,8 @@ export function ControlHudDashboard({
   inlineCollapsed = false,
   compactInline = false,
   scale = 1,
+  maxWidth,
+  bottomOffset,
   onToggleExpanded,
   headlightMode,
   frontVideoReceiving,
@@ -204,149 +208,160 @@ export function ControlHudDashboard({
     );
   }
 
+  const resolvedMaxWidth = typeof maxWidth === 'number' && Number.isFinite(maxWidth) && maxWidth > 0
+    ? Math.max(280, Math.min(sp(560), Math.round(maxWidth)))
+    : sp(480);
+  const resolvedBottom = typeof bottomOffset === 'number' && Number.isFinite(bottomOffset) && bottomOffset >= 0
+    ? Math.round(bottomOffset)
+    : sp(64);
+
   return (
-    <View pointerEvents="box-none" style={[styles.expandedRoot, { bottom: sp(64), gap: sp(4), transform: [{ translateX: -sp(148) }], width: sp(296) }]} testID="control-hud-dashboard">
-      <Pressable
-        accessibilityLabel="收起机器人仪表盘"
-        accessibilityRole="button"
-        accessibilityState={{ expanded: true }}
-        onPress={onToggleExpanded}
-        style={({ pressed }) => [styles.toggleOrb, { borderRadius: sp(15), height: sp(30), width: sp(30) }, pressed && styles.pressed]}
-        testID="control-hud-dashboard-toggle"
+    <View pointerEvents="box-none" style={[styles.expandedRoot, { bottom: resolvedBottom }]} testID="control-hud-dashboard">
+      <View
+        style={[
+          styles.expandedBar,
+          {
+            borderRadius: sp(16),
+            gap: sp(5),
+            maxWidth: resolvedMaxWidth,
+            paddingHorizontal: sp(10),
+            paddingVertical: sp(6),
+          },
+        ]}
+        testID="control-hud-dashboard-expanded"
       >
-        <Ionicons color={INK} name="chevron-down" size={sp(16)} />
-      </Pressable>
-
-      <View pointerEvents="box-none" style={[styles.dialRow, { gap: sp(10) }]} testID="control-hud-dashboard-expanded">
-        <View pointerEvents="box-none" style={[styles.sideActionColumn, { gap: sp(3) }]}>
-          <Pressable
-            accessibilityLabel="自主充电"
-            accessibilityRole="button"
-            onPress={onChargePress}
-            style={({ pressed }) => [styles.sideRoundBtn, { borderRadius: sp(18), height: sp(36), width: sp(36) }, pressed && styles.pressed]}
-            testID="control-hud-charge"
-          >
-            <Ionicons color={INK} name="battery-charging-outline" size={sp(16)} />
-          </Pressable>
-          <Text style={[styles.sideActionCaption, { fontSize: fMeta, lineHeight: fMetaLine }]}>充电</Text>
-        </View>
-
-        <View style={[styles.dialCircle, { borderRadius: sp(71), height: sp(142), paddingHorizontal: sp(10), paddingVertical: sp(10), width: sp(142) }]} testID="control-hud-dashboard-dial">
-          <View style={styles.dialCrossV} pointerEvents="none" />
-          <View style={styles.dialCrossH} pointerEvents="none" />
-
-          <View style={[styles.tempSummaryRow, { gap: sp(6) }]} testID="control-hud-temp-summary">
+        <View style={[styles.expandedTelemetryRow, { gap: sp(7) }]} testID="control-hud-dashboard-dial">
+          <View style={[styles.tempSummaryRow, { gap: sp(4) }]} testID="control-hud-temp-summary">
             <Text style={[styles.tempSummaryText, { fontSize: fMeta, lineHeight: fMetaLine, color: severityColor(minTempSeverity) }]}>{minTempText}</Text>
             <View style={[styles.tempSummaryDivider, { height: sp(9) }]} />
             <Text style={[styles.tempSummaryText, { fontSize: fMeta, lineHeight: fMetaLine, color: severityColor(maxTempSeverity) }]}>{maxTempText}</Text>
           </View>
 
-          <View style={[styles.dialMiddle, { gap: sp(6) }]}>
-            <View style={[styles.dualIndicatorsCol, { gap: sp(6), paddingLeft: sp(2) }]}>
-              <View
-                accessible
-                accessibilityLabel={`照明灯：前${frontLightOn ? '开' : '关'} 后${rearLightOn ? '开' : '关'}`}
-                style={[styles.dualIndicatorGroup, { gap: sp(2) }]}
-                testID="control-hud-indicator-light"
-              >
-                <Ionicons color={anyLightOn ? ACTIVE_CYAN : MUTED_INK} name="flashlight-outline" size={sp(12)} />
-                <View style={[styles.dualDotsRow, { gap: sp(3) }]}>
-                  <View style={[styles.tinyDot, { borderRadius: sp(2.5), height: sp(5), width: sp(5) }, frontLightOn && styles.tinyDotActive]} testID="control-hud-indicator-light-front" />
-                  <View style={[styles.tinyDot, { borderRadius: sp(2.5), height: sp(5), width: sp(5) }, rearLightOn && styles.tinyDotActive]} testID="control-hud-indicator-light-rear" />
-                </View>
-              </View>
-              <View
-                accessible
-                accessibilityLabel={`图传：前${frontVideoReceiving ? '开' : '关'} 后${rearVideoReceiving ? '开' : '关'}`}
-                style={[styles.dualIndicatorGroup, { gap: sp(2) }]}
-                testID="control-hud-indicator-video"
-              >
-                <Ionicons color={anyVideoOn ? ACTIVE_CYAN : MUTED_INK} name="videocam-outline" size={sp(12)} />
-                <View style={[styles.dualDotsRow, { gap: sp(3) }]}>
-                  <View style={[styles.tinyDot, { borderRadius: sp(2.5), height: sp(5), width: sp(5) }, frontVideoReceiving && styles.tinyDotActive]} testID="control-hud-indicator-video-front" />
-                  <View style={[styles.tinyDot, { borderRadius: sp(2.5), height: sp(5), width: sp(5) }, rearVideoReceiving && styles.tinyDotActive]} testID="control-hud-indicator-video-rear" />
-                </View>
+          <View style={[styles.barDivider, { height: sp(13) }]} />
+
+          <View style={[styles.compactIndicatorsRow, { gap: sp(6) }]}>
+            <View
+              accessible
+              accessibilityLabel={`照明灯：前${frontLightOn ? '开' : '关'} 后${rearLightOn ? '开' : '关'}`}
+              style={[styles.dualIndicatorInline, { gap: sp(3) }]}
+              testID="control-hud-indicator-light"
+            >
+              <Ionicons color={anyLightOn ? ACTIVE_CYAN : MUTED_INK} name="flashlight-outline" size={sp(12)} />
+              <View style={[styles.dualDotsRow, { gap: sp(2) }]}>
+                <View style={[styles.tinyDot, { borderRadius: sp(2.5), height: sp(5), width: sp(5) }, frontLightOn && styles.tinyDotActive]} testID="control-hud-indicator-light-front" />
+                <View style={[styles.tinyDot, { borderRadius: sp(2.5), height: sp(5), width: sp(5) }, rearLightOn && styles.tinyDotActive]} testID="control-hud-indicator-light-rear" />
               </View>
             </View>
-
-            <View style={[styles.chassisCluster, { gap: sp(4) }]}>
-              <View style={[styles.chassisBody, { borderRadius: sp(10), paddingHorizontal: sp(6), paddingVertical: sp(5), width: sp(80) }]}>
-                <View style={[styles.chassisEnergyRow, { gap: sp(3) }]} testID="control-hud-battery-bar">
-                  <View style={[styles.chassisBatteryTrack, { borderRadius: sp(2), height: sp(6) }]}>
-                    <View style={[styles.chassisBatteryFill, { width: `${Math.round(energy.fillRatio * 100)}%`, backgroundColor: energy.fillColor }]} />
-                  </View>
-                  <Text style={[styles.chassisEnergyText, { fontSize: fMeta, lineHeight: fMetaLine }]}>{energy.text}</Text>
-                </View>
-              </View>
-              <View style={[styles.chassisLegsRow, { width: sp(74) }]}>
-                <View style={[styles.legWheel, { borderRadius: sp(5), height: sp(10), width: sp(10) }]} />
-                <View
-                  accessible
-                  accessibilityLabel={forwardDirection === 'front' ? '运动正方向：前方' : '运动正方向：后方'}
-                  style={[styles.directionArrowBox, { borderRadius: sp(6), height: sp(20), width: sp(28) }]}
-                  testID="control-hud-direction-arrow"
-                >
-                  <Ionicons
-                    color={ACTIVE_CYAN}
-                    name={forwardDirection === 'front' ? 'arrow-back' : 'arrow-forward'}
-                    size={sp(15)}
-                  />
-                </View>
-                <View style={[styles.legWheel, { borderRadius: sp(5), height: sp(10), width: sp(10) }]} />
+            <View
+              accessible
+              accessibilityLabel={`图传：前${frontVideoReceiving ? '开' : '关'} 后${rearVideoReceiving ? '开' : '关'}`}
+              style={[styles.dualIndicatorInline, { gap: sp(3) }]}
+              testID="control-hud-indicator-video"
+            >
+              <Ionicons color={anyVideoOn ? ACTIVE_CYAN : MUTED_INK} name="videocam-outline" size={sp(12)} />
+              <View style={[styles.dualDotsRow, { gap: sp(2) }]}>
+                <View style={[styles.tinyDot, { borderRadius: sp(2.5), height: sp(5), width: sp(5) }, frontVideoReceiving && styles.tinyDotActive]} testID="control-hud-indicator-video-front" />
+                <View style={[styles.tinyDot, { borderRadius: sp(2.5), height: sp(5), width: sp(5) }, rearVideoReceiving && styles.tinyDotActive]} testID="control-hud-indicator-video-rear" />
               </View>
             </View>
           </View>
 
-          <View style={[styles.dialBottomAccent, { height: sp(3), width: sp(28) }]} pointerEvents="none" />
+          <View style={[styles.barDivider, { height: sp(13) }]} />
+
+          <View style={[styles.compactEnergyRow, { gap: sp(5) }]} testID="control-hud-battery-bar">
+            <View style={[styles.compactEnergyTrack, { borderRadius: sp(2.5), height: sp(5), width: sp(38) }]}>
+              <View style={[styles.chassisBatteryFill, { width: `${Math.round(energy.fillRatio * 100)}%`, backgroundColor: energy.fillColor }]} />
+            </View>
+            <Text numberOfLines={1} style={[styles.chassisEnergyText, { fontSize: fMeta, lineHeight: fMetaLine }]}>{energy.text}</Text>
+          </View>
+
+          <View
+            accessible
+            accessibilityLabel={forwardDirection === 'front' ? '运动正方向：前方' : '运动正方向：后方'}
+            style={[styles.directionArrowBox, { borderRadius: sp(6), height: sp(20), width: sp(24) }]}
+            testID="control-hud-direction-arrow"
+          >
+            <Ionicons
+              color={ACTIVE_CYAN}
+              name={forwardDirection === 'front' ? 'arrow-back' : 'arrow-forward'}
+              size={sp(13)}
+            />
+          </View>
+
+          <Pressable
+            accessibilityLabel="收起机器人仪表盘"
+            accessibilityRole="button"
+            accessibilityState={{ expanded: true }}
+            onPress={onToggleExpanded}
+            style={({ pressed }) => [styles.inlineCollapseBtn, { borderRadius: sp(12), height: sp(24), width: sp(24) }, pressed && styles.pressed]}
+            testID="control-hud-dashboard-toggle"
+          >
+            <Ionicons color={INK} name="chevron-down" size={sp(14)} />
+          </Pressable>
         </View>
 
-        <View pointerEvents="box-none" style={[styles.sideActionColumn, { gap: sp(3) }]}>
+        <View pointerEvents="box-none" style={[styles.jointSwitchRow, { gap: sp(6) }]}>
+          <Pressable
+            accessibilityLabel="自主充电"
+            accessibilityRole="button"
+            onPress={onChargePress}
+            style={({ pressed }) => [
+              styles.jointSwitchBtn,
+              { borderRadius: sp(12), gap: sp(4), minHeight: sp(26), paddingHorizontal: sp(9), paddingVertical: sp(3) },
+              pressed && styles.pressed,
+            ]}
+            testID="control-hud-charge"
+          >
+            <Ionicons color={MUTED_INK} name="battery-charging-outline" size={sp(13)} />
+            <Text numberOfLines={1} style={[styles.jointSwitchText, { fontSize: fBody, lineHeight: fBodyLine }]}>充电</Text>
+          </Pressable>
           <Pressable
             accessibilityLabel="运动换向"
             accessibilityRole="button"
             onPress={onReverseDirection}
-            style={({ pressed }) => [styles.sideRoundBtn, { borderRadius: sp(18), height: sp(36), width: sp(36) }, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.jointSwitchBtn,
+              { borderRadius: sp(12), gap: sp(4), minHeight: sp(26), paddingHorizontal: sp(9), paddingVertical: sp(3) },
+              pressed && styles.pressed,
+            ]}
             testID="control-hud-reverse-direction"
           >
-            <Ionicons color={INK} name="swap-horizontal-outline" size={sp(16)} />
+            <Ionicons color={MUTED_INK} name="swap-horizontal-outline" size={sp(13)} />
+            <Text numberOfLines={1} style={[styles.jointSwitchText, { fontSize: fBody, lineHeight: fBodyLine }]}>换向</Text>
           </Pressable>
-          <Text style={[styles.sideActionCaption, { fontSize: fMeta, lineHeight: fMetaLine }]}>换向</Text>
+          <Pressable
+            accessibilityLabel="关节温度"
+            accessibilityRole="button"
+            accessibilityState={{ selected: jointTempOpen }}
+            onPress={onToggleJointTemp}
+            style={({ pressed }) => [
+              styles.jointSwitchBtn,
+              { borderRadius: sp(12), gap: sp(4), minHeight: sp(26), paddingHorizontal: sp(9), paddingVertical: sp(3) },
+              jointTempOpen && styles.jointSwitchBtnActive,
+              pressed && styles.pressed,
+            ]}
+            testID="control-hud-joint-temp-toggle"
+          >
+            <Ionicons color={jointTempOpen ? '#FFFFFF' : MUTED_INK} name="thermometer-outline" size={sp(13)} />
+            <Text numberOfLines={1} style={[styles.jointSwitchText, { fontSize: fBody, lineHeight: fBodyLine }, jointTempOpen && styles.jointSwitchTextActive]}>关节温度</Text>
+          </Pressable>
+          <Pressable
+            accessibilityLabel="关节参数"
+            accessibilityRole="button"
+            accessibilityState={{ selected: jointParamsOpen }}
+            onPress={onToggleJointParams}
+            style={({ pressed }) => [
+              styles.jointSwitchBtn,
+              { borderRadius: sp(12), gap: sp(4), minHeight: sp(26), paddingHorizontal: sp(9), paddingVertical: sp(3) },
+              jointParamsOpen && styles.jointSwitchBtnActive,
+              pressed && styles.pressed,
+            ]}
+            testID="control-hud-joint-params-toggle"
+          >
+            <Ionicons color={jointParamsOpen ? '#FFFFFF' : MUTED_INK} name="analytics-outline" size={sp(13)} />
+            <Text numberOfLines={1} style={[styles.jointSwitchText, { fontSize: fBody, lineHeight: fBodyLine }, jointParamsOpen && styles.jointSwitchTextActive]}>关节参数</Text>
+          </Pressable>
         </View>
-      </View>
-
-      <View pointerEvents="box-none" style={[styles.jointSwitchRow, { gap: sp(12) }]}>
-        <Pressable
-          accessibilityLabel="关节温度"
-          accessibilityRole="button"
-          accessibilityState={{ selected: jointTempOpen }}
-          onPress={onToggleJointTemp}
-          style={({ pressed }) => [
-            styles.jointSwitchBtn,
-            { borderRadius: sp(14), gap: sp(5), minHeight: sp(30), paddingHorizontal: sp(11), paddingVertical: sp(4) },
-            jointTempOpen && styles.jointSwitchBtnActive,
-            pressed && styles.pressed,
-          ]}
-          testID="control-hud-joint-temp-toggle"
-        >
-          <Ionicons color={jointTempOpen ? '#FFFFFF' : MUTED_INK} name="thermometer-outline" size={sp(14)} />
-          <Text style={[styles.jointSwitchText, { fontSize: fBody, lineHeight: fBodyLine }, jointTempOpen && styles.jointSwitchTextActive]}>关节温度</Text>
-        </Pressable>
-        <Pressable
-          accessibilityLabel="关节参数"
-          accessibilityRole="button"
-          accessibilityState={{ selected: jointParamsOpen }}
-          onPress={onToggleJointParams}
-          style={({ pressed }) => [
-            styles.jointSwitchBtn,
-            { borderRadius: sp(14), gap: sp(5), minHeight: sp(30), paddingHorizontal: sp(11), paddingVertical: sp(4) },
-            jointParamsOpen && styles.jointSwitchBtnActive,
-            pressed && styles.pressed,
-          ]}
-          testID="control-hud-joint-params-toggle"
-        >
-          <Ionicons color={jointParamsOpen ? '#FFFFFF' : MUTED_INK} name="analytics-outline" size={sp(14)} />
-          <Text style={[styles.jointSwitchText, { fontSize: fBody, lineHeight: fBodyLine }, jointParamsOpen && styles.jointSwitchTextActive]}>关节参数</Text>
-        </Pressable>
       </View>
     </View>
   );
@@ -366,12 +381,64 @@ const styles = StyleSheet.create({
   expandedRoot: {
     alignItems: 'center',
     bottom: 62,
-    gap: 4,
-    left: '50%',
+    left: 0,
     position: 'absolute',
-    transform: [{ translateX: -144 }],
-    width: 288,
+    right: 0,
     zIndex: 7,
+  },
+  expandedBar: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(16, 20, 23, 0.86)',
+    borderColor: SURFACE_BORDER,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  expandedTelemetryRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    gap: 7,
+    justifyContent: 'center',
+  },
+  barDivider: {
+    backgroundColor: 'rgba(255, 255, 255, 0.16)',
+    height: 13,
+    width: 1,
+  },
+  compactIndicatorsRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  dualIndicatorInline: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 3,
+  },
+  compactEnergyRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 5,
+  },
+  compactEnergyTrack: {
+    backgroundColor: 'rgba(255, 255, 255, 0.16)',
+    borderRadius: 2.5,
+    height: 5,
+    overflow: 'hidden',
+    width: 38,
+  },
+  inlineCollapseBtn: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.10)',
+    borderColor: SURFACE_BORDER,
+    borderRadius: 12,
+    borderWidth: 1,
+    height: 24,
+    justifyContent: 'center',
+    width: 24,
   },
   inlineRoot: {
     alignItems: 'center',

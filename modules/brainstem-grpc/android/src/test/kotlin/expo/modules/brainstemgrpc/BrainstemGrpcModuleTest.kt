@@ -177,6 +177,18 @@ private class Bridge {
     return result
   }
   @Suppress("UNCHECKED_CAST")
+  fun getBodyHeightStatus(): Result {
+    val result = Result()
+    (definition.functions.getValue("getBodyHeightStatus") as (String, Promise) -> Unit)(session.id, result)
+    return result
+  }
+  @Suppress("UNCHECKED_CAST")
+  fun setBodyHeight(heightM: Double): Result {
+    val result = Result()
+    (definition.functions.getValue("setBodyHeight") as (String, Double, Promise) -> Unit)(session.id, heightM, result)
+    return result
+  }
+  @Suppress("UNCHECKED_CAST")
   fun close() { (definition.functions.getValue("closeControl") as (String) -> Unit)(session.id) }
   fun destroy() = definition.destroy()
 }
@@ -534,9 +546,16 @@ private fun newControlAndDiagnosticFunctionsUseControlExecutor() {
     val speed = bridge.getSpeedMode()
     speed.success()
     check((speed.value as Map<*, *>)["speedMode"] == "normal")
+    val heightStatus = bridge.getBodyHeightStatus()
+    heightStatus.success()
+    check((heightStatus.value as Map<*, *>)["bodyHeight"] is Map<*, *>)
+    val setHeight = bridge.setBodyHeight(0.375)
+    setHeight.success()
+    check((setHeight.value as Map<*, *>)["bodyHeight"] is Map<*, *>)
+    bridge.setBodyHeight(Double.NaN).rejected("config")
     bridge.controlAction("clear-motor-fault").success()
     bridge.controlAction("set-zero").rejected("precondition")
-    check(ModuleTestTransport.methods.containsAll(listOf("ListGestures", "GetSpeedMode", "ClearMotorFault", "GetControlStatus")))
+    check(ModuleTestTransport.methods.containsAll(listOf("ListGestures", "GetSpeedMode", "GetBodyHeightStatus", "SetBodyHeight", "ClearMotorFault", "GetControlStatus")))
     check(!ModuleTestTransport.methods.contains("SetZero"))
   } finally { bridge.destroy() }
 }

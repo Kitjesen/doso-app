@@ -215,11 +215,6 @@ export function ProfileHub(props: Props & { initialDeviceOpen?: boolean }) {
                   </Pressable>
                 ))}
               </View>
-
-              <View style={hubStyles.protocolSummaryCard}>
-                <Text style={hubStyles.protocolSummaryTitle}>通信架构概览</Text>
-                <Text style={hubStyles.protocolSummaryText}>控制遥测：Brainstem gRPC v2.2 (:13145 mTLS / 局域网) · 图传：WebRTC WHEP / MuJoCo 1080p 仿真流 · 遥控：Skydroid G20</Text>
-              </View>
             </View>
           </View>
 
@@ -248,13 +243,10 @@ export function ProfileHub(props: Props & { initialDeviceOpen?: boolean }) {
                 ))}
               </>
             ) : panel === 'notifications' ? (
-              <>
-                <View style={hubStyles.rowline}>
-                  <Text style={{ flex: 1, color: '#EDF2EE' }}>状态警报偏好</Text>
-                  <Switch accessibilityLabel="状态警报偏好" value={props.alertsEnabled} onValueChange={props.onToggleAlerts} thumbColor="#FFFFFF" trackColor={{ false: '#3A4240', true: '#3B6EF6' }} />
-                </View>
-                <Text style={{ color: '#9AA39E', lineHeight: 21, marginTop: 6 }}>此设置仅保存本机警报偏好；真实通知服务尚未接入。</Text>
-              </>
+              <View style={hubStyles.rowline}>
+                <Text style={{ flex: 1, color: '#EDF2EE' }}>状态警报偏好</Text>
+                <Switch accessibilityLabel="状态警报偏好" value={props.alertsEnabled} onValueChange={props.onToggleAlerts} thumbColor="#FFFFFF" trackColor={{ false: '#3A4240', true: '#3B6EF6' }} />
+              </View>
             ) : panel === 'about' ? (
               <>
                 <Text style={{ color: '#EDF2EE', marginBottom: 14 }}>DOSO robotics · v{require('../../app.json').expo.version}</Text>

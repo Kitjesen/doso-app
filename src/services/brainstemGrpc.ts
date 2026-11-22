@@ -35,6 +35,12 @@ export type BrainstemGrpcStatus = {
 };
 export type RobotModeKind = 'unspecified' | 'locomotion' | 'recovery-action' | 'body-height';
 export type RobotModeAvailability = 'unknown' | 'unavailable' | 'available';
+export type BrainstemBodyHeightCapability = Readonly<{
+  defaultHeightM: number;
+  minHeightM: number;
+  maxHeightM: number;
+  rateMps: number;
+}>;
 export type RobotModeCapability = Readonly<{
   id: string;
   kind: RobotModeKind;
@@ -43,7 +49,9 @@ export type RobotModeCapability = Readonly<{
   unavailableReason: string;
   availability?: RobotModeAvailability;
   profileId?: string;
+  bodyHeight?: BrainstemBodyHeightCapability;
 }>;
+export type BrainstemGrpcModeCapability = RobotModeCapability;
 export type BrainstemGrpcProfile = Readonly<{
   current: string;
   available: readonly string[];
@@ -461,6 +469,20 @@ function projectModeCapabilities(value: unknown): RobotModeCapability[] | null {
   return capabilities;
 }
 
+function projectBodyHeightCapability(value: unknown): BrainstemBodyHeightCapability | null {
+  if (!value || typeof value !== 'object') return null;
+  const h = value as Record<string, unknown>;
+  const ok = (v: unknown, max: number): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= max;
+  if (!ok(h.defaultHeightM, 5) || !ok(h.minHeightM, 5) || !ok(h.maxHeightM, 5) || !ok(h.rateMps, 10)) return null;
+  if (h.minHeightM > 0 && h.maxHeightM > 0 && h.minHeightM > h.maxHeightM) return null;
+  return Object.freeze({
+    defaultHeightM: h.defaultHeightM,
+    minHeightM: h.minHeightM,
+    maxHeightM: h.maxHeightM,
+    rateMps: h.rateMps,
+  });
+}
+
 function projectModeCapability(item: unknown, kinds: readonly string[], availabilities: readonly string[]): RobotModeCapability | null {
   if (!item || typeof item !== 'object') return null;
   const capability = item as Record<string, unknown>;
@@ -488,10 +510,17 @@ function projectModeCapability(item: unknown, kinds: readonly string[], availabi
     if (typeof capability.profileId !== 'string' || capability.profileId.length > 128 || capability.profileId.includes('\0')) return null;
     profileId = capability.profileId;
   }
+  let bodyHeight: BrainstemBodyHeightCapability | undefined;
+  if (capability.bodyHeight !== undefined) {
+    const projected = projectBodyHeightCapability(capability.bodyHeight);
+    if (!projected) return null;
+    bodyHeight = projected;
+  }
   return {
     id: capability.id, kind: capability.kind as RobotModeKind, label, available, unavailableReason: capability.unavailableReason,
     ...(availability ? { availability } : {}),
     ...(profileId !== undefined ? { profileId } : {}),
+    ...(bodyHeight !== undefined ? { bodyHeight } : {}),
   };
 }
 
@@ -666,4 +695,58 @@ export async function readBrainstemGrpcMotorStatus(options: {
     source: 'brainstem.grpc.motor-status', observedAt: new Date().toISOString(), transport: options.endpoint.transport === 'lan-dev' ? 'grpc-lan' : 'grpc-tls', motors, ...tls,
     motionAuthorized: false, cloudBindingVerified: false,
   };
+}
+
+type VoiceNativeBridge = {
+  isVoiceInputAvailable?: () => Promise<boolean>;
+  recognizeVoiceOnce?: () => Promise<string>;
+  speakVoiceText?: (text: string, volume: number) => Promise<boolean>;
+  stopVoiceSpeech?: () => Promise<void> | void;
+};
+
+export async function isNativeVoiceInputAvailable(): Promise<boolean> {
+  if (Platform.OS !== 'android') return false;
+  try {
+    const mod = requireOptionalNativeModule<VoiceNativeBridge>('DosoBrainstemGrpc');
+    if (mod && typeof mod.isVoiceInputAvailable === 'function') {
+      return Boolean(await mod.isVoiceInputAvailable());
+    }
+  } catch {
+    /* Optional native speech bridge unavailable. */
+  }
+  return false;
+}
+
+export async function recognizeNativeVoiceOnce(): Promise<string> {
+  if (Platform.OS !== 'android') throw new BrainstemGrpcError('native_unavailable');
+  const mod = requireOptionalNativeModule<VoiceNativeBridge>('DosoBrainstemGrpc');
+  if (!mod || typeof mod.recognizeVoiceOnce !== 'function') {
+    throw new BrainstemGrpcError('native_unavailable');
+  }
+  const text = await mod.recognizeVoiceOnce();
+  return typeof text === 'string' ? text : '';
+}
+
+export async function speakNativeVoiceText(text: string, volume01: number): Promise<boolean> {
+  if (Platform.OS !== 'android') return false;
+  try {
+    const mod = requireOptionalNativeModule<VoiceNativeBridge>('DosoBrainstemGrpc');
+    if (mod && typeof mod.speakVoiceText === 'function') {
+      const clamped = Number.isFinite(volume01) ? Math.max(0, Math.min(1, volume01)) : 0.8;
+      return Boolean(await mod.speakVoiceText(text, clamped));
+    }
+  } catch {
+    /* Ignore native TTS errors. */
+  }
+  return false;
+}
+
+export function stopNativeVoiceSpeech(): void {
+  if (Platform.OS !== 'android') return;
+  try {
+    const mod = requireOptionalNativeModule<VoiceNativeBridge>('DosoBrainstemGrpc');
+    void mod?.stopVoiceSpeech?.();
+  } catch {
+    /* Ignore. */
+  }
 }

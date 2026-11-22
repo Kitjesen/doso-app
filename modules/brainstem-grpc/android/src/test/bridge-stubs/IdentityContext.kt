@@ -16,6 +16,7 @@ open class Context {
   val noBackupFilesDir = File(System.getProperty("java.io.tmpdir"), "doso-context-${UUID.randomUUID()}")
   var packageName = "com.doso.robot.qa"
   val applicationInfo = android.content.pm.ApplicationInfo()
+  val packageManager = PackageManager()
   var receiver: BroadcastReceiver? = null
   var senderPermission: String? = null
   fun registerReceiver(receiver: BroadcastReceiver, filter: IntentFilter, permission: String, scheduler: Any?): Intent? {
@@ -27,11 +28,17 @@ open class Context {
   fun unregisterReceiver(receiver: BroadcastReceiver) { check(this.receiver === receiver); this.receiver = null }
   companion object { const val RECEIVER_EXPORTED = 2; const val CONNECTIVITY_SERVICE = "connectivity"; const val WIFI_SERVICE = "wifi" }
 }
+class PackageManager {
+  fun resolveActivity(intent: Intent, flags: Int): Any? = null
+}
 class Intent(val action: String? = null) {
   var `package`: String? = null
   private val extras = mutableMapOf<String, String>()
+  private val listExtras = mutableMapOf<String, ArrayList<String>>()
   fun putExtra(name: String, value: String): Intent { extras[name] = value; return this }
+  fun putExtra(name: String, value: Int): Intent = this
   fun getStringExtra(name: String): String? = extras[name]
+  fun getStringArrayListExtra(name: String): ArrayList<String>? = listExtras[name]
 }
 class IntentFilter(val action: String)
 abstract class BroadcastReceiver {

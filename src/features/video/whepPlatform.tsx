@@ -1,4 +1,4 @@
-import { createElement, useEffect, useRef, useState } from 'react';
+import { createElement, memo, useEffect, useRef, useState } from 'react';
 
 import {
   LoopbackSimVideoReceiver,
@@ -152,11 +152,13 @@ function WhepVideoElementPlayer({ stream, rotation }: { stream: VideoStream; rot
   const width = sideways ? size.height : size.width;
   const height = sideways ? size.width : size.height;
   return createElement('div', { ref: container, style: { position: 'absolute', inset: 0, overflow: 'hidden', background: '#000' } },
-    createElement('video', { ref, autoPlay: true, muted: true, playsInline: true, 'aria-label': '机器人摄像头画面',
-      style: { position: 'absolute', left: (size.width - width) / 2, top: (size.height - height) / 2, width, height, objectFit: 'cover', transform: `rotate(${rotation}deg)` } }));
+    createElement('video', {
+      ref, autoPlay: true, muted: true, playsInline: true, 'aria-label': '机器人摄像头画面',
+      style: { position: 'absolute', left: (size.width - width) / 2, top: (size.height - height) / 2, width, height, objectFit: 'cover', transform: `rotate(${rotation}deg)` }
+    }));
 }
 
-export function VideoPlayer({ stream, rotation }: { stream: VideoStream; rotation: number }) {
+export const VideoPlayer = memo(function VideoPlayer({ stream, rotation }: { stream: VideoStream; rotation: number }) {
   if ((stream as Partial<LoopbackSimVideoStream>)?.kind === 'doso-dev-sim-canvas') {
     return createElement(SimCanvasVideoPlayer, {
       stream: stream as LoopbackSimVideoStream,
@@ -164,4 +166,4 @@ export function VideoPlayer({ stream, rotation }: { stream: VideoStream; rotatio
     });
   }
   return createElement(WhepVideoElementPlayer, { stream, rotation });
-}
+});

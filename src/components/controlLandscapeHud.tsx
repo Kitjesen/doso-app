@@ -9,12 +9,13 @@ import type {
   ControlRuntimeState,
 } from '../features/control/controlOperations';
 import { ControlHudDashboard } from './ControlHudDashboard';
-import { FaultListPanel, GestureDeckPanel, JointParametersPanel, JointTemperaturePanel } from './ControlHudPanels';
+import { BodyHeightPanel, FaultListPanel, GestureDeckPanel, JointParametersPanel, JointTemperaturePanel } from './ControlHudPanels';
 import {
   collectHudFaults,
   HUD_BASIC_ACTIONS,
   projectJointTemperatures,
   projectTopSignalBadges,
+  type HudBodyHeightState,
   type HudCameraPosition,
   type HudForwardDirection,
   type HudGestureCategoryId,
@@ -143,6 +144,24 @@ export type ControlLandscapeHudProps = Readonly<{
   onSelectLegId: (legId: HudLegId) => void;
   faultPanelOpen: boolean;
   onToggleFaultPanel: () => void;
+  voiceChatOpen?: boolean;
+  voiceChatStatusLabel?: string;
+  voiceChatActive?: boolean;
+  onToggleVoiceChat?: () => void;
+  voiceChatPanel?: ReactNode;
+  showVirtualDiscControls?: boolean;
+  onToggleVirtualDiscControls?: () => void;
+  bodyHeightPanelOpen?: boolean;
+  onToggleBodyHeightPanel?: () => void;
+  bodyHeight?: HudBodyHeightState | null;
+  bodyHeightDraftM?: number | null;
+  bodyHeightBusy?: boolean;
+  bodyHeightError?: string | null;
+  bodyHeightMoving?: boolean;
+  bodyHeightLeased?: boolean;
+  onSetBodyHeightMode?: (enabled: boolean) => void;
+  onPreviewBodyHeight?: (heightM: number) => void;
+  onCommitBodyHeight?: (heightM: number) => void;
   joints?: readonly ControlJointState[];
   hudNotice?: string | null;
   joystick: ReactNode;
@@ -267,6 +286,24 @@ export function controlLandscapeHud({
   onSelectLegId,
   faultPanelOpen,
   onToggleFaultPanel,
+  voiceChatOpen = false,
+  voiceChatStatusLabel,
+  voiceChatActive = false,
+  onToggleVoiceChat,
+  voiceChatPanel,
+  showVirtualDiscControls = true,
+  onToggleVirtualDiscControls,
+  bodyHeightPanelOpen = false,
+  onToggleBodyHeightPanel,
+  bodyHeight = null,
+  bodyHeightDraftM = null,
+  bodyHeightBusy = false,
+  bodyHeightError = null,
+  bodyHeightMoving = false,
+  bodyHeightLeased = false,
+  onSetBodyHeightMode,
+  onPreviewBodyHeight,
+  onCommitBodyHeight,
   joints,
   hudNotice,
   joystick,
@@ -346,6 +383,12 @@ export function controlLandscapeHud({
   const stickCorridorEachSide = Math.round((joystickSize || 156) + sp(36));
   const centerFreeWidth = Math.max(308, effectiveStageW - stickCorridorEachSide * 2);
   const gestureDeckWidth = Math.min(sp(476), centerFreeWidth - sp(24));
+  const leftRailWidthEst = circleSize * 3 + sp(ultraShortStage ? 6 : 8) * 2;
+  const leftRailRightEdge = pipRight + leftRailWidthEst + sp(12);
+  const rightRailEdgeOffset = (rightRailBesidePip ? rightRailRight + rightRailWidth : pipRight + pipW) + sp(12);
+  const centerToastSafeW = Math.max(168, effectiveStageW - Math.max(leftRailRightEdge, rightRailEdgeOffset) * 2);
+  const feedbackMaxW = Math.min(320, Math.round(effectiveStageW * 0.34), centerToastSafeW);
+  const topToastTop = (ultraShortStage ? 6 : compactTopBar ? 8 : sp(12)) + topBarMinHeight + sp(8) + (speedLimitExpanded ? sp(46) : 0);
   const gestureMaxListHeight = effectiveStageH >= 620 ? 248 : effectiveStageH >= 500 ? 198 : 156;
   const faults = collectHudFaults({ runtimeState, sessionError, recoveryError });
   const signals = projectTopSignalBadges({ connection, runtimeState });
@@ -361,7 +404,13 @@ export function controlLandscapeHud({
       { id: 'stairs', label: '楼梯', disabled: true, selected: false, hint: '暂无可用模式' },
       { id: 'platform', label: '高台', disabled: true, selected: false, hint: '暂无可用模式' },
     ];
-  const anyFloatingPanel = (faultPanelOpen && faults.length > 0) || jointParamsOpen || jointTempOpen || Boolean(recovery);
+  const hasVoiceOverlay = Boolean(voiceChatOpen && voiceChatPanel);
+  const anyFloatingPanel = (faultPanelOpen && faults.length > 0) || jointParamsOpen || jointTempOpen || bodyHeightPanelOpen || Boolean(recovery) || hasVoiceOverlay;
+  const activeHeightBadgeText = bodyHeight?.active && bodyHeight.supported
+    && typeof bodyHeight.currentHeightM === 'number' && Number.isFinite(bodyHeight.currentHeightM) && bodyHeight.currentHeightM > 0
+    ? `${bodyHeight.currentHeightM.toFixed(2)}m`
+    : null;
+  const remoteControlled = runtimeState?.controlOwner === 'remote' || runtimeState?.controlOwner === 'robot-remote';
   const inlineVoltageText = typeof voltageV === 'number' && Number.isFinite(voltageV) && voltageV > 0 ? `${voltageV.toFixed(1)}V` : null;
   const inlineBatteryText = typeof batteryPercent === 'number' && Number.isFinite(batteryPercent) ? `${Math.round(batteryPercent)}%` : null;
   const inlineTempText = tempSummary.maxTempC !== null ? `${Math.round(tempSummary.maxTempC)}°C` : null;
@@ -456,25 +505,12 @@ export function controlLandscapeHud({
                 accessibilityRole="button"
                 accessibilityState={{ expanded: settingsOpen }}
                 onPress={onOpenSettings}
-                style={({ pressed }) => [styles.islandNavBtn, { gap: compactTopBar ? 3 : sp(5), minHeight: topBtnHeight, paddingHorizontal: ultraCompactTop ? 5 : compactTopBar ? 6 : sp(9) }, settingsOpen && styles.islandNavBtnActive, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.islandNavBtn, { gap: compactTopBar ? 3 : sp(5), minHeight: topBtnHeight, paddingHorizontal: ultraCompactTop ? 6 : compactTopBar ? 7 : sp(10) }, settingsOpen && styles.islandNavBtnActive, pressed && styles.pressed]}
                 testID="control-hud-settings"
               >
-                {!(ultraCompactTop && (showLocalControl || showUnlocked)) ? <Ionicons color={settingsOpen ? '#93C5FD' : INK} name="options-outline" size={compactTopBar ? 12 : sp(14)} /> : null}
-                <Text numberOfLines={1} style={[styles.islandNavText, { fontSize: topFont, lineHeight: topFontLine }, settingsOpen && styles.islandNavTextActive]}>操控</Text>
+                {!(ultraCompactTop && (showLocalControl || showUnlocked)) ? <Ionicons color={settingsOpen ? '#93C5FD' : INK} name="settings-outline" size={compactTopBar ? 12 : sp(14)} /> : null}
+                <Text numberOfLines={1} style={[styles.islandNavText, { fontSize: topFont, lineHeight: topFontLine }, settingsOpen && styles.islandNavTextActive]}>设置</Text>
               </Pressable>
-
-              {onOpenWorkspaceSettings ? (
-                <Pressable
-                  accessibilityLabel="设置"
-                  accessibilityRole="button"
-                  onPress={onOpenWorkspaceSettings}
-                  style={({ pressed }) => [styles.islandNavBtn, { gap: compactTopBar ? 3 : sp(5), minHeight: topBtnHeight, paddingHorizontal: ultraCompactTop ? 5 : compactTopBar ? 6 : sp(9) }, pressed && styles.pressed]}
-                  testID="control-hud-open-workspace-settings"
-                >
-                  {!(ultraCompactTop && (showLocalControl || showUnlocked)) ? <Ionicons color={INK} name="settings-outline" size={compactTopBar ? 12 : sp(14)} /> : null}
-                  <Text numberOfLines={1} style={[styles.islandNavText, { fontSize: topFont, lineHeight: topFontLine }]}>设置</Text>
-                </Pressable>
-              ) : null}
             </View>
 
             {/* Island 2 (Top-Center): Mode + Segmented Terrain Capsules + Speed Chip */}
@@ -686,8 +722,8 @@ export function controlLandscapeHud({
         {/* Joystick Touch Layer (sibling of control-hud-center-stack) */}
         <View
           onLayout={onStickFrameLayout}
-          pointerEvents={settingsMenu ? 'none' : 'box-none'}
-          style={[styles.stickFrame, stickFrameStyle, settingsMenu ? styles.hiddenStickFrame : null]}
+          pointerEvents={settingsMenu || !joystick ? 'none' : 'box-none'}
+          style={[styles.stickFrame, stickFrameStyle, (settingsMenu || !joystick) ? styles.hiddenStickFrame : null]}
           testID="control-immersive-sticks"
         >
           {joystick}
@@ -699,6 +735,93 @@ export function controlLandscapeHud({
             testID="control-hud-center-stack"
           >
             {pointCloud}
+          </View>
+        ) : null}
+
+        {/* Upper-Left Quick Tool Rail: Voice / Virtual Discs / Body Height */}
+        {!settingsMenu && (onToggleVoiceChat || onToggleVirtualDiscControls || onToggleBodyHeightPanel) ? (
+          <View pointerEvents="box-none" style={[styles.leftVoiceRail, { gap: sp(ultraShortStage ? 6 : 8), left: pipRight, top: pipTop }]}>
+            {onToggleVoiceChat ? (
+              <Pressable
+                accessibilityLabel={voiceChatOpen ? '收起语音对话' : '打开语音对话'}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: voiceChatOpen, selected: voiceChatOpen || voiceChatActive }}
+                onPress={onToggleVoiceChat}
+                style={({ pressed }) => [styles.circleBtnGroup, { gap: sp(2) }, pressed && styles.pressed]}
+                testID="control-hud-voice-toggle"
+              >
+                <View
+                  style={[
+                    styles.circleBtn,
+                    { borderRadius: circleRadius, height: circleSize, width: circleSize },
+                    (voiceChatOpen || voiceChatActive) && styles.circleBtnActive,
+                  ]}
+                >
+                  <Ionicons
+                    color={INK}
+                    name={voiceChatActive ? 'mic' : voiceChatOpen ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'}
+                    size={circleIconSize}
+                  />
+                </View>
+                <Text numberOfLines={1} style={[styles.circleCaption, { fontSize: fMeta, lineHeight: railMetaLine }]}>
+                  {voiceChatActive && voiceChatStatusLabel ? voiceChatStatusLabel : '对话'}
+                </Text>
+              </Pressable>
+            ) : null}
+            {onToggleVirtualDiscControls ? (
+              <Pressable
+                accessibilityLabel={showVirtualDiscControls ? '隐藏圆盘控制' : '显示圆盘控制'}
+                accessibilityRole="switch"
+                accessibilityState={{ checked: showVirtualDiscControls }}
+                onPress={onToggleVirtualDiscControls}
+                style={({ pressed }) => [styles.circleBtnGroup, { gap: sp(2) }, pressed && styles.pressed]}
+                testID="control-hud-virtual-disc-toggle"
+              >
+                <View
+                  style={[
+                    styles.circleBtn,
+                    { borderRadius: circleRadius, height: circleSize, width: circleSize },
+                    showVirtualDiscControls && styles.circleBtnActive,
+                  ]}
+                >
+                  <Ionicons
+                    color={INK}
+                    name={showVirtualDiscControls ? 'disc' : 'disc-outline'}
+                    size={circleIconSize}
+                  />
+                </View>
+                <Text numberOfLines={1} style={[styles.circleCaption, { fontSize: fMeta, lineHeight: railMetaLine }]}>
+                  圆盘
+                </Text>
+              </Pressable>
+            ) : null}
+            {onToggleBodyHeightPanel ? (
+              <Pressable
+                accessibilityLabel={bodyHeightPanelOpen ? '收起机身高度' : '调节机身高度'}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: bodyHeightPanelOpen, selected: bodyHeightPanelOpen || Boolean(bodyHeight?.active) }}
+                onPress={onToggleBodyHeightPanel}
+                style={({ pressed }) => [styles.circleBtnGroup, { gap: sp(2) }, pressed && styles.pressed]}
+                testID="control-hud-height-toggle"
+              >
+                <View
+                  style={[
+                    styles.circleBtn,
+                    { borderRadius: circleRadius, height: circleSize, width: circleSize },
+                    (bodyHeightPanelOpen || bodyHeight?.active) && styles.circleBtnActive,
+                  ]}
+                >
+                  <Ionicons
+                    color={INK}
+                    name={bodyHeightPanelOpen || bodyHeight?.active ? 'swap-vertical' : 'swap-vertical-outline'}
+                    size={circleIconSize}
+                  />
+                </View>
+                <Text numberOfLines={1} style={[styles.circleCaption, { fontSize: fMeta, lineHeight: railMetaLine }]}>
+                  {activeHeightBadgeText ?? '高度'}
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
 
@@ -823,6 +946,7 @@ export function controlLandscapeHud({
               style={styles.floatingPanelsScroll}
             >
               {recovery}
+              {hasVoiceOverlay ? voiceChatPanel : null}
               {faultPanelOpen && faults.length > 0 ? FaultListPanel({
                 faults,
                 onClose: onToggleFaultPanel,
@@ -842,6 +966,21 @@ export function controlLandscapeHud({
                 joints,
                 onClose: onToggleJointTemp,
               }) : null}
+              {bodyHeightPanelOpen && onToggleBodyHeightPanel ? BodyHeightPanel({
+                bodyHeight,
+                draftHeightM: bodyHeightDraftM,
+                connected: connection === 'connected',
+                faulted: runtimeState?.faultStatus === 'active',
+                leased: bodyHeightLeased,
+                remoteControlled,
+                moving: bodyHeightMoving,
+                busy: bodyHeightBusy,
+                error: bodyHeightError,
+                onToggleMode: onSetBodyHeightMode,
+                onPreviewHeight: onPreviewBodyHeight,
+                onCommitHeight: onCommitBodyHeight,
+                onClose: onToggleBodyHeightPanel,
+              }) : null}
             </ScrollView>
           </View>
         ) : null}
@@ -850,11 +989,13 @@ export function controlLandscapeHud({
         {docksExpanded && !settingsMenu ? (
           <View
             pointerEvents={leftCategory !== 'policy' || anyFloatingPanel ? 'none' : 'box-none'}
-            style={[StyleSheet.absoluteFill, (leftCategory !== 'policy' || anyFloatingPanel) ? styles.hiddenBehindPopover : null]}
+            style={[styles.dashboardOverlay, (leftCategory !== 'policy' || anyFloatingPanel) ? styles.hiddenBehindPopover : null]}
           >
             {ControlHudDashboard({
               expanded: true,
               scale: hudScale,
+              maxWidth: centerFreeWidth,
+              bottomOffset: sp(64),
               onToggleExpanded: onToggleDocks,
               headlightMode,
               frontVideoReceiving: videoReceiving,
@@ -908,6 +1049,25 @@ export function controlLandscapeHud({
                       </Text>
                     </Pressable>
                   ))}
+                  {onToggleBodyHeightPanel ? (
+                    <Pressable
+                      accessibilityLabel="机身高度"
+                      accessibilityRole="button"
+                      accessibilityState={{ expanded: bodyHeightPanelOpen, selected: bodyHeightPanelOpen || Boolean(bodyHeight?.active) }}
+                      onPress={onToggleBodyHeightPanel}
+                      style={({ pressed }) => [
+                        styles.drawerPillBtn,
+                        { gap: sp(4), minHeight: sp(32), paddingHorizontal: sp(13), paddingVertical: sp(4) },
+                        (bodyHeightPanelOpen || bodyHeight?.active) && styles.drawerPillBtnActive,
+                        pressed && styles.pressed,
+                      ]}
+                      testID="control-hud-posture-height"
+                    >
+                      <Text numberOfLines={1} style={[styles.drawerPillText, { fontSize: fBody, lineHeight: fBodyLine }, (bodyHeightPanelOpen || bodyHeight?.active) && styles.drawerPillTextActive]}>
+                        机身高度
+                      </Text>
+                    </Pressable>
+                  ) : null}
                   <Pressable
                     accessibilityHint={motorHint}
                     accessibilityLabel={motorEnabled ? '失能电机' : '使能电机'}
@@ -1123,14 +1283,18 @@ export function controlLandscapeHud({
           />
         ) : null}
         {settingsMenu}
-        {feedback ? (
-          <View pointerEvents="none" style={[styles.feedback, { borderRadius: sp(12), paddingHorizontal: sp(16), paddingVertical: sp(8), top: sp(speedLimitExpanded ? 110 : 64) }]} testID="control-operation-feedback">
-            <Text numberOfLines={2} style={[styles.feedbackText, { fontSize: fBody, lineHeight: fBodyLine }]}>{feedback}</Text>
-          </View>
-        ) : null}
-        {hudNotice ? (
-          <View pointerEvents="none" style={[styles.feedback, { borderRadius: sp(12), paddingHorizontal: sp(16), paddingVertical: sp(8), top: sp(speedLimitExpanded ? 110 : 64) }, feedback ? { top: sp(speedLimitExpanded ? 156 : 110) } : null]} testID="control-hud-notice">
-            <Text numberOfLines={2} style={[styles.feedbackText, { fontSize: fBody, lineHeight: fBodyLine }]}>{hudNotice}</Text>
+        {feedback || hudNotice ? (
+          <View pointerEvents="none" style={[styles.toastLane, { gap: sp(6), top: topToastTop }]}>
+            {feedback ? (
+              <View pointerEvents="none" style={[styles.feedback, { borderRadius: sp(12), maxWidth: feedbackMaxW, paddingHorizontal: sp(14), paddingVertical: sp(6) }]} testID="control-operation-feedback">
+                <Text numberOfLines={2} style={[styles.feedbackText, { fontSize: fBody, lineHeight: fBodyLine }]}>{feedback}</Text>
+              </View>
+            ) : null}
+            {hudNotice ? (
+              <View pointerEvents="none" style={[styles.feedback, { borderRadius: sp(12), maxWidth: feedbackMaxW, paddingHorizontal: sp(14), paddingVertical: sp(6) }]} testID="control-hud-notice">
+                <Text numberOfLines={2} style={[styles.feedbackText, { fontSize: fBody, lineHeight: fBodyLine }]}>{hudNotice}</Text>
+              </View>
+            ) : null}
           </View>
         ) : null}
         {confirmation}
@@ -1186,6 +1350,7 @@ const styles = StyleSheet.create({
   islandNavTextActive: { color: '#FFFFFF', fontWeight: '600' },
   settingsBackdrop: { backgroundColor: 'rgba(6, 10, 9, 0.46)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0, zIndex: 10 },
   hiddenStickFrame: { opacity: 0 },
+  dashboardOverlay: { ...StyleSheet.absoluteFill, zIndex: 7 },
   hiddenBehindPopover: { opacity: 0 },
 
   islandCenter: {
@@ -1342,6 +1507,7 @@ const styles = StyleSheet.create({
   pipBadgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '600' },
 
   rightRail: { alignItems: 'flex-end', gap: 6, position: 'absolute', right: 10, top: 52, zIndex: 6 },
+  leftVoiceRail: { alignItems: 'flex-start', flexDirection: 'row', gap: 8, position: 'absolute', left: 10, top: 52, zIndex: 6 },
   rightRailWithPip: { top: 162 },
   circleToolRow: { alignItems: 'center', flexDirection: 'row', gap: 10 },
   circleBtnGroup: { alignItems: 'center', gap: 3 },
@@ -1445,7 +1611,8 @@ const styles = StyleSheet.create({
   floatingPanelsScroll: { maxHeight: '100%' },
   floatingPanelsContent: { gap: 8, paddingBottom: 8 },
   disabled: { opacity: 0.42 },
-  feedback: { alignItems: 'center', backgroundColor: ISLAND_BG, borderColor: ISLAND_BORDER, borderRadius: 12, borderWidth: 1, left: '28%', paddingHorizontal: 12, paddingVertical: 6, position: 'absolute', right: '28%', top: 52, zIndex: 9 },
+  toastLane: { alignItems: 'center', gap: 6, left: 0, position: 'absolute', right: 0, top: 52, zIndex: 9 },
+  feedback: { alignItems: 'center', alignSelf: 'center', backgroundColor: ISLAND_BG, borderColor: ISLAND_BORDER, borderRadius: 12, borderWidth: 1, maxWidth: 320, paddingHorizontal: 14, paddingVertical: 6 },
   noticeStacked: { top: 90 },
   feedbackText: { color: INK, fontSize: 12, textAlign: 'center' },
   pressed: { opacity: 0.72 },

@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
@@ -87,6 +88,7 @@ public final class ProfileInfoParser {
     String unavailableReason = "";
     int kind = 0;
     int availability = 0;
+    Map<String, Object> bodyHeight = null;
     int seen = 0;
     while (reader.hasNext()) {
       int tag = reader.tag();
@@ -111,7 +113,11 @@ public final class ProfileInfoParser {
         seen |= 8;
         profileId = reader.string(wire);
       } else if (field == 5) unavailableReason = reader.string(wire);
-      else reader.skip(wire);
+      else if (field == 6) {
+        if (wire != 2 || (seen & 32) != 0) throw invalid();
+        seen |= 32;
+        bodyHeight = bodyHeightCapability(reader.bytes(reader.length()));
+      } else reader.skip(wire);
     }
     if (id.length() > 64 || profileId.length() > 128 || unavailableReason.length() > 200) throw invalid();
     Map<String, Object> value = new LinkedHashMap<>();
@@ -122,7 +128,38 @@ public final class ProfileInfoParser {
     value.put("profileId", profileId);
     value.put("available", availability == 2);
     value.put("unavailableReason", unavailableReason);
+    if (bodyHeight != null) value.put("bodyHeight", bodyHeight);
     return value;
+  }
+
+  private static Map<String, Object> bodyHeightCapability(byte[] bytes) throws IOException {
+    Reader reader = new Reader(bytes, 0, bytes.length);
+    double defaultHeightM = 0.0;
+    double minHeightM = 0.0;
+    double maxHeightM = 0.0;
+    double rateMps = 0.0;
+    int seen = 0;
+    while (reader.hasNext()) {
+      int tag = reader.tag();
+      int field = tag >>> 3;
+      int wire = tag & 7;
+      if (field >= 1 && field <= 4) {
+        int bit = 1 << field;
+        if (wire != 1 || (seen & bit) != 0) throw invalid();
+        seen |= bit;
+        if (field == 1) defaultHeightM = reader.fixed64(BodyHeightStatusParser.MAX_HEIGHT_M);
+        else if (field == 2) minHeightM = reader.fixed64(BodyHeightStatusParser.MAX_HEIGHT_M);
+        else if (field == 3) maxHeightM = reader.fixed64(BodyHeightStatusParser.MAX_HEIGHT_M);
+        else rateMps = reader.fixed64(BodyHeightStatusParser.MAX_RATE_MPS);
+      } else reader.skip(wire);
+    }
+    if (minHeightM > 0.0 && maxHeightM > 0.0 && minHeightM > maxHeightM) throw invalid();
+    Map<String, Object> result = new LinkedHashMap<>();
+    result.put("defaultHeightM", defaultHeightM);
+    result.put("minHeightM", minHeightM);
+    result.put("maxHeightM", maxHeightM);
+    result.put("rateMps", rateMps);
+    return result;
   }
 
   private static IOException invalid() { return new IOException("Invalid profile response"); }
@@ -164,6 +201,13 @@ public final class ProfileInfoParser {
       byte[] value = new byte[count];
       System.arraycopy(bytes, pos, value, 0, count);
       pos += count;
+      return value;
+    }
+    double fixed64(double limit) throws IOException {
+      if (pos + 8 > end) throw invalid();
+      double value = ByteBuffer.wrap(bytes, pos, 8).order(ByteOrder.LITTLE_ENDIAN).getDouble();
+      pos += 8;
+      if (!Double.isFinite(value) || value < 0.0 || value > limit) throw invalid();
       return value;
     }
     String string(int wire) throws IOException {

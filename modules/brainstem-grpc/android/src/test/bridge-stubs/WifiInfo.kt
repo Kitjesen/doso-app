@@ -3,6 +3,7 @@ package android.net.wifi
 class WifiInfo(var rssi: Int = -70)
 class WifiManager {
   val connectionInfo = WifiInfo()
+  var isWifiEnabled: Boolean = true
   var lastLock: WifiLock? = null
   fun createWifiLock(mode: Int, tag: String) = WifiLock().also { lastLock = it }
   class WifiLock {

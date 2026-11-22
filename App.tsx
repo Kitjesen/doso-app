@@ -24,9 +24,18 @@ import { JointStatusScreen } from './src/screens/JointStatusScreen';
 import { ProfileHub as ProfileScreen } from './src/screens/ProfileScreen';
 import { RobotConnectionScreen } from './src/screens/RobotConnectionScreen';
 import { VideoViewerScreen } from './src/screens/VideoViewerScreen';
-import { isBrainstemGrpcAvailable, isBrainstemLanAvailable, type BrainstemGrpcEndpoint } from './src/services/brainstemGrpc';
+import {
+  isBrainstemGrpcAvailable,
+  isBrainstemLanAvailable,
+  readBrainstemGrpcMotorStatus,
+  readBrainstemGrpcProfile,
+  readBrainstemGrpcStatus,
+  readBrainstemGrpcVoltage,
+  validateBrainstemEndpoint,
+  type BrainstemGrpcEndpoint,
+} from './src/services/brainstemGrpc';
 import { getBrainstemIntegrationReadiness } from './src/services/brainstemIntegrationReadiness';
-import { describeDirectRobotConnection } from './src/services/directRobotConnection';
+import { createDirectRobotConnectionSnapshot, describeDirectRobotConnection } from './src/services/directRobotConnection';
 import { validateLingtuOrigin } from './src/services/lingtuReadOnly';
 import { AppearanceControlContext, ThemePreferenceContext, useAppTheme } from './src/theme';
 import type { AppStage } from './src/types';
@@ -582,31 +591,31 @@ export default function App() {
                 ]}
               >
                 <View style={[styles.screen, effectiveIsLandscape && stage !== 'control' && styles.safeAreaLandscape]}>
-                {stage === 'joint-status' ? (
-                  <JointStatusScreen
-                    isWorkspace
-                    connectionLabel={liveControlState ? '局域网已连接' : statusObservation ? '局域网只读已响应' : '未连接'}
-                    deviceName={workspaceDeviceName}
-                    robotDiagram={images.thunderJointDiagram}
-                    joints={statusRuntime?.joints}
-                    observedAt={statusObservation?.observedAt}
-                    refreshing={directTelemetry.refreshing}
-                    error={directTelemetry.error}
-                    onRefresh={controlEndpoint ? () => { void directTelemetry.refresh(); } : undefined}
-                    showImu
-                    imu={liveControlState?.imu ?? null}
-                    body={{
-                      posture: liveControlState?.posture ?? statusRuntime?.posture,
-                      motorState: liveControlState?.motorState ?? statusRuntime?.motorState,
-                      controlAuthority: liveControlState?.controlAuthority ?? statusRuntime?.controlAuthority,
-                      faultStatus: liveControlState?.faultStatus ?? (statusObservation?.status ? (statusObservation.status.criticalMotorFault ? 'active' : 'clear') : undefined),
-                      controlOwner: liveControlState ? brainstemControl.state.status?.owner : statusObservation?.status?.owner,
-                      voltageV: statusRuntime?.battery?.voltageV ?? null,
-                      leaseActive: liveControlState ? brainstemControl.state.leaseActive : statusObservation?.status?.grpcLeaseActive ?? null,
-                    }}
-                    onBack={() => { setStage('control'); }}
-                  />
-                ) : null}
+                  {stage === 'joint-status' ? (
+                    <JointStatusScreen
+                      isWorkspace
+                      connectionLabel={liveControlState ? '局域网已连接' : statusObservation ? '局域网只读已响应' : '未连接'}
+                      deviceName={workspaceDeviceName}
+                      robotDiagram={images.thunderJointDiagram}
+                      joints={statusRuntime?.joints}
+                      observedAt={statusObservation?.observedAt}
+                      refreshing={directTelemetry.refreshing}
+                      error={directTelemetry.error}
+                      onRefresh={controlEndpoint ? () => { void directTelemetry.refresh(); } : undefined}
+                      showImu
+                      imu={liveControlState?.imu ?? null}
+                      body={{
+                        posture: liveControlState?.posture ?? statusRuntime?.posture,
+                        motorState: liveControlState?.motorState ?? statusRuntime?.motorState,
+                        controlAuthority: liveControlState?.controlAuthority ?? statusRuntime?.controlAuthority,
+                        faultStatus: liveControlState?.faultStatus ?? (statusObservation?.status ? (statusObservation.status.criticalMotorFault ? 'active' : 'clear') : undefined),
+                        controlOwner: liveControlState ? brainstemControl.state.status?.owner : statusObservation?.status?.owner,
+                        voltageV: statusRuntime?.battery?.voltageV ?? null,
+                        leaseActive: liveControlState ? brainstemControl.state.leaseActive : statusObservation?.status?.grpcLeaseActive ?? null,
+                      }}
+                      onBack={() => { setStage('control'); }}
+                    />
+                  ) : null}
 
                 {stage === 'control' ? (
                   <ControlScreen
@@ -688,6 +697,10 @@ export default function App() {
                       : (directConnection.presentation?.runtimeState ?? describeDirectRobotConnection(null).runtimeState)}
                     speedMode={brainstemControl.speedMode}
                     onChangeSpeedMode={brainstemControl.setSpeedMode}
+                    bodyHeight={brainstemControl.bodyHeight}
+                    onSetBodyHeightMode={brainstemControl.onSetBodyHeightMode}
+                    onSetBodyHeight={brainstemControl.onSetBodyHeight}
+                    onRefreshBodyHeight={brainstemControl.onRefreshBodyHeight}
                     hasDedicatedRearCamera={hasDedicatedRearStream}
                     onReconnect={!brainstemControl.state.connected && controlEndpoint && brainstemControl.state.failureCode !== 'stop_unconfirmed'
                       ? () => {
@@ -695,59 +708,110 @@ export default function App() {
                         controlVideo.reconnect();
                       }
                       : undefined}
+                    workspaceSettings={{
+                      themePreference: productTheme,
+                      onChangeTheme: setProductTheme,
+                      alertsEnabled,
+                      onToggleAlerts: () => setAlertsEnabled(current => !current),
+                      onLowLatencyChange: enabled => brainstemControl.setImuNotifyEnabled(enabled),
+                      connection: {
+                        host: directEndpoint?.host ?? (Platform.OS === 'web' && typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location?.hostname ?? '') ? '127.0.0.1' : '192.168.66.64'),
+                        port: directEndpoint?.port ?? 13145,
+                        connected: brainstemControl.state.connected,
+                        readonlyConnected: Boolean(statusObservation),
+                        lastSyncLabel: workspaceLastSync,
+                        firmwareVersion: workspaceRobotVersion,
+                        onConnectControl: async (nextHost, nextPort) => {
+                          const ep = validateBrainstemEndpoint(nextHost, String(nextPort), isBrainstemLanAvailable() ? 'lan-dev' : 'tls');
+                          const endpoint: BrainstemGrpcEndpoint = isBrainstemLanAvailable() ? { ...ep, transport: 'lan-dev' } : ep;
+                          const ok = await brainstemControl.connect(endpoint, '');
+                          if (ok) {
+                            rememberedControl.remember(endpoint, '');
+                            setControlEndpoint(endpoint);
+                          }
+                          return ok;
+                        },
+                        onProbeReadOnly: async (nextHost, nextPort) => {
+                          const ep = validateBrainstemEndpoint(nextHost, String(nextPort), isBrainstemLanAvailable() ? 'lan-dev' : 'tls');
+                          const endpoint: BrainstemGrpcEndpoint = isBrainstemLanAvailable() ? { ...ep, transport: 'lan-dev' } : ep;
+                          const stamp = Date.now().toString(36);
+                          const statusObs = await readBrainstemGrpcStatus({ endpoint, requestId: `probe_s_${stamp}` });
+                          const [profileRes, voltageRes, motorsRes] = await Promise.allSettled([
+                            readBrainstemGrpcProfile({ endpoint, requestId: `probe_p_${stamp}` }),
+                            readBrainstemGrpcVoltage({ endpoint, requestId: `probe_v_${stamp}` }),
+                            readBrainstemGrpcMotorStatus({ endpoint, requestId: `probe_m_${stamp}` }),
+                          ]);
+                          const snapshot = createDirectRobotConnectionSnapshot(endpoint, {
+                            ...statusObs,
+                            ...(profileRes.status === 'fulfilled' ? { profile: profileRes.value.profile } : {}),
+                            ...(voltageRes.status === 'fulfilled' ? { voltage: voltageRes.value.voltage } : {}),
+                            ...(motorsRes.status === 'fulfilled' ? { motors: motorsRes.value.motors } : {}),
+                          });
+                          if (!directConnection.select(snapshot)) return false;
+                          setControlEndpoint(snapshot.endpoint);
+                          return true;
+                        },
+                        onDisconnect: handleDisconnectRobot,
+                        onOpenAdvanced: () => { void brainstemControl.suspend(); setRobotConnectionVisible(true); },
+                        onOpenBle: () => setStage('ble-discovery'),
+                      },
+                    }}
                     operationCallbacks={brainstemControl.operationCallbacks}
                     onListGestures={brainstemControl.listGestures}
                     operationReadiness={brainstemControl.operationReadiness}
                     manualControlBlockedReason={brainstemControl.touchBlockedReason ?? undefined}
-                    onNotifications={() => notify('通知服务尚未接入', '当前版本暂不推送远端异常通知；连接和故障以本体实时遥测为准。', 'info')}
+                    onNotifications={() => notify('状态提醒', '设备告警与异常将根据实时遥测在界面内直接提示。', 'info')}
                     robotImage={images.thunderHero}
                     robotName={workspaceDeviceName}
-                    robotType={brainstemControl.state.connected ? '局域网配对控制' : statusObservation ? '只读遥测已同步，尚未获取控制权' : '点击右上角地址连接机器狗'}
+                    robotType={brainstemControl.state.connected ? '局域网控制已连接' : statusObservation ? '只读连接' : '未连接'}
                     videoProbeHost={lanVideoOrigin && isBrainstemLanAvailable() ? directEndpoint?.host ?? null : null}
+                    voiceEndpoint={navigationBinding?.endpoint ?? null}
+                    voiceViewerToken={navigationBinding?.viewerToken}
+                    allowLocalVoiceHttp={isBrainstemLanAvailable()}
                     stageDimensions={webTargetStage}
                     webStageMode={Platform.OS === 'web' ? webStageMode : undefined}
                     onToggleWebStageMode={Platform.OS === 'web' ? () => setWebStageMode(current => current === 'g20-16-9' ? 'fill' : 'g20-16-9') : undefined}
                   />
                 ) : null}
 
-                {stage === 'main' ? (
-                  <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={[styles.safeArea, { backgroundColor: appColors.background }]}>
-                    <AppToast notice={notice} onDismiss={() => setNotice(null)} withinSafeArea />
-                    <View style={styles.screen}>
-                      <ProfileScreen
-                        initialDeviceOpen={profileDeviceOpen}
-                        onOpenControl={() => openRobotPage('control')}
-                        onOpenRobotConnection={() => setRobotConnectionVisible(true)}
-                        onOpenDataPrivacy={openDataPrivacy}
-                        alertsEnabled={alertsEnabled}
-                        batteryPercent={null}
-                        connected={workspaceConnected}
-                        canDisconnect={Boolean(controlEndpoint || directEndpoint || workspaceConnected)}
-                        deviceName={workspaceDeviceName}
-                        deviceType={workspaceDeviceType}
-                        firmwareVersion={workspaceRobotVersion}
-                        lastSyncLabel={workspaceLastSync}
-                        canOpenFirmwareUpdate={false}
-                        canOpenProvisioning={false}
-                        onConnect={() => setRobotConnectionVisible(true)}
-                        onDisconnect={() => { void handleDisconnectRobot(); }}
-                        firmwareUpdateBlockedReason="固件升级通道尚未接入，仅可查看说明。"
-                        provisioningBlockedReason="无线配网协议尚未接入，请在连接页面直接填写局域网地址。"
-                        onOpenBleDiscovery={() => setStage('ble-discovery')}
-                        onOpenFirmwareUpdate={() => setStage('firmware-update')}
-                        onOpenProvisioning={() => setStage('provisioning')}
-                        onRetry={() => notify('设备状态说明', 'App 只展示当前局域网/证书连接同步到的实时状态；断开连接会清除已保存的地址。', 'info')}
-                        onToggleAlerts={() => setAlertsEnabled(current => !current)}
-                        runtimeHours={null}
-                        safetyLock={null}
-                        deviceId={directEndpoint ? directEndpointLabel : '未连接'}
-                        robotVersion={workspaceRobotVersion}
-                      />
-                    </View>
-                  </SafeAreaView>
-                ) : null}
-              </View>
-              {!(stage === 'control' && effectiveIsLandscape) ? <RobotMainNav active={workspaceTab} onChange={openRobotPage} /> : null}
+                  {stage === 'main' ? (
+                    <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={[styles.safeArea, { backgroundColor: appColors.background }]}>
+                      <AppToast notice={notice} onDismiss={() => setNotice(null)} withinSafeArea />
+                      <View style={styles.screen}>
+                        <ProfileScreen
+                          initialDeviceOpen={profileDeviceOpen}
+                          onOpenControl={() => openRobotPage('control')}
+                          onOpenRobotConnection={() => setRobotConnectionVisible(true)}
+                          onOpenDataPrivacy={openDataPrivacy}
+                          alertsEnabled={alertsEnabled}
+                          batteryPercent={null}
+                          connected={workspaceConnected}
+                          canDisconnect={Boolean(controlEndpoint || directEndpoint || workspaceConnected)}
+                          deviceName={workspaceDeviceName}
+                          deviceType={workspaceDeviceType}
+                          firmwareVersion={workspaceRobotVersion}
+                          lastSyncLabel={workspaceLastSync}
+                          canOpenFirmwareUpdate={false}
+                          canOpenProvisioning={false}
+                          onConnect={() => setRobotConnectionVisible(true)}
+                          onDisconnect={() => { void handleDisconnectRobot(); }}
+                          firmwareUpdateBlockedReason="固件升级通道尚未接入，仅可查看说明。"
+                          provisioningBlockedReason="无线配网协议尚未接入，请在连接页面直接填写局域网地址。"
+                          onOpenBleDiscovery={() => setStage('ble-discovery')}
+                          onOpenFirmwareUpdate={() => setStage('firmware-update')}
+                          onOpenProvisioning={() => setStage('provisioning')}
+                          onRetry={() => notify('设备状态说明', 'App 只展示当前局域网/证书连接同步到的实时状态；断开连接会清除已保存的地址。', 'info')}
+                          onToggleAlerts={() => setAlertsEnabled(current => !current)}
+                          runtimeHours={null}
+                          safetyLock={null}
+                          deviceId={directEndpoint ? directEndpointLabel : '未连接'}
+                          robotVersion={workspaceRobotVersion}
+                        />
+                      </View>
+                    </SafeAreaView>
+                  ) : null}
+                </View>
+                {!(stage === 'control' && effectiveIsLandscape) ? <RobotMainNav active={workspaceTab} onChange={openRobotPage} /> : null}
               </View>
             </View>
           </AppearanceControlContext.Provider>

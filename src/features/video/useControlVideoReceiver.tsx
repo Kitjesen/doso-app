@@ -1,4 +1,4 @@
-import { createElement, useCallback, useEffect, useRef, useState } from 'react';
+import { createElement, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
 import * as whepPlatform from './whepPlatform';
@@ -72,10 +72,22 @@ export function useControlVideoReceiver(config: (VideoConfiguration & { expected
   const snapshot = owned.generation === generation && enabled ? owned.snapshot
     : config ? { ...empty, id: 'video-suspended', phase: 'connecting' as const } : empty;
   const reconnect = useCallback(() => setRetry(value => value + 1), []);
+  const presentation = useMemo(
+    () => ({ id: snapshot.id, phase: snapshot.phase, error: snapshot.error }),
+    [snapshot.id, snapshot.phase, snapshot.error],
+  );
+  const surface = useMemo(
+    () => (snapshot.stream ? createElement(VideoPlayer, { stream: snapshot.stream, rotation: snapshot.rotation }) : null),
+    [snapshot.stream, snapshot.rotation],
+  );
+  const pipSurface = useMemo(
+    () => (snapshot.stream ? createElement(VideoPlayer, { stream: snapshot.stream, rotation: snapshot.rotation }) : null),
+    [snapshot.stream, snapshot.rotation],
+  );
   return {
-    presentation: { id: snapshot.id, phase: snapshot.phase, error: snapshot.error },
-    surface: snapshot.stream ? createElement(VideoPlayer, { stream: snapshot.stream, rotation: snapshot.rotation }) : null,
-    pipSurface: snapshot.stream ? createElement(VideoPlayer, { stream: snapshot.stream, rotation: snapshot.rotation }) : null,
+    presentation,
+    surface,
+    pipSurface,
     stream: snapshot.phase === 'receiving' ? snapshot.stream : null,
     rotation: snapshot.rotation,
     streams: snapshot.streams,

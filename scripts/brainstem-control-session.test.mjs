@@ -1629,11 +1629,11 @@ test('playGesture strictly disallows Grounded even with motors enabled and allow
     }
     assert.equal(f.calls.some(call => call[0] === 'action'), false);
 
-    // Body-height capability must not be accepted as a switchable locomotion profile.
+    // Body-height capability stays out of locomotion terrain tabs while remaining switchable via SwitchProfile.
     f.set({ fsmKind: 'standing', motorOutputEnabled: true, grpcLeaseActive: false });
     await f.session.refresh();
-    await assert.rejects(f.session.action('switch-profile', 'height'), /所选策略已不可用/);
-    assert.equal(f.calls.some(call => call[0] === 'action'), false);
+    assert.equal(f.session.runtimeState.policyOptions.some(opt => opt.id === 'height'), false);
+    assert.equal(getControlTerrainPolicies(f.session.runtimeState).some(opt => opt.profileId === 'height'), false);
 
     assert.equal(f.session.operationReadiness.playGesture.ready, true);
     await f.session.action('play-gesture', 'nod_yes');
@@ -1721,5 +1721,267 @@ test('speedMode queries device mode, scales high-speed walk vectors to 2.5 m/s, 
     assert.deepEqual(f.calls.filter(c => c[0] === 'input').at(-1), ['input', 2.5, 0, 0]);
   } finally {
     f.session.dispose();
+  }
+});
+
+test('apply() suppresses idle no-op poll re-renders and throttles 50Hz walking UI notifications while keeping state synchronous', async () => {
+  const f = fixture();
+  let rtt = 12;
+  f.transport.read = async () => { f.advance(rtt); return f.reply(); };
+  f.transport.input = async (id, forward, lateral, yaw) => {
+    f.advance(8);
+    f.calls.push(['input', forward, lateral, yaw]);
+    const nextSeq = (f.session.state.sequence || 1) + 1;
+    return f.reply({ sequence: nextSeq });
+  };
+  try {
+    await f.session.connect(endpoint, 'doso-g20@robot');
+    f.advance(500);
+    await f.session.refresh(); // records baseline 12ms latency at steady-state poll interval
+    assert.equal(f.session.latencyMs, 12);
+    let notifications = 0;
+    const unsub = f.session.subscribe(() => { notifications++; });
+
+    // 1. Identical idle polls with +-1ms RTT jitter must not trigger full-tree React re-renders,
+    // while observedAt still advances synchronously so freshness never expires.
+    const beforeObserved = f.session.state.observedAt;
+    rtt = 13;
+    f.advance(500);
+    await f.session.refresh();
+    assert.equal(notifications, 0, 'identical idle poll with 1ms jitter skips UI notification');
+    assert.ok(f.session.state.observedAt > beforeObserved, 'observedAt still updates synchronously');
+    assert.equal(f.session.latencyMs, 13);
+
+    // 2. Meaningful RTT shift (>=3ms after >=500ms) DOES notify UI so HUD RTT stays responsive.
+    rtt = 20;
+    f.advance(500);
+    await f.session.refresh();
+    assert.equal(notifications, 1, 'meaningful RTT shift notifies HUD');
+
+    // 3. Real posture/motor change always notifies immediately with zero throttling.
+    f.set({ fsmKind: 'standing', motorOutputEnabled: true });
+    f.advance(100);
+    await f.session.refresh();
+    assert.equal(notifications, 2, 'real state change notifies immediately');
+
+    // 4. During 50Hz walking, 5 consecutive ACKs over ~100ms update sequence synchronously every frame
+    // while capping UI re-renders to <=10Hz (at most 2 notifications across 5 frames).
+    await f.session.acquire();
+    const afterAcquire = notifications;
+    for (let i = 1; i <= 5; i++) {
+      f.advance(20);
+      await f.session.drive({ x: 0, y: -0.2 * i });
+      if (i < 5) await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    await new Promise(resolve => setTimeout(resolve, 25));
+    assert.ok(f.session.state.sequence >= 5, `50Hz WalkChecked sequences advance synchronously (got ${f.session.state.sequence})`);
+    assert.ok(notifications - afterAcquire <= 2, `50Hz walking notifications throttled (got ${notifications - afterAcquire})`);
+
+    unsub();
+  } finally {
+    f.session.dispose();
+  }
+});
+
+test('bodyHeight exposes fallback/advertised bounds, switches height mode cleanly, clamps SetBodyHeight, and keeps recovery blocked', async () => {
+  // 1. Disconnected fallback bounds
+  const idle = fixture();
+  assert.deepEqual(idle.session.bodyHeight, {
+    available: false, modeId: null, active: false, supported: false,
+    currentHeightM: null, targetHeightM: null, defaultHeightM: 0.375, minHeightM: 0.15, maxHeightM: 0.50, rateMps: null,
+  });
+  idle.session.dispose();
+
+  // 2. Live height capability with robot-advertised [0.25, 0.50] range
+  const profile = {
+    current: 'flat_v1',
+    available: ['flat_v1', 'stairs_v1', 'single_frame_height_v2'],
+    descriptions: [],
+    currentDescription: '',
+    activeModeId: 'flat',
+    modeCapabilities: [
+      { id: 'flat', kind: 'locomotion', available: true, availability: 'available', label: '', unavailableReason: '', profileId: 'flat_v1' },
+      { id: 'stairs', kind: 'locomotion', available: true, availability: 'available', label: '', unavailableReason: '', profileId: 'stairs_v1' },
+      {
+        id: 'height', kind: 'body-height', available: true, availability: 'available', label: '', unavailableReason: '',
+        profileId: 'single_frame_height_v2',
+        bodyHeight: { defaultHeightM: 0.375, minHeightM: 0.25, maxHeightM: 0.50, rateMps: 0.05 },
+      },
+      { id: 'recovery', kind: 'recovery-action', available: true, availability: 'available', label: '', unavailableReason: '', profileId: '' },
+    ],
+  };
+  const f = fixture(profile);
+  let activeMode = 'flat';
+  let currentHeight = 0.0;
+  let targetHeight = 0.0;
+  let heightReads = 0;
+  const setHeights = [];
+  f.transport.action = async (_id, action, slot) => {
+    f.calls.push(['action', action, slot]);
+    if (action === 'switch-profile') {
+      activeMode = slot;
+      if (slot === 'height') { currentHeight = 0.375; targetHeight = 0.375; }
+      else { currentHeight = 0.0; targetHeight = 0.0; }
+      return f.reply({ profile: { ...profile, activeModeId: activeMode, current: slot === 'height' ? 'single_frame_height_v2' : `${slot}_v1` } });
+    }
+    return f.reply();
+  };
+  f.transport.getBodyHeightStatus = async () => {
+    heightReads++;
+    return {
+      supported: activeMode === 'height',
+      currentHeightM: currentHeight,
+      targetHeightM: targetHeight,
+      minHeightM: 0.25,
+      maxHeightM: 0.50,
+      rateMps: 0.05,
+    };
+  };
+  f.transport.setBodyHeight = async (_id, heightM) => {
+    setHeights.push(heightM);
+    currentHeight = heightM;
+    targetHeight = heightM;
+    return {
+      ...f.reply({ leaseActive: false, principalVerified: true }),
+      bodyHeight: { supported: true, currentHeightM: currentHeight, targetHeightM: targetHeight, minHeightM: 0.25, maxHeightM: 0.50, rateMps: 0.05 },
+    };
+  };
+  try {
+    await f.session.connect(endpoint, 'doso-g20@robot');
+    // Locomotion terrain tabs remain strictly flat/stairs (never height or recovery).
+    assert.deepEqual(f.session.runtimeState.policyOptions.map(o => o.id), ['flat', 'stairs']);
+    assert.deepEqual(getControlTerrainPolicies(f.session.runtimeState).map(o => o.profileId), ['flat', 'stairs', null]);
+    assert.deepEqual(f.session.bodyHeight, {
+      available: true, modeId: 'height', active: false, supported: false,
+      currentHeightM: null, targetHeightM: null, defaultHeightM: 0.375, minHeightM: 0.25, maxHeightM: 0.50, rateMps: 0.05,
+    });
+
+    // Recovery stays strictly blocked from normal SwitchProfile.
+    await assert.rejects(f.session.action('switch-profile', 'recovery'), /所选策略已不可用/);
+    assert.equal(f.calls.some(c => c[0] === 'action'), false);
+
+    // SetBodyHeight before entering height mode rejects with precondition without disconnecting.
+    await assert.rejects(f.session.setBodyHeight(0.35), error => error.code === 'precondition');
+    assert.equal(f.session.state.connected, true);
+
+    // Enter height mode via setBodyHeightMode(true) -> switches to 'height' and refreshes GetBodyHeightStatus.
+    await f.session.setBodyHeightMode(true);
+    assert.equal(f.session.bodyHeight.active, true);
+    assert.equal(f.session.bodyHeight.supported, true);
+    assert.equal(f.session.bodyHeight.currentHeightM, 0.375);
+    assert.equal(f.session.bodyHeight.targetHeightM, 0.375);
+    assert.equal(heightReads, 1);
+
+    // Out-of-bounds inputs clamp strictly to robot's advertised [0.25, 0.50] and update state immediately from reply.
+    await f.session.setBodyHeight(0.15);
+    assert.equal(setHeights.at(-1), 0.25);
+    assert.equal(f.session.bodyHeight.targetHeightM, 0.25);
+    await f.session.setBodyHeight(0.80);
+    assert.equal(setHeights.at(-1), 0.50);
+    assert.equal(f.session.bodyHeight.targetHeightM, 0.50);
+    await f.session.setBodyHeight(0.4123);
+    assert.equal(setHeights.at(-1), 0.412);
+    assert.equal(f.session.bodyHeight.currentHeightM, 0.412);
+    await assert.rejects(f.session.setBodyHeight(NaN), error => error.code === 'config');
+
+    // Exit height mode via setBodyHeightMode(false) -> switches back to 'flat' and refreshes GetBodyHeightStatus.
+    await f.session.setBodyHeightMode(false);
+    assert.deepEqual(f.calls.filter(c => c[0] === 'action'), [
+      ['action', 'switch-profile', 'height'],
+      ['action', 'switch-profile', 'flat'],
+    ]);
+    assert.equal(f.session.bodyHeight.active, false);
+    assert.equal(f.session.bodyHeight.supported, false);
+    assert.equal(f.session.bodyHeight.currentHeightM, null);
+    assert.equal(f.session.runtimeState.currentPolicy?.id, 'flat');
+
+    // Direct action('switch-profile', 'height') also auto-refreshes GetBodyHeightStatus cleanly.
+    const readsBeforeDirect = heightReads;
+    await f.session.action('switch-profile', 'height');
+    await tick();
+    assert.equal(heightReads, readsBeforeDirect + 1);
+    assert.equal(f.session.bodyHeight.supported, true);
+  } finally {
+    f.session.dispose();
+  }
+});
+
+test('listGestures waits for in-flight readDone, retries up to 3x on busy, and throws immediately on unimplemented or disconnect', async () => {
+  // 1. Waits for readDone before dispatching so it never collides with 500ms status poll.
+  const f = fixture();
+  const order = [];
+  let finishRead;
+  f.transport.read = () => new Promise(resolve => {
+    order.push('read:start');
+    finishRead = () => { order.push('read:end'); resolve(f.reply()); };
+  });
+  f.transport.listGestures = async () => {
+    order.push('listGestures');
+    return [{ name: 'nod_yes', description: '点头', durationMs: 4020 }];
+  };
+  try {
+    await f.session.connect(endpoint, 'doso-g20@robot');
+    const refreshing = f.session.refresh();
+    const listing = f.session.listGestures();
+    await tick();
+    assert.deepEqual(order, ['read:start'], 'listGestures must wait for readDone before dispatching');
+    finishRead();
+    await refreshing;
+    const gestures = await listing;
+    assert.equal(gestures.length, 1);
+    assert.equal(gestures[0].name, 'nod_yes');
+    assert.deepEqual(order, ['read:start', 'read:end', 'listGestures']);
+  } finally {
+    f.session.dispose();
+  }
+
+  // 2. Retries up to 3 times on native busy (150ms, 300ms, 500ms) and succeeds on retry.
+  const f2 = fixture();
+  let busyAttempts = 0;
+  f2.transport.listGestures = async () => {
+    busyAttempts++;
+    if (busyAttempts <= 2) throw Object.assign(new Error('busy'), { code: 'busy' });
+    return [{ name: 'offer_paw', description: '伸爪', durationMs: 4820 }];
+  };
+  try {
+    await f2.session.connect(endpoint, 'doso-g20@robot');
+    const gestures = await f2.session.listGestures();
+    assert.equal(busyAttempts, 3);
+    assert.equal(gestures[0].name, 'offer_paw');
+  } finally {
+    f2.session.dispose();
+  }
+
+  // 3. Throws immediately on unimplemented with zero retries.
+  const f3 = fixture();
+  let unimplAttempts = 0;
+  f3.transport.listGestures = async () => {
+    unimplAttempts++;
+    throw Object.assign(new Error('unimplemented'), { code: 'unimplemented' });
+  };
+  try {
+    await f3.session.connect(endpoint, 'doso-g20@robot');
+    await assert.rejects(f3.session.listGestures(), error => error.code === 'unimplemented');
+    assert.equal(unimplAttempts, 1);
+  } finally {
+    f3.session.dispose();
+  }
+
+  // 4. Throws immediately on disconnect during busy retry without waiting or retrying on closed session.
+  const f4 = fixture();
+  let disconnectAttempts = 0;
+  f4.transport.listGestures = async () => {
+    disconnectAttempts++;
+    throw Object.assign(new Error('busy'), { code: 'busy' });
+  };
+  try {
+    await f4.session.connect(endpoint, 'doso-g20@robot');
+    const pending = f4.session.listGestures();
+    await tick();
+    await f4.session.disconnect();
+    await assert.rejects(pending, error => error.code === 'cancelled');
+    assert.equal(disconnectAttempts, 1);
+  } finally {
+    f4.session.dispose();
   }
 });

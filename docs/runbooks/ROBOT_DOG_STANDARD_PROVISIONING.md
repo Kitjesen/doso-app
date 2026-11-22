@@ -98,3 +98,103 @@ cat /dev/shm/lingtu/camera_status.json && echo ""
 2. `wlan1` 显示 `channel 149 (5745 MHz)` 且 `txpower 18.00 dBm`；
 3. `camera_status.json` 中 `"status":"running"`、`"last_error":""`、`color_frames` 持续递增；
 4. G20 安装最新 `main` 分支编译的 APK，连接 `DOSOrobotics` 热点并输入 `192.168.50.1` 点击「连接机器狗」，状态栏绿灯在线且画面流畅不中断。
+
+---
+
+## 四、常见问题与本体进阶服务开启（`RobotRecovery` 与机载动作库）
+
+### 1. Android 12/13 掌机连接 `DOSOrobotics` 四次握手被拒（Reason Code 17）
+Broadcom `brcmfmac`（BCM43569）在热点模式下若配置 `ieee80211w=1`（PMF 可选），其固件信标 RSN IE 与 `hostapd` EAPOL Msg3 RSN IE 不一致，会导致 Android 12/13 掌机在 `FOUR_WAY_HANDSHAKE` 阶段断开（`reasonCode: 17 / REASON_IE_IN_4WAY_DIFFERS`）。
+- **必须保持 `ieee80211w=0`**（`hostapd.conf` 中设置 `ieee80211w=0`，或 NetworkManager 执行 `nmcli connection modify dog-hotspot 802-11-wireless-security.pmf 1`）。
+
+### 2. 开启机器狗本体“摔倒恢复（`RobotRecovery`）”服务
+App 端 UI、安全确认、原生 `brainstem.api.v1.RobotRecovery` 全部 7 个 RPC 与 100ms 硬件守护心跳均已就绪；机器狗本体默认因安全冻结关闭该模块（`THUNDER_RECOVERY_MODEL_CONFIG` 为空）。开启步骤如下：
+
+1. **准备 ONNX 起身模型与校验清单**（例如 `/etc/brainstem/recovery-model.json`，契约须匹配 `mujica-v89-history60x6-raw16-features56`）：
+   ```json
+   {
+     "schema_version": 1,
+     "contract": "mujica-v89-history60x6-raw16-features56",
+     "model": "/opt/brainstem/models/recovery_v89.onnx",
+     "sha256": "<对应 onnx 文件的 64 位小写 sha256>"
+   }
+   ```
+2. **在 `/etc/brainstem/brainstem.env` 中配置开关**：
+   ```bash
+   THUNDER_RECOVERY_MODEL_CONFIG=/etc/brainstem/recovery-model.json
+   # 仅在吊装/架空完成硬件使能顺序实测核验后，才允许设为 true：
+   THUNDER_NORMAL_RECOVERY_ENABLE_SEQUENCE_VERIFIED=true
+   ```
+3. **重启 Brainstem 并验证日志**：
+   ```bash
+   sudo systemctl restart brainstem.service
+   journalctl -u brainstem.service -n 40 --no-pager | grep -i recovery
+   ```
+   确认日志打印 `RobotRecovery configured from /etc/brainstem/recovery-model.json`，且未出现 SHA-256 校验失败报错；此时 App 端 `姿态 -> 摔倒恢复` 按钮会自动解锁（**请务必先在架空保护下实测验证**）。
+
+### 3. 开启机器狗本体 35 预设动作服务（`ListGestures` / `PlayGesture`）
+在 `/etc/brainstem/brainstem.env` 中配置机载动作目录与关键帧库路径并重启 `brainstem.service`：
+```bash
+THUNDER_GESTURE_CATALOG=/home/sunrise/gesture-library/gestures/index.json
+THUNDER_GESTURE_LIBRARY=/home/sunrise/gesture-library/gestures/library.json
+```
+确保固件为支持动作库的版本（`cms.proto` `ListGestures`/`PlayGesture`）；重启后 App 端 `动作 ▾` 抽屉将自动从「仅可预览动作库」解锁为站立态可执行。
+
+---
+
+## 五、局域网自动发现（Avahi mDNS / DNS-SD）与多机热点命名规范
+
+为支持 App 端在同一局域网（办公网 `wlan0` 或直连热点 `wlan1`）零手填 IP 自动发现机器狗，以及多台机器狗同时上电时的热点区分，新机出厂/装机需统一配置以下两项。
+
+### 1. Avahi 服务发布（`/etc/avahi/services/doso-robot.service`）
+
+1. **配置 `/etc/avahi/avahi-daemon.conf`**（确保与 `orbbec_capture` 的 UDP `5353` 共存、屏蔽 5G 网卡 `usb0`、并避免 IPv6 链路本地地址干扰 Android `NsdManager`）：
+   ```ini
+   [server]
+   use-ipv4=yes
+   use-ipv6=yes
+   deny-interfaces=usb0
+   disallow-other-stacks=no
+
+   [publish]
+   publish-hinfo=no
+   publish-workstation=no
+   publish-aaaa-on-ipv4=no
+   ```
+2. **写入 `/etc/avahi/services/doso-robot.service`**（权限 `0644`，`root:root`；按单机实际编号替换 `THUNDER-DEV-001` / `DOSO-THUNDER-001` / `ap=`）：
+   ```xml
+   <?xml version="1.0" standalone='no'?><!--*-nxml-*-->
+   <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+   <service-group>
+     <name replace-wildcards="no">DOSO-THUNDER-001</name>
+     <service protocol="ipv4">
+       <type>_doso-robot._tcp</type>
+       <port>13145</port>
+       <txt-record>v=1</txt-record>
+       <txt-record>id=THUNDER-DEV-001</txt-record>
+       <txt-record>name=DOSO-THUNDER-001</txt-record>
+       <txt-record>ap=DOSOrobotics</txt-record>
+       <txt-record>vport=5050</txt-record>
+       <txt-record>transport=lan-dev</txt-record>
+     </service>
+   </service-group>
+   ```
+   - `replace-wildcards="no"` 防止多台默认主机名均为 `ubuntu` 的机器狗在局域网内发生实例名冲突。
+   - `protocol="ipv4"` 配合 `publish-aaaa-on-ipv4=no`，保证客户端在 `wlan0` 解析到办公网 IPv4、在 `wlan1` 解析到热点 `192.168.50.1`，不混入 `fe80::` 链路本地 IPv6。
+   - TXT 契约字段：`v`（协议版本 `1`）、`id`（机身唯一 ID）、`name`（展示名称）、`ap`（本机热点 SSID）、`vport`（图传网关端口 `5050`）、`transport`（当前 Brainstem 传输模式，研发态 `lan-dev`，量产态 `mtls`）。
+3. **生效与验收**（无需重启 `brainstem.service` 或相机服务）：
+   ```bash
+   sudo systemctl restart avahi-daemon.service   # 仅修改 avahi-daemon.conf 时需要；仅改 .service 文件执行 reload 即可
+   sudo journalctl -u avahi-daemon.service -n 20 --no-pager
+   ```
+   确认日志打印 `Service "DOSO-THUNDER-001" (/services/doso-robot.service) successfully established.`，且在同网段开发机向 `224.0.0.251:5353` 发送 `_doso-robot._tcp.local` PTR 查询可返回对应 IPv4、端口 `13145` 及完整 6 条 TXT 记录，同时 `lt-camera.service` 的 `NRestarts` 仍为 `0`。
+
+### 2. 多台机器狗热点命名规范（`DOSO-<id>`）
+
+- **量产/多机规则**：每台机器狗的 5 GHz 热点 SSID 统一命名为 `DOSO-<id>`（匹配 `^DOSO-[A-Za-z0-9_-]{2,24}$`，例如 `DOSO-THUNDER-001`、`DOSO-AB12CD`），同时 App 端向下兼容研发遗留热点名 `DOSOrobotics`。
+- **单机改名命令**（保持既有 `192.168.50.1/28`、5 GHz `channel=149`、`txpower 18 dBm` 与 `pmf=1` / `ieee80211w=0` 不变）：
+  ```bash
+  sudo nmcli connection modify dog-hotspot 802-11-wireless.ssid "DOSO-<id>"
+  sudo nmcli connection up dog-hotspot
+  ```
+- **同步更新 mDNS**：修改热点 SSID 后，务必同步更新 `/etc/avahi/services/doso-robot.service` 中的 `<name>`、`<txt-record>name=DOSO-<id></txt-record>` 与 `<txt-record>ap=DOSO-<id></txt-record>`，并执行 `sudo systemctl reload avahi-daemon.service`，确保 App 的局域网自动发现与热点扫描展示一致。

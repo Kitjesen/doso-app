@@ -17,18 +17,23 @@ const legacyPermissions = androidManifest['uses-permission-sdk-23'] ?? [];
 
 const coarse = 'android.permission.ACCESS_COARSE_LOCATION';
 const coarseNormal = normalPermissions.filter((entry) => entry.$?.['android:name'] === coarse);
-assert.ok(coarseNormal.length > 0, `${coarse} removal marker is missing`);
-assert.ok(coarseNormal.every((entry) => entry.$?.['tools:node'] === 'remove'));
-const coarseLegacy = legacyPermissions.filter((entry) => entry.$?.['android:name'] === coarse);
-assert.equal(coarseLegacy.length, 1, `${coarse} must have one legacy declaration`);
-assert.equal(coarseLegacy[0].$?.['android:maxSdkVersion'], '30');
+assert.equal(coarseNormal.length, 1, 'Android 12+/13+ Wi-Fi scan pairs one coarse-location grant with fine location');
+assert.equal(coarseNormal[0].$?.['android:maxSdkVersion'], undefined, 'coarse location must stay uncapped for Android 12+/13+');
+assert.equal(coarseNormal[0].$?.['tools:node'], undefined, 'coarse location must not be removed');
+assert.equal(legacyPermissions.filter((entry) => entry.$?.['android:name'] === coarse).length, 0);
 
 const fine = 'android.permission.ACCESS_FINE_LOCATION';
 const fineNormal = normalPermissions.filter((entry) => entry.$?.['android:name'] === fine);
 assert.equal(fineNormal.length, 1, 'Wi-Fi scan keeps one fine-location grant');
-assert.equal(fineNormal[0].$?.['android:maxSdkVersion'], '32', 'fine location stops at Android 12');
+assert.equal(fineNormal[0].$?.['android:maxSdkVersion'], undefined, 'fine location must stay uncapped for Android 13+ Wi-Fi scan');
 assert.equal(fineNormal[0].$?.['tools:node'], undefined, 'fine location must not be removed outright');
 assert.equal(legacyPermissions.filter((entry) => entry.$?.['android:name'] === fine).length, 0);
+
+assert.equal(
+  normalPermissions.filter((entry) => entry.$?.['android:name'] === 'android.permission.ACCESS_BACKGROUND_LOCATION').length,
+  0,
+  'background location must stay absent',
+);
 
 const nearby = normalPermissions.filter((entry) => entry.$?.['android:name'] === 'android.permission.NEARBY_WIFI_DEVICES');
 assert.equal(nearby.length, 1);

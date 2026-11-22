@@ -1299,6 +1299,57 @@ export async function createDevLanBridge({
         if (typeof body.enabled !== 'boolean') throw new BridgeFailure('config', 400);
         setRecoveryHeartbeat(session, body.enabled);
         data = {};
+      } else if (url.pathname === '/api/v1/dev-lan/lingtu') {
+        const checked = validateLanEndpoint(body.host, body.port === undefined ? 5050 : body.port);
+        const method = typeof body.method === 'string' ? body.method.trim().toUpperCase() : 'GET';
+        const targetPath = typeof body.path === 'string' ? body.path.trim() : '';
+        if (
+          !['GET', 'POST', 'PATCH', 'DELETE'].includes(method)
+          || !/^\/api\/(?:v1\/(?:agent\/|instruction\b|readiness\b|health\b)|(?:status|health|transcript|chat|wake|stop)\b)[A-Za-z0-9/_?.=&%-]*$/.test(targetPath)
+          || targetPath.includes('..')
+          || targetPath.includes('//')
+        ) {
+          throw new BridgeFailure('config', 400);
+        }
+        const authority = checked.host.includes(':') ? `[${checked.host}]` : checked.host;
+        const upstreamUrl = `http://${authority}:${checked.port}${targetPath}`;
+        const hasPayload = body.payload !== undefined && method !== 'GET' && method !== 'DELETE';
+        const proxyAbort = new AbortController();
+        const proxyTimeoutMs = targetPath.startsWith('/api/chat') ? 22_000 : 4_500;
+        const proxyTimer = setTimeout(() => proxyAbort.abort(), proxyTimeoutMs);
+        const onParentAbort = () => proxyAbort.abort();
+        abortController.signal.addEventListener('abort', onParentAbort, { once: true });
+        try {
+          const upstreamRes = await fetch(upstreamUrl, {
+            method,
+            headers: {
+              Accept: 'application/json',
+              ...(hasPayload ? { 'Content-Type': 'application/json' } : {}),
+            },
+            body: hasPayload ? JSON.stringify(body.payload) : undefined,
+            redirect: 'error',
+            signal: proxyAbort.signal,
+          });
+          const textBody = await upstreamRes.text();
+          let parsedPayload = null;
+          if (textBody) {
+            try {
+              parsedPayload = JSON.parse(textBody);
+            } catch {
+              parsedPayload = null;
+            }
+          }
+          data = {
+            status: upstreamRes.status,
+            payload: parsedPayload,
+          };
+        } catch (proxyErr) {
+          if (abortController.signal.aborted) throw new BridgeFailure('cancelled', 499);
+          throw new BridgeFailure(proxyAbort.signal.aborted ? 'timeout' : 'unavailable', 502);
+        } finally {
+          clearTimeout(proxyTimer);
+          abortController.signal.removeEventListener('abort', onParentAbort);
+        }
       } else {
         throw new BridgeFailure('config', 404);
       }

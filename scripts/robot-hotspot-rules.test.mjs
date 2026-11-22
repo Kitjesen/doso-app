@@ -15,22 +15,87 @@ function load(path, stubs = {}) {
   return module.exports;
 }
 
+const plain = value => JSON.parse(JSON.stringify(value));
 const rules = load('src/features/robot-lifecycle/robotHotspotRules.ts');
 
-test('the only hotspot rule is the planned DOSOrobotics Brainstem address', () => {
+test('legacy hotspot rule keeps DOSOrobotics mapped to 192.168.50.1:13145 without lab constants', () => {
   assert.equal(rules.ROBOT_HOTSPOT_RULES.map(rule => `${rule.ssid}|${rule.host}|${rule.port}`).join(','), 'DOSOrobotics|192.168.50.1|13145');
   const source = readFileSync(new URL('../src/features/robot-lifecycle/robotHotspotRules.ts', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /192\.168\.66\.64|5050|5052|rssi|RSSI/);
 });
 
-test('SSID matching is exact after quote trimming and ignores router names', () => {
+test('matches legacy DOSOrobotics (exact case) and multi-robot DOSO-* prefix while preserving exact SSID', () => {
   const match = rules.matchRobotHotspot;
-  assert.equal(match('DOSOrobotics')?.host, '192.168.50.1');
-  assert.equal(match('"DOSOrobotics"')?.port, 13145);
+
+  const legacy = match('"DOSOrobotics"');
+  assert.deepEqual(plain(legacy), {
+    ssid: 'DOSOrobotics',
+    host: '192.168.50.1',
+    port: 13145,
+    label: '机器狗热点',
+  });
   assert.equal(match('  DOSOrobotics  ')?.ssid, 'DOSOrobotics');
-  for (const ssid of ['dosorobotics', 'DOSOrobotics-guest', 'TopSpeed5GCPE-5525', '<unknown ssid>', '', '0x', null]) {
+
+  const prod = match('DOSO-AB12CD');
+  assert.deepEqual(plain(prod), {
+    ssid: 'DOSO-AB12CD',
+    host: '192.168.50.1',
+    port: 13145,
+    label: '机器狗 AB12CD',
+  });
+
+  const lowerPrefix = match('"doso-ab12_01"');
+  assert.deepEqual(plain(lowerPrefix), {
+    ssid: 'doso-ab12_01',
+    host: '192.168.50.1',
+    port: 13145,
+    label: '机器狗 ab12_01',
+  });
+
+  assert.equal(match('DOSO-01')?.label, '机器狗 01');
+  assert.equal(match(`DOSO-${'A'.repeat(24)}`)?.ssid, `DOSO-${'A'.repeat(24)}`);
+});
+
+test('rejects shared lab routers, placeholders, wrong legacy case, and invalid DOSO-* suffixes', () => {
+  const match = rules.matchRobotHotspot;
+  for (const ssid of [
+    'dosorobotics',
+    'DOSOROBOTICS',
+    'DOSOrobotics-guest',
+    'TopSpeed5GCPE-5525',
+    '<unknown ssid>',
+    'unknown ssid',
+    '0x',
+    '',
+    '   ',
+    'DOSO-',
+    'DOSO-A',
+    `DOSO-${'A'.repeat(25)}`,
+    'DOSO-AB 12',
+    'DOSO-AB.12',
+    'DOSO-AB/12',
+    'MY-DOSO-AB12',
+    null,
+    undefined,
+  ]) {
     assert.equal(match(ssid), null, String(ssid));
   }
+});
+
+test('sortRobotHotspots puts the currently connected SSID first and sorts the rest alphabetically', () => {
+  const list = ['DOSOrobotics', 'DOSO-XY99', 'DOSO-AB12'].map(ssid => rules.matchRobotHotspot(ssid));
+  assert.deepEqual(
+    plain(rules.sortRobotHotspots(list, null).map(item => item.ssid)),
+    ['DOSO-AB12', 'DOSO-XY99', 'DOSOrobotics'],
+  );
+  assert.deepEqual(
+    plain(rules.sortRobotHotspots(list, '"DOSO-XY99"').map(item => item.ssid)),
+    ['DOSO-XY99', 'DOSO-AB12', 'DOSOrobotics'],
+  );
+  assert.deepEqual(
+    plain(rules.sortRobotHotspots(list, 'TopSpeed5GCPE-5525').map(item => item.ssid)),
+    ['DOSO-AB12', 'DOSO-XY99', 'DOSOrobotics'],
+  );
 });
 
 test('a typed lab address is not replaced, while an empty address is filled', () => {

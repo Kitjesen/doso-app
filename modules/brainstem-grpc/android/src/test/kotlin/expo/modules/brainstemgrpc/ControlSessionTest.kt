@@ -36,6 +36,12 @@ private class FakeChannel(val expectedPrincipal: String = PRINCIPAL) : ManagedCh
   var criticalFault = false
   var gesturesPayload = byteArrayOf()
   var speedMode = 0
+  var bodyHeightSupported = false
+  var bodyHeightCurrent = 0.0
+  var bodyHeightTarget = 0.0
+  var bodyHeightMin = 0.25
+  var bodyHeightMax = 0.50
+  var bodyHeightRate = 0.05
   var sequence = 0L
   var wrongAck = false
   var failWalk = false
@@ -121,6 +127,14 @@ private class FakeChannel(val expectedPrincipal: String = PRINCIPAL) : ManagedCh
             byteArrayOf()
           }
           "GetSpeedMode" -> if (speedMode == 1) ControlWireTest.f(1, 1) else byteArrayOf()
+          "GetBodyHeightStatus" -> encodeBodyHeightStatus()
+          "SetBodyHeight" -> {
+            val height = java.nio.ByteBuffer.wrap(request, 1, 8).order(java.nio.ByteOrder.LITTLE_ENDIAN).double
+            bodyHeightSupported = true
+            bodyHeightCurrent = height
+            bodyHeightTarget = height
+            encodeBodyHeightStatus()
+          }
           else -> throw AssertionError("Unexpected local RPC $name")
         }
         complete(response)
@@ -134,6 +148,17 @@ private class FakeChannel(val expectedPrincipal: String = PRINCIPAL) : ManagedCh
         }
       }
     }
+  }
+  fun encodeBodyHeightStatus(): ByteArray {
+    fun dbl(field: Int, v: Double): ByteArray = ControlWireTest.join(
+      byteArrayOf(((field shl 3) or 1).toByte()),
+      java.nio.ByteBuffer.allocate(8).order(java.nio.ByteOrder.LITTLE_ENDIAN).putDouble(v).array()
+    )
+    return ControlWireTest.join(
+      if (bodyHeightSupported) ControlWireTest.f(1, 1) else byteArrayOf(),
+      dbl(2, bodyHeightCurrent), dbl(3, bodyHeightTarget),
+      dbl(4, bodyHeightMin), dbl(5, bodyHeightMax), dbl(6, bodyHeightRate)
+    )
   }
 }
 
@@ -340,6 +365,102 @@ private fun verifyCalibrationFaultGestureAndSpeedMode() {
   println("PASS: native setZero, clearMotorFault exemption, listGestures/playGesture and speedMode")
 }
 
+private fun verifyBodyHeight() {
+  // Verify GetBodyHeightStatus & SetBodyHeight are pre-cached in CONTROL_METHODS (zero per-RPC allocations).
+  val methodsField = ControlSession::class.java.getDeclaredField("CONTROL_METHODS").apply { isAccessible = true }
+  @Suppress("UNCHECKED_CAST")
+  val cachedMethods = methodsField.get(null) as Map<String, MethodDescriptor<*, *>>
+  check(cachedMethods.containsKey("GetBodyHeightStatus") && cachedMethods.containsKey("SetBodyHeight")) {
+    "GetBodyHeightStatus and SetBodyHeight must be pre-cached in CONTROL_METHODS"
+  }
+
+  val heightChannel = FakeChannel().apply {
+    kind = 2; enabled = true
+    profileCurrent = "flat_v1"
+    profileAvailable = listOf("flat_v1", "stairs_v1", "single_frame_height_v2")
+    profileCapabilities = listOf(
+      capability("flat", "flat_v1", kind = 1, availability = 2),
+      capability("stairs", "stairs_v1", kind = 1, availability = 2),
+      capability("height", "single_frame_height_v2", kind = 3, availability = 2),
+      capability("recovery", "", kind = 2, availability = 2),
+    )
+    profileActiveModeId = "flat"
+    onProfileSwitch = { req ->
+      if (req.contentEquals(ControlWire.stringRequest("height"))) {
+        profileCurrent = "single_frame_height_v2"
+        profileActiveModeId = "height"
+        bodyHeightSupported = true
+        bodyHeightCurrent = 0.375
+        bodyHeightTarget = 0.375
+      } else if (req.contentEquals(ControlWire.stringRequest("flat"))) {
+        profileCurrent = "flat_v1"
+        profileActiveModeId = "flat"
+        bodyHeightSupported = false
+        bodyHeightCurrent = 0.0
+        bodyHeightTarget = 0.0
+      }
+    }
+  }
+  val session = ControlSession(heightChannel, PRINCIPAL) { it() }
+  try {
+    // Recovery MUST remain strictly blocked from SwitchProfile.
+    expectFailure("precondition") { session.action("switch-profile", "recovery") }
+    check(heightChannel.requests.none { it.first == "SwitchProfile" })
+
+    // Body-height mode IS switchable via SwitchProfile.
+    val entered = session.action("switch-profile", "height")
+    @Suppress("UNCHECKED_CAST") val enteredProfile = entered["profile"] as Map<String, Any>
+    check(enteredProfile["activeModeId"] == "height")
+
+    // GetBodyHeightStatus parses advertised fields.
+    @Suppress("UNCHECKED_CAST")
+    val st0 = session.getBodyHeightStatus()["bodyHeight"] as Map<String, Any>
+    check(st0["supported"] == true && Math.abs((st0["currentHeightM"] as Double) - 0.375) < 1e-9
+      && Math.abs((st0["minHeightM"] as Double) - 0.25) < 1e-9 && Math.abs((st0["maxHeightM"] as Double) - 0.50) < 1e-9)
+
+    // SetBodyHeight sends encoded BodyHeightCommand and returns status + bodyHeight.
+    val setReply = session.setBodyHeight(0.42)
+    check(heightChannel.requests.last { it.first == "SetBodyHeight" }.second.contentEquals(ControlWire.bodyHeightCommand(0.42)))
+    @Suppress("UNCHECKED_CAST")
+    val st1 = setReply["bodyHeight"] as Map<String, Any>
+    check(st1["supported"] == true && Math.abs((st1["targetHeightM"] as Double) - 0.42) < 1e-9)
+
+    // Config rejections never hit the wire.
+    val beforeInvalid = heightChannel.requests.count { it.first == "SetBodyHeight" }
+    expectFailure("config") { session.setBodyHeight(0.0) }
+    expectFailure("config") { session.setBodyHeight(Double.NaN) }
+    expectFailure("config") { session.setBodyHeight(2.0) }
+    check(heightChannel.requests.count { it.first == "SetBodyHeight" } == beforeInvalid)
+
+    // Precondition rejections (yunzhuo, fault, transitioning, remote lease) block SetBodyHeight.
+    heightChannel.owner = 2
+    expectFailure("precondition") { session.setBodyHeight(0.35) }
+    heightChannel.owner = 0; heightChannel.criticalFault = true
+    expectFailure("precondition") { session.setBodyHeight(0.35) }
+    heightChannel.criticalFault = false; heightChannel.kind = 4
+    expectFailure("precondition") { session.setBodyHeight(0.35) }
+    heightChannel.kind = 2; heightChannel.lease = true
+    expectFailure("precondition") { session.setBodyHeight(0.35) }
+    heightChannel.lease = false
+    check(heightChannel.requests.count { it.first == "SetBodyHeight" } == beforeInvalid)
+
+    // Switch back to flat locomotion mode cleanly.
+    val exited = session.action("switch-profile", "flat")
+    @Suppress("UNCHECKED_CAST") val exitedProfile = exited["profile"] as Map<String, Any>
+    check(exitedProfile["activeModeId"] == "flat")
+
+    // Unavailable body-height capability is rejected.
+    heightChannel.profileCapabilities = listOf(
+      capability("flat", "flat_v1", kind = 1, availability = 2),
+      capability("height", "single_frame_height_v2", kind = 3, availability = 1),
+    )
+    expectFailure("precondition") { session.action("switch-profile", "height") }
+  } finally {
+    session.close()
+  }
+  println("PASS: native body-height switch, get/set and recovery block")
+}
+
 fun main() {
   val catalogChannel = FakeChannel()
   val catalog = ControlSession(catalogChannel, PRINCIPAL) { it() }
@@ -365,6 +486,7 @@ fun main() {
   verify50HzWireBoundary()
   verifyAckReceiveCooldown()
   verifyCalibrationFaultGestureAndSpeedMode()
+  verifyBodyHeight()
   val channel = FakeChannel()
   val cleanup = ConcurrentLinkedQueue<() -> Unit>()
   val session = ControlSession(channel, PRINCIPAL) { cleanup.add(it) }

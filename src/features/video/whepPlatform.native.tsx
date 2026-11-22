@@ -1,4 +1,4 @@
-import { createElement } from 'react';
+import { createElement, memo } from 'react';
 import { fetch as expoFetch } from 'expo/fetch';
 import { NativeModules, StyleSheet, View } from 'react-native';
 
@@ -22,9 +22,9 @@ export function videoRuntime(): VideoRuntime | null {
   };
 }
 
-export function VideoPlayer({ stream, rotation }: { stream: VideoStream; rotation: number }) {
+export const VideoPlayer = memo(function VideoPlayer({ stream, rotation }: { stream: VideoStream; rotation: number }) {
   const rtc = nativeRtc();
   return createElement(View, { style: [{ flex: 1, height: '100%', width: '100%' }, { backgroundColor: '#000', overflow: 'hidden' }] },
     rtc && stream.toURL ? createElement(rtc.RTCView, { streamURL: stream.toURL(), objectFit: 'cover', mirror: false,
       style: [StyleSheet.absoluteFill, { height: '100%', width: '100%' }, rotation ? { transform: [{ rotate: `${rotation}deg` }] } : null], zOrder: 1, testID: 'whep-native-player' }) : null);
-}
+});

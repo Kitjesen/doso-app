@@ -81,6 +81,15 @@ function validProfile(value: unknown): value is BrainstemGrpcProfile {
     (profile.activeModeId === undefined || profile.activeModeId === null || typeof profile.activeModeId === 'string' && profile.activeModeId.length <= 64 && !profile.activeModeId.includes('\0'));
 }
 
+function validBodyHeightCapability(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const h = value as Record<string, unknown>;
+  const ok = (v: unknown, max: number) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= max;
+  if (!ok(h.defaultHeightM, 5) || !ok(h.minHeightM, 5) || !ok(h.maxHeightM, 5) || !ok(h.rateMps, 10)) return false;
+  if ((h.minHeightM as number) > 0 && (h.maxHeightM as number) > 0 && (h.minHeightM as number) > (h.maxHeightM as number)) return false;
+  return true;
+}
+
 function validModeCapability(value: unknown): value is RobotModeCapability {
   if (!value || typeof value !== 'object') return false;
   const mode = value as Record<string, unknown>;
@@ -89,7 +98,8 @@ function validModeCapability(value: unknown): value is RobotModeCapability {
     typeof mode.label === 'string' && mode.label.length <= 64 && !mode.label.includes('\0') &&
     typeof mode.unavailableReason === 'string' && mode.unavailableReason.length <= 200 && !mode.unavailableReason.includes('\0') &&
     (mode.availability === undefined || typeof mode.availability === 'string' && ['unknown', 'unavailable', 'available'].includes(mode.availability) && (mode.availability === 'available') === mode.available) &&
-    (mode.profileId === undefined || typeof mode.profileId === 'string' && mode.profileId.length <= 128 && !mode.profileId.includes('\0'));
+    (mode.profileId === undefined || typeof mode.profileId === 'string' && mode.profileId.length <= 128 && !mode.profileId.includes('\0')) &&
+    (mode.bodyHeight === undefined || validBodyHeightCapability(mode.bodyHeight));
 }
 
 function validMotorState(value: unknown): value is BrainstemGrpcMotorState {
@@ -214,6 +224,12 @@ export function createDirectRobotConnectionSnapshot(
         id: mode.id, kind: mode.kind, label: mode.label, available: mode.available, unavailableReason: mode.unavailableReason,
         ...(mode.availability !== undefined ? { availability: mode.availability } : {}),
         ...(mode.profileId !== undefined ? { profileId: mode.profileId } : {}),
+        ...(mode.bodyHeight !== undefined ? { bodyHeight: Object.freeze({
+          defaultHeightM: mode.bodyHeight.defaultHeightM,
+          minHeightM: mode.bodyHeight.minHeightM,
+          maxHeightM: mode.bodyHeight.maxHeightM,
+          rateMps: mode.bodyHeight.rateMps,
+        }) } : {}),
       }))) } : {}),
     })
     : undefined;
