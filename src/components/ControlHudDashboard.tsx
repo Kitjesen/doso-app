@@ -113,8 +113,8 @@ export function ControlHudDashboard({
   if (!expanded) {
     if (inlineCollapsed) {
       return (
-        <View pointerEvents="box-none" style={[styles.inlineRoot, { gap: sp(7) }]} testID="control-hud-dashboard">
-          <View style={[styles.inlineTray, { borderRadius: sp(16), gap: sp(8), minHeight: sp(32), paddingHorizontal: sp(10), paddingVertical: sp(4) }]} testID="control-hud-dashboard-collapsed">
+        <View pointerEvents="box-none" style={[styles.inlineRoot, { gap: sp(6) }]} testID="control-hud-dashboard">
+          <View style={[styles.inlineTray, { borderRadius: sp(16), gap: sp(6), minHeight: sp(32), paddingHorizontal: sp(8), paddingVertical: sp(4) }]} testID="control-hud-dashboard-collapsed">
             <View
               accessible
               accessibilityLabel={anyLightOn ? '照明灯已开启' : '照明灯关闭'}
@@ -123,9 +123,9 @@ export function ControlHudDashboard({
             >
               <Ionicons color={anyLightOn ? ACTIVE_CYAN : MUTED_INK} name="flashlight-outline" size={sp(13)} />
             </View>
-            <View style={[styles.inlineMetaRow, { gap: sp(6) }]} testID="control-hud-battery-bar">
+            <View style={[styles.inlineMetaRow, { gap: sp(5) }]} testID="control-hud-battery-bar">
               <Text numberOfLines={1} style={[styles.inlineRangeText, { fontSize: fMeta, lineHeight: fMetaLine }]} testID="control-hud-range-readout">{rangeText}</Text>
-              <View style={[styles.energyTrackCompact, styles.inlineEnergyTrack, { borderRadius: sp(3), height: sp(5), width: sp(44) }]}>
+              <View style={[styles.energyTrackCompact, styles.inlineEnergyTrack, { borderRadius: sp(3), height: sp(5), width: sp(34) }]}>
                 <View style={[styles.energyFillCompact, { width: `${Math.round(energy.fillRatio * 100)}%`, backgroundColor: energy.fillColor }]} />
               </View>
               <Text style={[styles.energyCompactText, { fontSize: fMeta, lineHeight: fMetaLine }, energy.live && { color: INK }]}>{energy.text}</Text>
@@ -406,6 +406,7 @@ const styles = StyleSheet.create({
   },
   inlineEnergyTrack: {
     flex: 0,
+    width: 34,
   },
   inlineToggleOrb: {
     alignItems: 'center',

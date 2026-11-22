@@ -327,6 +327,7 @@ export function GestureDeckPanel({
   onPlayGesture,
   variant = 'hud',
   deckWidth,
+  maxListHeight = 168,
 }: {
   gestures: readonly HudGestureInput[];
   category: HudGestureCategoryId;
@@ -340,6 +341,7 @@ export function GestureDeckPanel({
   onPlayGesture?: (name: string) => void;
   variant?: 'hud' | 'settings';
   deckWidth?: number;
+  maxListHeight?: number;
 }) {
   const projected = projectHudGestures(gestures, category, selectedGestureName);
   const selected = projected.selectedItem;
@@ -474,12 +476,7 @@ export function GestureDeckPanel({
       {isSettings ? (
         <View style={styles.gestureSettingsStack}>
           {inspectorNode}
-          <ScrollView
-            showsVerticalScrollIndicator
-            nestedScrollEnabled
-            style={styles.gestureListScrollSettings}
-            contentContainerStyle={styles.gestureGridSettings}
-          >
+          <View style={styles.gestureGridSettings}>
             {projected.filteredItems.map(item => {
               const isSelected = selected?.name === item.name;
               return (
@@ -512,14 +509,14 @@ export function GestureDeckPanel({
                 </Pressable>
               );
             })}
-          </ScrollView>
+          </View>
         </View>
       ) : (
-        <View style={styles.gestureSplitBody}>
+        <View style={[styles.gestureSplitBody, { maxHeight: maxListHeight }]}>
           <ScrollView
             showsVerticalScrollIndicator
             nestedScrollEnabled
-            style={styles.gestureListScroll}
+            style={[styles.gestureListScroll, { maxHeight: maxListHeight }]}
             contentContainerStyle={styles.gestureListContent}
           >
             {projected.filteredItems.map(item => {
@@ -846,7 +843,7 @@ const styles = StyleSheet.create({
   },
   gestureDeckRoot: {
     gap: 6,
-    minWidth: 300,
+    minWidth: 280,
     width: 428,
     maxWidth: '100%',
   },
@@ -928,14 +925,11 @@ const styles = StyleSheet.create({
   gestureSplitBody: {
     flexDirection: 'row',
     gap: 8,
-    maxHeight: 154,
+    maxHeight: 168,
   },
   gestureListScroll: {
     flex: 1,
-    maxHeight: 154,
-  },
-  gestureListScrollSettings: {
-    maxHeight: 196,
+    maxHeight: 168,
   },
   gestureListContent: {
     gap: 4,
@@ -947,8 +941,9 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   gestureGridCellSettings: {
-    flexBasis: '48.5%',
+    flexBasis: '48%',
     flexGrow: 1,
+    minWidth: 148,
   },
   gestureRowBtn: {
     alignItems: 'center',

@@ -15,14 +15,28 @@ function snapshotUrl(host: string | null) {
   return `http://${authority}:5050/api/v1/camera/depth/snapshot`;
 }
 
+const LIVE_REFRESH_MS = 150;
+const ERROR_RETRY_MS = 1000;
+
 function DepthPreview({ endpoint }: { endpoint: string }) {
-  const [request, setRequest] = useState<{ nonce: number; pending: boolean; status: 'loading' | 'ready' | 'error' }>(
-    () => ({ nonce: Date.now(), pending: true, status: 'loading' }),
+  const [request, setRequest] = useState<{
+    nonce: number;
+    pending: boolean;
+    status: 'loading' | 'ready' | 'error';
+    readyUri: string | null;
+  }>(
+    () => ({ nonce: Date.now(), pending: true, status: 'loading', readyUri: null }),
   );
-  const { nonce, pending, status } = request;
-  const complete = (result: 'ready' | 'error') => {
+  const { nonce, pending, status, readyUri } = request;
+  const activeUri = `${endpoint}?ts=${nonce}`;
+  const complete = (result: 'ready' | 'error', loadedUri?: string) => {
     setRequest(current => current.nonce === nonce && current.pending
-      ? { ...current, pending: false, status: result }
+      ? {
+        ...current,
+        pending: false,
+        status: result,
+        readyUri: result === 'ready' ? (loadedUri ?? current.readyUri) : null,
+      }
       : current);
   };
   useEffect(() => {
@@ -32,18 +46,27 @@ function DepthPreview({ endpoint }: { endpoint: string }) {
         ...current,
         nonce: Math.max(Date.now(), current.nonce + 1),
         pending: true,
-      })), 1000);
+      })), status === 'ready' ? LIVE_REFRESH_MS : ERROR_RETRY_MS);
     return () => clearTimeout(timer);
-  }, [nonce, pending]);
+  }, [nonce, pending, status]);
 
   return <>
+    {status === 'ready' && readyUri && readyUri !== activeUri ? (
+      <Image
+        testID="depth-image-ready"
+        accessible={false}
+        source={{ uri: readyUri }}
+        resizeMode="contain"
+        style={StyleSheet.absoluteFill}
+      />
+    ) : null}
     <Image
       testID="depth-image"
       accessible={false}
-      source={{ uri: `${endpoint}?ts=${nonce}` }}
+      source={{ uri: activeUri }}
       resizeMode="contain"
       style={[StyleSheet.absoluteFill, status !== 'ready' && styles.hidden]}
-      onLoad={() => complete('ready')}
+      onLoad={() => complete('ready', activeUri)}
       onError={() => complete('error')}
     />
     <Text style={styles.status}>{status === 'ready' ? '机器狗实时源' : status === 'error' ? '深度图暂不可用' : '正在读取'}</Text>

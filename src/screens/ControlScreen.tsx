@@ -131,6 +131,10 @@ type Props = {
   stageDimensions?: Readonly<{ width: number; height: number }>;
   webStageMode?: 'g20-16-9' | 'fill';
   onToggleWebStageMode?: () => void;
+  speedMode?: 'normal' | 'high' | 'unsupported' | null;
+  onChangeSpeedMode?: (mode: 'normal' | 'high') => Promise<void>;
+  onReconnect?: () => void;
+  hasDedicatedRearCamera?: boolean;
 };
 
 // Offline preview callers keep a no-op. Only the explicitly selected development
@@ -190,7 +194,7 @@ export function ControlScreen({
   canRecall, recallBlockedReason, onRecall,
   runtimeState, operationReadiness, operationCallbacks, onListGestures, operationStates, operationTargetKey, brainstemIntegration,
   inputSource, physicalInputAvailable = false, g20Controller, onInputSourceChange, onNotifications,
-  stageDimensions, webStageMode, onToggleWebStageMode,
+  stageDimensions, webStageMode, onToggleWebStageMode, speedMode = null, onChangeSpeedMode, onReconnect, hasDedicatedRearCamera,
 }: Props) {
   const { colors, isDark } = useAppTheme();
   const appearance = getProductAppearance(isDark);
@@ -219,6 +223,8 @@ export function ControlScreen({
   const speedLimitRef = useRef(100);
   speedLimitRef.current = speedLimitPercent;
   const [speedLimitExpanded, setSpeedLimitExpanded] = useState(false);
+  const [confirmingHighSpeed, setConfirmingHighSpeed] = useState(false);
+  const [speedModePending, setSpeedModePending] = useState(false);
   const [jointParamsOpen, setJointParamsOpen] = useState(false);
   const [selectedLegId, setSelectedLegId] = useState<HudLegId>('front-left');
   const [jointTempOpen, setJointTempOpen] = useState(false);
@@ -466,6 +472,7 @@ export function ControlScreen({
   const revokeOperationIntent = useCallback(() => {
     closeSettingsMenu();
     setPostureMenuOpen(false);
+    setConfirmingHighSpeed(false);
     operationGeneration.current++;
     confirmationRef.current = null;
     policySelectionRef.current = null;
@@ -1110,7 +1117,36 @@ export function ControlScreen({
         </Pressable>)}
       </ScrollView>
     </ControlPanelMotion>
-  </> : !visibleConfirmation ? null : <View
+  </> : confirmingHighSpeed ? <View
+    style={[styles.immersiveIntent, { top: Math.max(76, Math.round((immersiveCanvasHeight || height) * 0.24)), maxHeight: Math.max(180, (immersiveCanvasHeight || height) - 96) }]}
+    testID="control-high-speed-confirm-dialog"
+  >
+    <Text style={styles.immersiveIntentTitle}>确认切换高速档位（最高 2.5 m/s）</Text>
+    <Text style={styles.immersiveIntentSubtitle}>高速档位将机身最大线速度上限提升至 2.5 m/s，请确认处于开阔平坦场地且急停可用。</Text>
+    <View style={styles.immersiveIntentActions}>
+      <Pressable accessibilityRole="button" onPress={() => setConfirmingHighSpeed(false)} style={({ pressed }) => [styles.immersiveIntentBtn, styles.immersiveIntentCancelBtn, pressed && styles.pressed]}>
+        <Text style={styles.immersiveIntentCancelText}>取消</Text>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="确认切换高速档位"
+        disabled={speedModePending}
+        testID="control-high-speed-confirm"
+        style={({ pressed }) => [styles.immersiveIntentBtn, styles.immersiveIntentConfirmBtn, pressed && styles.pressed]}
+        onPress={() => {
+          if (!onChangeSpeedMode || speedModePending) return;
+          setConfirmingHighSpeed(false);
+          setSpeedModePending(true);
+          void onChangeSpeedMode('high')
+            .then(() => { showHudNotice('已切换至高速档位（最高 2.5 m/s）'); })
+            .catch(caught => { showHudNotice(caught instanceof Error && caught.message ? caught.message : '高速档位切换失败'); })
+            .finally(() => { if (mountedRef.current) setSpeedModePending(false); });
+        }}
+      >
+        <Text style={styles.immersiveIntentConfirmText}>确认切换</Text>
+      </Pressable>
+    </View>
+  </View> : !visibleConfirmation ? null : <View
     style={[styles.immersiveIntent, { top: Math.max(76, Math.round((immersiveCanvasHeight || height) * 0.24)), maxHeight: Math.max(180, (immersiveCanvasHeight || height) - 96) }]}>
     <Text style={styles.immersiveIntentTitle}>确认{controlOperationLabels[visibleConfirmation.action]}{visibleConfirmation.policyId ? `：${policyOptions.find(option => option.id === visibleConfirmation.policyId)?.label ?? ''}` : ''}</Text>
     <Text style={styles.immersiveIntentSubtitle}>{visibleConfirmation.action === 'disableMotor' ? '失能后设备可能失去支撑，请确认已固定。' : visibleConfirmation.action === 'setZero' ? '当前姿态将保存为零点。' : '请确认机器狗周围安全，急停可用。'}</Text>
@@ -1421,6 +1457,23 @@ export function ControlScreen({
       speedLimitExpanded,
       onToggleSpeedLimitExpanded: () => setSpeedLimitExpanded(value => !value),
       onChangeSpeedLimit: next => setSpeedLimitPercent(clampSpeedLimitPercent(next)),
+      speedMode,
+      onSelectSpeedMode: onChangeSpeedMode ? mode => {
+        if (speedModePending || !appActive || leaving) return;
+        if (mode === 'high') {
+          handleCancel();
+          setSpeedLimitExpanded(false);
+          setConfirmingHighSpeed(true);
+          return;
+        }
+        setSpeedModePending(true);
+        void onChangeSpeedMode('normal')
+          .then(() => { showHudNotice('已恢复标准速度档位（1.0 m/s）'); })
+          .catch(caught => { showHudNotice(caught instanceof Error && caught.message ? caught.message : '速度档位切换失败'); })
+          .finally(() => { if (mountedRef.current) setSpeedModePending(false); });
+      } : undefined,
+      onReconnect,
+      hasDedicatedRearCamera,
       batteryPercent: resolvedBatteryPercent,
       voltageV: runtimeState?.battery?.voltageV ?? null,
       remainingRangeKm: runtimeState?.remainingRangeKm ?? null,
@@ -1472,6 +1525,21 @@ export function ControlScreen({
         onToggleDocks: () => setDocksExpanded(value => !value),
         speedLimitPercent,
         onChangeSpeedLimit: next => setSpeedLimitPercent(clampSpeedLimitPercent(next)),
+        speedMode,
+        onSelectSpeedMode: onChangeSpeedMode ? mode => {
+          closeSettingsMenu();
+          if (speedModePending || !appActive || leaving) return;
+          if (mode === 'high') {
+            handleCancel();
+            setConfirmingHighSpeed(true);
+            return;
+          }
+          setSpeedModePending(true);
+          void onChangeSpeedMode('normal')
+            .then(() => { showHudNotice('已恢复标准速度档位（1.0 m/s）'); })
+            .catch(caught => { showHudNotice(caught instanceof Error && caught.message ? caught.message : '速度档位切换失败'); })
+            .finally(() => { if (mountedRef.current) setSpeedModePending(false); });
+        } : undefined,
         physicalInputReady: physicalAvailable,
         onSelectInputSource: setInputSource,
         primaryCamera,

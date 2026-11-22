@@ -100,6 +100,10 @@ export type ControlLandscapeHudProps = Readonly<{
   speedLimitExpanded: boolean;
   onToggleSpeedLimitExpanded: () => void;
   onChangeSpeedLimit: (nextPercent: number) => void;
+  speedMode?: 'normal' | 'high' | 'unsupported' | null;
+  onSelectSpeedMode?: (mode: 'normal' | 'high') => void;
+  onReconnect?: () => void;
+  hasDedicatedRearCamera?: boolean;
   batteryPercent?: number | null;
   voltageV?: number | null;
   remainingRangeKm?: number | null;
@@ -220,6 +224,10 @@ export function controlLandscapeHud({
   speedLimitExpanded,
   onToggleSpeedLimitExpanded,
   onChangeSpeedLimit,
+  speedMode = null,
+  onSelectSpeedMode,
+  onReconnect,
+  hasDedicatedRearCamera,
   batteryPercent,
   voltageV,
   remainingRangeKm,
@@ -306,16 +314,32 @@ export function controlLandscapeHud({
   const effectiveStageW = stageWidth && stageWidth > 0 ? stageWidth : 960;
   const effectiveStageH = stageHeight && stageHeight > 0 ? stageHeight : 540;
   const compactTopBar = effectiveStageW < 1080;
-  const compactRightRail = effectiveStageH < 480;
-  const pipW = stageWidth && stageWidth > 0
-    ? Math.max(156, Math.min(compactRightRail ? 204 : 264, Math.round(stageWidth * (compactRightRail ? 0.175 : 0.19))))
-    : sp(188);
+  const ultraShortStage = effectiveStageH < 460;
+  const compactRightRail = effectiveStageH < 560;
+  const pipW = ultraShortStage
+    ? sp(148)
+    : stageWidth && stageWidth > 0
+      ? Math.max(152, Math.min(compactRightRail ? 166 : 236, Math.round(stageWidth * (compactRightRail ? 0.172 : 0.18))))
+      : sp(166);
   const pipH = Math.round((pipW * 9) / 16);
-  const pipTop = sp(compactRightRail ? 54 : 60);
+  const pipTop = sp(ultraShortStage ? 50 : compactRightRail ? 52 : 58);
+  const pipRight = sp(ultraShortStage ? 14 : compactTopBar ? 14 : 18);
+  const rightRailBesidePip = ultraShortStage && dualCameraEnabled;
+  const rightRailTop = rightRailBesidePip || !dualCameraEnabled
+    ? pipTop
+    : pipTop + pipH + sp(compactRightRail ? 6 : 10);
+  const rightRailRight = rightRailBesidePip ? pipRight + pipW + sp(8) : pipRight;
+  const rightRailWidth = ultraShortStage ? sp(142) : pipW;
+  const circleSize = sp(ultraShortStage ? 30 : compactRightRail ? 32 : 38);
+  const circleRadius = Math.round(circleSize / 2);
+  const circleIconSize = sp(ultraShortStage ? 15 : compactRightRail ? 16 : 18);
+  const railMetaLine = ultraShortStage ? sp(13) : compactRightRail ? sp(14) : fMetaLine;
   const overlayW = Math.min(440, Math.max(350, Math.round(effectiveStageW * 0.44)));
   const centerStackInset = Math.round((joystickSize || 220) + sp(24));
-  const centerFreeWidth = Math.max(320, effectiveStageW - Math.round((joystickSize || 160) * 2) - sp(56));
-  const gestureDeckWidth = Math.min(sp(468), centerFreeWidth);
+  const stickCorridorEachSide = Math.round((joystickSize || 156) + sp(36));
+  const centerFreeWidth = Math.max(308, effectiveStageW - stickCorridorEachSide * 2);
+  const gestureDeckWidth = Math.min(sp(476), centerFreeWidth - sp(24));
+  const gestureMaxListHeight = effectiveStageH >= 620 ? 248 : effectiveStageH >= 500 ? 198 : 144;
   const faults = collectHudFaults({ runtimeState, sessionError, recoveryError });
   const signals = projectTopSignalBadges({ connection, runtimeState });
   const tempSummary = projectJointTemperatures('motor', joints);
@@ -376,11 +400,24 @@ export function controlLandscapeHud({
                 testID="control-open-connection"
               >
                 <View style={[styles.connectionDot, { borderRadius: sp(4), height: sp(8), width: sp(8) }, connection === 'connected' ? styles.connectedDot : connection === 'readonly' ? styles.readonlyDot : null]} testID="control-hud-connection-dot" />
-                <Text numberOfLines={1} style={[styles.identityText, { fontSize: fTitle, lineHeight: fTitleLine }]}>{robotName}</Text>
+                <Text numberOfLines={1} style={[styles.identityText, { fontSize: fTitle, lineHeight: fTitleLine }, compactTopBar ? { maxWidth: sp(effectiveStageW < 900 ? 88 : 118) } : null]}>{robotName}</Text>
                 <View style={[styles.connPillBadge, { borderRadius: sp(6), paddingHorizontal: sp(7), paddingVertical: sp(2) }]}>
                   <Text numberOfLines={1} style={[styles.connPillText, { fontSize: fMeta, lineHeight: fMetaLine }]}>{connectionLabel}</Text>
                 </View>
               </Pressable>
+
+              {connection === 'disconnected' && onReconnect ? (
+                <Pressable
+                  accessibilityLabel="立即重连机器狗与图传"
+                  accessibilityRole="button"
+                  onPress={onReconnect}
+                  style={({ pressed }) => [styles.reconnectPillBtn, { borderRadius: sp(999), gap: sp(4), minHeight: sp(26), paddingHorizontal: sp(9), paddingVertical: sp(2) }, pressed && styles.pressed]}
+                  testID="control-hud-reconnect"
+                >
+                  <Ionicons color="#FFFFFF" name="refresh-outline" size={sp(12)} />
+                  <Text numberOfLines={1} style={[styles.reconnectPillText, { fontSize: fMeta, lineHeight: fMetaLine }]}>重连</Text>
+                </Pressable>
+              ) : null}
 
               {showLocalControl ? (
                 <Chip sp={sp} testID="control-hud-local-control">
@@ -400,7 +437,7 @@ export function controlLandscapeHud({
                 accessibilityLabel="状态"
                 accessibilityRole="button"
                 onPress={onOpenJointStatus ?? onBack}
-                style={({ pressed }) => [styles.islandNavBtn, { gap: sp(5), minHeight: sp(32), paddingHorizontal: sp(9) }, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.islandNavBtn, { gap: sp(compactTopBar ? 4 : 5), minHeight: sp(32), paddingHorizontal: sp(compactTopBar ? 7 : 9) }, pressed && styles.pressed]}
                 testID="control-hud-open-status"
               >
                 <Ionicons color={INK} name="pulse-outline" size={sp(14)} />
@@ -412,7 +449,7 @@ export function controlLandscapeHud({
                 accessibilityRole="button"
                 accessibilityState={{ expanded: settingsOpen }}
                 onPress={onOpenSettings}
-                style={({ pressed }) => [styles.islandNavBtn, { gap: sp(5), minHeight: sp(32), paddingHorizontal: sp(9) }, settingsOpen && styles.islandNavBtnActive, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.islandNavBtn, { gap: sp(compactTopBar ? 4 : 5), minHeight: sp(32), paddingHorizontal: sp(compactTopBar ? 7 : 9) }, settingsOpen && styles.islandNavBtnActive, pressed && styles.pressed]}
                 testID="control-hud-settings"
               >
                 <Ionicons color={settingsOpen ? '#93C5FD' : INK} name="options-outline" size={sp(14)} />
@@ -424,7 +461,7 @@ export function controlLandscapeHud({
                   accessibilityLabel="设置"
                   accessibilityRole="button"
                   onPress={onOpenWorkspaceSettings}
-                  style={({ pressed }) => [styles.islandNavBtn, { gap: sp(5), minHeight: sp(32), paddingHorizontal: sp(9) }, pressed && styles.pressed]}
+                  style={({ pressed }) => [styles.islandNavBtn, { gap: sp(compactTopBar ? 4 : 5), minHeight: sp(32), paddingHorizontal: sp(compactTopBar ? 7 : 9) }, pressed && styles.pressed]}
                   testID="control-hud-open-workspace-settings"
                 >
                   <Ionicons color={INK} name="settings-outline" size={sp(14)} />
@@ -459,7 +496,7 @@ export function controlLandscapeHud({
                     }}
                     style={({ pressed }) => [
                       styles.terrainSegBtn,
-                      { minHeight: sp(30), paddingHorizontal: sp(14) },
+                      { minHeight: sp(30), paddingHorizontal: sp(compactTopBar ? 10 : 14) },
                       option.selected && styles.terrainSegBtnSelected,
                       option.disabled && !option.selected && styles.disabled,
                       pressed && styles.pressed,
@@ -476,20 +513,22 @@ export function controlLandscapeHud({
               <View style={[styles.islandDivider, { height: sp(16) }]} />
 
               <Pressable
-                accessibilityLabel={`调节速度限制，当前 ${speedLimitClamped}%`}
+                accessibilityLabel={`调节速度限制，当前 ${speedMode === 'high' ? '高速 ' : ''}${speedLimitClamped}%`}
                 accessibilityRole="button"
                 accessibilityState={{ expanded: speedLimitExpanded }}
                 onPress={onToggleSpeedLimitExpanded}
                 style={({ pressed }) => [
                   styles.speedPillBtn,
                   { minHeight: sp(30), paddingHorizontal: sp(12) },
-                  (speedLimitExpanded || speedLimitClamped < 100) && styles.speedPillBtnActive,
+                  (speedLimitExpanded || speedLimitClamped < 100 || speedMode === 'high') && styles.speedPillBtnActive,
                   pressed && styles.pressed,
                 ]}
                 testID="control-hud-speed-limit-toggle"
               >
                 <Text style={[styles.speedPillText, { fontSize: fBody, lineHeight: fBodyLine }]}>
-                  {speedLimitClamped < 100 ? `${speedLimitClamped}%` : '1.0 m/s'}
+                  {speedMode === 'high'
+                    ? (speedLimitClamped < 100 ? `高速 ${speedLimitClamped}%` : '2.5 m/s')
+                    : (speedLimitClamped < 100 ? `${speedLimitClamped}%` : '1.0 m/s')}
                 </Text>
               </Pressable>
             </View>
@@ -567,7 +606,46 @@ export function controlLandscapeHud({
 
           {speedLimitExpanded ? (
             <View style={[styles.speedBarFloating, { gap: sp(8), height: sp(38), marginTop: sp(8), paddingHorizontal: sp(15) }]} testID="control-hud-speed-limit-bar">
-              <Text style={[styles.speedBarLabel, { fontSize: fMeta, lineHeight: fMetaLine }]}>调节速度限制</Text>
+              {onSelectSpeedMode ? (
+                <View style={[styles.speedModeSegment, { borderRadius: sp(999), gap: sp(2), padding: 2 }]} testID="control-hud-speed-mode-group">
+                  <Pressable
+                    accessibilityLabel="标准速度档位 1.0 m/s"
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: connection !== 'connected' || speedMode === 'unsupported', selected: speedMode !== 'high' }}
+                    disabled={connection !== 'connected' || speedMode === 'unsupported'}
+                    onPress={() => { if (speedMode === 'high') onSelectSpeedMode('normal'); }}
+                    style={({ pressed }) => [
+                      styles.speedModeChip,
+                      { borderRadius: sp(999), paddingHorizontal: sp(9), paddingVertical: sp(3) },
+                      speedMode !== 'high' && styles.speedModeChipActive,
+                      (connection !== 'connected' || speedMode === 'unsupported') && styles.disabled,
+                      pressed && styles.pressed,
+                    ]}
+                    testID="control-hud-speed-mode-normal"
+                  >
+                    <Text style={[styles.speedModeChipText, { fontSize: fMeta, lineHeight: fMetaLine }, speedMode !== 'high' && styles.speedModeChipTextActive]}>标准 1.0</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityHint={speedMode === 'unsupported' ? '当前固件未开放高速模式' : '开阔平地最高 2.5 m/s'}
+                    accessibilityLabel="高速速度档位 2.5 m/s"
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: connection !== 'connected' || speedMode === 'unsupported', selected: speedMode === 'high' }}
+                    disabled={connection !== 'connected' || speedMode === 'unsupported'}
+                    onPress={() => { if (speedMode !== 'high') onSelectSpeedMode('high'); }}
+                    style={({ pressed }) => [
+                      styles.speedModeChip,
+                      { borderRadius: sp(999), paddingHorizontal: sp(9), paddingVertical: sp(3) },
+                      speedMode === 'high' && styles.speedModeChipHighActive,
+                      (connection !== 'connected' || speedMode === 'unsupported') && styles.disabled,
+                      pressed && styles.pressed,
+                    ]}
+                    testID="control-hud-speed-mode-high"
+                  >
+                    <Text style={[styles.speedModeChipText, { fontSize: fMeta, lineHeight: fMetaLine }, speedMode === 'high' && styles.speedModeChipTextHigh]}>高速 2.5</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+              <Text style={[styles.speedBarLabel, { fontSize: fMeta, lineHeight: fMetaLine }]}>限速比例</Text>
               <Pressable
                 accessibilityLabel="降低速度限制"
                 accessibilityRole="button"
@@ -621,7 +699,7 @@ export function controlLandscapeHud({
             accessibilityLabel={`第二相机视角（${depthActive ? '深度图' : showMainFront ? '后视角' : '前视角'}），点击互换主画面`}
             accessibilityRole="button"
             onPress={onSwapCamera}
-            style={({ pressed }) => [styles.pipWindow, { borderRadius: sp(12), height: pipH, right: sp(18), top: pipTop, width: pipW }, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.pipWindow, { borderRadius: sp(ultraShortStage ? 10 : 12), height: pipH, right: pipRight, top: pipTop, width: pipW }, pressed && styles.pressed]}
             testID="control-hud-pip-window"
           >
             {depthActive && depthPreview ? (
@@ -630,32 +708,34 @@ export function controlLandscapeHud({
               <View pointerEvents="none" style={StyleSheet.absoluteFill}>{secondaryPipFeed}</View>
             ) : (
               <View pointerEvents="none" style={[styles.pipPlaceholder, { gap: sp(4) }]} testID="control-hud-pip-placeholder">
-                <Ionicons color={MUTED} name="videocam-off-outline" size={sp(20)} />
+                <Ionicons color={MUTED} name="videocam-off-outline" size={sp(ultraShortStage ? 17 : 20)} />
               </View>
             )}
-            <View pointerEvents="none" style={[styles.pipHeaderRow, { left: sp(8), top: sp(8) }]}>
-              <View style={[styles.pipBadge, { borderRadius: sp(6), paddingHorizontal: sp(8), paddingVertical: sp(3) }]}>
-                <Text style={[styles.pipBadgeText, { fontSize: fMeta, lineHeight: fMetaLine }]}>{depthActive ? '深度图 ⇄' : showMainFront ? '后广角 ⇄' : '前视角 ⇄'}</Text>
+            <View pointerEvents="none" style={[styles.pipHeaderRow, { left: sp(ultraShortStage ? 6 : 8), top: sp(ultraShortStage ? 6 : 8) }]}>
+              <View style={[styles.pipBadge, { borderRadius: sp(6), paddingHorizontal: sp(ultraShortStage ? 6 : 8), paddingVertical: sp(ultraShortStage ? 2 : 3) }]}>
+                <Text style={[styles.pipBadgeText, { fontSize: fMeta, lineHeight: railMetaLine }]}>
+                  {depthActive ? '深度图 ⇄' : showMainFront ? (hasDedicatedRearCamera === false ? '副视窗 ⇄' : '后广角 ⇄') : '前视角 ⇄'}
+                </Text>
               </View>
             </View>
           </Pressable>
         ) : null}
 
-        {/* Concept A-1 Circular Glass Tool Buttons Directly Below PiP */}
-        {!settingsMenu ? <View pointerEvents="box-none" style={[styles.rightRail, { alignItems: 'center' as const, gap: sp(12), right: sp(18), top: dualCameraEnabled ? pipTop + pipH + sp(12) : pipTop, width: pipW }]} testID="control-hud-camera-rail">
+        {/* Concept A-1 Circular Glass Tool Buttons Directly Below (or Beside on ultra-short stage) PiP */}
+        {!settingsMenu ? <View pointerEvents="box-none" style={[styles.rightRail, { alignItems: 'center' as const, gap: sp(ultraShortStage ? 4 : compactRightRail ? 5 : 9), right: rightRailRight, top: rightRailTop, width: rightRailWidth }]} testID="control-hud-camera-rail">
           <View style={[styles.circleToolRow, { justifyContent: 'space-around' as const, width: '100%' }]}>
             <Pressable
               accessibilityLabel={dualCameraEnabled ? '关闭双广角，切为单广角' : '开启双广角'}
               accessibilityRole="button"
               accessibilityState={{ selected: dualCameraEnabled }}
               onPress={onToggleDualCamera}
-              style={({ pressed }) => [styles.circleBtnGroup, { gap: sp(4) }, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.circleBtnGroup, { gap: sp(2) }, pressed && styles.pressed]}
               testID="control-hud-camera-count-toggle"
             >
-              <View style={[styles.circleBtn, { borderRadius: sp(20), height: sp(40), width: sp(40) }, dualCameraEnabled && styles.circleBtnActive]}>
-                <Ionicons color={INK} name={dualCameraEnabled ? 'albums-outline' : 'square-outline'} size={sp(18)} />
+              <View style={[styles.circleBtn, { borderRadius: circleRadius, height: circleSize, width: circleSize }, dualCameraEnabled && styles.circleBtnActive]}>
+                <Ionicons color={INK} name={dualCameraEnabled ? 'albums-outline' : 'square-outline'} size={circleIconSize} />
               </View>
-              <Text style={[styles.circleCaption, { fontSize: fMeta, lineHeight: fMetaLine }]}>双摄</Text>
+              <Text style={[styles.circleCaption, { fontSize: fMeta, lineHeight: railMetaLine }]}>双摄</Text>
             </Pressable>
 
             <Pressable
@@ -663,40 +743,40 @@ export function controlLandscapeHud({
               accessibilityRole="button"
               accessibilityState={{ selected: depthActive }}
               onPress={onToggleDepth}
-              style={({ pressed }) => [styles.circleBtnGroup, { gap: sp(4) }, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.circleBtnGroup, { gap: sp(2) }, pressed && styles.pressed]}
               testID="control-hud-depth-toggle"
             >
-              <View style={[styles.circleBtn, { borderRadius: sp(20), height: sp(40), width: sp(40) }, depthActive && styles.circleBtnActive]}>
-                <Ionicons color={INK} name="radio-button-on-outline" size={sp(18)} />
+              <View style={[styles.circleBtn, { borderRadius: circleRadius, height: circleSize, width: circleSize }, depthActive && styles.circleBtnActive]}>
+                <Ionicons color={INK} name="radio-button-on-outline" size={circleIconSize} />
               </View>
-              <Text style={[styles.circleCaption, { fontSize: fMeta, lineHeight: fMetaLine }]}>深度</Text>
+              <Text style={[styles.circleCaption, { fontSize: fMeta, lineHeight: railMetaLine }]}>深度</Text>
             </Pressable>
 
             <Pressable
               accessibilityLabel="拍照保存画面"
               accessibilityRole="button"
               onPress={onCapturePhoto}
-              style={({ pressed }) => [styles.circleBtnGroup, { gap: sp(4) }, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.circleBtnGroup, { gap: sp(2) }, pressed && styles.pressed]}
               testID="control-hud-photo-capture"
             >
-              <View style={[styles.circleBtn, { borderRadius: sp(20), height: sp(40), width: sp(40) }]}>
-                <Ionicons color={INK} name="camera-outline" size={sp(18)} />
+              <View style={[styles.circleBtn, { borderRadius: circleRadius, height: circleSize, width: circleSize }]}>
+                <Ionicons color={INK} name="camera-outline" size={circleIconSize} />
               </View>
-              <Text style={[styles.circleCaption, { fontSize: fMeta, lineHeight: fMetaLine }]}>抓拍</Text>
+              <Text style={[styles.circleCaption, { fontSize: fMeta, lineHeight: railMetaLine }]}>抓拍</Text>
             </Pressable>
           </View>
 
-          <View style={[styles.secondaryUtilityStrip, { gap: sp(3), justifyContent: 'space-between' as const, paddingHorizontal: sp(6), paddingVertical: sp(3), width: '100%' }]}>
+          <View style={[styles.secondaryUtilityStrip, { gap: sp(ultraShortStage ? 2 : 3), justifyContent: 'space-between' as const, paddingHorizontal: sp(ultraShortStage ? 3 : 5), paddingVertical: sp(2), width: '100%' }]}>
             <Pressable
               accessibilityLabel={`切换相机视角，当前${showMainFront ? '前视角' : '后视角'}`}
               accessibilityRole="button"
               accessibilityState={{ selected: !showMainFront }}
               onPress={onSwapCamera}
-              style={({ pressed }) => [styles.utilityMiniPill, { flex: 1, gap: sp(4), justifyContent: 'center' as const, paddingHorizontal: sp(6), paddingVertical: sp(4) }, !showMainFront && styles.utilityMiniPillActive, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.utilityMiniPill, { flex: 1, gap: sp(ultraShortStage ? 2 : 3), justifyContent: 'center' as const, paddingHorizontal: sp(ultraShortStage ? 3 : 5), paddingVertical: sp(ultraShortStage ? 2 : compactRightRail ? 3 : 4) }, !showMainFront && styles.utilityMiniPillActive, pressed && styles.pressed]}
               testID="control-hud-camera-swap"
             >
-              <Ionicons color={INK} name="camera-reverse-outline" size={sp(13)} />
-              <Text style={[styles.utilityMiniText, { fontSize: fMeta, lineHeight: fMetaLine }]}>{showMainFront ? '前视' : '后视'}</Text>
+              <Ionicons color={INK} name="camera-reverse-outline" size={sp(ultraShortStage ? 11 : 13)} />
+              <Text numberOfLines={1} style={[styles.utilityMiniText, { fontSize: fMeta, lineHeight: railMetaLine }]}>{showMainFront ? '前视' : '后视'}</Text>
             </Pressable>
 
             <Pressable
@@ -704,11 +784,11 @@ export function controlLandscapeHud({
               accessibilityRole="button"
               accessibilityState={{ selected: headlightMode !== 'off' }}
               onPress={onToggleHeadlight}
-              style={({ pressed }) => [styles.utilityMiniPill, { flex: 1, gap: sp(4), justifyContent: 'center' as const, paddingHorizontal: sp(6), paddingVertical: sp(4) }, headlightMode !== 'off' && styles.utilityMiniPillActive, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.utilityMiniPill, { flex: 1, gap: sp(ultraShortStage ? 2 : 3), justifyContent: 'center' as const, paddingHorizontal: sp(ultraShortStage ? 3 : 5), paddingVertical: sp(ultraShortStage ? 2 : compactRightRail ? 3 : 4) }, headlightMode !== 'off' && styles.utilityMiniPillActive, pressed && styles.pressed]}
               testID="control-hud-light-toggle"
             >
-              <Ionicons color={headlightMode !== 'off' ? EMERALD_INK : INK} name="flashlight-outline" size={sp(13)} />
-              <Text style={[styles.utilityMiniText, { fontSize: fMeta, lineHeight: fMetaLine }]}>{headlightMode === 'off' ? '车灯' : headlightMode === 'front' ? '前灯' : '双灯'}</Text>
+              <Ionicons color={headlightMode !== 'off' ? EMERALD_INK : INK} name="flashlight-outline" size={sp(ultraShortStage ? 11 : 13)} />
+              <Text numberOfLines={1} style={[styles.utilityMiniText, { fontSize: fMeta, lineHeight: railMetaLine }]}>{headlightMode === 'off' ? '车灯' : headlightMode === 'front' ? '前灯' : '双灯'}</Text>
             </Pressable>
 
             <Pressable
@@ -716,11 +796,11 @@ export function controlLandscapeHud({
               accessibilityRole="button"
               accessibilityState={{ selected: recordingActive }}
               onPress={onToggleRecord}
-              style={({ pressed }) => [styles.utilityMiniPill, { flex: 1, gap: sp(4), justifyContent: 'center' as const, paddingHorizontal: sp(6), paddingVertical: sp(4) }, recordingActive && styles.utilityMiniPillDanger, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.utilityMiniPill, { flex: 1, gap: sp(ultraShortStage ? 2 : 3), justifyContent: 'center' as const, paddingHorizontal: sp(ultraShortStage ? 3 : 5), paddingVertical: sp(ultraShortStage ? 2 : compactRightRail ? 3 : 4) }, recordingActive && styles.utilityMiniPillDanger, pressed && styles.pressed]}
               testID="control-hud-record-toggle"
             >
-              <Ionicons color={INK} name={recordingActive ? 'stop-circle-outline' : 'videocam-outline'} size={sp(13)} />
-              <Text style={[styles.utilityMiniText, { fontSize: fMeta, lineHeight: fMetaLine }]}>{recordingActive && recordingDurationLabel ? `录屏 ${recordingDurationLabel}` : '录屏'}</Text>
+              <Ionicons color={INK} name={recordingActive ? 'stop-circle-outline' : 'videocam-outline'} size={sp(ultraShortStage ? 11 : 13)} />
+              <Text numberOfLines={1} style={[styles.utilityMiniText, { fontSize: fMeta, lineHeight: railMetaLine }]}>{recordingActive && recordingDurationLabel ? `录屏 ${recordingDurationLabel}` : '录屏'}</Text>
             </Pressable>
           </View>
         </View> : null}
@@ -857,6 +937,7 @@ export function controlLandscapeHud({
                     onPlayGesture,
                     variant: 'hud',
                     deckWidth: gestureDeckWidth,
+                    maxListHeight: gestureMaxListHeight,
                   }) : HUD_BASIC_ACTIONS.map(item => {
                     const selected = selectedBasicAction === item.id;
                     return (
@@ -1072,6 +1153,8 @@ const styles = StyleSheet.create({
   identityText: { color: INK, flexShrink: 1, fontSize: 14, fontWeight: '600', lineHeight: 19 },
   connPillBadge: { backgroundColor: 'rgba(255, 255, 255, 0.12)', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
   connPillText: { color: '#D4DBE0', fontSize: 12, fontWeight: '500', lineHeight: 16 },
+  reconnectPillBtn: { alignItems: 'center', backgroundColor: ACTIVE_BLUE, borderColor: 'rgba(147, 197, 253, 0.52)', borderWidth: 1, flexDirection: 'row' },
+  reconnectPillText: { color: '#FFFFFF', fontWeight: '600' },
   chip: { alignItems: 'center', backgroundColor: 'rgba(255, 255, 255, 0.10)', borderRadius: 6, flexDirection: 'row', gap: 3, paddingHorizontal: 6, paddingVertical: 2 },
   chipText: { color: '#E2E8EE', fontSize: 12, fontWeight: '500', lineHeight: 16 },
   islandDivider: { backgroundColor: 'rgba(255, 255, 255, 0.14)', height: 14, width: 1 },
@@ -1195,6 +1278,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   speedBarLabel: { color: INK, fontSize: 11, fontWeight: '600' },
+  speedModeSegment: { alignItems: 'center', backgroundColor: 'rgba(255, 255, 255, 0.08)', flexDirection: 'row' },
+  speedModeChip: { alignItems: 'center', justifyContent: 'center' },
+  speedModeChipActive: { backgroundColor: PILL_WHITE },
+  speedModeChipHighActive: { backgroundColor: '#F59E0B' },
+  speedModeChipText: { color: '#B8C0C4', fontVariant: ['tabular-nums'], fontWeight: '600' },
+  speedModeChipTextActive: { color: PILL_DARK_INK, fontWeight: '700' },
+  speedModeChipTextHigh: { color: '#111416', fontWeight: '700' },
   speedStepBtn: { alignItems: 'center', backgroundColor: 'rgba(255, 255, 255, 0.12)', borderRadius: 11, height: 22, justifyContent: 'center', width: 22 },
   speedTrack: { backgroundColor: 'rgba(255, 255, 255, 0.18)', borderRadius: 3, height: 6, overflow: 'hidden', width: 72 },
   speedFill: { backgroundColor: ACTIVE_BLUE, borderRadius: 3, height: '100%' },

@@ -139,6 +139,18 @@ export class BrainstemConnectionRecovery {
     return this.session.disconnect();
   }
 
+  retryNow() {
+    if (!this.target || !this.active || !this.available || !this.automaticEnabled || this.paused
+      || this.blocked || this.session.state.connected || !this.session.canReconnectAfterFailure || this.running) {
+      return;
+    }
+    this.attempts = 0;
+    this.nextAt = this.now();
+    this.initialAttempt = true;
+    this.retryOpenBusy = false;
+    void this.tick();
+  }
+
   disconnect(): Promise<void> {
     this.generation++; this.target = null; this.initialAttempt = false; this.nextAt = null;
     this.retryOpenBusy = false;

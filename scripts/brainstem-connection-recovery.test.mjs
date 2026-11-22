@@ -197,3 +197,34 @@ test('permanent automatic-open busy remains bounded without spinning', async t =
   for (let i = 0; i < 20; i++) await f.advance(20000);
   assert.equal(attempts, 5); assert.equal(f.recovery.reconnecting, false); await f.recovery.disconnect();
 });
+
+test('retryNow reopens after bounded retry exhaustion on Wi-Fi return without overriding auth or unconfirmed-stop blocks', async t => {
+  t.mock.method(console, 'info', () => {});
+  const f = fixture();
+  const originalOpen = f.transport.open;
+  f.transport.open = async () => { f.calls.push(['open-fail']); throw { code: 'timeout' }; };
+  f.recovery.restore(endpoint, '');
+  await f.advance(0);
+  for (let i = 0; i < 10; i++) await f.advance(20000);
+  assert.equal(f.recovery.reconnecting, false);
+  assert.equal(f.session.state.connected, false);
+
+  f.transport.open = originalOpen;
+  f.recovery.retryNow();
+  await tick();
+  assert.equal(f.session.state.connected, true);
+
+  // Blocked authorization failure must never be cleared by retryNow
+  const auth = fixture();
+  auth.transport.open = async () => { auth.calls.push(['open-auth']); throw { code: 'unauthorized' }; };
+  auth.recovery.restore(endpoint, '');
+  await auth.advance(0);
+  auth.transport.open = originalOpen;
+  auth.recovery.retryNow();
+  await tick();
+  assert.equal(auth.session.state.connected, false);
+  assert.equal(auth.calls.length, 1);
+
+  await f.recovery.disconnect();
+  await auth.recovery.disconnect();
+});

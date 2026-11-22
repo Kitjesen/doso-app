@@ -13,6 +13,7 @@ import { useG20Input } from './src/features/control/useG20Input';
 import { useRememberedBrainstemConnection } from './src/features/control/useRememberedBrainstemConnection';
 import { createRobotDiagnosticsGateway } from './src/features/robot-lifecycle/robotDiagnosticsGateway';
 import { useDirectRobotConnection } from './src/features/robot-lifecycle/useDirectRobotConnection';
+import { wifiDiscoveryAdapter } from './src/features/robot-lifecycle/wifiDiscoveryAdapter';
 import { useControlVideoReceiver } from './src/features/video/useControlVideoReceiver';
 import { bindVideoOrigin, directVideoOrigin, videoTargetKey } from './src/features/video/videoBinding';
 import { BleDiscoveryScreen } from './src/screens/BleDiscoveryScreen';
@@ -127,6 +128,10 @@ export default function App() {
     autoConnectPrincipal: rememberedControl.connection?.principal,
     autoReconnectEnabled: !robotConnectionVisible,
   });
+
+  useEffect(() => {
+    brainstemControl.setImuNotifyEnabled(stage === 'joint-status');
+  }, [brainstemControl.setImuNotifyEnabled, stage]);
 
   useEffect(() => {
     if (rememberedControl.connection && !controlEndpoint && !robotConnectionVisible) {
@@ -276,6 +281,36 @@ export default function App() {
   );
   const shareSingleCameraPip = Boolean(videoConfig && rearCameraActive && !hasDedicatedRearStream);
   const g20Controller = useG20Input(stage === 'control' && !robotConnectionVisible);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !controlEndpoint || brainstemControl.state.connected || robotConnectionVisible) {
+      return undefined;
+    }
+    let cancelled = false;
+    let lastSsid: string | null | undefined;
+    const checkSsid = async () => {
+      if (cancelled || AppState.currentState !== 'active') return;
+      const ssid = await wifiDiscoveryAdapter.currentSsid().catch(() => null);
+      if (cancelled) return;
+      if (lastSsid === undefined) {
+        lastSsid = ssid;
+        return;
+      }
+      if (ssid && ssid !== lastSsid) {
+        lastSsid = ssid;
+        brainstemControl.retryNow();
+        controlVideo.reconnect();
+      } else {
+        lastSsid = ssid;
+      }
+    };
+    void checkSsid();
+    const timer = setInterval(() => { void checkSsid(); }, 2500);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [controlEndpoint, brainstemControl.state.connected, brainstemControl.retryNow, controlVideo.reconnect, robotConnectionVisible]);
 
   const directEndpointLabel = directEndpoint
     ? `${directEndpoint.host.includes(':') ? `[${directEndpoint.host}]` : directEndpoint.host}:${directEndpoint.port}`
@@ -648,9 +683,18 @@ export default function App() {
                       : directConnection.presentation ?? describeDirectRobotConnection(null)}
                     runtimeState={controlEndpoint
                       ? (brainstemControl.state.connected
-                        ? { ...brainstemControl.runtimeState, battery: directTelemetry.presentation?.runtimeState.battery, joints: directTelemetry.presentation?.runtimeState.joints, robotLinkLatencyMs: directTelemetry.presentation?.runtimeState.robotLinkLatencyMs }
+                        ? { ...brainstemControl.runtimeState, battery: directTelemetry.presentation?.runtimeState.battery, joints: directTelemetry.presentation?.runtimeState.joints, robotLinkLatencyMs: brainstemControl.latencyMs ?? directTelemetry.presentation?.runtimeState.robotLinkLatencyMs }
                         : describeDirectRobotConnection(null).runtimeState)
                       : (directConnection.presentation?.runtimeState ?? describeDirectRobotConnection(null).runtimeState)}
+                    speedMode={brainstemControl.speedMode}
+                    onChangeSpeedMode={brainstemControl.setSpeedMode}
+                    hasDedicatedRearCamera={hasDedicatedRearStream}
+                    onReconnect={!brainstemControl.state.connected && controlEndpoint && brainstemControl.state.failureCode !== 'stop_unconfirmed'
+                      ? () => {
+                        brainstemControl.retryNow();
+                        controlVideo.reconnect();
+                      }
+                      : undefined}
                     operationCallbacks={brainstemControl.operationCallbacks}
                     onListGestures={brainstemControl.listGestures}
                     operationReadiness={brainstemControl.operationReadiness}

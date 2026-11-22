@@ -194,6 +194,7 @@ export async function createLocalBrainstemSimServer({
   let gestureStartedAt = 0;
   let zeroCalibratedAt = 0;
   let zeroCount = 0;
+  let speedMode = 0; // 0 = SPEED_MODE_NORMAL (1.0 m/s), 1 = SPEED_MODE_HIGH (2.5 m/s)
   let recoveryPhase = 1; // RECOVERY_PHASE_ABSENT
   let recoveryReason = 0; // RECOVERY_REJECT_NONE
   let recoveryDetail = recoveryConfigured ? 'MUJICA V89 ONNX 就绪' : '本机仿真未配置摔倒恢复模型';
@@ -547,6 +548,21 @@ export async function createLocalBrainstemSimServer({
       if (token || fsmKind !== 1) throw grpcError(grpc.status.FAILED_PRECONDITION, 'SetZero requires Grounded with no lease');
       zeroCalibratedAt = Date.now();
       zeroCount += 1;
+      return {};
+    }, { write: true }),
+    GetSpeedMode: unaryHandler(() => ({ mode: speedMode })),
+    SetSpeedMode: unaryHandler((request) => {
+      syncLeaseFreshness();
+      if (fsmKind === 4) throw grpcError(grpc.status.FAILED_PRECONDITION, 'SetSpeedMode disallowed during transition');
+      const raw = request?.mode;
+      const next = raw === 1 || raw === 'SPEED_MODE_HIGH'
+        ? 1
+        : raw === 0 || raw === 'SPEED_MODE_NORMAL' || raw === undefined
+          ? 0
+          : -1;
+      if (next < 0) throw grpcError(grpc.status.INVALID_ARGUMENT, 'Invalid speed mode');
+      revokeLease(REASONS.NONE);
+      speedMode = next;
       return {};
     }, { write: true }),
     ClearMotorFault: unaryHandler(() => ({}), { write: true }),

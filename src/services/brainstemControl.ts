@@ -4,6 +4,7 @@ import { validateBrainstemEndpoint, type BrainstemGrpcEndpoint, type BrainstemGr
 import { projectRobotRecoveryStatus, type RobotRecoveryCommand, type RobotRecoveryStatus } from '../features/control/robotRecovery';
 
 export type BrainstemControlAction = 'enable' | 'disable' | 'stand-up' | 'sit-down' | 'switch-profile' | 'set-zero' | 'clear-motor-fault' | 'play-gesture';
+export type BrainstemSpeedMode = 'normal' | 'high';
 export type BrainstemGesture = Readonly<{ name: string; description: string; durationMs: number }>;
 export type BrainstemControlReply = Readonly<{
   transport?: 'grpc-mtls' | 'grpc-lan';
@@ -30,6 +31,8 @@ export interface BrainstemControlTransport {
   recoveryCommand?(sessionId: string, command: RobotRecoveryCommand): Promise<RobotRecoveryStatus>;
   setRecoveryHeartbeat?(sessionId: string, enabled: boolean): void;
   listGestures?(sessionId: string): Promise<readonly BrainstemGesture[]>;
+  getSpeedMode?(sessionId: string): Promise<BrainstemSpeedMode>;
+  setSpeedMode?(sessionId: string, mode: BrainstemSpeedMode): Promise<BrainstemControlReply & Readonly<{ speedMode: BrainstemSpeedMode }>>;
 }
 
 export class BrainstemControlError extends Error {
@@ -165,6 +168,8 @@ type NativeControl = {
   recoveryCommand?(sessionId: string, command: string): Promise<unknown>;
   setRecoveryHeartbeat?(sessionId: string, enabled: boolean): Promise<void> | void;
   listGestures?(sessionId: string): Promise<unknown>;
+  getSpeedMode?(sessionId: string): Promise<unknown>;
+  setSpeedMode?(sessionId: string, mode: string): Promise<unknown>;
   addListener?(event: string, listener: (payload: unknown) => void): { remove: () => void };
   startListenImu?(sessionId: string): Promise<unknown>;
   stopListenImu?(sessionId: string): Promise<void>;
@@ -284,6 +289,28 @@ export const brainstemControlTransport: BrainstemControlTransport = {
           durationMs: typeof v.durationMs === 'number' && Number.isFinite(v.durationMs) && v.durationMs >= 0 ? Math.round(v.durationMs) : 0,
         });
       });
+    } catch (error) { throw safeBrainstemControlError(error); }
+  },
+  async getSpeedMode(sessionId) {
+    try {
+      const bridge = client();
+      if (typeof bridge.getSpeedMode !== 'function') throw new BrainstemControlError('unimplemented', errorMessages.unimplemented);
+      const raw = await bridge.getSpeedMode(sessionId);
+      const mode = raw && typeof raw === 'object' ? (raw as { speedMode?: unknown }).speedMode : undefined;
+      if (mode !== 'normal' && mode !== 'high') invalid();
+      return mode;
+    } catch (error) { throw safeBrainstemControlError(error); }
+  },
+  async setSpeedMode(sessionId, mode) {
+    try {
+      if (mode !== 'normal' && mode !== 'high') throw new BrainstemControlError('config', errorMessages.config);
+      const bridge = client();
+      if (typeof bridge.setSpeedMode !== 'function') throw new BrainstemControlError('unimplemented', errorMessages.unimplemented);
+      const raw = await bridge.setSpeedMode(sessionId, mode);
+      const projected = projectBrainstemControlReply(raw);
+      const confirmed = raw && typeof raw === 'object' ? (raw as { speedMode?: unknown }).speedMode : undefined;
+      if (confirmed !== mode) invalid();
+      return { ...projected, speedMode: mode };
     } catch (error) { throw safeBrainstemControlError(error); }
   },
   listenImu(sessionId, onSample) {

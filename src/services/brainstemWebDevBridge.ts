@@ -186,6 +186,8 @@ export function createBrainstemWebDevBridge({
         ? { sessionId, action, profileName: null, gestureName: profileName }
         : { sessionId, action, profileName }),
     listGestures: (sessionId: string) => postJson('/api/v1/dev-lan/session/gestures', { sessionId }),
+    getSpeedMode: (sessionId: string) => postJson('/api/v1/dev-lan/session/speed-mode', { sessionId, action: 'get' }),
+    setSpeedMode: (sessionId: string, mode: string) => postJson('/api/v1/dev-lan/session/speed-mode', { sessionId, action: 'set', mode }),
     acquireControl: (sessionId: string) => postJson('/api/v1/dev-lan/session/acquire', { sessionId }),
     sendControlInput: (sessionId: string, forward: number, lateral: number, yaw: number) =>
       postJson('/api/v1/dev-lan/session/input', { sessionId, forward, lateral, yaw }),
