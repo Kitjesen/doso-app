@@ -123,6 +123,56 @@ _SIM_ANIM_STATE: dict[str, object] = {
     "recovery_t0": 0.0,
 }
 
+_BRAINSTEM_STAND_REF = [
+    -0.12, -0.93, 1.96,
+    0.12, 0.93, -1.96,
+    0.12, 0.93, -1.96,
+    -0.12, -0.93, 1.96,
+    0.0, 0.0, 0.0, 0.0,
+]
+
+
+def _load_merged_gesture_keyframes() -> dict[str, list[dict[str, object]]]:
+    lib_path = Path(__file__).resolve().parents[3] / "gesture" / "library.json"
+    if not lib_path.is_file():
+        return {}
+    try:
+        raw = json.loads(lib_path.read_text(encoding="utf-8"))
+        out: dict[str, list[dict[str, object]]] = {}
+        for item in raw:
+            if isinstance(item, dict) and isinstance(item.get("name"), str) and isinstance(item.get("keyframes"), list):
+                out[item["name"].strip().lower()] = item["keyframes"]
+        if "play_bow" in out and "bow" not in out:
+            out["bow"] = out["play_bow"]
+        if "nod_yes" in out and "nod" not in out:
+            out["nod"] = out["nod_yes"]
+        return out
+    except Exception:
+        return {}
+
+
+_MERGED_GESTURE_KEYFRAMES = _load_merged_gesture_keyframes()
+
+
+def _sample_sparse_keyframes(keyframes: list[dict[str, object]], elapsed_s: float) -> list[float] | None:
+    if not keyframes:
+        return None
+    first = keyframes[0].get("targetPose")
+    prev = list(first) if isinstance(first, list) and len(first) >= 16 else list(_BRAINSTEM_STAND_REF)
+    if len(keyframes) == 1 or elapsed_s <= 0.0:
+        return prev
+    rem_ticks = elapsed_s * 50.0
+    for kf in keyframes[1:]:
+        target_raw = kf.get("targetPose")
+        target = list(target_raw) if isinstance(target_raw, list) and len(target_raw) >= 16 else prev
+        seg = max(1.0, float(kf.get("counts") or 0))
+        if rem_ticks <= seg:
+            alpha = max(0.0, min(1.0, rem_ticks / seg))
+            return [prev[i] + (target[i] - prev[i]) * alpha for i in range(16)]
+        rem_ticks -= seg
+        prev = target
+    return prev
+
 
 def _quat_roll_pitch(q: tuple[float, float, float, float]) -> tuple[float, float]:
     w, x, y, z = q
@@ -148,6 +198,23 @@ def _apply_gesture_pose(
     out = list(base[:16])
     roll_delta = 0.0
     pitch_delta = 0.0
+
+    kf_seq = _MERGED_GESTURE_KEYFRAMES.get(name)
+    if kf_seq:
+        sampled = _sample_sparse_keyframes(kf_seq, t)
+        if sampled is not None:
+            # Map joint-space delta from Brainstem STANDING_POSE onto sim's base standing pose
+            for idx in range(12):
+                out[idx] = base[idx] + (sampled[idx] - _BRAINSTEM_STAND_REF[idx])
+            for idx in range(12, 16):
+                out[idx] = sampled[idx]
+            # Derive approximate body roll & pitch visual cue from front/rear leg flexion & hip sway
+            front_ext = 0.5 * ((out[1] - base[1]) - (out[4] - base[4]))
+            rear_ext = 0.5 * ((out[10] - base[10]) - (out[7] - base[7]))
+            hip_avg = 0.25 * sum(out[h] - base[h] for h in (0, 3, 6, 9))
+            pitch_delta = max(-0.45, min(0.45, 0.35 * (rear_ext - front_ext)))
+            roll_delta = max(-0.35, min(0.35, 0.55 * hip_avg))
+            return out, roll_delta, pitch_delta
 
     if name == "bow":
         env = math.sin(math.pi * min(1.0, t / 2.4))

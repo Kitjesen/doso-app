@@ -1,13 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
+import { gesturePreviews } from '../assets';
 import { Text } from './AppText';
 import type { ControlJointState } from '../features/control/controlOperations';
 import {
+  HUD_GESTURE_CATEGORIES,
   HUD_LEGS,
+  projectHudGestures,
   projectJointTemperatures,
   projectLegJointParameters,
   type HudFaultItem,
+  type HudGestureCategoryId,
+  type HudGestureInput,
   type HudJointModuleKind,
   type HudLegId,
   type HudLegTemperatureGroup,
@@ -309,6 +314,253 @@ export function FaultListPanel({
   );
 }
 
+export function GestureDeckPanel({
+  gestures,
+  category,
+  onSelectCategory,
+  selectedGestureName,
+  onSelectGesture,
+  showGifPreview,
+  onToggleGifPreview,
+  gestureDisabled,
+  gestureHint,
+  onPlayGesture,
+  variant = 'hud',
+  deckWidth,
+}: {
+  gestures: readonly HudGestureInput[];
+  category: HudGestureCategoryId;
+  onSelectCategory: (next: HudGestureCategoryId) => void;
+  selectedGestureName?: string | null;
+  onSelectGesture: (name: string) => void;
+  showGifPreview: boolean;
+  onToggleGifPreview: () => void;
+  gestureDisabled?: boolean;
+  gestureHint?: string;
+  onPlayGesture?: (name: string) => void;
+  variant?: 'hud' | 'settings';
+  deckWidth?: number;
+}) {
+  const projected = projectHudGestures(gestures, category, selectedGestureName);
+  const selected = projected.selectedItem;
+  const prefix = variant === 'hud' ? 'control-hud-gesture' : 'control-settings-gesture';
+  const previewSource = selected && showGifPreview ? gesturePreviews[selected.previewKey] : undefined;
+  const executeDisabled = Boolean(gestureDisabled || !selected || !onPlayGesture);
+  const isSettings = variant === 'settings';
+
+  const inspectorNode = selected ? (
+    <View
+      style={[styles.gestureInspector, isSettings && styles.gestureInspectorBanner]}
+      testID={`${prefix}-inspector`}
+    >
+      {showGifPreview ? (
+        <View style={[styles.gesturePreviewFrame, isSettings && styles.gesturePreviewFrameBanner]} testID={`${prefix}-preview-box`}>
+          {previewSource ? (
+            <Image
+              accessibilityLabel={`${selected.label} 动作预览`}
+              resizeMode="cover"
+              source={previewSource as number}
+              style={styles.gesturePreviewImage}
+              testID={`${prefix}-preview-image`}
+            />
+          ) : (
+            <View style={styles.gesturePreviewPlaceholder}>
+              <Ionicons color={MUTED} name="sparkles-outline" size={18} />
+              <Text style={styles.gesturePreviewPlaceholderText}>无内置预览</Text>
+            </View>
+          )}
+          <View style={styles.gesturePreviewCornerBadge}>
+            <Text style={styles.gesturePreviewCornerText}>{`${selected.sourceTag} · ${selected.durationText}`}</Text>
+          </View>
+        </View>
+      ) : null}
+
+      <View style={[styles.gestureInspectorRightCol, isSettings && styles.gestureInspectorBannerRight]}>
+        <View style={styles.gestureInspectorMeta}>
+          <Text numberOfLines={1} style={styles.gestureSelectedTitle}>
+            {selected.label}
+            {!showGifPreview ? ` · ${selected.durationText}` : ''}
+          </Text>
+          <Text numberOfLines={2} style={[styles.gestureSelectedNote, gestureDisabled && styles.gestureBlockedNote]}>
+            {gestureDisabled && gestureHint ? gestureHint : selected.endPoseNote}
+          </Text>
+        </View>
+
+        <Pressable
+          accessibilityHint={executeDisabled ? gestureHint : selected.endPoseNote}
+          accessibilityLabel={`执行动作 ${selected.label}`}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: executeDisabled }}
+          disabled={executeDisabled}
+          onPress={() => {
+            if (!executeDisabled) onPlayGesture?.(selected.name);
+          }}
+          style={({ pressed }) => [
+            styles.gestureExecuteBtn,
+            isSettings && styles.gestureExecuteBtnCompact,
+            executeDisabled && styles.gestureExecuteBtnDisabled,
+            pressed && !executeDisabled && styles.pressed,
+          ]}
+          testID={`${prefix}-execute`}
+        >
+          <Ionicons color="#FFFFFF" name="play" size={12} />
+          <Text numberOfLines={1} style={styles.gestureExecuteText}>
+            {gestureDisabled ? '暂不可执行' : '执行动作'}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  ) : null;
+
+  return (
+    <View
+      style={[
+        styles.gestureDeckRoot,
+        !isSettings && deckWidth ? { width: deckWidth } : null,
+        isSettings && styles.gestureDeckSettings,
+      ]}
+      testID={variant === 'hud' ? 'control-hud-gesture-deck' : 'control-settings-gesture-list'}
+    >
+      <View style={styles.gestureTopBar}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.gestureCatScroll}
+          style={styles.gestureCatTrack}
+        >
+          {HUD_GESTURE_CATEGORIES.map(cat => {
+            const count = projected.categoryCounts[cat.id];
+            if (cat.id !== 'all' && count === 0) return null;
+            const active = category === cat.id || (projected.categoryCounts[category] === 0 && cat.id === 'all');
+            return (
+              <Pressable
+                key={cat.id}
+                accessibilityLabel={`${cat.label} (${count})`}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
+                onPress={() => onSelectCategory(cat.id)}
+                style={({ pressed }) => [
+                  styles.gestureCatPill,
+                  active && styles.gestureCatPillActive,
+                  pressed && styles.pressed,
+                ]}
+                testID={`${prefix}-cat-${cat.id}`}
+              >
+                <Text numberOfLines={1} style={[styles.gestureCatText, active && styles.gestureCatTextActive]}>
+                  {`${cat.label} ${count}`}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        <Pressable
+          accessibilityLabel={showGifPreview ? '关闭动作动图预览' : '开启动作动图预览'}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: showGifPreview }}
+          onPress={onToggleGifPreview}
+          style={({ pressed }) => [
+            styles.gestureGifToggle,
+            showGifPreview && styles.gestureGifToggleActive,
+            pressed && styles.pressed,
+          ]}
+          testID={`${prefix}-gif-toggle`}
+        >
+          <Ionicons color={showGifPreview ? '#93C5FD' : MUTED} name={showGifPreview ? 'play-circle' : 'play-circle-outline'} size={13} />
+          <Text style={[styles.gestureGifToggleText, showGifPreview && styles.gestureGifToggleTextActive]}>动图</Text>
+        </Pressable>
+      </View>
+
+      {isSettings ? (
+        <View style={styles.gestureSettingsStack}>
+          {inspectorNode}
+          <ScrollView
+            showsVerticalScrollIndicator
+            nestedScrollEnabled
+            style={styles.gestureListScrollSettings}
+            contentContainerStyle={styles.gestureGridSettings}
+          >
+            {projected.filteredItems.map(item => {
+              const isSelected = selected?.name === item.name;
+              return (
+                <Pressable
+                  key={item.name}
+                  accessibilityHint={gestureDisabled ? gestureHint : item.endPoseNote}
+                  accessibilityLabel={`${item.label} ${item.durationText}`}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                  onPress={() => onSelectGesture(item.name)}
+                  style={({ pressed }) => [
+                    styles.gestureRowBtn,
+                    styles.gestureGridCellSettings,
+                    isSelected && styles.gestureRowBtnSelected,
+                    pressed && styles.pressed,
+                  ]}
+                  testID={`${prefix}-${item.name}`}
+                >
+                  <Text numberOfLines={1} style={[styles.gestureRowLabel, isSelected && styles.gestureRowLabelSelected]}>
+                    {item.label}
+                  </Text>
+                  <View style={styles.gestureRowMeta}>
+                    {item.cautionTag ? (
+                      <View style={styles.gestureCautionBadge}>
+                        <Text style={styles.gestureCautionText}>{item.cautionTag}</Text>
+                      </View>
+                    ) : null}
+                    <Text style={styles.gestureDurationText}>{item.durationText}</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+      ) : (
+        <View style={styles.gestureSplitBody}>
+          <ScrollView
+            showsVerticalScrollIndicator
+            nestedScrollEnabled
+            style={styles.gestureListScroll}
+            contentContainerStyle={styles.gestureListContent}
+          >
+            {projected.filteredItems.map(item => {
+              const isSelected = selected?.name === item.name;
+              return (
+                <Pressable
+                  key={item.name}
+                  accessibilityHint={gestureDisabled ? gestureHint : item.endPoseNote}
+                  accessibilityLabel={`${item.label} ${item.durationText}`}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                  onPress={() => onSelectGesture(item.name)}
+                  style={({ pressed }) => [
+                    styles.gestureRowBtn,
+                    isSelected && styles.gestureRowBtnSelected,
+                    pressed && styles.pressed,
+                  ]}
+                  testID={`${prefix}-${item.name}`}
+                >
+                  <Text numberOfLines={1} style={[styles.gestureRowLabel, isSelected && styles.gestureRowLabelSelected]}>
+                    {item.label}
+                  </Text>
+                  <View style={styles.gestureRowMeta}>
+                    {item.cautionTag ? (
+                      <View style={styles.gestureCautionBadge}>
+                        <Text style={styles.gestureCautionText}>{item.cautionTag}</Text>
+                      </View>
+                    ) : null}
+                    <Text style={styles.gestureDurationText}>{item.durationText}</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+          {inspectorNode}
+        </View>
+      )}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   panelCard: {
     backgroundColor: PANEL_BG,
@@ -591,6 +843,281 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: '600',
     lineHeight: 17,
+  },
+  gestureDeckRoot: {
+    gap: 6,
+    minWidth: 300,
+    width: 428,
+    maxWidth: '100%',
+  },
+  gestureDeckSettings: {
+    minWidth: 0,
+    width: '100%',
+    paddingVertical: 4,
+  },
+  gestureSettingsStack: {
+    gap: 8,
+  },
+  gestureTopBar: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+    justifyContent: 'space-between',
+  },
+  gestureCatTrack: {
+    flex: 1,
+    flexGrow: 1,
+  },
+  gestureCatScroll: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 5,
+    paddingRight: 4,
+  },
+  gestureCatPill: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderRadius: 999,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 25,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+  },
+  gestureCatPillActive: {
+    backgroundColor: ACTIVE_BLUE,
+    borderColor: '#93C5FD',
+  },
+  gestureCatText: {
+    color: MUTED,
+    fontSize: 11,
+    fontVariant: ['tabular-nums'],
+    fontWeight: '600',
+    lineHeight: 14,
+  },
+  gestureCatTextActive: {
+    color: '#FFFFFF',
+  },
+  gestureGifToggle: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 4,
+    minHeight: 25,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  gestureGifToggleActive: {
+    backgroundColor: 'rgba(59, 110, 246, 0.22)',
+    borderColor: 'rgba(147, 197, 253, 0.62)',
+  },
+  gestureGifToggleText: {
+    color: MUTED,
+    fontSize: 11,
+    fontWeight: '600',
+    lineHeight: 14,
+  },
+  gestureGifToggleTextActive: {
+    color: '#DBEAFE',
+  },
+  gestureSplitBody: {
+    flexDirection: 'row',
+    gap: 8,
+    maxHeight: 154,
+  },
+  gestureListScroll: {
+    flex: 1,
+    maxHeight: 154,
+  },
+  gestureListScrollSettings: {
+    maxHeight: 196,
+  },
+  gestureListContent: {
+    gap: 4,
+    paddingRight: 2,
+  },
+  gestureGridSettings: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  gestureGridCellSettings: {
+    flexBasis: '48.5%',
+    flexGrow: 1,
+  },
+  gestureRowBtn: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderColor: 'rgba(255, 255, 255, 0.09)',
+    borderRadius: 9,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 5,
+    justifyContent: 'space-between',
+    minHeight: 30,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+  },
+  gestureRowBtnSelected: {
+    backgroundColor: 'rgba(59, 110, 246, 0.28)',
+    borderColor: '#93C5FD',
+  },
+  gestureRowLabel: {
+    color: INK,
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '500',
+    lineHeight: 16,
+  },
+  gestureRowLabelSelected: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  gestureRowMeta: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 4,
+  },
+  gestureCautionBadge: {
+    backgroundColor: 'rgba(245, 158, 11, 0.20)',
+    borderColor: 'rgba(251, 191, 36, 0.50)',
+    borderRadius: 5,
+    borderWidth: 1,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  gestureCautionText: {
+    color: '#FCD34D',
+    fontSize: 9.5,
+    fontWeight: '600',
+    lineHeight: 12,
+  },
+  gestureDurationText: {
+    color: MUTED,
+    fontSize: 10.5,
+    fontVariant: ['tabular-nums'],
+    fontWeight: '500',
+    lineHeight: 13,
+  },
+  gestureInspector: {
+    backgroundColor: 'rgba(8, 12, 16, 0.72)',
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    borderRadius: 11,
+    borderWidth: 1,
+    flexShrink: 0,
+    gap: 5,
+    justifyContent: 'space-between',
+    padding: 7,
+    width: 162,
+  },
+  gestureInspectorBanner: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    width: '100%',
+    padding: 8,
+  },
+  gestureInspectorRightCol: {
+    gap: 5,
+    justifyContent: 'space-between',
+  },
+  gestureInspectorBannerRight: {
+    flex: 1,
+    minWidth: 0,
+    gap: 6,
+  },
+  gesturePreviewFrame: {
+    backgroundColor: '#101418',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderRadius: 8,
+    borderWidth: 1,
+    height: 76,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  gesturePreviewFrameBanner: {
+    height: 68,
+    width: 120,
+    flexShrink: 0,
+  },
+  gesturePreviewImage: {
+    height: '100%',
+    width: '100%',
+  },
+  gesturePreviewPlaceholder: {
+    alignItems: 'center',
+    flex: 1,
+    gap: 3,
+    justifyContent: 'center',
+  },
+  gesturePreviewPlaceholderText: {
+    color: MUTED,
+    fontSize: 10,
+    lineHeight: 13,
+  },
+  gesturePreviewCornerBadge: {
+    backgroundColor: 'rgba(10, 14, 18, 0.78)',
+    borderRadius: 5,
+    bottom: 3,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    position: 'absolute',
+    right: 3,
+  },
+  gesturePreviewCornerText: {
+    color: '#E2E8F0',
+    fontSize: 9,
+    fontVariant: ['tabular-nums'],
+    fontWeight: '600',
+    lineHeight: 11,
+  },
+  gestureInspectorMeta: {
+    gap: 2,
+  },
+  gestureSelectedTitle: {
+    color: '#FFFFFF',
+    fontSize: 12.5,
+    fontWeight: '600',
+    lineHeight: 16,
+  },
+  gestureSelectedNote: {
+    color: MUTED,
+    fontSize: 10.5,
+    lineHeight: 14,
+  },
+  gestureBlockedNote: {
+    color: '#FBBF24',
+  },
+  gestureExecuteBtn: {
+    alignItems: 'center',
+    backgroundColor: ACTIVE_BLUE,
+    borderRadius: 8,
+    flexDirection: 'row',
+    gap: 4,
+    justifyContent: 'center',
+    minHeight: 28,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  gestureExecuteBtnCompact: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 14,
+  },
+  gestureExecuteBtnDisabled: {
+    backgroundColor: 'rgba(255, 255, 255, 0.10)',
+    opacity: 0.62,
+  },
+  gestureExecuteText: {
+    color: '#FFFFFF',
+    fontSize: 11.5,
+    fontWeight: '600',
+    lineHeight: 15,
   },
   pressed: { opacity: 0.7 },
 });

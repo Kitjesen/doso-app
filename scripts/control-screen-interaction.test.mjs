@@ -36,10 +36,16 @@ const controlHudModelModule = { exports: {} };
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/controlHudModel.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, { module: controlHudModelModule, exports: controlHudModelModule.exports });
+const gestureAssetsStub = {
+  gesturePreviews: new Proxy({}, {
+    get: (_target, prop) => (typeof prop === 'string' ? { uri: `asset://gestures/${prop}.gif` } : undefined),
+  }),
+};
 const hudComponentDependencies = {
   'react/jsx-runtime': require('react/jsx-runtime'),
-  'react-native': { Pressable: 'Pressable', ScrollView: 'ScrollView', StyleSheet: { create: value => value, absoluteFill: { position: 'absolute' } }, View: 'View' },
+  'react-native': { Image: 'Image', Pressable: 'Pressable', ScrollView: 'ScrollView', StyleSheet: { create: value => value, absoluteFill: { position: 'absolute' } }, View: 'View' },
   '@expo/vector-icons': { Ionicons: 'Ionicons' },
+  '../assets': gestureAssetsStub,
   './AppText': { Text: 'Text' },
   './controlHudModel': controlHudModelModule.exports,
   '../officialPalette': { officialDark: { cta: '#F0F4FE', ctaInk: '#1C1C1B', ink: '#E8E8E6', muted: '#A0A09B' } },
@@ -125,7 +131,7 @@ const colors = {
 // Executes the real ControlScreen state, handlers and lifecycle effects. The joystick
 // responder math and native layout have their own focused tests; this harness invokes
 // the real child props that ControlScreen supplies to the joystick pair.
-function mount({ dev = true, initialAppState = 'active', dimensions = { fontScale: 1, height: 844, width: 390 }, layoutLoad = async () => joystickLayoutModule.exports.createDefaultJoystickLayoutPreferences(), layoutSave = async () => {}, navigationInset = async () => 0, ...overrides } = {}) {
+function mount({ dev = true, initialAppState = 'active', dimensions = { fontScale: 1, height: 844, width: 390 }, layoutLoad = async () => joystickLayoutModule.exports.createDefaultJoystickLayoutPreferences(), layoutSave = async () => { }, navigationInset = async () => 0, ...overrides } = {}) {
   const slots = [];
   const effects = [];
   const pendingEffects = [];
@@ -181,13 +187,15 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
       }
     },
   };
-  const ControlJoystickPair = function ControlJoystickPair() {};
-  const ControlVideoSurface = function ControlVideoSurface() {};
-  const JoystickLayoutSettings = function JoystickLayoutSettings() {};
+  const ControlJoystickPair = function ControlJoystickPair() { };
+  const ControlVideoSurface = function ControlVideoSurface() { };
+  const JoystickLayoutSettings = function JoystickLayoutSettings() { };
   const host = {
     AccessibilityInfo: { isReduceMotionEnabled: async () => true },
-    Animated: { Value: class { setValue() {} interpolate() { return 0; } }, View: 'AnimatedView',
-      timing: () => ({ start() {}, stop() {} }) },
+    Animated: {
+      Value: class { setValue() { } interpolate() { return 0; } }, View: 'AnimatedView',
+      timing: () => ({ start() { }, stop() { } })
+    },
     Easing: { quad: value => value, out: value => value },
     AppState: {
       currentState: initialAppState,
@@ -212,20 +220,26 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     'expo-linear-gradient': { LinearGradient: 'LinearGradient' },
     '../components/ControlPanelMotion': { ControlPanelMotion: 'ControlPanelMotion' },
     './ControlPanelMotion': { ControlPanelMotion: 'ControlPanelMotion' },
-    'react-native-safe-area-context': { useSafeAreaInsets: () => ({top:0,left:0,right:0,bottom:0}), SafeAreaView: 'SafeAreaView' },
+    'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 0 }), SafeAreaView: 'SafeAreaView' },
     '../components/ControlJoystick': { ControlJoystickPair },
+    '../components/ControlHudPanels': controlHudPanelsModule.exports,
     '../components/controlLandscapeHud': landscapeHudModule.exports,
     '../components/controlHudModel': controlHudModelModule.exports,
+    '../assets': gestureAssetsStub,
     '../components/RobotRecoveryControls': recoveryPanelModule.exports,
     '../features/control/robotRecovery': { beginRobotRecovery, presentRobotRecovery },
     '../components/ControlVideoSurface': { ControlVideoSurface },
-    '../components/ControlGlass': { ControlGlassTarget: 'GlassTarget', useControlGlass: () => ({
-      target: { current: null }, canvas: '#F9F9FB', surface: 'rgba(255,255,255,0.86)', ink: '#1C2024', muted: '#60646C',
-      border: 'rgba(255,255,255,0.78)', backdrop: () => ({ type: 'BlurBackdrop', props: { pointerEvents: 'none' } }),
-    }) },
+    '../components/ControlGlass': {
+      ControlGlassTarget: 'GlassTarget', useControlGlass: () => ({
+        target: { current: null }, canvas: '#F9F9FB', surface: 'rgba(255,255,255,0.86)', ink: '#1C2024', muted: '#60646C',
+        border: 'rgba(255,255,255,0.78)', backdrop: () => ({ type: 'BlurBackdrop', props: { pointerEvents: 'none' } }),
+      })
+    },
     '../components/JoystickLayoutSettings': { JoystickLayoutSettings },
-    '../features/control/joystickLayoutPreferences': { ...joystickLayoutModule.exports,
-      loadJoystickLayoutPreferences: layoutLoad, saveJoystickLayoutPreferences: layoutSave },
+    '../features/control/joystickLayoutPreferences': {
+      ...joystickLayoutModule.exports,
+      loadJoystickLayoutPreferences: layoutLoad, saveJoystickLayoutPreferences: layoutSave
+    },
     '../components/G20InputPanel': { G20InputPanel: 'G20InputPanel' },
     '../features/control/g20InputModel': g20Module.exports,
     '../components/AppText': { Text: 'Text' },
@@ -234,19 +248,33 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     '../theme': { useAppTheme: () => ({ colors, isDark: false }) },
     './controlLayout': layoutModule.exports,
     '../features/control/controlOperations': operationsModule.exports,
-    '../services/brainstemIntegrationReadiness': { getBrainstemIntegrationReadiness: () => ({
-      gates: [], readOnlyReady: false, controlReady: false,
-      readOnlyLabel: '只读状态未就绪', controlLabel: '真实控制保持锁定',
-      controlBlockedReason: '测试夹具：控制门禁保持锁定。',
-    }) },
-    '../services/brainstemGrpc': { setControlNavigationHidden: hidden => {
-      navigationCalls.push(hidden); return Promise.resolve(navigationInset(hidden));
-    } },
+    '../services/brainstemIntegrationReadiness': {
+      getBrainstemIntegrationReadiness: () => ({
+        gates: [], readOnlyReady: false, controlReady: false,
+        readOnlyLabel: '只读状态未就绪', controlLabel: '真实控制保持锁定',
+        controlBlockedReason: '测试夹具：控制门禁保持锁定。',
+      })
+    },
+    '../services/brainstemGrpc': {
+      setControlNavigationHidden: hidden => {
+        navigationCalls.push(hidden); return Promise.resolve(navigationInset(hidden));
+      }
+    },
   };
   const referenceUi = { exports: {} };
   vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/ControlReferenceUi.tsx', import.meta.url), 'utf8'), {
     compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText, { module: referenceUi, exports: referenceUi.exports, require: name => name === './AppText' ? { Text: 'Text' } : dependencies[name] });
+  }).outputText, {
+    module: referenceUi,
+    exports: referenceUi.exports,
+    require: name => name === './AppText'
+      ? { Text: 'Text' }
+      : name === './ControlHudPanels'
+        ? controlHudPanelsModule.exports
+        : name === './controlHudModel'
+          ? controlHudModelModule.exports
+          : dependencies[name],
+  });
   dependencies['../components/ControlReferenceUi'] = referenceUi.exports;
 
   const mediaCaptureHookModule = { exports: {} };
@@ -408,7 +436,7 @@ function capableProps() {
 test('landscape shows the current control owner without guessing', () => {
   const screen = mount({ dev: false, dimensions: { fontScale: 1, width: 800, height: 480 } });
   for (const [owner, label] of [['none', '无人控制'], ['this-device', '本设备控制'],
-    ['remote', '远程控制中'], ['robot-remote', '机器人侧遥控中'], ['unknown', '控制状态未知']]) {
+  ['remote', '远程控制中'], ['robot-remote', '机器人侧遥控中'], ['unknown', '控制状态未知']]) {
     screen.render({ connected: true, runtimeState: { controlLink: 'connected', controlOwner: owner } });
     assert.equal(screen.find('control-owner').props.accessibilityLabel, label);
     assert.ok(screen.find('control-open-connection').props.accessibilityLabel.includes(label));
@@ -438,27 +466,35 @@ function physicalFixture() {
   let fresh = true;
   let fenceAt = 0;
   const controller = {
-    state: { reading: true, calibrated: true, calibrating: false, available: true, status: 'reading',
-      message: null, sample: { channels: Array(16).fill(1500), configurationReady: true }, axes: {}, buttons: {}, vector: null },
+    state: {
+      reading: true, calibrated: true, calibrating: false, available: true, status: 'reading',
+      message: null, sample: { channels: Array(16).fill(1500), configurationReady: true }, axes: {}, buttons: {}, vector: null
+    },
     subscribe(listener) { subscribers.add(listener); return () => subscribers.delete(listener); },
-    isFresh() { return fresh; }, start() {}, observe() {}, stop() {}, beginCalibration() {}, learnAxis() {}, learnButton() {},
+    isFresh() { return fresh; }, start() { }, observe() { }, stop() { }, beginCalibration() { }, learnAxis() { }, learnButton() { },
     captureFence() { return fenceAt; },
-    finishCalibration() {}, clearCalibration() {},
+    finishCalibration() { }, clearCalibration() { },
   };
-  return { controller, setFresh(value) { fresh = value; }, setFence(value) { fenceAt = value; }, invalidate() { for (const listener of subscribers) listener({ sample: null, frame: null }); },
+  return {
+    controller, setFresh(value) { fresh = value; }, setFence(value) { fenceAt = value; }, invalidate() { for (const listener of subscribers) listener({ sample: null, frame: null }); },
     sample({ moving = false, pressed = [], requestedAt = 1000 } = {}) {
       const sample = { generation: 1, sequence: ++sequence, requestStartedAtMonotonicMs: requestedAt };
-      const frame = { vector: { leftX: moving ? .5 : 0, leftY: moving ? -.5 : 0, rightX: moving ? -.2 : 0, rightY: 0 },
-        pressed, neutral: !moving && pressed.length === 0 };
+      const frame = {
+        vector: { leftX: moving ? .5 : 0, leftY: moving ? -.5 : 0, rightX: moving ? -.2 : 0, rightY: 0 },
+        pressed, neutral: !moving && pressed.length === 0
+      };
       for (const listener of subscribers) listener({ sample, frame });
-    } };
+    }
+  };
 }
 
 test('offline touch preview never dispatches and is retired before live control', () => {
   const calls = [];
-  const input = { ready: true, touchReady: true, onTouchBegin() { calls.push('begin'); },
+  const input = {
+    ready: true, touchReady: true, onTouchBegin() { calls.push('begin'); },
     onTouchEnd() { calls.push('end'); }, onDrive() { calls.push('drive'); },
-    onTurn() { calls.push('turn'); }, onInterrupt() { calls.push('interrupt'); } };
+    onTurn() { calls.push('turn'); }, onInterrupt() { calls.push('interrupt'); }
+  };
   const screen = mount({ dev: false, connected: false, runtimeState: { controlLink: 'disconnected' }, productionInput: input });
   const preview = screen.pair, previewKey = screen.pairKey;
   assert.equal(preview.disabled, false);
@@ -482,11 +518,15 @@ test('offline touch preview never dispatches and is retired before live control'
 
 test('disconnected preview cannot choose a real executor when a debug simulator is also present', () => {
   let sent = 0;
-  const input = { ready: true, touchReady: true, onTouchBegin() { sent++; }, onDrive() { sent++; },
-    onTurn() { sent++; }, onInterrupt() {} };
-  const simulation = { ready: true, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() {} };
-  const screen = mount({ dev: true, connected: false, runtimeState: { controlLink: 'disconnected' },
-    productionInput: input, developmentInput: simulation });
+  const input = {
+    ready: true, touchReady: true, onTouchBegin() { sent++; }, onDrive() { sent++; },
+    onTurn() { sent++; }, onInterrupt() { }
+  };
+  const simulation = { ready: true, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() { } };
+  const screen = mount({
+    dev: true, connected: false, runtimeState: { controlLink: 'disconnected' },
+    productionInput: input, developmentInput: simulation
+  });
   assert.equal(screen.pair.disabled, false);
   assert.equal(screen.pair.left.onSample, undefined);
   screen.pair.left.onActiveChange(true); screen.pair.left.onChange({ x: 1, y: 1 });
@@ -496,8 +536,10 @@ test('disconnected preview cannot choose a real executor when a debug simulator 
 
 test('contradictory connection states cannot grant movement', () => {
   let sent = 0;
-  const input = { ready: true, touchReady: true, onTouchBegin() { sent++; },
-    onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() {} };
+  const input = {
+    ready: true, touchReady: true, onTouchBegin() { sent++; },
+    onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() { }
+  };
   for (const state of [{ connected: false, controlLink: 'connected' }, { connected: true, controlLink: 'disconnected' }]) {
     const screen = mount({ dev: false, connected: state.connected, runtimeState: { controlLink: state.controlLink }, productionInput: input });
     assert.equal(screen.pair.disabled, true);
@@ -509,8 +551,9 @@ test('contradictory connection states cannot grant movement', () => {
 
 test('settings menu cancels touch, blocks old input and keeps the stop action available', async () => {
   let sent = 0, interrupted = 0, stops = 0, sits = 0;
-  const screen = mount({ dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, ...capableProps(),
-    productionInput: { ready: true, onDrive() { sent++; }, onTurn() {}, onInterrupt() { interrupted++; } },
+  const screen = mount({
+    dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, ...capableProps(),
+    productionInput: { ready: true, onDrive() { sent++; }, onTurn() { }, onInterrupt() { interrupted++; } },
     runtimeState: { controlLink: 'connected', controlAuthority: 'held', posture: 'standing' },
     operationReadiness: { stop: { ready: true }, sit: { ready: true } },
     operationCallbacks: { stop: async () => { stops++; }, sit: async () => { sits++; } },
@@ -531,9 +574,11 @@ test('settings menu cancels touch, blocks old input and keeps the stop action av
 
 test('layout editor keeps the shared stop action operational', async () => {
   let stops = 0;
-  const screen = mount({ dev: false, dimensions: { width: 844, height: 390, fontScale: 1 },
+  const screen = mount({
+    dev: false, dimensions: { width: 844, height: 390, fontScale: 1 },
     runtimeState: { controlLink: 'connected' }, operationReadiness: { stop: { ready: true } },
-    operationCallbacks: { stop: async () => { stops++; } } });
+    operationCallbacks: { stop: async () => { stops++; } }
+  });
   openSettings(screen, 'control-open-joystick-layout'); screen.render();
   assert.equal(screen.find('control-action-stop').props.disabled, false);
   screen.find('control-action-stop').props.onPress(); await screen.settle();
@@ -545,11 +590,15 @@ test('layout editor keeps the shared stop action operational', async () => {
 test('stop cancels a mode picker or its confirmation without dispatching the old choice', async () => {
   for (const confirm of [false, true]) {
     let stops = 0, switches = 0;
-    const screen = mount({ dev: false, dimensions: { width: 1280, height: 720, fontScale: 1 }, connected: true,
-      runtimeState: { controlLink: 'connected', policyCatalogStatus: 'synced',
-        currentPolicy: { id: 'flat', label: '平地' }, policyOptions: [{ id: 'flat', label: '平地' }, { id: 'stairs', label: '楼梯' }] },
+    const screen = mount({
+      dev: false, dimensions: { width: 1280, height: 720, fontScale: 1 }, connected: true,
+      runtimeState: {
+        controlLink: 'connected', policyCatalogStatus: 'synced',
+        currentPolicy: { id: 'flat', label: '平地' }, policyOptions: [{ id: 'flat', label: '平地' }, { id: 'stairs', label: '楼梯' }]
+      },
       operationReadiness: { stop: { ready: true }, switchPolicy: { ready: true } },
-      operationCallbacks: { stop: async () => { stops++; }, switchPolicy: async () => { switches++; } } });
+      operationCallbacks: { stop: async () => { stops++; }, switchPolicy: async () => { switches++; } }
+    });
     openSettings(screen, 'control-open-policy'); screen.render();
     const oldChoice = screen.find('control-mode-stairs').props.onPress;
     let oldConfirm;
@@ -568,9 +617,10 @@ test('stop cancels a mode picker or its confirmation without dispatching the old
 
 test('physical stop remains available immediately while opening settings', () => {
   const hardware = physicalFixture(); let sent = 0, interrupted = 0;
-  const screen = mount({ dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, ...capableProps(),
+  const screen = mount({
+    dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, ...capableProps(),
     g20Controller: hardware.controller, inputSource: 'physical',
-    productionInput: { ready: true, onDrive() {}, onTurn() {}, onSticks() { sent++; }, onInterrupt() { interrupted++; } },
+    productionInput: { ready: true, onDrive() { }, onTurn() { }, onSticks() { sent++; }, onInterrupt() { interrupted++; } },
   });
   hardware.sample(); hardware.sample({ moving: true }); assert.equal(sent, 1);
   screen.find('control-open-more').props.onPress();
@@ -583,9 +633,10 @@ test('physical stop remains available immediately while opening settings', () =>
 
 test('physical stop remains available while opening posture menu', () => {
   const hardware = physicalFixture(); let sent = 0, interrupted = 0;
-  const screen = mount({ dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, ...capableProps(),
+  const screen = mount({
+    dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, ...capableProps(),
     g20Controller: hardware.controller, inputSource: 'physical',
-    productionInput: { ready: true, onDrive() {}, onTurn() {}, onSticks() { sent++; }, onInterrupt() { interrupted++; } },
+    productionInput: { ready: true, onDrive() { }, onTurn() { }, onSticks() { sent++; }, onInterrupt() { interrupted++; } },
   });
   hardware.sample(); hardware.sample({ moving: true }); assert.equal(sent, 1);
   openSettings(screen, 'control-open-gestures');
@@ -598,8 +649,10 @@ test('physical stop remains available while opening posture menu', () => {
 
 test('settings links open real connection and diagnostics handlers', () => {
   let connections = 0, diagnostics = 0;
-  const screen = mount({ dev: false, dimensions: { width: 844, height: 390, fontScale: 1 },
-    onOpenConnection: () => { connections++; }, onOpenJointStatus: () => { diagnostics++; } });
+  const screen = mount({
+    dev: false, dimensions: { width: 844, height: 390, fontScale: 1 },
+    onOpenConnection: () => { connections++; }, onOpenJointStatus: () => { diagnostics++; }
+  });
   screen.find('control-open-more').props.onPress(); screen.render();
   screen.find('control-settings-tab-网络').props.onPress(); screen.render();
   screen.find('control-settings-connection').props.onPress(); screen.render();
@@ -613,8 +666,10 @@ test('settings links open real connection and diagnostics handlers', () => {
 
 test('reference settings do not invent capabilities and overlay visibility grants no motion', () => {
   let sent = 0;
-  const screen = mount({ dev: false, dimensions: { width: 753, height: 447, fontScale: 1 },
-    productionInput: { ready: false, onDrive() { sent++; }, onTurn() {}, onInterrupt() {} } });
+  const screen = mount({
+    dev: false, dimensions: { width: 753, height: 447, fontScale: 1 },
+    productionInput: { ready: false, onDrive() { sent++; }, onTurn() { }, onInterrupt() { } }
+  });
   assert.equal(screen.find('control-action-prone').props.disabled, true);
   assert.equal(screen.find('control-action-recovery').props.disabled, true);
   screen.find('control-open-more').props.onPress(); screen.render();
@@ -637,11 +692,15 @@ test('reference settings do not invent capabilities and overlay visibility grant
 
 test('all eight settings pages show distinct content without granting control or sending motion', () => {
   let sent = 0, acquired = 0, released = 0;
-  const screen = mount({ dev: false, dimensions: { width: 753, height: 447, fontScale: 1.25 },
+  const screen = mount({
+    dev: false, dimensions: { width: 753, height: 447, fontScale: 1.25 },
     inputSource: 'physical',
-    productionInput: { ready: false, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() {} },
-    controlSession: { label: '无人控制', canAcquire: true, leaseActive: false, busy: false,
-      onAcquire() { acquired++; }, onRelease() { released++; } } });
+    productionInput: { ready: false, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() { } },
+    controlSession: {
+      label: '无人控制', canAcquire: true, leaseActive: false, busy: false,
+      onAcquire() { acquired++; }, onRelease() { released++; }
+    }
+  });
   screen.find('control-open-more').props.onPress(); screen.render();
   const pages = [
     ['通用', '显示设置'], ['操控', '摇杆设置'], ['视频', '录像设置'], ['音频', '对讲服务'],
@@ -663,10 +722,14 @@ test('all eight settings pages show distinct content without granting control or
 });
 
 test('settings keep robot authority separate from input source and retire disconnected observations', () => {
-  const runtimeState = { controlLink: 'connected', controlOwner: 'robot-remote', posture: 'standing', motorState: 'enabled',
-    currentPolicy: { id: 'stairs', label: '楼梯' } };
-  const screen = mount({ dev: false, dimensions: { width: 1280, height: 720, fontScale: 1 },
-    connected: true, inputSource: 'physical', runtimeState });
+  const runtimeState = {
+    controlLink: 'connected', controlOwner: 'robot-remote', posture: 'standing', motorState: 'enabled',
+    currentPolicy: { id: 'stairs', label: '楼梯' }
+  };
+  const screen = mount({
+    dev: false, dimensions: { width: 1280, height: 720, fontScale: 1 },
+    connected: true, inputSource: 'physical', runtimeState
+  });
   screen.find('control-open-more').props.onPress(); screen.render();
   screen.find('control-settings-tab-网络').props.onPress(); screen.render();
   assert.match(screen.copy, /机器人侧遥控中/); assert.match(screen.copy, /G20 实体摇杆/);
@@ -682,8 +745,10 @@ test('settings keep robot authority separate from input source and retire discon
 
 test('physical input needs neutral after motion permission and sends a coherent pair; stale input interrupts', () => {
   const hardware = physicalFixture(); const sent = []; let stopped = 0;
-  const productionInput = { ready: false, onDrive() { throw Error('physical must use combined snapshot'); }, onTurn() {},
-    onSticks(drive, turn, sampledAt) { sent.push([drive, turn, sampledAt]); }, onInterrupt() { stopped++; } };
+  const productionInput = {
+    ready: false, onDrive() { throw Error('physical must use combined snapshot'); }, onTurn() { },
+    onSticks(drive, turn, sampledAt) { sent.push([drive, turn, sampledAt]); }, onInterrupt() { stopped++; }
+  };
   const screen = mount({ dev: false, ...capableProps(), g20Controller: hardware.controller, inputSource: 'physical', productionInput });
   hardware.sample(); hardware.sample({ moving: true }); assert.equal(sent.length, 0);
   screen.render({ productionInput: { ...productionInput, ready: true } });
@@ -699,9 +764,13 @@ test('physical input needs neutral after motion permission and sends a coherent 
 test('unverified observation cannot use stale calibration to send physical input', () => {
   const hardware = physicalFixture(), sent = [];
   hardware.controller.state.sample.configurationReady = false;
-  const screen = mount({ dev: false, ...capableProps(), g20Controller: hardware.controller,
-    inputSource: 'physical', productionInput: { ready: true, onDrive() {}, onTurn() {},
-      onSticks(...values) { sent.push(values); }, onInterrupt() {} } });
+  const screen = mount({
+    dev: false, ...capableProps(), g20Controller: hardware.controller,
+    inputSource: 'physical', productionInput: {
+      ready: true, onDrive() { }, onTurn() { },
+      onSticks(...values) { sent.push(values); }, onInterrupt() { }
+    }
+  });
   hardware.sample(); hardware.sample({ moving: true });
   assert.deepEqual(sent, []); screen.unmount();
 });
@@ -709,9 +778,11 @@ test('unverified observation cannot use stale calibration to send physical input
 test('physical source and motion grants reject neutral frames whose requests predate the Android fence', () => {
   for (const boundary of ['source', 'motion']) {
     const hardware = physicalFixture(); let sent = 0;
-    const productionInput = { ready: boundary === 'source', onDrive() {}, onTurn() {}, onSticks() { sent++; }, onInterrupt() {} };
-    const screen = mount({ dev: false, ...capableProps(), g20Controller: hardware.controller,
-      inputSource: boundary === 'motion' ? 'physical' : undefined, productionInput });
+    const productionInput = { ready: boundary === 'source', onDrive() { }, onTurn() { }, onSticks() { sent++; }, onInterrupt() { } };
+    const screen = mount({
+      dev: false, ...capableProps(), g20Controller: hardware.controller,
+      inputSource: boundary === 'motion' ? 'physical' : undefined, productionInput
+    });
     hardware.setFence(1050);
     if (boundary === 'source') { screen.find('control-input-source-physical').props.onPress(); screen.render(); }
     else screen.render({ productionInput: { ...productionInput, ready: true } });
@@ -729,8 +800,10 @@ test('physical source and motion grants reject neutral frames whose requests pre
 test('missing native fence cannot arm movement and does not swallow a fresh physical stop', () => {
   const hardware = physicalFixture(); hardware.controller.captureFence = () => null;
   let sent = 0, stopped = 0;
-  const screen = mount({ dev: false, ...capableProps(), g20Controller: hardware.controller, inputSource: 'physical',
-    productionInput: { ready: true, onDrive() {}, onTurn() {}, onSticks() { sent++; }, onInterrupt() { stopped++; } } });
+  const screen = mount({
+    dev: false, ...capableProps(), g20Controller: hardware.controller, inputSource: 'physical',
+    productionInput: { ready: true, onDrive() { }, onTurn() { }, onSticks() { sent++; }, onInterrupt() { stopped++; } }
+  });
   hardware.sample(); hardware.sample({ moving: true }); assert.equal(sent, 0);
   const before = stopped; hardware.sample({ moving: true, pressed: ['stop'] });
   assert.ok(stopped > before); assert.equal(sent, 0); screen.unmount();
@@ -738,8 +811,10 @@ test('missing native fence cannot arm movement and does not swallow a fresh phys
 
 test('input settings interrupts control and never routes physical frames or keys', () => {
   const hardware = physicalFixture(); let sent = 0, stopped = 0;
-  const screen = mount({ dev: false, ...capableProps(), g20Controller: hardware.controller, inputSource: 'physical',
-    productionInput: { ready: true, onDrive() {}, onTurn() {}, onSticks() { sent++; }, onInterrupt() { stopped++; } } });
+  const screen = mount({
+    dev: false, ...capableProps(), g20Controller: hardware.controller, inputSource: 'physical',
+    productionInput: { ready: true, onDrive() { }, onTurn() { }, onSticks() { sent++; }, onInterrupt() { stopped++; } }
+  });
   hardware.sample(); hardware.sample({ moving: true }); assert.equal(sent, 1);
   openSettings(screen, 'control-open-input'); screen.render();
   assert.ok(screen.inputPanel); const before = sent; const interrupts = stopped;
@@ -753,8 +828,10 @@ test('input settings interrupts control and never routes physical frames or keys
 
 test('physical source is exclusive and loss of calibration cannot retain drive authority', () => {
   const hardware = physicalFixture(); let sent = 0;
-  const screen = mount({ dev: false, ...capableProps(), g20Controller: hardware.controller,
-    productionInput: { ready: true, onDrive() {}, onTurn() {}, onSticks() { sent++; }, onInterrupt() {} } });
+  const screen = mount({
+    dev: false, ...capableProps(), g20Controller: hardware.controller,
+    productionInput: { ready: true, onDrive() { }, onTurn() { }, onSticks() { sent++; }, onInterrupt() { } }
+  });
   hardware.sample(); hardware.sample({ moving: true }); assert.equal(sent, 0, 'touch source ignores hardware');
   screen.find('control-input-source-physical').props.onPress(); screen.render();
   assert.equal(screen.pair.disabled, true);
@@ -767,8 +844,10 @@ test('physical source is exclusive and loss of calibration cannot retain drive a
 
 test('retired touch callbacks cannot cross source switches or a touch-physical-touch ABA', () => {
   const hardware = physicalFixture(); const sent = [];
-  const screen = mount({ dev: false, ...capableProps(), g20Controller: hardware.controller,
-    productionInput: { ready: true, onDrive(value) { sent.push(['drive', value]); }, onTurn(value) { sent.push(['turn', value]); }, onInterrupt() {} } });
+  const screen = mount({
+    dev: false, ...capableProps(), g20Controller: hardware.controller,
+    productionInput: { ready: true, onDrive(value) { sent.push(['drive', value]); }, onTurn(value) { sent.push(['turn', value]); }, onInterrupt() { } }
+  });
   const oldDrive = screen.pair.left.onSample, oldTurn = screen.pair.right.onSample;
   screen.find('control-input-source-physical').props.onPress();
   oldDrive({ x: .3, y: -.4 }); oldTurn({ x: .2, y: 0 });
@@ -786,8 +865,10 @@ test('retired touch callbacks cannot cross source switches or a touch-physical-t
 test('both settings surfaces permanently retire saved touch callbacks even after closing', () => {
   for (const kind of ['input', 'layout']) {
     const hardware = physicalFixture(); let sent = 0;
-    const screen = mount({ dev: false, ...capableProps(), g20Controller: hardware.controller,
-      productionInput: { ready: true, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() {} } });
+    const screen = mount({
+      dev: false, ...capableProps(), g20Controller: hardware.controller,
+      productionInput: { ready: true, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() { } }
+    });
     const oldDrive = screen.pair.left.onSample, oldTurn = screen.pair.right.onSample;
     openSettings(screen, kind === 'input' ? 'control-open-input' : 'control-open-joystick-layout');
     oldDrive({ x: 1, y: 0 }); oldTurn({ x: 1, y: 0 });
@@ -803,7 +884,7 @@ test('both settings surfaces permanently retire saved touch callbacks even after
 
 test('touch callbacks cannot survive permission revoke and regrant with identical callback identities', () => {
   let sent = 0;
-  const productionInput = { ready: true, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() {} };
+  const productionInput = { ready: true, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() { } };
   const screen = mount({ dev: false, ...capableProps(), productionInput });
   const previous = screen.pair.left.onSample;
   screen.render({ productionInput: { ...productionInput, ready: false } }); previous({ x: 1, y: 0 });
@@ -816,7 +897,7 @@ test('touch callbacks cannot survive permission revoke and regrant with identica
 
 test('ordinary rerenders retain live touch ownership, while a replacement executor retires it', () => {
   const sent = [];
-  const productionInput = { ready: true, onDrive() { sent.push('original'); }, onTurn() {}, onInterrupt() {} };
+  const productionInput = { ready: true, onDrive() { sent.push('original'); }, onTurn() { }, onInterrupt() { } };
   const screen = mount({ dev: false, ...capableProps(), productionInput });
   const previous = screen.pair.left.onSample;
   screen.render({ productionInput: { ...productionInput } }); previous({ x: .2, y: 0 });
@@ -830,8 +911,10 @@ test('ordinary rerenders retain live touch ownership, while a replacement execut
 test('touch callbacks from before lifecycle, geometry, or cancellation boundaries remain retired', () => {
   for (const boundary of ['background', 'resize', 'rotation', 'cancel']) {
     let sent = 0;
-    const screen = mount({ dev: false, ...capableProps(),
-      productionInput: { ready: true, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() {} } });
+    const screen = mount({
+      dev: false, ...capableProps(),
+      productionInput: { ready: true, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() { } }
+    });
     const previous = screen.pair.left.onSample;
     if (boundary === 'background') { screen.background(); screen.background('active'); }
     if (boundary === 'resize') screen.layout(391, 844);
@@ -846,9 +929,11 @@ test('touch callbacks from before lifecycle, geometry, or cancellation boundarie
 
 test('physical stop cancels a pending confirmation while another key remains held', () => {
   const hardware = physicalFixture(); let interrupted = 0, enabled = 0;
-  const screen = mount({ dev: false, ...capableProps(), g20Controller: hardware.controller, inputSource: 'physical',
-    productionInput: { ready: true, onDrive() {}, onTurn() {}, onSticks() {}, onInterrupt() { interrupted++; } },
-    operationReadiness: { enableMotor: { ready: true } }, operationCallbacks: { enableMotor() { enabled++; } } });
+  const screen = mount({
+    dev: false, ...capableProps(), g20Controller: hardware.controller, inputSource: 'physical',
+    productionInput: { ready: true, onDrive() { }, onTurn() { }, onSticks() { }, onInterrupt() { interrupted++; } },
+    operationReadiness: { enableMotor: { ready: true } }, operationCallbacks: { enableMotor() { enabled++; } }
+  });
   hardware.sample(); hardware.sample({ pressed: ['enableMotor'] }); screen.render();
   assert.ok(screen.find('control-confirmation')); assert.equal(enabled, 0);
   const before = interrupted;
@@ -863,18 +948,22 @@ test('physical stop cancels a pending confirmation while another key remains hel
 
 test('direct IP status is labelled as one read and cannot be mistaken for cloud-online control', () => {
   let opened = 0;
-  const screen = mount({ dev: false, robotName: 'IP 直连设备', robotType: '只读状态 · 设备归属未核验',
+  const screen = mount({
+    dev: false, robotName: 'IP 直连设备', robotType: '只读状态 · 设备归属未核验',
     directConnection: { endpointLabel: 'robot.example.test:13145', fresh: true, summary: '状态已读取 · 设备归属未核验' },
     runtimeState: { controlLink: 'unknown', controlAuthority: 'not-held', posture: 'standing', motorState: 'enabled' },
-    onOpenConnection: () => opened++ });
+    onOpenConnection: () => opened++
+  });
   assert.ok(screen.find('control-direct-connection'));
   assert.match(screen.copy, /状态已读取/); assert.match(screen.copy, /当前站立/); assert.match(screen.copy, /电机已使能/);
   assert.doesNotMatch(screen.copy, /设备在线|已取得控制权/);
   assert.equal(screen.pair.disabled, false);
   assert.equal(screen.pair.left.onSample, undefined);
   screen.find('control-open-connection').props.onPress(); assert.equal(opened, 1);
-  screen.render({ directConnection: { endpointLabel: 'robot.example.test:13145', fresh: false, summary: '状态已过期 · 请重新检查' },
-    runtimeState: { controlLink: 'unknown', controlAuthority: 'not-held', posture: 'unknown', motorState: 'unknown' } });
+  screen.render({
+    directConnection: { endpointLabel: 'robot.example.test:13145', fresh: false, summary: '状态已过期 · 请重新检查' },
+    runtimeState: { controlLink: 'unknown', controlAuthority: 'not-held', posture: 'unknown', motorState: 'unknown' }
+  });
   assert.match(screen.copy, /需重新检查/); assert.doesNotMatch(screen.copy, /当前站立|电机已使能/);
 });
 
@@ -902,7 +991,8 @@ test('production control center exposes truthful status and offline preview stic
 });
 
 test('complete action surface keeps stop visible, supports collapse, and reports per-action states', () => {
-  const screen = mount({ dev: false,
+  const screen = mount({
+    dev: false,
     runtimeState: {
       controlLink: 'disconnected', controlAuthority: 'not-held', posture: 'unknown', motorState: 'unknown',
       deviceIdentity: 'bound-unverified', faultStatus: 'unknown',
@@ -991,8 +1081,10 @@ test('G20 landscape hides joystick visuals while retaining the touch pair', () =
 
 test('landscape canvas remains measured and bounded across system bars and input-panel return', async () => {
   const hardware = physicalFixture();
-  const screen = mount({ dev: false, dimensions: { width: 753, height: 400, fontScale: 1 },
-    g20Controller: hardware.controller, navigationInset: async () => 48 });
+  const screen = mount({
+    dev: false, dimensions: { width: 753, height: 400, fontScale: 1 },
+    g20Controller: hardware.controller, navigationInset: async () => 48
+  });
   const canvasHeight = () => Object.assign({}, ...screen.find('control-immersive-surface').props.style).height;
   await screen.settle();
   assert.equal(screen.scroll, undefined, 'the control surface cannot grow inside a percentage-height ScrollView');
@@ -1026,8 +1118,10 @@ test('large text keeps its scrollable layout and a retired navigation reply cann
   large.unmount();
 
   let resolveHidden;
-  const screen = mount({ dev: false, dimensions: { width: 753, height: 400, fontScale: 1 },
-    navigationInset: hidden => hidden ? new Promise(resolve => { resolveHidden = resolve; }) : 0 });
+  const screen = mount({
+    dev: false, dimensions: { width: 753, height: 400, fontScale: 1 },
+    navigationInset: hidden => hidden ? new Promise(resolve => { resolveHidden = resolve; }) : 0
+  });
   screen.unmount();
   resolveHidden(48);
   await new Promise(resolve => setImmediate(resolve));
@@ -1037,9 +1131,11 @@ test('large text keeps its scrollable layout and a retired navigation reply cann
 
 test('landscape diagnostics retires held touch before navigation', () => {
   const order = []; let sent = 0;
-  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(), connected: true,
-    productionInput: { ready: true, onDrive() { sent++; }, onTurn() {}, onInterrupt() { order.push('interrupt'); } },
-    onOpenJointStatus() { order.push('diagnostics'); } });
+  const screen = mount({
+    dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(), connected: true,
+    productionInput: { ready: true, onDrive() { sent++; }, onTurn() { }, onInterrupt() { order.push('interrupt'); } },
+    onOpenJointStatus() { order.push('diagnostics'); }
+  });
   const oldInput = screen.pair.left.onSample;
   oldInput({ x: .2, y: .2 });
   const before = sent;
@@ -1052,8 +1148,10 @@ test('landscape diagnostics retires held touch before navigation', () => {
 
 test('posture menu retires old touch and keeps recovery unavailable', () => {
   let sent = 0, interrupted = 0;
-  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(), connected: true,
-    productionInput: { ready: true, onDrive() { sent++; }, onTurn() {}, onInterrupt() { interrupted++; } } });
+  const screen = mount({
+    dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(), connected: true,
+    productionInput: { ready: true, onDrive() { sent++; }, onTurn() { }, onInterrupt() { interrupted++; } }
+  });
   const oldInput = screen.pair.left.onSample;
   oldInput({ x: .2, y: .2 });
   const sentBefore = sent, interruptedBefore = interrupted;
@@ -1069,17 +1167,19 @@ test('posture menu retires old touch and keeps recovery unavailable', () => {
   oldInput({ x: .4, y: .4 }); assert.equal(sent, sentBefore);
   screen.find('control-posture-dismiss').props.onPress(); screen.render();
   assert.equal(screen.find('control-posture-menu'), undefined);
-  assert.ok(screen.find('control-open-more')); 
+  assert.ok(screen.find('control-open-more'));
   oldInput({ x: .4, y: .4 }); assert.equal(sent, sentBefore);
   screen.unmount();
 });
 
 test('posture menu sends the chosen operation once and waits for observed state', async () => {
   let stands = 0;
-  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(),
+  const screen = mount({
+    dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(),
     runtimeState: { controlLink: 'connected', posture: 'sitting' },
     operationReadiness: { stand: { ready: true }, sit: { ready: true } },
-    operationCallbacks: { stand: async () => { stands++; }, sit: async () => {} } });
+    operationCallbacks: { stand: async () => { stands++; }, sit: async () => { } }
+  });
   openSettings(screen, 'control-open-gestures'); screen.render();
   assert.equal(screen.find('control-posture-sit').props.accessibilityState.selected, true);
   assert.equal(screen.find('control-posture-sit').props.disabled, true);
@@ -1098,9 +1198,11 @@ test('posture menu sends the chosen operation once and waits for observed state'
 
 test('stop stays available while posture menu is open', async () => {
   let stops = 0;
-  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(),
+  const screen = mount({
+    dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(),
     runtimeState: { controlLink: 'connected', posture: 'standing' },
-    operationReadiness: { stop: { ready: true } }, operationCallbacks: { stop: async () => { stops++; } } });
+    operationReadiness: { stop: { ready: true } }, operationCallbacks: { stop: async () => { stops++; } }
+  });
   openSettings(screen, 'control-open-gestures'); screen.render();
   assert.equal(screen.find('control-action-stop').props.disabled, false);
   screen.find('control-action-stop').props.onPress(); await screen.settle();
@@ -1111,11 +1213,15 @@ test('stop stays available while posture menu is open', async () => {
 
 test('landscape exposes actual robot policy IDs without guessing terrain names or dispatching on open', () => {
   let called = 0;
-  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(), connected: false,
-    runtimeState: { controlLink: 'connected', motorState: 'disabled', posture: 'sitting', policyCatalogStatus: 'synced',
-      currentPolicy: { id: 'w5_current', label: 'W5' }, policyOptions: [{ id: 'w5_current', label: 'W5' }, { id: 'robot_candidate', label: '候选策略' }] },
+  const screen = mount({
+    dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(), connected: false,
+    runtimeState: {
+      controlLink: 'connected', motorState: 'disabled', posture: 'sitting', policyCatalogStatus: 'synced',
+      currentPolicy: { id: 'w5_current', label: 'W5' }, policyOptions: [{ id: 'w5_current', label: 'W5' }, { id: 'robot_candidate', label: '候选策略' }]
+    },
     operationReadiness: { switchPolicy: { ready: true } },
-    operationCallbacks: { switchPolicy() { called++; } } });
+    operationCallbacks: { switchPolicy() { called++; } }
+  });
   openSettings(screen, 'control-open-policy'); screen.render();
   assert.equal(screen.find('control-mode-w5_current').props.accessibilityState.selected, true);
   assert.equal(screen.find('control-mode-w5_current').props.disabled, true);
@@ -1131,10 +1237,14 @@ test('landscape exposes actual robot policy IDs without guessing terrain names o
 test('real control session feeds slot buttons and dispatches the advertised ID in portrait and landscape', async () => {
   for (const landscape of [false, true]) {
     const calls = [];
-    const status = { fsmKind: 'standing', transition: 'none', motorOutputEnabled: true,
-      owner: 'none', criticalMotorFault: false, grpcLeaseActive: false, readyForWalk: false };
-    let profile = { current: 'w5_89999', currentDescription: 'flat: W5',
-      available: ['w5_89999', 'cts_v39_61128'], descriptions: ['flat: W5', 'stairs: CTS'] };
+    const status = {
+      fsmKind: 'standing', transition: 'none', motorOutputEnabled: true,
+      owner: 'none', criticalMotorFault: false, grpcLeaseActive: false, readyForWalk: false
+    };
+    let profile = {
+      current: 'w5_89999', currentDescription: 'flat: W5',
+      available: ['w5_89999', 'cts_v39_61128'], descriptions: ['flat: W5', 'stairs: CTS']
+    };
     const reply = () => ({ status, profile, leaseActive: false, principalVerified: false });
     const session = new BrainstemControlSession({
       async open() { return { ...reply(), sessionId: 'screen-fixture', transport: 'grpc-mtls', mutualTlsVerified: true }; },
@@ -1143,13 +1253,15 @@ test('real control session feeds slot buttons and dispatches the advertised ID i
         profile = { ...profile, current: id, currentDescription: profile.descriptions[profile.available.indexOf(id)] };
         return reply();
       },
-      async interrupt() { return reply(); }, async close() {},
+      async interrupt() { return reply(); }, async close() { },
     }, () => true, () => 1000);
     assert.equal(await session.connect({ host: 'robot.example', port: 13145, clientIdentityAlias: 'fixture' }, 'screen-fixture'), true);
-    const screen = mount({ dev: false, dimensions: { width: landscape ? 800 : 430, height: landscape ? 480 : 900, fontScale: 1 },
+    const screen = mount({
+      dev: false, dimensions: { width: landscape ? 800 : 430, height: landscape ? 480 : 900, fontScale: 1 },
       runtimeState: session.runtimeState,
       operationReadiness: session.operationReadiness,
-      operationCallbacks: { switchPolicy: id => session.action('switch-profile', id) } });
+      operationCallbacks: { switchPolicy: id => session.action('switch-profile', id) }
+    });
     if (landscape) { openSettings(screen, 'control-open-policy'); screen.render(); }
     const prefix = landscape ? 'control-mode-' : 'control-terrain-mode-';
     assert.equal(screen.find(`${prefix}flat`).props.disabled, true);
@@ -1167,9 +1279,11 @@ test('real control session feeds slot buttons and dispatches the advertised ID i
 
 test('landscape mode entry explains unavailable capability and never sends an action', () => {
   let called = 0;
-  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 },
+  const screen = mount({
+    dev: false, dimensions: { width: 800, height: 480, fontScale: 1 },
     operationReadiness: { switchPolicy: { ready: false, blockedReason: '先连接机器人' } },
-    operationCallbacks: { switchPolicy() { called++; } } });
+    operationCallbacks: { switchPolicy() { called++; } }
+  });
   openSettings(screen, 'control-open-policy'); screen.render();
   assert.doesNotMatch(screen.copy, /先连接机器人|待同步|未配置/);
   assert.equal(screen.find('control-mode-flat').props.accessibilityHint, '先连接机器人');
@@ -1180,9 +1294,11 @@ test('landscape mode entry explains unavailable capability and never sends an ac
 
 test('landscape mode entry opens real policy selection without executing a policy', () => {
   let called = 0;
-  const screen = mount({ dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(), connected: false,
+  const screen = mount({
+    dev: false, dimensions: { width: 800, height: 480, fontScale: 1 }, ...capableProps(), connected: false,
     runtimeState: { policyCatalogStatus: 'synced', policyOptions: [{ id: 'flat', label: '标准行走' }] },
-    operationReadiness: { switchPolicy: { ready: true } }, operationCallbacks: { switchPolicy() { called++; } } });
+    operationReadiness: { switchPolicy: { ready: true } }, operationCallbacks: { switchPolicy() { called++; } }
+  });
   openSettings(screen, 'control-open-policy'); screen.render();
   assert.match(screen.copy, /平地/);
   assert.doesNotMatch(screen.copy, /待同步|未配置/);
@@ -1214,12 +1330,14 @@ test('landscape removes the crossed joint shortcut without changing the controll
 });
 
 test('speed and input-source surfaces stay truthful when no device telemetry or physical axis adapter exists', () => {
-  const screen = mount({ dev: false, runtimeState: {
-    controlLink: 'unknown', controlAuthority: 'not-held', posture: 'unknown', motorState: 'unknown',
-    deviceIdentity: 'unbound', faultStatus: 'unknown',
-    speed: { linearMps: null, lateralMps: null, yawRps: null, source: 'unknown' },
-    policyCatalogStatus: 'unknown', policyOptions: [],
-  } });
+  const screen = mount({
+    dev: false, runtimeState: {
+      controlLink: 'unknown', controlAuthority: 'not-held', posture: 'unknown', motorState: 'unknown',
+      deviceIdentity: 'unbound', faultStatus: 'unknown',
+      speed: { linearMps: null, lateralMps: null, yawRps: null, source: 'unknown' },
+      policyCatalogStatus: 'unknown', policyOptions: [],
+    }
+  });
   assert.ok(screen.find('control-speed-zone'));
   assert.match(screen.copy, /线速度 未知/);
   assert.ok(screen.find('control-input-source-touch'));
@@ -1304,7 +1422,7 @@ test('same-orientation window resize interrupts held local input inside the fixe
   let interrupts = 0;
   const screen = mount({
     dimensions: { width: 753, height: 471, fontScale: 1 },
-    developmentInput: { ready: true, onDrive() {}, onTurn() {}, onInterrupt() { interrupts++; } },
+    developmentInput: { ready: true, onDrive() { }, onTurn() { }, onInterrupt() { interrupts++; } },
   });
   screen.layout(753, 471);
   const baselineInterrupts = interrupts;
@@ -1345,29 +1463,29 @@ test('insufficient or invalid viewport removes undersized pads while keeping ret
 
 test('development session must be ready before input reaches its callbacks', () => {
   const drive = [], turn = [];
-  const input = { ready: false, onDrive: value => drive.push(value), onTurn: value => turn.push(value), onInterrupt() {} };
+  const input = { ready: false, onDrive: value => drive.push(value), onTurn: value => turn.push(value), onInterrupt() { } };
   const screen = mount({ developmentInput: input, allowInteractionPreview: true });
   assert.equal(screen.pair.disabled, false);
   assert.equal(screen.pair.left.onSample, undefined);
-  screen.pair.left.onChange({x:1,y:-1});
+  screen.pair.left.onChange({ x: 1, y: -1 });
   assert.equal(drive.length, 0);
-  screen.render({ developmentInput: {...input, ready:true} });
+  screen.render({ developmentInput: { ...input, ready: true } });
   assert.equal(screen.pair.disabled, false);
-  screen.pair.left.onChange({x:.5,y:-.5});
-  screen.pair.right.onChange({x:.3,y:0});
+  screen.pair.left.onChange({ x: .5, y: -.5 });
+  screen.pair.right.onChange({ x: .3, y: 0 });
   assert.equal(drive.length, 1); assert.equal(turn.length, 1);
   screen.unmount();
 });
 
 test('production never invokes an injected development control session', () => {
-  let inputs=0, interrupts=0;
-  const input={ready:true,onDrive(){inputs++;},onTurn(){inputs++;},onInterrupt(){interrupts++;}};
-  const screen=mount({dev:false,developmentInput:input,allowInteractionPreview:true});
-  assert.equal(screen.pair.disabled,false);
-  assert.equal(screen.pair.left.onSample,undefined);
-  screen.pair.left.onChange({x:1,y:1}); screen.pair.right.onChange({x:1,y:0});
-  screen.background();screen.rotate();screen.back();screen.unmount();
-  assert.equal(inputs,0);assert.equal(interrupts,0);
+  let inputs = 0, interrupts = 0;
+  const input = { ready: true, onDrive() { inputs++; }, onTurn() { inputs++; }, onInterrupt() { interrupts++; } };
+  const screen = mount({ dev: false, developmentInput: input, allowInteractionPreview: true });
+  assert.equal(screen.pair.disabled, false);
+  assert.equal(screen.pair.left.onSample, undefined);
+  screen.pair.left.onChange({ x: 1, y: 1 }); screen.pair.right.onChange({ x: 1, y: 0 });
+  screen.background(); screen.rotate(); screen.back(); screen.unmount();
+  assert.equal(inputs, 0); assert.equal(interrupts, 0);
 });
 
 test('production input uses the explicit real channel and cancels on lifecycle changes', () => {
@@ -1385,10 +1503,12 @@ test('production input uses the explicit real channel and cancels on lifecycle c
 
 test('a production posture action delegates its zero/release transaction without racing an external interrupt', async () => {
   let actions = 0, interrupts = 0;
-  const screen = mount({ dev: false, canUseManualControl: true,
-    productionInput: { ready: true, onDrive() {}, onTurn() {}, onInterrupt() { interrupts++; } },
+  const screen = mount({
+    dev: false, canUseManualControl: true,
+    productionInput: { ready: true, onDrive() { }, onTurn() { }, onInterrupt() { interrupts++; } },
     runtimeState: { controlLink: 'connected', controlAuthority: 'held', motorState: 'enabled', posture: 'standing' },
-    operationReadiness: { sit: { ready: true } }, operationCallbacks: { sit: async () => { actions++; } } });
+    operationReadiness: { sit: { ready: true } }, operationCallbacks: { sit: async () => { actions++; } }
+  });
   screen.find('control-action-sit').props.onPress();
   await Promise.resolve(); screen.render();
   assert.equal(actions, 1); assert.equal(interrupts, 0);
@@ -1396,7 +1516,8 @@ test('a production posture action delegates its zero/release transaction without
 });
 
 test('a rejected stop is displayed as unconfirmed instead of accepted or completed', async () => {
-  const screen = mount({ dev: false,
+  const screen = mount({
+    dev: false,
     runtimeState: { controlLink: 'connected', controlAuthority: 'held', motorState: 'enabled', posture: 'standing' },
     operationReadiness: { stop: { ready: true } },
     operationCallbacks: { stop: async () => { throw new Error('停止请求未确认'); } },
@@ -1410,9 +1531,10 @@ test('a rejected stop is displayed as unconfirmed instead of accepted or complet
 });
 
 test('a successful stop reports control revocation without claiming measured physical standstill', async () => {
-  const screen = mount({ dev: false,
+  const screen = mount({
+    dev: false,
     runtimeState: { controlLink: 'connected', controlAuthority: 'held' },
-    operationReadiness: { stop: { ready: true } }, operationCallbacks: { stop: async () => {} },
+    operationReadiness: { stop: { ready: true } }, operationCallbacks: { stop: async () => { } },
   });
   screen.find('control-action-stop').props.onPress();
   await new Promise(resolve => setImmediate(resolve)); screen.render();
@@ -1423,9 +1545,11 @@ test('a successful stop reports control revocation without claiming measured phy
 });
 
 test('posture dispatch ACK stays pending until observed posture, then does not permanently lock the action', async () => {
-  const screen = mount({ dev: false,
+  const screen = mount({
+    dev: false,
     runtimeState: { controlLink: 'connected', posture: 'standing' },
-    operationReadiness: { sit: { ready: true } }, operationCallbacks: { sit: async () => {} } });
+    operationReadiness: { sit: { ready: true } }, operationCallbacks: { sit: async () => { } }
+  });
   screen.find('control-action-sit').props.onPress(); await new Promise(resolve => setImmediate(resolve)); screen.render();
   assert.doesNotMatch(screen.copy, /设备状态已确认/);
   screen.render({ runtimeState: { controlLink: 'connected', posture: 'unknown' } });
@@ -1442,8 +1566,10 @@ test('posture dispatch ACK stays pending until observed posture, then does not p
 
 test('accepted action expires after ten seconds without replay or a fabricated terminal result', async () => {
   let actions = 0;
-  const screen = mount({ dev: false, runtimeState: { controlLink: 'connected', posture: 'standing' },
-    operationReadiness: { sit: { ready: true } }, operationCallbacks: { sit: async () => { actions++; } } });
+  const screen = mount({
+    dev: false, runtimeState: { controlLink: 'connected', posture: 'standing' },
+    operationReadiness: { sit: { ready: true } }, operationCallbacks: { sit: async () => { actions++; } }
+  });
   screen.find('control-action-sit').props.onPress(); await screen.settle();
   assert.match(screen.copy, /已接受/); assert.doesNotMatch(screen.copy, /设备状态已确认/);
   screen.advance(5_000); screen.render(); screen.advance(4_999);
@@ -1459,9 +1585,11 @@ test('accepted action expires after ten seconds without replay or a fabricated t
 
 test('a missing ACK also expires and cannot overwrite a newer request when it arrives late', async () => {
   let finish, actions = 0;
-  const screen = mount({ dev: false, runtimeState: { controlLink: 'connected', posture: 'standing' },
+  const screen = mount({
+    dev: false, runtimeState: { controlLink: 'connected', posture: 'standing' },
     operationReadiness: { sit: { ready: true } },
-    operationCallbacks: { sit: () => { actions++; return actions === 1 ? new Promise(resolve => { finish = resolve; }) : Promise.resolve(); } } });
+    operationCallbacks: { sit: () => { actions++; return actions === 1 ? new Promise(resolve => { finish = resolve; }) : Promise.resolve(); } }
+  });
   screen.find('control-action-sit').props.onPress(); screen.render(); screen.advance(10_000);
   assert.match(screen.copy, /结果未确认/);
   screen.find('control-action-sit').props.onPress(); await screen.settle();
@@ -1473,8 +1601,10 @@ test('a missing ACK also expires and cannot overwrite a newer request when it ar
 
 test('disconnect or stale control state retires a pending result even when posture matches', async () => {
   for (const controlLink of ['disconnected', 'unknown', undefined]) {
-    const screen = mount({ dev: false, runtimeState: { controlLink: 'connected', posture: 'standing' },
-      operationReadiness: { sit: { ready: true } }, operationCallbacks: { sit: async () => {} } });
+    const screen = mount({
+      dev: false, runtimeState: { controlLink: 'connected', posture: 'standing' },
+      operationReadiness: { sit: { ready: true } }, operationCallbacks: { sit: async () => { } }
+    });
     screen.find('control-action-sit').props.onPress(); await screen.settle();
     screen.render({ runtimeState: { controlLink, posture: 'sitting' } });
     assert.match(screen.copy, /结果未确认/); assert.doesNotMatch(screen.copy, /设备状态已确认/);
@@ -1483,9 +1613,11 @@ test('disconnect or stale control state retires a pending result even when postu
 });
 
 test('independent read-only telemetry freshness does not invalidate an action control result', async () => {
-  const screen = mount({ dev: false, runtimeState: { controlLink: 'connected', posture: 'standing' },
+  const screen = mount({
+    dev: false, runtimeState: { controlLink: 'connected', posture: 'standing' },
     directConnection: { endpointLabel: 'robot.test:13145', fresh: false, summary: '遥测待刷新' },
-    operationReadiness: { sit: { ready: true } }, operationCallbacks: { sit: async () => {} } });
+    operationReadiness: { sit: { ready: true } }, operationCallbacks: { sit: async () => { } }
+  });
   screen.find('control-action-sit').props.onPress(); await screen.settle();
   assert.match(screen.copy, /已接受/);
   screen.render({ runtimeState: { controlLink: 'connected', posture: 'sitting' } });
@@ -1495,11 +1627,13 @@ test('independent read-only telemetry freshness does not invalidate an action co
 test('target and input-source changes retire old callbacks before another action can complete', async () => {
   for (const boundary of ['target', 'source-prop', 'source-press']) {
     let finish, actions = 0;
-    const screen = mount({ dev: false, operationTargetKey: 'robot-a', inputSource: 'touch', physicalInputAvailable: true,
+    const screen = mount({
+      dev: false, operationTargetKey: 'robot-a', inputSource: 'touch', physicalInputAvailable: true,
       runtimeState: { controlLink: 'connected', posture: 'standing' },
       operationReadiness: { sit: { ready: true } }, operationCallbacks: {
         sit: () => { actions++; return actions === 1 ? new Promise(resolve => { finish = resolve; }) : Promise.resolve(); },
-      } });
+      }
+    });
     screen.find('control-action-sit').props.onPress(); screen.render();
     if (boundary === 'target') screen.render({ operationTargetKey: 'robot-b' });
     if (boundary === 'source-prop') screen.render({ inputSource: 'physical' });
@@ -1520,8 +1654,10 @@ test('target and input-source changes retire old callbacks before another action
 
 test('unmount clears the result deadline and ignores a late action callback', async () => {
   let finish;
-  const screen = mount({ dev: false, runtimeState: { controlLink: 'connected', posture: 'standing' },
-    operationReadiness: { sit: { ready: true } }, operationCallbacks: { sit: () => new Promise(resolve => { finish = resolve; }) } });
+  const screen = mount({
+    dev: false, runtimeState: { controlLink: 'connected', posture: 'standing' },
+    operationReadiness: { sit: { ready: true } }, operationCallbacks: { sit: () => new Promise(resolve => { finish = resolve; }) }
+  });
   screen.find('control-action-sit').props.onPress(); screen.render();
   screen.unmount(); finish(); await Promise.resolve(); await Promise.resolve(); screen.advance(10_000);
   assert.equal(screen.timerCount, 0); assert.equal(screen.lateUpdates, 0);
@@ -1529,8 +1665,10 @@ test('unmount clears the result deadline and ignores a late action callback', as
 
 test('a delayed ACK does not restart the original result deadline', async () => {
   let finish;
-  const screen = mount({ dev: false, runtimeState: { controlLink: 'connected', posture: 'standing' },
-    operationReadiness: { sit: { ready: true } }, operationCallbacks: { sit: () => new Promise(resolve => { finish = resolve; }) } });
+  const screen = mount({
+    dev: false, runtimeState: { controlLink: 'connected', posture: 'standing' },
+    operationReadiness: { sit: { ready: true } }, operationCallbacks: { sit: () => new Promise(resolve => { finish = resolve; }) }
+  });
   screen.find('control-action-sit').props.onPress(); screen.render(); screen.advance(9_000);
   finish(); await screen.settle(); assert.match(screen.copy, /已接受/);
   screen.advance(1_000); assert.match(screen.copy, /结果未确认/); screen.unmount();
@@ -1538,8 +1676,10 @@ test('a delayed ACK does not restart the original result deadline', async () => 
 
 test('an explicit newer dispatch of the same action replaces the old result deadline', async () => {
   let actions = 0;
-  const screen = mount({ dev: false, runtimeState: { controlLink: 'connected', posture: 'standing' },
-    operationReadiness: { sit: { ready: true } }, operationCallbacks: { sit: async () => { actions++; } } });
+  const screen = mount({
+    dev: false, runtimeState: { controlLink: 'connected', posture: 'standing' },
+    operationReadiness: { sit: { ready: true } }, operationCallbacks: { sit: async () => { actions++; } }
+  });
   screen.find('control-action-sit').props.onPress(); await screen.settle(); screen.advance(5_000);
   screen.find('control-action-sit').props.onPress(); await screen.settle();
   assert.equal(actions, 2); assert.equal(screen.timerCount, 1);
@@ -1549,9 +1689,11 @@ test('an explicit newer dispatch of the same action replaces the old result dead
 
 test('disconnect before ACK releases the old request and recovery does not revive its callback', async () => {
   let finish, actions = 0;
-  const screen = mount({ dev: false, runtimeState: { controlLink: 'connected', posture: 'standing' },
+  const screen = mount({
+    dev: false, runtimeState: { controlLink: 'connected', posture: 'standing' },
     operationReadiness: { sit: { ready: true } },
-    operationCallbacks: { sit: () => { actions++; return actions === 1 ? new Promise(resolve => { finish = resolve; }) : Promise.resolve(); } } });
+    operationCallbacks: { sit: () => { actions++; return actions === 1 ? new Promise(resolve => { finish = resolve; }) : Promise.resolve(); } }
+  });
   screen.find('control-action-sit').props.onPress(); screen.render();
   screen.render({ runtimeState: { controlLink: 'disconnected', posture: 'unknown' } });
   assert.match(screen.copy, /结果未确认/); assert.equal(screen.timerCount, 0);
@@ -1564,10 +1706,12 @@ test('disconnect before ACK releases the old request and recovery does not reviv
 test('a new target or controlled input source also retires saved presses and motor confirmations', () => {
   for (const boundary of [{ operationTargetKey: 'robot-b' }, { inputSource: 'physical' }]) {
     let actions = 0;
-    const screen = mount({ dev: false, operationTargetKey: 'robot-a', inputSource: 'touch', physicalInputAvailable: true,
+    const screen = mount({
+      dev: false, operationTargetKey: 'robot-a', inputSource: 'touch', physicalInputAvailable: true,
       runtimeState: { controlLink: 'connected', motorState: 'disabled', posture: 'standing' },
       operationReadiness: { sit: { ready: true }, enableMotor: { ready: true } },
-      operationCallbacks: { sit() { actions++; }, enableMotor() { actions++; } } });
+      operationCallbacks: { sit() { actions++; }, enableMotor() { actions++; } }
+    });
     const oldPress = screen.find('control-action-sit').props.onPress;
     screen.find('control-action-enableMotor').props.onPress(); screen.render();
     const oldConfirm = screen.find('control-confirm-action').props.onPress;
@@ -1579,50 +1723,52 @@ test('a new target or controlled input source also retires saved presses and mot
 });
 
 test('background, rotation, return and unmount interrupt a development control session', () => {
-  let interrupted=0;
-  const input={ready:true,onDrive(){},onTurn(){},onInterrupt(){interrupted++;}};
-  const screen=mount({developmentInput:input});
-  screen.background();assert.equal(interrupted,1);assert.equal(screen.pair.disabled,true);
-  screen.render({developmentInput:{...input,ready:false}});screen.background('active');
-  assert.equal(screen.pair.disabled,false);
-  assert.equal(screen.pair.left.onSample,undefined,'foreground only offers local preview');
-  screen.rotate();assert.equal(interrupted,2);
-  screen.back();assert.equal(interrupted,3);
-  screen.unmount();assert.equal(interrupted,4);
+  let interrupted = 0;
+  const input = { ready: true, onDrive() { }, onTurn() { }, onInterrupt() { interrupted++; } };
+  const screen = mount({ developmentInput: input });
+  screen.background(); assert.equal(interrupted, 1); assert.equal(screen.pair.disabled, true);
+  screen.render({ developmentInput: { ...input, ready: false } }); screen.background('active');
+  assert.equal(screen.pair.disabled, false);
+  assert.equal(screen.pair.left.onSample, undefined, 'foreground only offers local preview');
+  screen.rotate(); assert.equal(interrupted, 2);
+  screen.back(); assert.equal(interrupted, 3);
+  screen.unmount(); assert.equal(interrupted, 4);
 });
 
 test('unknown initial AppState fails closed until an active lifecycle event', () => {
-  const screen=mount({initialAppState:null,developmentInput:{ready:true,onDrive(){},onTurn(){},onInterrupt(){}}});
-  assert.equal(screen.pair.disabled,true);
-  screen.background('active');assert.equal(screen.pair.disabled,false);screen.unmount();
+  const screen = mount({ initialAppState: null, developmentInput: { ready: true, onDrive() { }, onTurn() { }, onInterrupt() { } } });
+  assert.equal(screen.pair.disabled, true);
+  screen.background('active'); assert.equal(screen.pair.disabled, false); screen.unmount();
 });
 
 test('pair cancellation interrupts the session before visual reset', () => {
-  let interrupts=0;
-  const screen=mount({developmentInput:{ready:true,onDrive(){},onTurn(){},onInterrupt(){interrupts++;}}});
-  const reset=screen.pair.resetKey;
-  screen.pair.onCancel();assert.equal(interrupts,1);screen.render();assert.ok(screen.pair.resetKey>reset);screen.unmount();
+  let interrupts = 0;
+  const screen = mount({ developmentInput: { ready: true, onDrive() { }, onTurn() { }, onInterrupt() { interrupts++; } } });
+  const reset = screen.pair.resetKey;
+  screen.pair.onCancel(); assert.equal(interrupts, 1); screen.render(); assert.ok(screen.pair.resetKey > reset); screen.unmount();
 });
 
 test('surface cancellation interrupts even when Android routes cancel to the scroll ancestor', () => {
-  let interrupts=0;
-  const screen=mount({developmentInput:{ready:true,onDrive(){},onTurn(){},onInterrupt(){interrupts++;}}});
-  screen.find('control-surface').props.onTouchCancel();assert.equal(interrupts,1);screen.unmount();
+  let interrupts = 0;
+  const screen = mount({ developmentInput: { ready: true, onDrive() { }, onTurn() { }, onInterrupt() { interrupts++; } } });
+  screen.find('control-surface').props.onTouchCancel(); assert.equal(interrupts, 1); screen.unmount();
 });
 
 test('only the development wrapper owns vertical insets; standalone and production retain all safe-area edges', () => {
-  const input={ready:true,onDrive(){},onTurn(){},onInterrupt(){}};
-  for(const options of [{},{dev:false,developmentInput:input},{developmentInput:input}]) {
-    const screen=mount(options);
-    assert.deepEqual([...screen.safeArea.edges],options.developmentInput&&options.dev!==false ? ['left','right'] : ['top','left','right','bottom']);
+  const input = { ready: true, onDrive() { }, onTurn() { }, onInterrupt() { } };
+  for (const options of [{}, { dev: false, developmentInput: input }, { developmentInput: input }]) {
+    const screen = mount(options);
+    assert.deepEqual([...screen.safeArea.edges], options.developmentInput && options.dev !== false ? ['left', 'right'] : ['top', 'left', 'right', 'bottom']);
     screen.unmount();
   }
 });
 
 test('joystick layout is editable offline, persists per side and orientation, and resets only that orientation', async () => {
   const saved = [];
-  const screen = mount({ dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
-    layoutSave: async value => { saved.push(JSON.parse(JSON.stringify(value))); } });
+  const screen = mount({
+    dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
+    layoutSave: async value => { saved.push(JSON.parse(JSON.stringify(value))); }
+  });
   await screen.settle();
   const original = JSON.parse(JSON.stringify(screen.pair.layout));
   openSettings(screen, 'control-open-joystick-layout'); screen.render();
@@ -1656,9 +1802,11 @@ test('opening layout editing synchronously cancels input and rejects an old touc
 
 test('slider previews update the layout without storage or motion, then commit once on release', async () => {
   const saved = []; let sent = 0;
-  const screen = mount({ dev: false, ...capableProps(), connected: true, dimensions: { width: 1100, height: 600, fontScale: 1 },
-    productionInput: { ready: true, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() {} },
-    layoutSave: async value => { saved.push(JSON.parse(JSON.stringify(value))); } });
+  const screen = mount({
+    dev: false, ...capableProps(), connected: true, dimensions: { width: 1100, height: 600, fontScale: 1 },
+    productionInput: { ready: true, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() { } },
+    layoutSave: async value => { saved.push(JSON.parse(JSON.stringify(value))); }
+  });
   await screen.settle();
   const oldSample = screen.pair.left.onSample;
   openSettings(screen, 'control-open-joystick-layout'); screen.render();
@@ -1678,8 +1826,10 @@ test('slider previews update the layout without storage or motion, then commit o
 
 test('shared header closes the layout editor and flushes its preview without leaving control', async () => {
   const saved = [];
-  const screen = mount({ dev: false, dimensions: { width: 1000, height: 600, fontScale: 1 },
-    layoutSave: async value => { saved.push(JSON.parse(JSON.stringify(value))); } });
+  const screen = mount({
+    dev: false, dimensions: { width: 1000, height: 600, fontScale: 1 },
+    layoutSave: async value => { saved.push(JSON.parse(JSON.stringify(value))); }
+  });
   await screen.settle(); openSettings(screen, 'control-open-joystick-layout'); screen.render();
   screen.joystickSettings.onPreview('left', { sizeScale: 1.2 }); screen.render();
   screen.find('control-back').props.onPress(); await screen.settle();
@@ -1691,8 +1841,10 @@ test('shared header closes the layout editor and flushes its preview without lea
 test('workspace Back closes control settings without leaving and saves a pending layout edit', async () => {
   const dismissWorkspaceOverlayRef = { current: null };
   const saved = [];
-  const screen = mount({ dev: false, dimensions: { width: 1000, height: 600, fontScale: 1 }, dismissWorkspaceOverlayRef,
-    layoutSave: async value => { saved.push(value.landscape.left.sizeScale); } });
+  const screen = mount({
+    dev: false, dimensions: { width: 1000, height: 600, fontScale: 1 }, dismissWorkspaceOverlayRef,
+    layoutSave: async value => { saved.push(value.landscape.left.sizeScale); }
+  });
   await screen.settle();
   assert.equal(dismissWorkspaceOverlayRef.current(), false);
   screen.find('control-open-more').props.onPress(); screen.render();
@@ -1714,8 +1866,10 @@ test('workspace Back closes control settings without leaving and saves a pending
 
 test('closing flushes the latest slider preview and rejects late editor callbacks', async () => {
   const saved = [];
-  const screen = mount({ dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
-    layoutSave: async value => { saved.push(JSON.parse(JSON.stringify(value))); } });
+  const screen = mount({
+    dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
+    layoutSave: async value => { saved.push(JSON.parse(JSON.stringify(value))); }
+  });
   await screen.settle();
   openSettings(screen, 'control-open-joystick-layout'); screen.render();
   const oldEditor = screen.joystickSettings;
@@ -1734,8 +1888,10 @@ test('closing flushes the latest slider preview and rejects late editor callback
 
 test('reset retires slider callbacks before they can overwrite the defaults', async () => {
   const saved = [];
-  const screen = mount({ dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
-    layoutSave: async value => { saved.push(JSON.parse(JSON.stringify(value))); } });
+  const screen = mount({
+    dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
+    layoutSave: async value => { saved.push(JSON.parse(JSON.stringify(value))); }
+  });
   await screen.settle();
   openSettings(screen, 'control-open-joystick-layout'); screen.render();
   const heldEditor = screen.joystickSettings;
@@ -1756,8 +1912,10 @@ test('reset retires slider callbacks before they can overwrite the defaults', as
 
 test('layout editing blocks physical frames and keys and requires neutral after closing', () => {
   const hardware = physicalFixture(); let sent = 0, interrupted = 0;
-  const screen = mount({ dev: false, ...capableProps(), g20Controller: hardware.controller, inputSource: 'physical',
-    productionInput: { ready: true, onDrive() {}, onTurn() {}, onSticks() { sent++; }, onInterrupt() { interrupted++; } } });
+  const screen = mount({
+    dev: false, ...capableProps(), g20Controller: hardware.controller, inputSource: 'physical',
+    productionInput: { ready: true, onDrive() { }, onTurn() { }, onSticks() { sent++; }, onInterrupt() { interrupted++; } }
+  });
   hardware.sample(); hardware.sample({ moving: true }); assert.equal(sent, 1);
   openSettings(screen, 'control-open-joystick-layout');
   hardware.sample({ moving: true, pressed: ['stand'] }); assert.equal(sent, 1);
@@ -1794,14 +1952,16 @@ test('layout save failure stays visible and a retry preserves the edited value',
 });
 
 test('landscape removes the crossed policy row and only shows actionable feedback', () => {
-  const screen = mount({ dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
-    controlSession: { label: '未连接', canAcquire: false, leaseActive: false, busy: false, onAcquire() {}, onRelease() {} } });
+  const screen = mount({
+    dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
+    controlSession: { label: '未连接', canAcquire: false, leaseActive: false, busy: false, onAcquire() { }, onRelease() { } }
+  });
   assert.equal(screen.find('control-policy-strip'), undefined);
   assert.equal(screen.find('control-action-switchPolicy'), undefined);
   assert.equal(screen.find('control-terrain-mode'), undefined);
   assert.equal(screen.find('control-operation-feedback'), undefined);
   assert.doesNotMatch(screen.copy, /策略未同步|控制链未连接/);
-  screen.render({ controlSession: { label: '未连接', error: '停止请求未确认', canAcquire: false, leaseActive: false, busy: false, onAcquire() {}, onRelease() {} } });
+  screen.render({ controlSession: { label: '未连接', error: '停止请求未确认', canAcquire: false, leaseActive: false, busy: false, onAcquire() { }, onRelease() { } } });
   assert.ok(screen.find('control-operation-feedback'));
   assert.match(screen.copy, /停止请求未确认/);
   screen.unmount();
@@ -1822,10 +1982,12 @@ test('portrait bottom placement reserves the complete scaled label below the dis
 
 test('one motor switch follows observed state through confirmation, ACK and the reverse action', async () => {
   let enables = 0, disables = 0;
-  const screen = mount({ dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
+  const screen = mount({
+    dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
     runtimeState: { controlLink: 'connected', motorState: 'disabled' },
     operationReadiness: { enableMotor: { ready: true }, disableMotor: { ready: true } },
-    operationCallbacks: { enableMotor: async () => { enables++; }, disableMotor: async () => { disables++; } } });
+    operationCallbacks: { enableMotor: async () => { enables++; }, disableMotor: async () => { disables++; } }
+  });
   assert.equal(screen.find('control-action-enableMotor'), undefined);
   assert.equal(screen.find('control-action-disableMotor'), undefined);
   const original = motorToggle(screen);
@@ -1862,20 +2024,32 @@ test('one motor switch follows observed state through confirmation, ACK and the 
 test('motor feedback preserves the measured stick area while a real session waits for its status read', async () => {
   let enabled = false, finishRead, screen;
   const calls = [];
-  const reply = () => ({ transport: 'grpc-lan', leaseActive: false, principalVerified: false, leaseOwnerMatched: false,
-    status: { fsmKind: 'grounded', transition: 'none', motorOutputEnabled: enabled, owner: 'none',
-      criticalMotorFault: false, grpcLeaseActive: false, readyForWalk: false } });
+  const reply = () => ({
+    transport: 'grpc-lan', leaseActive: false, principalVerified: false, leaseOwnerMatched: false,
+    status: {
+      fsmKind: 'grounded', transition: 'none', motorOutputEnabled: enabled, owner: 'none',
+      criticalMotorFault: false, grpcLeaseActive: false, readyForWalk: false
+    }
+  });
   const session = new BrainstemControlSession({
-    async open() { return { ...reply(), sessionId: 'motor-layout', mutualTlsVerified: false, clientIdentitySelected: false,
-      profile: { current: 'flat', available: ['flat'], descriptions: [], currentDescription: '' } }; },
+    async open() {
+      return {
+        ...reply(), sessionId: 'motor-layout', mutualTlsVerified: false, clientIdentitySelected: false,
+        profile: { current: 'flat', available: ['flat'], descriptions: [], currentDescription: '' }
+      };
+    },
     async read() { return new Promise(resolve => { finishRead = () => resolve(reply()); }); },
     async action(_id, action) { calls.push(action); enabled = true; return reply(); },
-    async interrupt() { calls.push('interrupt'); return reply(); }, async close() {},
+    async interrupt() { calls.push('interrupt'); return reply(); }, async close() { },
   });
   const callbacks = { enableMotor: () => session.action('enable') };
-  const props = () => ({ runtimeState: session.runtimeState, operationReadiness: session.operationReadiness,
-    operationCallbacks: callbacks, productionInput: { ready: false, onDrive() {}, onTurn() {},
-      onInterrupt: () => { void session.interrupt().catch(() => undefined); } } });
+  const props = () => ({
+    runtimeState: session.runtimeState, operationReadiness: session.operationReadiness,
+    operationCallbacks: callbacks, productionInput: {
+      ready: false, onDrive() { }, onTurn() { },
+      onInterrupt: () => { void session.interrupt().catch(() => undefined); }
+    }
+  });
   const unsubscribe = session.subscribe(() => queueMicrotask(() => { if (screen) screen.render(props()); }));
   const reportStickArea = () => {
     const node = screen.find('control-immersive-sticks');
@@ -1909,9 +2083,11 @@ test('motor feedback preserves the measured stick area while a real session wait
 
 test('motor switch remains unknown for missing/disconnected state and respects the target permission', () => {
   let actions = 0;
-  const screen = mount({ dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
+  const screen = mount({
+    dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
     operationReadiness: { enableMotor: { ready: true }, disableMotor: { ready: true } },
-    operationCallbacks: { enableMotor() { actions++; }, disableMotor() { actions++; } } });
+    operationCallbacks: { enableMotor() { actions++; }, disableMotor() { actions++; } }
+  });
   for (const runtimeState of [undefined, { controlLink: 'connected', motorState: 'unknown' }, { controlLink: 'disconnected', motorState: 'enabled' }]) {
     screen.render({ runtimeState });
     const toggle = motorToggle(screen);
@@ -1919,8 +2095,10 @@ test('motor switch remains unknown for missing/disconnected state and respects t
     assert.equal(toggle.props.accessibilityValue.text, '状态未知'); toggle.props.onPress();
   }
   assert.equal(actions, 0);
-  screen.render({ runtimeState: { controlLink: 'connected', motorState: 'enabled' },
-    operationReadiness: { enableMotor: { ready: true }, disableMotor: { ready: false, blockedReason: '执行器未就绪' } } });
+  screen.render({
+    runtimeState: { controlLink: 'connected', motorState: 'enabled' },
+    operationReadiness: { enableMotor: { ready: true }, disableMotor: { ready: false, blockedReason: '执行器未就绪' } }
+  });
   const toggle = motorToggle(screen);
   assert.equal(toggle.props.disabled, true); assert.equal(toggle.props.accessibilityState.checked, true);
   toggle.props.onPress(); assert.equal(actions, 0, 'enabled state cannot bypass disable readiness');
@@ -1929,10 +2107,12 @@ test('motor switch remains unknown for missing/disconnected state and respects t
 
 test('observed motor change cancels an open confirmation without dispatching the opposite action', () => {
   let actions = 0;
-  const screen = mount({ dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
+  const screen = mount({
+    dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
     runtimeState: { controlLink: 'connected', motorState: 'disabled' },
     operationReadiness: { enableMotor: { ready: true }, disableMotor: { ready: true } },
-    operationCallbacks: { enableMotor() { actions++; }, disableMotor() { actions++; } } });
+    operationCallbacks: { enableMotor() { actions++; }, disableMotor() { actions++; } }
+  });
   motorToggle(screen).props.onPress(); screen.render();
   const previousConfirm = screen.find('control-immersive-confirm').props.onPress;
   screen.render({ runtimeState: { controlLink: 'connected', motorState: 'enabled' } });
@@ -1943,10 +2123,12 @@ test('observed motor change cancels an open confirmation without dispatching the
 });
 
 test('a rejected motor operation keeps observed off and exposes failure after removing the policy strip', async () => {
-  const screen = mount({ dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
+  const screen = mount({
+    dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
     runtimeState: { controlLink: 'connected', motorState: 'disabled' },
     operationReadiness: { enableMotor: { ready: true } },
-    operationCallbacks: { enableMotor: async () => { throw Error('fixture denied'); } } });
+    operationCallbacks: { enableMotor: async () => { throw Error('fixture denied'); } }
+  });
   motorToggle(screen).props.onPress(); screen.render();
   screen.find('control-immersive-confirm').props.onPress(); await screen.settle();
   assert.equal(screen.find('control-policy-strip'), undefined);
@@ -1959,10 +2141,12 @@ test('a rejected motor operation keeps observed off and exposes failure after re
 
 test('explicit motor refusals show fixed rejection copy without exposing server text', async () => {
   for (const [code, message] of [['precondition', '机器人当前状态不允许此操作。'], ['unimplemented', '机器人服务未开放此操作。']]) {
-    const screen = mount({ dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
+    const screen = mount({
+      dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
       runtimeState: { controlLink: 'connected', motorState: 'disabled' },
       operationReadiness: { enableMotor: { ready: true } },
-      operationCallbacks: { enableMotor: async () => { throw { code, message: 'private server details' }; } } });
+      operationCallbacks: { enableMotor: async () => { throw { code, message: 'private server details' }; } }
+    });
     motorToggle(screen).props.onPress(); screen.render();
     screen.find('control-immersive-confirm').props.onPress(); await screen.settle();
     assert.equal(motorToggle(screen).props.accessibilityState.checked, false);
@@ -1973,10 +2157,12 @@ test('explicit motor refusals show fixed rejection copy without exposing server 
 });
 
 test('other motor errors keep generic failure copy even when their text claims a business refusal', async () => {
-  const screen = mount({ dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
+  const screen = mount({
+    dev: false, dimensions: { width: 1100, height: 600, fontScale: 1 },
     runtimeState: { controlLink: 'connected', motorState: 'disabled' },
     operationReadiness: { enableMotor: { ready: true } },
-    operationCallbacks: { enableMotor: async () => { throw { code: 'unavailable', message: '机器人当前状态不允许此操作。 private server details' }; } } });
+    operationCallbacks: { enableMotor: async () => { throw { code: 'unavailable', message: '机器人当前状态不允许此操作。 private server details' }; } }
+  });
   motorToggle(screen).props.onPress(); screen.render();
   screen.find('control-immersive-confirm').props.onPress(); await screen.settle();
   assert.match(screen.copy, /未能确认操作结果/);
@@ -1987,10 +2173,12 @@ test('other motor errors keep generic failure copy even when their text claims a
 test('a late business refusal cannot overwrite the result of a replacement target', async () => {
   let reject;
   let calls = 0;
-  const screen = mount({ dev: false, operationTargetKey: 'robot-a',
+  const screen = mount({
+    dev: false, operationTargetKey: 'robot-a',
     runtimeState: { controlLink: 'connected', posture: 'standing' },
     operationReadiness: { sit: { ready: true } },
-    operationCallbacks: { sit: () => ++calls === 1 ? new Promise((_, fail) => { reject = fail; }) : Promise.resolve() } });
+    operationCallbacks: { sit: () => ++calls === 1 ? new Promise((_, fail) => { reject = fail; }) : Promise.resolve() }
+  });
   screen.find('control-action-sit').props.onPress(); screen.render();
   screen.render({ operationTargetKey: 'robot-b' });
   screen.find('control-action-sit').props.onPress(); await screen.settle();
@@ -2004,10 +2192,14 @@ test('video HUD forwards the actual media surface without granting motion or inv
   let sent = 0, acquired = 0, interrupted = 0;
   const video = { phase: 'connecting', id: 'fixture-camera' };
   const videoSurface = { type: 'FixtureVideo', props: {} };
-  const screen = mount({ dev: false, dimensions: { width: 753, height: 471, fontScale: 1 }, video, videoSurface,
+  const screen = mount({
+    dev: false, dimensions: { width: 753, height: 471, fontScale: 1 }, video, videoSurface,
     productionInput: { ready: false, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() { interrupted++; } },
-    controlSession: { label: '未连接', canAcquire: false, leaseActive: false, busy: false,
-      onAcquire() { acquired++; }, onRelease() {} } });
+    controlSession: {
+      label: '未连接', canAcquire: false, leaseActive: false, busy: false,
+      onAcquire() { acquired++; }, onRelease() { }
+    }
+  });
   assert.ok(screen.videoStage);
   assert.equal(screen.videoStage.presentation, video);
   assert.equal(screen.videoStage.surface, videoSurface);
@@ -2056,9 +2248,11 @@ test('compact landscape keeps the stop visible and moves lease management into s
     screen.unmount();
   }
   const hardware = physicalFixture();
-  const screen = mount({ dev: false, dimensions: { width: 753, height: 471, fontScale: 1 },
+  const screen = mount({
+    dev: false, dimensions: { width: 753, height: 471, fontScale: 1 },
     inputSource: 'physical', g20Controller: hardware.controller,
-    controlSession: { label: '未连接', canAcquire: false, leaseActive: false, busy: false, onAcquire() {}, onRelease() {} } });
+    controlSession: { label: '未连接', canAcquire: false, leaseActive: false, busy: false, onAcquire() { }, onRelease() { } }
+  });
   screen.find('control-open-more').props.onPress(); screen.render();
   screen.find('control-settings-tab-网络').props.onPress(); screen.render();
   assert.ok(screen.find('control-lease'));
@@ -2068,9 +2262,11 @@ test('compact landscape keeps the stop visible and moves lease management into s
 
 test('video HUD loss retires the old touch context and recovery does not replay it', () => {
   let sent = 0;
-  const screen = mount({ dev: false, dimensions: { width: 1250, height: 650, fontScale: 1 },
+  const screen = mount({
+    dev: false, dimensions: { width: 1250, height: 650, fontScale: 1 },
     ...capableProps(), connected: true, video: { phase: 'receiving', id: 'fixture-camera' },
-    productionInput: { ready: true, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() {} } });
+    productionInput: { ready: true, onDrive() { sent++; }, onTurn() { sent++; }, onInterrupt() { } }
+  });
   const held = screen.pair.left.onSample;
   held({ x: .2, y: -.2 }); assert.equal(sent, 1);
   screen.videoStage.onInterrupted();
@@ -2102,17 +2298,21 @@ test('video HUD keeps an offline connection entry and three unknown metrics at n
 });
 
 test('video HUD omits speed and keeps only identified signal and battery sources', () => {
-  const screen = mount({ dev: false, dimensions: { width: 1250, height: 650, fontScale: 1 },
+  const screen = mount({
+    dev: false, dimensions: { width: 1250, height: 650, fontScale: 1 },
     runtimeState: {
       speed: { linearMps: .8, lateralMps: 0, yawRps: 0, source: 'command' },
       signal: { qualityPercent: 78, source: 'unknown' }, battery: { percent: null, voltageV: 48.1, source: 'unknown' },
-    } });
+    }
+  });
   assert.equal(screen.find('control-telemetry-speed'), undefined);
   assert.doesNotMatch(screen.copy, /78%|48\.1\s*V/);
-  screen.render({ runtimeState: {
-    speed: { linearMps: .2, lateralMps: 0, yawRps: 0, source: 'device' },
-    signal: { qualityPercent: 71, source: 'controller' }, battery: { percent: null, voltageV: 48.1, source: 'device' },
-  } });
+  screen.render({
+    runtimeState: {
+      speed: { linearMps: .2, lateralMps: 0, yawRps: 0, source: 'device' },
+      signal: { qualityPercent: 71, source: 'controller' }, battery: { percent: null, voltageV: 48.1, source: 'device' },
+    }
+  });
   assert.equal(screen.find('control-telemetry-speed'), undefined);
   assert.match(screen.find('control-telemetry-signal').props.accessibilityLabel, /71%/); assert.doesNotMatch(screen.copy, /48\.1\s*V/);
   assert.equal(screen.pair.left.onSample, undefined, 'receiving telemetry is not an actuator permission');
@@ -2121,9 +2321,11 @@ test('video HUD omits speed and keeps only identified signal and battery sources
 
 test('touch starts permission from a new press and stops only after both discs release', () => {
   let begins = 0, stops = 0;
-  const screen = mount({ dev: false, connected: true, canUseManualControl: false,
-    productionInput: { ready: false, touchReady: true, onTouchBegin() { begins++; }, onDrive() {}, onTurn() {}, onInterrupt() { stops++; } },
-    controlSession: { canAcquire: true, leaseActive: false, busy: false, onAcquire() {}, onRelease() {} } });
+  const screen = mount({
+    dev: false, connected: true, canUseManualControl: false,
+    productionInput: { ready: false, touchReady: true, onTouchBegin() { begins++; }, onDrive() { }, onTurn() { }, onInterrupt() { stops++; } },
+    controlSession: { canAcquire: true, leaseActive: false, busy: false, onAcquire() { }, onRelease() { } }
+  });
   assert.equal(screen.pair.disabled, false);
   assert.doesNotMatch(screen.copy, /启用控制/);
   const before = stops;
@@ -2141,7 +2343,7 @@ test('touch starts permission from a new press and stops only after both discs r
 
 test('touch release uses the neutral callback and blocked posture has a visible reason', () => {
   let ends = 0;
-  const input = { ready: false, touchReady: true, onTouchBegin() {}, onTouchEnd() { ends++; }, onDrive() {}, onTurn() {}, onInterrupt() {} };
+  const input = { ready: false, touchReady: true, onTouchBegin() { }, onTouchEnd() { ends++; }, onDrive() { }, onTurn() { }, onInterrupt() { } };
   const screen = mount({ dev: false, connected: true, canUseManualControl: false, productionInput: input });
   screen.pair.left.onActiveChange(true); screen.render();
   screen.pair.left.onActiveChange(false); screen.render();
@@ -2189,12 +2391,13 @@ test('receiving landscape video renders G20 HUD controls and confirms eligible t
     },
   };
   const policies = [];
-  const screen = mount({ landscapeDocksExpanded: true,
+  const screen = mount({
+    landscapeDocksExpanded: true,
     dev: true, dimensions: { width: 844, height: 390, fontScale: 1 }, allowInteractionPreview: true,
     connected: true, batteryPercent: 80, safetyLock: false,
     runtimeState: terrainRuntime,
     operationReadiness: { stand: { ready: true }, sit: { ready: true }, stop: { ready: true }, switchPolicy: { ready: true } },
-    operationCallbacks: { stand() {}, sit() {}, stop() {}, switchPolicy(id) { policies.push(id); } },
+    operationCallbacks: { stand() { }, sit() { }, stop() { }, switchPolicy(id) { policies.push(id); } },
   });
   const flat = style => Object.assign({}, ...(Array.isArray(style) ? style : [style]));
   const officialSize = Math.min(240, Math.floor(Math.min(844 * .18, 390 * .30) / 1.42));
@@ -2322,7 +2525,8 @@ test('landscape settings stay open when the hidden joystick frame reports a new 
 test('connected landscape stand, sit, and stop call the live operation callbacks', async () => {
   const calls = [];
   const runtime = { controlLink: 'connected', controlAuthority: 'held', motorState: 'enabled', posture: 'sitting' };
-  const screen = mount({ landscapeDocksExpanded: true,
+  const screen = mount({
+    landscapeDocksExpanded: true,
     dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, connected: true,
     runtimeState: runtime,
     operationReadiness: {
@@ -2369,7 +2573,8 @@ test('connected landscape stand, sit, and stop call the live operation callbacks
 test('landscape emergency stop still sends while a posture command is in flight', async () => {
   const calls = [];
   let finishSit;
-  const screen = mount({ landscapeDocksExpanded: true,
+  const screen = mount({
+    landscapeDocksExpanded: true,
     dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, connected: true,
     runtimeState: { controlLink: 'connected', controlAuthority: 'held', motorState: 'enabled', posture: 'standing' },
     operationReadiness: { sit: { ready: true }, stop: { ready: true } },
@@ -2421,7 +2626,7 @@ test('one confirmed press enters recovery and a stable stand returns through Exi
   const screen = mount({
     dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, connected: true,
     runtimeState: standing,
-    operationCallbacks: { stand() {}, sit() {}, stop() {}, switchPolicy(id) { policies.push(id); } },
+    operationCallbacks: { stand() { }, sit() { }, stop() { }, switchPolicy(id) { policies.push(id); } },
     recovery,
   });
   assert.deepEqual(commands, [], 'opening the control screen must not enter recovery');
@@ -2476,7 +2681,8 @@ test('one confirmed press enters recovery and a stable stand returns through Exi
 
 test('portrait recovery offers one button and does not open when the channel is absent', () => {
   const standing = { controlLink: 'connected', controlAuthority: 'held', posture: 'sitting', motorState: 'disabled', speed: { linearMps: 0, lateralMps: 0, yawRps: 0, source: 'device' } };
-  const screen = mount({ landscapeDocksExpanded: true,
+  const screen = mount({
+    landscapeDocksExpanded: true,
     dev: false, connected: true, runtimeState: standing,
     recovery: { status: recoveryStatus(), profile: recoveryProfile, onCommand: async () => { throw new Error('未确认，不应调用'); } },
   });
@@ -2554,7 +2760,7 @@ test('HUD speed limiter scales manual drive and turn proportionally and L1 toggl
       onDrive(value) { sent.push(['drive', value]); },
       onTurn(value) { sent.push(['turn', value]); },
       onSticks(drive, turn) { sent.push(['sticks', drive, turn]); },
-      onInterrupt() {},
+      onInterrupt() { },
     },
   });
 
@@ -2833,5 +3039,97 @@ test('landscape HUD capture and recording fail closed without receiving stream a
   await screen.settle();
   assert.deepEqual(stopEvents, ['DOSO_REC_test_1_front.mp4', 'DOSO_REC_test_2_rear.mp4']);
   assert.equal(screen.find('control-hud-recording-badge'), undefined);
+  screen.unmount();
+});
+
+test('landscape and settings gesture decks group 35 gestures, toggle single-instance GIF preview, and guard standing-only execution', async () => {
+  const gestureIndex = JSON.parse(readFileSync(new URL('../gesture/index.json', import.meta.url), 'utf8'));
+  const catalog = gestureIndex.gestures.map(item => ({
+    name: item.name,
+    description: item.description,
+    durationMs: item.duration_ms,
+  }));
+  assert.equal(catalog.length, 35);
+
+  const played = [];
+  const screen = mount({
+    landscapeDocksExpanded: true,
+    dev: false,
+    dimensions: { width: 844, height: 390, fontScale: 1 },
+    video: { id: 'sim-front', phase: 'receiving' },
+    videoSurface: 'plate',
+    connected: true,
+    runtimeState: { controlLink: 'connected', controlAuthority: 'not-held', posture: 'sitting', motorState: 'enabled' },
+    onListGestures: async () => catalog,
+    operationReadiness: {
+      playGesture: { ready: false, blockedReason: '请先站立' },
+      stop: { ready: true },
+    },
+    operationCallbacks: {
+      playGesture: async name => { played.push(name); },
+      stop: async () => {},
+    },
+  });
+  await screen.settle();
+
+  selectLeftCategory(screen, 'action');
+  assert.ok(screen.find('control-hud-gesture-deck'));
+  assert.ok(screen.find('control-hud-gesture-cat-all'));
+  assert.ok(screen.find('control-hud-gesture-cat-social'));
+  assert.ok(screen.find('control-hud-gesture-cat-observe'));
+  assert.ok(screen.find('control-hud-gesture-cat-rhythm'));
+  assert.ok(screen.find('control-hud-gesture-cat-stage'));
+
+  // Only one preview Image is mounted in the inspector at any time.
+  assert.ok(screen.find('control-hud-gesture-preview-image'));
+  assert.equal(screen.find('control-hud-gesture-execute').props.disabled, true, 'grounded/non-standing blocks execution');
+  assert.match(screen.copy, /请先站立/);
+
+  // Filter to social category and select flip_play_bow (16.0s).
+  screen.find('control-hud-gesture-cat-social').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-hud-gesture-flip_play_bow'));
+  assert.equal(screen.find('control-hud-gesture-stand_idle'), undefined);
+  screen.find('control-hud-gesture-flip_play_bow').props.onPress();
+  screen.render();
+  assert.deepEqual(played, [], 'selecting a gesture previews it without accidental execution');
+  assert.deepEqual(screen.find('control-hud-gesture-preview-image').props.source, { uri: 'asset://gestures/flip_play_bow.gif' });
+  assert.match(screen.copy, /16\.0s/);
+
+  // Toggle GIF preview off and back on.
+  screen.find('control-hud-gesture-gif-toggle').props.onPress();
+  screen.render();
+  assert.equal(screen.find('control-hud-gesture-preview-image'), undefined);
+  screen.find('control-hud-gesture-gif-toggle').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-hud-gesture-preview-image'));
+
+  // Transition robot to Standing -> execute dispatches PlayGesture('flip_play_bow').
+  screen.render({
+    runtimeState: { controlLink: 'connected', controlAuthority: 'not-held', posture: 'standing', motorState: 'enabled' },
+    operationReadiness: {
+      playGesture: { ready: true },
+      stop: { ready: true },
+    },
+  });
+  assert.equal(screen.find('control-hud-gesture-execute').props.disabled, false);
+  screen.find('control-hud-gesture-execute').props.onPress();
+  await screen.settle();
+  assert.deepEqual(played, ['flip_play_bow']);
+
+  // Settings -> 机器人 tab shares the same categorized deck and executes cleanly.
+  screen.find('control-hud-settings').props.onPress();
+  screen.render();
+  screen.find('control-settings-tab-机器人').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-settings-gesture-list'));
+  assert.ok(screen.find('control-settings-gesture-preview-image'));
+  screen.find('control-settings-gesture-cat-stage').props.onPress();
+  screen.render();
+  screen.find('control-settings-gesture-dance').props.onPress();
+  screen.render();
+  screen.find('control-settings-gesture-execute').props.onPress();
+  await screen.settle();
+  assert.deepEqual(played, ['flip_play_bow', 'dance']);
   screen.unmount();
 });

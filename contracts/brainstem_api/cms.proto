@@ -250,6 +250,7 @@ enum RobotModeKind {
   ROBOT_MODE_KIND_UNKNOWN = 0;
   ROBOT_MODE_KIND_LOCOMOTION_PROFILE = 1;
   ROBOT_MODE_KIND_RECOVERY_ACTION = 2;
+  ROBOT_MODE_KIND_BODY_HEIGHT = 3;
 }
 
 // mode_capabilities 的可用性。这是枚举，不是布尔值。

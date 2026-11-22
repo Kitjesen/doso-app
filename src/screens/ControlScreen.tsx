@@ -4,7 +4,8 @@ import { type ControlMediaCaptureAdapter } from '../features/video/controlMediaM
 import { useControlMediaCapture } from '../features/video/useControlMediaCapture';
 import { beginRobotRecovery, presentRobotRecovery, type RobotRecoveryCommand, type RobotRecoveryOperatorAction, type RobotRecoveryStatus } from '../features/control/robotRecovery';
 import { controlLandscapeHud } from '../components/controlLandscapeHud';
-import { clampSpeedLimitPercent, scaleControlVector, type HudCameraPosition, type HudForwardDirection, type HudHeadlightMode, type HudJointModuleKind, type HudLeftCategory, type HudLegId } from '../components/controlHudModel';
+import { GestureDeckPanel } from '../components/ControlHudPanels';
+import { clampSpeedLimitPercent, scaleControlVector, type HudCameraPosition, type HudForwardDirection, type HudGestureCategoryId, type HudGestureInput, type HudHeadlightMode, type HudJointModuleKind, type HudLeftCategory, type HudLegId } from '../components/controlHudModel';
 import { RobotRecoveryControls } from '../components/RobotRecoveryControls';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -239,13 +240,22 @@ export function ControlScreen({
   const effectiveRearRotation = rearVideoRotation;
   const [forwardDirection] = useState<HudForwardDirection>('front');
   const [selectedBasicAction, setSelectedBasicAction] = useState('walk');
-  const [robotGestures, setRobotGestures] = useState<readonly Readonly<{ name: string; label: string }>[]>([]);
+  const [robotGestures, setRobotGestures] = useState<readonly HudGestureInput[]>([]);
+  const [gestureCategory, setGestureCategory] = useState<HudGestureCategoryId>('all');
+  const [selectedGestureName, setSelectedGestureName] = useState<string | null>(null);
+  const [gestureGifPreview, setGestureGifPreview] = useState(true);
   const gestureLinkReady = runtimeState?.controlLink === 'connected' && typeof onListGestures === 'function';
   useEffect(() => {
     if (!gestureLinkReady || !onListGestures) { setRobotGestures([]); return; }
     let cancelled = false;
     onListGestures().then(list => {
-      if (!cancelled) setRobotGestures(list.map(item => ({ name: item.name, label: item.description || item.name })));
+      if (!cancelled) {
+        setRobotGestures(list.map(item => ({
+          name: item.name,
+          label: item.description || item.name,
+          durationMs: item.durationMs,
+        })));
+      }
     }).catch(() => { if (!cancelled) setRobotGestures([]); });
     return () => { cancelled = true; };
   }, [gestureLinkReady, onListGestures]);
@@ -1394,6 +1404,12 @@ export function ControlScreen({
       onLeftCategoryChange: setLeftCategory,
       selectedBasicAction,
       gestures: robotGestures,
+      gestureCategory,
+      onGestureCategoryChange: setGestureCategory,
+      selectedGestureName,
+      onSelectGesture: setSelectedGestureName,
+      gestureGifPreview,
+      onToggleGestureGifPreview: () => setGestureGifPreview(prev => !prev),
       gestureDisabled: !gestureReadiness.ready,
       gestureHint: gestureReadiness.blockedReason,
       onPlayGesture: name => runOperation('playGesture', renderGeneration, name),
@@ -1477,6 +1493,12 @@ export function ControlScreen({
         policies: hudPolicies,
         onSelectPolicy: id => { closeSettingsMenu(); handleSelectHudPolicy(id); },
         gestures: robotGestures,
+        gestureCategory,
+        onGestureCategoryChange: setGestureCategory,
+        selectedGestureName,
+        onSelectGesture: setSelectedGestureName,
+        gestureGifPreview,
+        onToggleGestureGifPreview: () => setGestureGifPreview(prev => !prev),
         gestureReady: gestureReadiness.ready,
         gestureHint: gestureReadiness.blockedReason,
         onPlayGesture: name => runFromSettings('playGesture', name),
@@ -1850,6 +1872,24 @@ export function ControlScreen({
                       })}
                     </View>
                   </View>)}
+                  {!layout.useColumns && robotGestures.length > 0 ? (
+                    <View style={[styles.operationGroup, { width: layout.operationGroupWidth, backgroundColor: appearance.surface }]} testID="control-portrait-gesture-group">
+                      <Text accessibilityRole="header" style={[styles.label, { color: colors.ink }]}>{`预设动作 (${robotGestures.length})`}</Text>
+                      {GestureDeckPanel({
+                        gestures: robotGestures,
+                        category: gestureCategory,
+                        onSelectCategory: setGestureCategory,
+                        selectedGestureName,
+                        onSelectGesture: setSelectedGestureName,
+                        showGifPreview: gestureGifPreview,
+                        onToggleGifPreview: () => setGestureGifPreview(prev => !prev),
+                        gestureDisabled: !gestureReadiness.ready,
+                        gestureHint: gestureReadiness.blockedReason,
+                        onPlayGesture: name => runOperation('playGesture', renderGeneration, name),
+                        variant: 'settings',
+                      })}
+                    </View>
+                  ) : null}
                 </View>
                 {layout.useColumns ? <Pressable accessibilityRole="button" accessibilityLabel={secondaryActionsExpanded ? '收起附加动作' : '展开附加动作'} onPress={() => setSecondaryActionsExpanded(value => !value)} style={[styles.secondaryActionsToggle, { backgroundColor: appearance.surface }]} testID="control-secondary-actions-toggle">
                   <Text style={[styles.caption, { color: appearance.blueInk }]}>{secondaryActionsExpanded ? '收起附加动作' : '更多动作（电机与策略）'}</Text>

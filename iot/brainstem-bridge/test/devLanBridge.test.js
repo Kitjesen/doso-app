@@ -180,13 +180,17 @@ test('devLanBridge drives full read, control, 50Hz walk, concurrent telemetry, I
     // 5. Gestures, zero calibration and fault clearing
     const gestureList = await postJson(bridge.origin, '/api/v1/dev-lan/session/gestures', { sessionId });
     assert.equal(gestureList.status, 200);
-    assert.ok(gestureList.body.data.gestures.some((item) => item.name === 'bow' && item.description === '鞠躬' && item.durationMs > 0));
+    assert.equal(gestureList.body.data.gestures.length, 35);
+    assert.equal(gestureList.body.data.gestures.some((item) => item.name === 'stand_up' || item.name === 'wake_stand'), false);
+    assert.ok(gestureList.body.data.gestures.some((item) => item.name === 'play_bow' && item.description === '玩耍鞠躬' && item.durationMs > 0));
+    assert.ok(gestureList.body.data.gestures.some((item) => item.name === 'flip_play_bow' && item.durationMs >= 16000));
+    assert.ok(gestureList.body.data.gestures.some((item) => item.name === 'nod_yes' && item.description === '点头同意' && item.durationMs > 0));
 
     const zeroed = await postJson(bridge.origin, '/api/v1/dev-lan/session/action', { sessionId, action: 'set-zero' });
     assert.equal(zeroed.status, 200);
     assert.equal(zeroed.body.data.status.fsmKind, 'grounded');
 
-    const gestureGrounded = await postJson(bridge.origin, '/api/v1/dev-lan/session/action', { sessionId, action: 'play-gesture', gestureName: 'bow' });
+    const gestureGrounded = await postJson(bridge.origin, '/api/v1/dev-lan/session/action', { sessionId, action: 'play-gesture', gestureName: 'play_bow' });
     assert.equal(gestureGrounded.status, 409, 'gestures require Standing');
 
     const cleared = await postJson(bridge.origin, '/api/v1/dev-lan/session/action', { sessionId, action: 'clear-motor-fault', jointIds: [] });
@@ -195,10 +199,15 @@ test('devLanBridge drives full read, control, 50Hz walk, concurrent telemetry, I
     assert.equal(badClear.status, 400);
 
     await postJson(bridge.origin, '/api/v1/dev-lan/session/action', { sessionId, action: 'enable' });
+    const gestureGroundedEnabled = await postJson(bridge.origin, '/api/v1/dev-lan/session/action', {
+      sessionId, action: 'play-gesture', gestureName: 'nod_yes',
+    });
+    assert.equal(gestureGroundedEnabled.status, 409, 'gestures disallow Grounded even when motors are enabled');
+    assert.equal(gestureGroundedEnabled.body.code, 'precondition');
     await postJson(bridge.origin, '/api/v1/dev-lan/session/action', { sessionId, action: 'stand-up' });
     const zeroStanding = await postJson(bridge.origin, '/api/v1/dev-lan/session/action', { sessionId, action: 'set-zero' });
     assert.equal(zeroStanding.status, 409, 'zero calibration requires Grounded');
-    const gestured = await postJson(bridge.origin, '/api/v1/dev-lan/session/action', { sessionId, action: 'play-gesture', gestureName: 'nod' });
+    const gestured = await postJson(bridge.origin, '/api/v1/dev-lan/session/action', { sessionId, action: 'play-gesture', gestureName: 'nod_yes' });
     assert.equal(gestured.status, 200);
     assert.equal(gestured.body.data.status.fsmKind, 'standing', 'zero-duration simulation returns to Standing');
     const unknownGesture = await postJson(bridge.origin, '/api/v1/dev-lan/session/action', { sessionId, action: 'play-gesture', gestureName: 'moonwalk' });
@@ -300,6 +309,54 @@ test('devLanBridge drives opt-in platform profile switch and RobotRecovery workf
     const exited = await postJson(bridge.origin, '/api/v1/dev-lan/session/recovery', { sessionId, command: 'exit' });
     assert.equal(exited.body.data.phase, 'absent');
     assert.equal(exited.body.data.activeModeId, 'platform');
+  } finally {
+    await bridge.close();
+    await sim.close();
+  }
+});
+
+test('devLanBridge projects kind=3 body-height capability from real-robot GetProfile layout and degrades unknown kinds', async () => {
+  const sim = await createLocalBrainstemSimServer({
+    port: 0,
+    transitionDurationMs: 0,
+    heightConfigured: true,
+    recoveryConfigured: true,
+    extraModeCapabilities: [
+      { id: 'future_mode', kind: 9, availability: 1, profileId: '', unavailableReason: 'reserved' },
+    ],
+  });
+  const bridge = await createDevLanBridge({ listenPort: 0 });
+  try {
+    const profileRead = await postJson(bridge.origin, '/api/v1/dev-lan/read', {
+      host: sim.host, port: sim.port, requestId: 'r-profile-height', kind: 'profile',
+    });
+    assert.equal(profileRead.status, 200);
+    const caps = profileRead.body.data.profile.modeCapabilities;
+    const heightCap = caps.find((item) => item.id === 'height');
+    assert.deepEqual(heightCap, {
+      id: 'height',
+      kind: 'body-height',
+      availability: 'available',
+      label: '身高控制',
+      profileId: 'single_frame_height_v2',
+      available: true,
+      unavailableReason: '',
+    });
+    const futureCap = caps.find((item) => item.id === 'future_mode');
+    assert.equal(futureCap?.kind, 'unspecified');
+
+    const opened = await postJson(bridge.origin, '/api/v1/dev-lan/session/open', {
+      host: sim.host, port: sim.port, requestId: 'r-open-height',
+    });
+    assert.equal(opened.status, 200);
+    const { sessionId } = opened.body.data;
+    assert.equal(opened.body.data.profile.modeCapabilities.find((item) => item.id === 'height')?.kind, 'body-height');
+
+    const rejectSwitchHeight = await postJson(bridge.origin, '/api/v1/dev-lan/session/action', {
+      sessionId, action: 'switch-profile', profileName: 'height',
+    });
+    assert.equal(rejectSwitchHeight.status, 409);
+    assert.equal(rejectSwitchHeight.body.code, 'precondition');
   } finally {
     await bridge.close();
     await sim.close();

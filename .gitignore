@@ -75,3 +75,7 @@ yarn-error.*
 /.ruff_cache/
 **/__pycache__/
 *.pyc
+
+# raw source gesture renders & dense trajectory archives (compact UI previews live in assets/gestures/)
+/gesture/gifs/
+/gesture/trajectories/

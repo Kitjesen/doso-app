@@ -30,9 +30,10 @@ const MODE_LABELS = Object.freeze({
   stairs: '楼梯模式',
   platform: '高台模式',
   high_platform: '高台模式',
+  height: '身高控制',
   recovery: '摔倒恢复',
 });
-const MODE_KINDS = Object.freeze(['unspecified', 'locomotion', 'recovery-action']);
+const MODE_KINDS = Object.freeze(['unspecified', 'locomotion', 'recovery-action', 'body-height']);
 const MODE_AVAILABILITIES = Object.freeze(['unknown', 'unavailable', 'available']);
 
 class BridgeFailure extends Error {
@@ -119,6 +120,21 @@ function projectRawStatus(raw) {
   };
 }
 
+function resolveModeKind(rawKind) {
+  if (typeof rawKind === 'number') {
+    if (!Number.isInteger(rawKind) || rawKind < 0 || rawKind > 255) return null;
+    return rawKind === 1 ? MODE_KINDS[1] : rawKind === 2 ? MODE_KINDS[2] : rawKind === 3 ? MODE_KINDS[3] : MODE_KINDS[0];
+  }
+  if (typeof rawKind === 'string') {
+    if (rawKind === 'ROBOT_MODE_KIND_LOCOMOTION_PROFILE' || rawKind === 'locomotion') return MODE_KINDS[1];
+    if (rawKind === 'ROBOT_MODE_KIND_RECOVERY_ACTION' || rawKind === 'recovery-action') return MODE_KINDS[2];
+    if (rawKind === 'ROBOT_MODE_KIND_BODY_HEIGHT' || rawKind === 'body-height') return MODE_KINDS[3];
+    if (rawKind === 'ROBOT_MODE_KIND_UNKNOWN' || rawKind === 'unspecified') return MODE_KINDS[0];
+    if (/^ROBOT_MODE_KIND_[A-Z0-9_]+$/.test(rawKind)) return MODE_KINDS[0];
+  }
+  return null;
+}
+
 function projectProfile(raw) {
   if (!raw || typeof raw !== 'object') throw new BridgeFailure('invalid_response', 502);
   if (!Array.isArray(raw.available) || !Array.isArray(raw.descriptions) || raw.available.length > 64 || raw.descriptions.length > 64) {
@@ -140,14 +156,13 @@ function projectProfile(raw) {
     result.modeCapabilities = raw.modeCapabilities.map((item) => {
       if (!item || typeof item !== 'object') throw new BridgeFailure('invalid_response', 502);
       const id = safeText(item.id ?? '', 64);
-      const kindIdx = enumIndex(item.kind ?? 0, ['unspecified', 'locomotion', 'recovery-action'], 'ROBOT_MODE_KIND_');
-      const kindFallback = item.kind === 'ROBOT_MODE_KIND_LOCOMOTION_PROFILE' ? 1 : item.kind === 'ROBOT_MODE_KIND_RECOVERY_ACTION' ? 2 : kindIdx;
+      const kind = resolveModeKind(item.kind ?? 0);
       const availIdx = enumIndex(item.availability ?? 0, MODE_AVAILABILITIES, 'ROBOT_MODE_AVAILABILITY_');
-      if (kindFallback === null || availIdx === null) throw new BridgeFailure('invalid_response', 502);
+      if (kind === null || availIdx === null) throw new BridgeFailure('invalid_response', 502);
       const availability = MODE_AVAILABILITIES[availIdx];
       return {
         id,
-        kind: MODE_KINDS[kindFallback],
+        kind,
         availability,
         label: MODE_LABELS[id] ?? id,
         profileId: safeText(item.profileId ?? '', 128),
