@@ -14,8 +14,22 @@ test('native read-only protobuf parser agrees with the real brainstem proto cont
   const proto = await readFile(process.env.BRAINSTEM_CMS_PROTO || new URL('../contracts/brainstem_api/cms.proto', import.meta.url), 'utf8');
   assert.match(proto, /package brainstem\.api\.v1;/);
   assert.match(proto, /rpc GetControlStatus\(google\.protobuf\.Empty\) returns \(ControlStatus\)/);
+  assert.match(proto, /rpc SetBodyHeight\(BodyHeightCommand\) returns \(BodyHeightStatus\)/);
+  assert.match(proto, /rpc GetBodyHeightStatus\(google\.protobuf\.Empty\) returns \(BodyHeightStatus\)/);
   const fields = (message) => [...proto.match(new RegExp(`message ${message} \\{([^}]+)\\}`))[1]
     .matchAll(/\b(\w+)\s+(\w+)\s*=\s*(\d+)\s*;/g)].map((m) => [m[1], m[2], Number(m[3])]);
+  assert.deepEqual(fields('BodyHeightCommand'), [['double', 'height_m', 1]]);
+  assert.deepEqual(fields('BodyHeightStatus'), [
+    ['bool', 'supported', 1], ['double', 'current_height_m', 2], ['double', 'target_height_m', 3],
+    ['double', 'min_height_m', 4], ['double', 'max_height_m', 5], ['double', 'rate_mps', 6],
+  ]);
+  assert.deepEqual(fields('BodyHeightCapability'), [
+    ['double', 'default_height_m', 1], ['double', 'min_height_m', 2], ['double', 'max_height_m', 3], ['double', 'rate_mps', 4],
+  ]);
+  assert.deepEqual(fields('RobotModeCapability'), [
+    ['string', 'id', 1], ['RobotModeKind', 'kind', 2], ['RobotModeAvailability', 'availability', 3],
+    ['string', 'profile_id', 4], ['string', 'unavailable_reason', 5], ['BodyHeightCapability', 'body_height', 6],
+  ]);
   assert.deepEqual(fields('ControlStatus'), [
     ['CmsState', 'fsm', 1], ['bool', 'motor_output_enabled', 2], ['ControlOwner', 'owner', 3],
     ['bool', 'critical_motor_fault', 4], ['bool', 'grpc_lease_active', 5], ['uint32', 'lease_remaining_ms', 6],
@@ -40,11 +54,13 @@ test('native read-only protobuf parser agrees with the real brainstem proto cont
     const compile = spawnSync('javac', ['-encoding', 'UTF-8', '-d', output,
       fileURLToPath(new URL('ControlStatusParser.java', javaRoot)),
       fileURLToPath(new URL('ProfileInfoParser.java', javaRoot)),
+      fileURLToPath(new URL('BodyHeightStatusParser.java', javaRoot)),
       fileURLToPath(new URL('VoltageParser.java', javaRoot)),
       fileURLToPath(new URL('MotorStatusParser.java', javaRoot)),
       fileURLToPath(new URL('GestureListParser.java', javaRoot)),
       fileURLToPath(new URL('android/src/test/java/expo/modules/brainstemgrpc/ControlStatusParserTest.java', moduleRoot)),
       fileURLToPath(new URL('android/src/test/java/expo/modules/brainstemgrpc/ProfileInfoParserTest.java', moduleRoot)),
+      fileURLToPath(new URL('android/src/test/java/expo/modules/brainstemgrpc/BodyHeightStatusParserTest.java', moduleRoot)),
       fileURLToPath(new URL('android/src/test/java/expo/modules/brainstemgrpc/DiagnosticsParserTest.java', moduleRoot)),
       fileURLToPath(new URL('android/src/test/java/expo/modules/brainstemgrpc/GestureListParserTest.java', moduleRoot)),
     ], { encoding: 'utf8' });
@@ -55,6 +71,9 @@ test('native read-only protobuf parser agrees with the real brainstem proto cont
     const profileRun = spawnSync('java', ['-cp', output, 'expo.modules.brainstemgrpc.ProfileInfoParserTest'], { encoding: 'utf8' });
     assert.equal(profileRun.status, 0, profileRun.stderr || profileRun.error?.message);
     assert.match(profileRun.stdout, /PASS: profile metadata/);
+    const bodyHeightRun = spawnSync('java', ['-cp', output, 'expo.modules.brainstemgrpc.BodyHeightStatusParserTest'], { encoding: 'utf8' });
+    assert.equal(bodyHeightRun.status, 0, bodyHeightRun.stderr || bodyHeightRun.error?.message);
+    assert.match(bodyHeightRun.stdout, /PASS: body height status protobuf projections and bounds/);
     const diagnosticsRun = spawnSync('java', ['-cp', output, 'expo.modules.brainstemgrpc.DiagnosticsParserTest'], { encoding: 'utf8' });
     assert.equal(diagnosticsRun.status, 0, diagnosticsRun.stderr || diagnosticsRun.error?.message);
     assert.match(diagnosticsRun.stdout, /PASS: voltage and motor diagnostics/);
@@ -132,6 +151,7 @@ test('ListenImu is the existing server stream and omits acceleration when the fi
     const compile = spawnSync('javac', ['-encoding', 'UTF-8', '-d', output,
       fileURLToPath(new URL('ImuParser.java', javaRoot)),
       fileURLToPath(new URL('ProfileInfoParser.java', javaRoot)),
+      fileURLToPath(new URL('BodyHeightStatusParser.java', javaRoot)),
       fileURLToPath(new URL('RecoveryStatusParser.java', javaRoot)),
       fileURLToPath(new URL('android/src/test/java/expo/modules/brainstemgrpc/ImuParserTest.java', moduleRoot)),
       fileURLToPath(new URL('android/src/test/java/expo/modules/brainstemgrpc/RecoveryStatusParserTest.java', moduleRoot)),

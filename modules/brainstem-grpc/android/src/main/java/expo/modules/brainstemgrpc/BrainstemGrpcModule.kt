@@ -7,8 +7,12 @@ import android.content.pm.ApplicationInfo
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
+import android.os.Bundle
 import android.os.SystemClock
+import android.speech.RecognizerIntent
+import android.speech.tts.TextToSpeech
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
@@ -37,12 +41,14 @@ import java.security.Principal
 import java.security.PrivateKey
 import java.security.KeyStore
 import java.security.cert.X509Certificate
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import org.json.JSONObject
+import javax.net.SocketFactory
 import javax.net.ssl.KeyManager
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
@@ -82,6 +88,10 @@ class BrainstemGrpcModule : Module() {
   private var factoryReceiver: BroadcastReceiver? = null
   private var factoryExpiry: ScheduledFuture<*>? = null
   private var localIdentityStore: LocalClientIdentityStore? = null
+  private var voiceSpeechPromise: Promise? = null
+  private var voiceTts: TextToSpeech? = null
+  private var voiceTtsReady = false
+  private var pendingVoiceUtterance: Pair<String, Float>? = null
   private fun localStore(): LocalClientIdentityStore = synchronized(lock) {
     localIdentityStore ?: LocalClientIdentityStore(appContext.reactContext ?: throw ControlSession.Failure("identity_unavailable")).also { localIdentityStore = it }
   }
@@ -110,9 +120,8 @@ class BrainstemGrpcModule : Module() {
         val context = appContext.reactContext ?: return@runCatching null
         if (paused || destroyed || !isForeground()) return@runCatching null
         val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val network = manager.activeNetwork ?: return@runCatching null
+        val network = findWifiNetwork(manager) ?: return@runCatching null
         val capabilities = manager.getNetworkCapabilities(network) ?: return@runCatching null
-        if (!capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return@runCatching null
         val info = if (Build.VERSION.SDK_INT >= 29) capabilities.transportInfo as? WifiInfo else null
         @Suppress("DEPRECATION")
         val rssi = (info ?: (context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager).connectionInfo).rssi
@@ -123,6 +132,82 @@ class BrainstemGrpcModule : Module() {
     AsyncFunction("setControlNavigationHidden") { hidden: Boolean ->
       hideControlNavigation = hidden
       updateControlNavigation(hidden && !paused)
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("isVoiceInputAvailable") {
+      runCatching {
+        val context = appContext.reactContext ?: return@runCatching false
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+        context.packageManager.resolveActivity(intent, 0) != null
+      }.getOrDefault(false)
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("recognizeVoiceOnce") { promise: Promise ->
+      val activity = appContext.currentActivity
+      val context = appContext.reactContext
+      if (synchronized(lock) { destroyed || paused || !isForeground() } || activity == null || context == null) {
+        reject(promise, "background")
+        return@AsyncFunction
+      }
+      synchronized(lock) {
+        if (voiceSpeechPromise != null) {
+          reject(promise, "busy")
+          return@AsyncFunction
+        }
+        voiceSpeechPromise = promise
+      }
+      try {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+          putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+          putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
+          putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        }
+        if (context.packageManager.resolveActivity(intent, 0) == null) {
+          synchronized(lock) { voiceSpeechPromise = null }
+          reject(promise, "unavailable")
+          return@AsyncFunction
+        }
+        activity.startActivityForResult(intent, VOICE_SPEECH_REQUEST_CODE)
+      } catch (_: Exception) {
+        synchronized(lock) { voiceSpeechPromise = null }
+        reject(promise, "unavailable")
+      }
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("speakVoiceText") { text: String, volume: Double ->
+      val clean = text.trim().take(320)
+      if (clean.isEmpty() || synchronized(lock) { destroyed || paused }) return@AsyncFunction false
+      val context = appContext.reactContext ?: return@AsyncFunction false
+      val clampedVolume = volume.toFloat().coerceIn(0f, 1f)
+      if (clampedVolume <= 0f) return@AsyncFunction false
+      val existing = voiceTts
+      if (existing != null && voiceTtsReady) {
+        val params = Bundle().apply { putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, clampedVolume) }
+        existing.speak(clean, TextToSpeech.QUEUE_FLUSH, params, "doso_voice_${SystemClock.elapsedRealtime()}")
+        return@AsyncFunction true
+      }
+      pendingVoiceUtterance = clean to clampedVolume
+      if (existing == null) {
+        voiceTts = TextToSpeech(context.applicationContext) { status ->
+          if (status == TextToSpeech.SUCCESS && !synchronized(lock) { destroyed }) {
+            voiceTts?.setLanguage(Locale.SIMPLIFIED_CHINESE)
+            voiceTtsReady = true
+            pendingVoiceUtterance?.let { (utterance, vol) ->
+              pendingVoiceUtterance = null
+              val params = Bundle().apply { putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, vol) }
+              voiceTts?.speak(utterance, TextToSpeech.QUEUE_FLUSH, params, "doso_voice_init")
+            }
+          } else {
+            pendingVoiceUtterance = null
+          }
+        }
+      }
+      true
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("stopVoiceSpeech") {
+      pendingVoiceUtterance = null
+      runCatching { voiceTts?.stop() }
     }.runOnQueue(Queues.MAIN)
 
     AsyncFunction("getLocalClientIdentity") { host: String, port: Int, robotId: String, promise: Promise ->
@@ -239,6 +324,12 @@ class BrainstemGrpcModule : Module() {
     AsyncFunction("setSpeedMode") { sessionId: String, mode: String, promise: Promise ->
       runControl(sessionId, promise) { session, epoch -> session.setSpeedMode(mode, epoch) }
     }.runOnQueue(Queues.MAIN)
+    AsyncFunction("getBodyHeightStatus") { sessionId: String, promise: Promise ->
+      runControl(sessionId, promise) { session, _ -> session.getBodyHeightStatus() }
+    }.runOnQueue(Queues.MAIN)
+    AsyncFunction("setBodyHeight") { sessionId: String, heightM: Double, promise: Promise ->
+      runControl(sessionId, promise) { session, epoch -> session.setBodyHeight(heightM, epoch) }
+    }.runOnQueue(Queues.MAIN)
     AsyncFunction("acquireControl") { sessionId: String, promise: Promise ->
       runControl(sessionId, promise) { session, epoch -> session.acquire(epoch) }
     }.runOnQueue(Queues.MAIN)
@@ -299,6 +390,19 @@ class BrainstemGrpcModule : Module() {
       }
       appContext.currentActivity?.runOnUiThread { updateControlNavigation(hideControlNavigation) }
     }
+    OnActivityResult { _, payload ->
+      if (payload.requestCode == VOICE_SPEECH_REQUEST_CODE) {
+        val pending = synchronized(lock) { voiceSpeechPromise.also { voiceSpeechPromise = null } }
+        if (pending != null) {
+          if (payload.resultCode == android.app.Activity.RESULT_OK) {
+            val matches = payload.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            pending.resolve(matches?.firstOrNull()?.trim() ?: "")
+          } else {
+            pending.resolve("")
+          }
+        }
+      }
+    }
     OnActivityEntersBackground {
       synchronized(lock) {
         paused = true
@@ -306,6 +410,8 @@ class BrainstemGrpcModule : Module() {
         active?.let { finish(it, "background") }
         retireControl("background")
       }
+      pendingVoiceUtterance = null
+      runCatching { voiceTts?.stop() }
       appContext.currentActivity?.runOnUiThread { updateControlNavigation(false) }
     }
     OnDestroy {
@@ -316,12 +422,18 @@ class BrainstemGrpcModule : Module() {
         picker?.let { reject(it, "cancelled") }
         picker = null
         pickerResult = null
+        voiceSpeechPromise?.let { reject(it, "cancelled") }
+        voiceSpeechPromise = null
         approvedIdentities.clear()
         retireControl("cancelled")
         worker.shutdown()
         readWorker.shutdownNow()
         timer.shutdownNow()
       }
+      pendingVoiceUtterance = null
+      voiceTtsReady = false
+      runCatching { voiceTts?.stop(); voiceTts?.shutdown() }
+      voiceTts = null
       hideControlNavigation = false
       appContext.currentActivity?.runOnUiThread { updateControlNavigation(false) }
     }
@@ -494,15 +606,59 @@ class BrainstemGrpcModule : Module() {
   private fun isForeground(): Boolean =
     (appContext.currentActivity as? LifecycleOwner)?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) == true
 
+  private fun findWifiNetwork(connectivity: ConnectivityManager): Network? {
+    val active = connectivity.activeNetwork
+    if (active != null && connectivity.getNetworkCapabilities(active)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
+      return active
+    }
+    @Suppress("DEPRECATION")
+    return connectivity.allNetworks.firstOrNull { candidate ->
+      connectivity.getNetworkCapabilities(candidate)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+    }
+  }
+
+  private fun isPrivateWifiTarget(host: String): Boolean {
+    if (!host.matches(Regex("[0-9.]+"))) return false
+    val bytes = host.split('.').mapNotNull { it.toIntOrNull() }
+    if (bytes.size != 4 || bytes.any { it !in 0..255 }) return false
+    return bytes[0] == 10 || (bytes[0] == 172 && bytes[1] in 16..31) || (bytes[0] == 192 && bytes[1] == 168)
+  }
+
+  private class LowLatencySocketFactory(
+    private val delegate: SocketFactory,
+    private val trafficClassTos: Int = DSCP_EF_TOS,
+  ) : SocketFactory() {
+    private fun tune(socket: Socket): Socket {
+      runCatching { socket.tcpNoDelay = true }
+      runCatching { socket.trafficClass = trafficClassTos }
+      return socket
+    }
+    override fun createSocket(): Socket = tune(delegate.createSocket())
+    override fun createSocket(host: String?, port: Int): Socket = tune(delegate.createSocket(host, port))
+    override fun createSocket(host: String?, port: Int, localHost: InetAddress?, localPort: Int): Socket =
+      tune(delegate.createSocket(host, port, localHost, localPort))
+    override fun createSocket(host: InetAddress?, port: Int): Socket = tune(delegate.createSocket(host, port))
+    override fun createSocket(address: InetAddress?, port: Int, localAddress: InetAddress?, localPort: Int): Socket =
+      tune(delegate.createSocket(address, port, localAddress, localPort))
+  }
+
+  private fun lowLatencySocketFactory(host: String): SocketFactory {
+    val base = runCatching {
+      if (!isPrivateWifiTarget(host)) return@runCatching SocketFactory.getDefault()
+      val context = appContext.reactContext ?: return@runCatching SocketFactory.getDefault()
+      val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+      findWifiNetwork(connectivity)?.socketFactory ?: SocketFactory.getDefault()
+    }.getOrDefault(SocketFactory.getDefault())
+    return LowLatencySocketFactory(base)
+  }
+
   private fun acquireControlWifiLock() {
     if (controlWifiLock != null) return
     runCatching {
       val context = appContext.reactContext ?: return
       val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
       val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-      val hasWifiTransport = connectivity.activeNetwork?.let {
-        connectivity.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
-      } == true
+      val hasWifiTransport = findWifiNetwork(connectivity) != null
       @Suppress("DEPRECATION")
       if (!hasWifiTransport && !wifi.isWifiEnabled) return
       @Suppress("DEPRECATION")
@@ -549,6 +705,7 @@ class BrainstemGrpcModule : Module() {
         try {
           val tls = if (lanDev) null else selectedIdentityTls(host, port, alias!!)
           val builder = OkHttpChannelBuilder.forAddress(host, port)
+            .socketFactory(lowLatencySocketFactory(host))
           if (lanDev) builder.usePlaintext() else builder.useTransportSecurity().sslSocketFactory(tls!!.context.socketFactory)
           val channel = builder.maxInboundMessageSize(ControlStatusParser.MAX_BYTES)
             .maxInboundMetadataSize(8192).disableRetry().build()
@@ -679,6 +836,7 @@ class BrainstemGrpcModule : Module() {
         sharedChannel
       } else {
         val builder = OkHttpChannelBuilder.forAddress(host, port)
+          .socketFactory(lowLatencySocketFactory(host))
         if (lanDev) builder.usePlaintext() else builder.useTransportSecurity().sslSocketFactory(tls!!.socketFactory)
         builder.maxInboundMessageSize(ControlStatusParser.MAX_BYTES)
           .maxInboundMetadataSize(8192)
@@ -838,6 +996,9 @@ class BrainstemGrpcModule : Module() {
 
   companion object {
     private const val DEADLINE_MS = 3000L
+    private const val VOICE_SPEECH_REQUEST_CODE = 13149
+    // DSCP EF (46 << 2 = 0xB8) maps to WMM AC_VO hardware queue matching the robot AP EDCA policy.
+    private const val DSCP_EF_TOS = 0xB8
     private val STATUS_METHOD: MethodDescriptor<ByteArray, ByteArray> = MethodDescriptor.newBuilder<ByteArray, ByteArray>()
       .setType(MethodDescriptor.MethodType.UNARY)
       .setFullMethodName("brainstem.api.v1.RobotControl/GetControlStatus")

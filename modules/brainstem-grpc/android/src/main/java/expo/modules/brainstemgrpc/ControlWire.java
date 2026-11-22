@@ -13,6 +13,8 @@ import java.util.Map;
 public final class ControlWire {
   public static final double MAX_LINEAR_MPS = 3.0;
   public static final double MAX_YAW_RPS = 3.0;
+  public static final double MIN_BODY_HEIGHT_M = 0.05;
+  public static final double MAX_BODY_HEIGHT_M = 1.50;
   private ControlWire() {}
   public static final class Lease {
     public final boolean accepted;
@@ -81,6 +83,12 @@ public final class ControlWire {
     if ("normal".equals(mode)) return new byte[0];
     if ("high".equals(mode)) return new byte[]{8, 1};
     throw new IllegalArgumentException("Invalid speed mode");
+  }
+  public static byte[] bodyHeightCommand(double heightM) {
+    if (!Double.isFinite(heightM) || heightM < MIN_BODY_HEIGHT_M || heightM > MAX_BODY_HEIGHT_M) {
+      throw new IllegalArgumentException("Invalid body height");
+    }
+    return ByteBuffer.allocate(9).order(ByteOrder.LITTLE_ENDIAN).put((byte) 9).putDouble(heightM).array();
   }
   public static String parseSpeedMode(byte[] bytes) throws IOException {
     Reader r = new Reader(bytes);

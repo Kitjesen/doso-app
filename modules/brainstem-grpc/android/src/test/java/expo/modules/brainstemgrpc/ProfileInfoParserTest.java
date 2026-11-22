@@ -2,6 +2,8 @@ package expo.modules.brainstemgrpc;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
@@ -88,6 +90,52 @@ public final class ProfileInfoParserTest {
     @SuppressWarnings("unchecked") List<Map<String, Object>> heightModes = (List<Map<String, Object>>) parsedHeight.get("modeCapabilities");
     check("body-height".equals(heightModes.get(0).get("kind")), "body-height kind");
     check("single_frame_height_v2".equals(heightModes.get(0).get("profileId")), "body-height profileId");
+    @SuppressWarnings("unchecked") Map<String, Object> parsedHeightCap = (Map<String, Object>) heightModes.get(0).get("bodyHeight");
+    check(parsedHeightCap != null && Math.abs((Double) parsedHeightCap.get("defaultHeightM") - 0.375) < 1e-9, "body-height defaultHeightM");
+
+    ByteArrayOutputStream fullHeightMsg = new ByteArrayOutputStream();
+    for (int i = 0; i < 4; i++) {
+      double[] values = new double[]{0.375, 0.25, 0.50, 0.05};
+      fullHeightMsg.write(((i + 1) << 3) | 1);
+      fullHeightMsg.writeBytes(ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putDouble(values[i]).array());
+    }
+    ByteArrayOutputStream fullHeightCap = new ByteArrayOutputStream();
+    field(fullHeightCap, 1, "height");
+    fullHeightCap.write(2 << 3); fullHeightCap.write(3);
+    fullHeightCap.write(3 << 3); fullHeightCap.write(2);
+    field(fullHeightCap, 4, "single_frame_height_v2");
+    message(fullHeightCap, 6, fullHeightMsg.toByteArray());
+    ByteArrayOutputStream withFullHeight = new ByteArrayOutputStream();
+    field(withFullHeight, 1, "flat");
+    message(withFullHeight, 5, fullHeightCap.toByteArray());
+    Map<String, Object> parsedFull = ProfileInfoParser.parse(withFullHeight.toByteArray());
+    @SuppressWarnings("unchecked") List<Map<String, Object>> fullModes = (List<Map<String, Object>>) parsedFull.get("modeCapabilities");
+    @SuppressWarnings("unchecked") Map<String, Object> bh = (Map<String, Object>) fullModes.get(0).get("bodyHeight");
+    check(bh != null
+      && Math.abs((Double) bh.get("defaultHeightM") - 0.375) < 1e-9
+      && Math.abs((Double) bh.get("minHeightM") - 0.25) < 1e-9
+      && Math.abs((Double) bh.get("maxHeightM") - 0.50) < 1e-9
+      && Math.abs((Double) bh.get("rateMps") - 0.05) < 1e-9, "full bodyHeight capability");
+
+    // Inverted min/max in body_height capability must fail closed.
+    ByteArrayOutputStream badHeightMsg = new ByteArrayOutputStream();
+    badHeightMsg.write((2 << 3) | 1);
+    badHeightMsg.writeBytes(ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putDouble(0.55).array());
+    badHeightMsg.write((3 << 3) | 1);
+    badHeightMsg.writeBytes(ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putDouble(0.25).array());
+    ByteArrayOutputStream badHeightCap = new ByteArrayOutputStream();
+    field(badHeightCap, 1, "height");
+    badHeightCap.write(2 << 3); badHeightCap.write(3);
+    badHeightCap.write(3 << 3); badHeightCap.write(2);
+    message(badHeightCap, 6, badHeightMsg.toByteArray());
+    ByteArrayOutputStream withBadHeight = new ByteArrayOutputStream();
+    message(withBadHeight, 5, badHeightCap.toByteArray());
+    try {
+      ProfileInfoParser.parse(withBadHeight.toByteArray());
+      throw new AssertionError("inverted bodyHeight accepted");
+    } catch (java.io.IOException expected) {
+      // fail closed
+    }
 
     byte[] malformed = new byte[] { 0x0a, 0x02, (byte) 0xc3, 0x28 };
     try {

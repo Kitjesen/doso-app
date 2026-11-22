@@ -2,9 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { brainstemControlTransport } from '../../services/brainstemControl';
 import type { BrainstemGrpcEndpoint } from '../../services/brainstemGrpc';
-import { BrainstemControlSession, type ControlVector } from './brainstemControlSession';
+import { BrainstemControlSession, type ControlBodyHeightState, type ControlVector } from './brainstemControlSession';
 import { BrainstemConnectionRecovery } from './brainstemConnectionRecovery';
 import { useControllerWifiSignal } from './useControllerWifiSignal';
+
+export type { ControlBodyHeightState };
 
 /** Account/lifecycle ownership never restores or acquires a lease automatically. */
 export function useBrainstemControl({ ownerKey, ready, autoConnectEndpoint, autoConnectPrincipal = '', autoReconnectEnabled = true, imuNotifyEnabled = true, onConnected }: {
@@ -22,8 +24,10 @@ export function useBrainstemControl({ ownerKey, ready, autoConnectEndpoint, auto
   const sessionRef = useRef<{ owner: typeof captured; value: BrainstemControlSession } | null>(null);
   if (!sessionRef.current || sessionRef.current.owner !== captured) {
     sessionRef.current?.value.dispose();
-    sessionRef.current = { owner: captured, value: new BrainstemControlSession(brainstemControlTransport,
-      () => mounted.current && owner.current === captured && !!captured.ownerKey && captured.ready && AppState.currentState === 'active') };
+    sessionRef.current = {
+      owner: captured, value: new BrainstemControlSession(brainstemControlTransport,
+        () => mounted.current && owner.current === captured && !!captured.ownerKey && captured.ready && AppState.currentState === 'active')
+    };
   }
   const session = sessionRef.current.value;
   const recovery = useMemo(() => new BrainstemConnectionRecovery(session, () => performance.now(),
@@ -33,6 +37,9 @@ export function useBrainstemControl({ ownerKey, ready, autoConnectEndpoint, auto
     retryNow: () => recovery.retryNow(),
     setImuNotifyEnabled: (enabled: boolean) => session.setImuNotifyEnabled(enabled),
     setSpeedMode: (mode: 'normal' | 'high') => session.setSpeedMode(mode),
+    onSetBodyHeightMode: (enabled: boolean) => session.setBodyHeightMode(enabled),
+    onSetBodyHeight: (heightM: number) => session.setBodyHeight(heightM),
+    onRefreshBodyHeight: () => session.refreshBodyHeight({ retryOnBusy: true }),
     prepareManualControl: session.prepareManualControl.bind(session),
     endTouchGesture: () => session.endTouchGesture().catch(() => undefined),
     // Automatic touch/lifecycle cleanup publishes failures without creating unhandled rejections.
@@ -51,6 +58,7 @@ export function useBrainstemControl({ ownerKey, ready, autoConnectEndpoint, auto
       playGesture: (name: string) => session.action('play-gesture', name),
     },
     listGestures: () => session.listGestures(),
+    recoveryCommand: session.recoveryCommand.bind(session),
   }), [session, recovery]);
   useEffect(() => { session.setImuNotifyEnabled(imuNotifyEnabled); }, [session, imuNotifyEnabled]);
   useEffect(() => { recovery.setAvailable(ready); }, [recovery, ready]);
@@ -75,9 +83,12 @@ export function useBrainstemControl({ ownerKey, ready, autoConnectEndpoint, auto
     let recoveryPollTick = 0;
     const timer = setInterval(() => {
       void recovery.tick();
-      void session.refresh().then(() => {
+      void session.refresh().then(async () => {
         if (session.speedMode === null && session.state.connected) {
-          void session.refreshSpeedMode();
+          await session.refreshSpeedMode();
+        }
+        if (session.state.connected && (session.bodyHeight.active || (session.bodyHeight.available && !session.bodyHeightStatusSynced))) {
+          await session.refreshBodyHeight();
         }
         const urgentRecovery = Boolean(
           session.recoveryStatus === null
@@ -86,16 +97,17 @@ export function useBrainstemControl({ ownerKey, ready, autoConnectEndpoint, auto
           || session.runtimeState.faultStatus === 'active',
         );
         if (urgentRecovery || (++recoveryPollTick % 3 === 0)) {
-          void session.refreshRecovery();
+          await session.refreshRecovery();
         }
       });
     }, 500);
     return () => { mounted.current = false; unsubscribe(); lifecycle.remove(); clearInterval(timer); void recovery.suspend(); };
   }, [session, recovery]);
   const signal = useControllerWifiSignal(ready && session.state.connected);
-  return { state: session.state, runtimeState: { ...session.runtimeState, signal }, latencyMs: session.latencyMs, speedMode: session.speedMode, recoveryStatus: session.recoveryStatus, recoveryCommand: session.recoveryCommand.bind(session), operationReadiness: session.operationReadiness,
+  return { state: session.state, runtimeState: { ...session.runtimeState, signal }, latencyMs: session.latencyMs, speedMode: session.speedMode, bodyHeight: session.bodyHeight, recoveryStatus: session.recoveryStatus, operationReadiness: session.operationReadiness,
     canAcquire: session.canAcquire, canUseManualControl: session.canUseManualControl,
     canBeginManualControl: session.canBeginManualControl, canBeginTouchControl: session.canBeginTouchControl,
     touchBlockedReason: session.touchBlockedReason, manualPrepared: session.state.manualPrepared,
-    reconnecting: recovery.reconnecting, ...callbacks };
+    reconnecting: recovery.reconnecting, ...callbacks
+  };
 }

@@ -7,6 +7,13 @@ import ts from 'typescript';
 import { BrainstemControlSession } from '../src/features/control/brainstemControlSession.ts';
 import { beginRobotRecovery, presentRobotRecovery } from '../src/features/control/robotRecovery.ts';
 
+function validateLingtuOriginForTest(value, allowLocalHttp = false) {
+  const url = new URL(String(value).trim());
+  if (url.protocol === 'https:') return url.origin;
+  if (allowLocalHttp && url.protocol === 'http:') return url.origin;
+  throw new Error('config');
+}
+
 const require = createRequire(import.meta.url);
 const source = readFileSync(new URL('../src/screens/ControlScreen.tsx', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, {
@@ -32,6 +39,15 @@ const g20Module = { exports: {} };
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/features/control/g20InputModel.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, { module: g20Module, exports: g20Module.exports });
+const controlPrefsModule = { exports: {} };
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/features/control/controlPreferences.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText, {
+  module: controlPrefsModule,
+  exports: controlPrefsModule.exports,
+  setTimeout,
+  clearTimeout,
+});
 const controlHudModelModule = { exports: {} };
 vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/controlHudModel.ts', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -47,6 +63,7 @@ const hudComponentDependencies = {
   '@expo/vector-icons': { Ionicons: 'Ionicons' },
   '../assets': gestureAssetsStub,
   './AppText': { Text: 'Text' },
+  './ControlSlider': { ControlSlider: 'ControlSlider' },
   './controlHudModel': controlHudModelModule.exports,
   '../officialPalette': { officialDark: { cta: '#F0F4FE', ctaInk: '#1C1C1B', ink: '#E8E8E6', muted: '#A0A09B' } },
 };
@@ -131,7 +148,7 @@ const colors = {
 // Executes the real ControlScreen state, handlers and lifecycle effects. The joystick
 // responder math and native layout have their own focused tests; this harness invokes
 // the real child props that ControlScreen supplies to the joystick pair.
-function mount({ dev = true, initialAppState = 'active', dimensions = { fontScale: 1, height: 844, width: 390 }, layoutLoad = async () => joystickLayoutModule.exports.createDefaultJoystickLayoutPreferences(), layoutSave = async () => { }, navigationInset = async () => 0, ...overrides } = {}) {
+function mount({ dev = true, initialAppState = 'active', dimensions = { fontScale: 1, height: 844, width: 390 }, layoutLoad = async () => joystickLayoutModule.exports.createDefaultJoystickLayoutPreferences(), layoutSave = async () => { }, navigationInset = async () => 0, voiceFetch = async () => ({ status: 503, json: async () => ({ error: 'unavailable' }) }), ...overrides } = {}) {
   const slots = [];
   const effects = [];
   const pendingEffects = [];
@@ -204,7 +221,8 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
         return { remove: () => appStateListeners.delete(listener) };
       },
     },
-    Image: 'Image', Pressable: 'Pressable', ScrollView: 'ScrollView', View: 'View',
+    Image: 'Image', Pressable: 'Pressable', ScrollView: 'ScrollView', TextInput: 'TextInput', View: 'View',
+    Platform: { OS: 'ios' },
     StyleSheet: { create: value => value },
     useWindowDimensions: () => viewport,
   };
@@ -242,7 +260,13 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     },
     '../components/G20InputPanel': { G20InputPanel: 'G20InputPanel' },
     '../features/control/g20InputModel': g20Module.exports,
-    '../components/AppText': { Text: 'Text' },
+    '../features/control/controlPreferences': {
+      ...controlPrefsModule.exports,
+      loadControlPreferences: async () => controlPrefsModule.exports.createDefaultControlPreferences(),
+      saveControlPreferences: async () => {},
+      estimateClientStorageGb: async () => ({ usedGb: 1.2, totalGb: 32 }),
+    },
+    '../components/AppText': { Text: 'Text', TextInput: 'TextInput' },
     '../appearance': { getProductAppearance: () => ({ canvas: '#FFFFFF', ink: '#111827', secondary: '#667085', raised: '#FFFFFF', surface: colors.surface, action: '#98D1FF', actionInk: '#17354D', blueInk: '#214F71' }) },
     '../typography': { typography: { compactTitle: {}, label: {}, caption: {} } },
     '../theme': { useAppTheme: () => ({ colors, isDark: false }) },
@@ -258,7 +282,11 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     '../services/brainstemGrpc': {
       setControlNavigationHidden: hidden => {
         navigationCalls.push(hidden); return Promise.resolve(navigationInset(hidden));
-      }
+      },
+      isNativeVoiceInputAvailable: async () => false,
+      recognizeNativeVoiceOnce: async () => '',
+      speakNativeVoiceText: async () => false,
+      stopNativeVoiceSpeech: () => {},
     },
   };
   const referenceUi = { exports: {} };
@@ -268,7 +296,7 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     module: referenceUi,
     exports: referenceUi.exports,
     require: name => name === './AppText'
-      ? { Text: 'Text' }
+      ? { Text: 'Text', TextInput: 'TextInput' }
       : name === './ControlHudPanels'
         ? controlHudPanelsModule.exports
         : name === './controlHudModel'
@@ -305,6 +333,81 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     },
   });
   dependencies['../features/video/useControlMediaCapture'] = mediaCaptureHookModule.exports;
+
+  const schedSetTimeout = (callback, delay) => { const id = ++timerId; timers.set(id, { callback, due: now + delay }); return id; };
+  const schedClearTimeout = id => timers.delete(id);
+  const schedSetInterval = (callback, delay) => {
+    const id = ++timerId;
+    intervals.add(id);
+    const step = () => {
+      if (!intervals.has(id) || unmounted) return;
+      callback();
+      if (intervals.has(id) && !unmounted) timers.set(id, { callback: step, due: now + delay });
+    };
+    timers.set(id, { callback: step, due: now + delay });
+    return id;
+  };
+  const schedClearInterval = id => { intervals.delete(id); timers.delete(id); };
+
+  const lingtuVoiceServiceModule = { exports: {} };
+  vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/services/lingtuVoiceChat.ts', import.meta.url), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, {
+    module: lingtuVoiceServiceModule,
+    exports: lingtuVoiceServiceModule.exports,
+    __DEV__: dev,
+    URL,
+    AbortController,
+    fetch: voiceFetch,
+    setTimeout: schedSetTimeout,
+    clearTimeout: schedClearTimeout,
+    require(name) {
+      if (name === 'react-native') return host;
+      if (name === './brainstemGrpc') return dependencies['../services/brainstemGrpc'];
+      if (name === './brainstemWebDevBridge') return { resolveWebDevBridgeOrigin: () => 'http://127.0.0.1:8121' };
+      if (name === './lingtuReadOnly') return { validateLingtuOrigin: validateLingtuOriginForTest };
+      throw new Error(`Unexpected lingtuVoiceChat dependency: ${name}`);
+    },
+  });
+
+  const voiceHookModule = { exports: {} };
+  vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/features/control/useRobotVoiceChat.ts', import.meta.url), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, {
+    module: voiceHookModule,
+    exports: voiceHookModule.exports,
+    AbortController,
+    setTimeout: schedSetTimeout,
+    clearTimeout: schedClearTimeout,
+    setInterval: schedSetInterval,
+    clearInterval: schedClearInterval,
+    require(name) {
+      if (name === 'react') return react;
+      if (name === '../../services/lingtuVoiceChat') return lingtuVoiceServiceModule.exports;
+      throw new Error(`Unexpected useRobotVoiceChat dependency: ${name}`);
+    },
+  });
+  dependencies['../features/control/useRobotVoiceChat'] = voiceHookModule.exports;
+
+  const voicePanelModule = { exports: {} };
+  vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/ControlVoiceChatPanel.tsx', import.meta.url), 'utf8'), {
+    compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, {
+    module: voicePanelModule,
+    exports: voicePanelModule.exports,
+    setTimeout: schedSetTimeout,
+    clearTimeout: schedClearTimeout,
+    require(name) {
+      if (name === 'react') return react;
+      if (name === 'react/jsx-runtime') return require('react/jsx-runtime');
+      if (name === 'react-native') return host;
+      if (name === '@expo/vector-icons') return { Ionicons: 'Ionicons' };
+      if (name === './AppText') return { Text: 'Text', TextInput: 'TextInput' };
+      throw new Error(`Unexpected ControlVoiceChatPanel dependency: ${name}`);
+    },
+  });
+  dependencies['../components/ControlVoiceChatPanel'] = voicePanelModule.exports;
+
   const module = { exports: {} };
   vm.runInNewContext(compiled, {
     module,
@@ -3012,12 +3115,12 @@ test('landscape HUD capture and recording fail closed without receiving stream a
   screen.advance(1000);
   assert.match(JSON.stringify(screen.find('control-hud-recording-badge')), /REC 00:02/);
 
-  // Settings -> 视频 tab shows live status, storage location, and quick controls while keeping auto-recording disabled.
+  // Settings -> 视频 tab shows live status, storage location, and quick controls with interactive auto-recording toggle.
   screen.find('control-hud-settings').props.onPress();
   screen.render();
   screen.find('control-settings-tab-视频').props.onPress();
   screen.render();
-  assert.equal(screen.find('control-setting-recording').props.disabled, true);
+  assert.equal(screen.find('control-setting-recording').props.disabled, false);
   assert.ok(screen.find('control-setting-record-toggle'));
   assert.match(screen.copy, /DOSO_SNAP_test_front\.jpg/);
 
@@ -3067,7 +3170,7 @@ test('landscape and settings gesture decks group 35 gestures, toggle single-inst
     },
     operationCallbacks: {
       playGesture: async name => { played.push(name); },
-      stop: async () => {},
+      stop: async () => { },
     },
   });
   await screen.settle();
@@ -3134,133 +3237,443 @@ test('landscape and settings gesture decks group 35 gestures, toggle single-inst
   screen.unmount();
 });
 
-test('gesture catalog always previews all 35 gestures when disconnected or UNIMPLEMENTED while keeping execution safely disabled, and HUD popovers are mutually exclusive', async () => {
-  const defaultNames = controlHudModelModule.exports.DEFAULT_THUNDER_GESTURES.map(item => item.name);
-  assert.equal(defaultNames.length, 35);
-  assert.equal(defaultNames.includes('stand_up'), false);
-  assert.equal(defaultNames.includes('wake_stand'), false);
+test('1-click HUD voice dialogue connects to LingTu conversation API, enforces popover mutual exclusion, and handles replies and approvals', async () => {
+  const apiCalls = [];
+  let turnCompleted = false;
+  let approvalState = 'pending';
 
-  const played = [];
+  const voiceFetch = async (url, init = {}) => {
+    const parsed = new URL(url);
+    apiCalls.push({ method: init.method ?? 'GET', path: parsed.pathname + parsed.search, body: init.body ? JSON.parse(init.body) : null });
+
+    if (parsed.pathname === '/api/v1/agent/options') {
+      return { status: 200, json: async () => ({ available: true, default_model: 'kimi-k2.5' }) };
+    }
+    if (parsed.pathname === '/api/v1/agent/conversations' && init.method === 'POST') {
+      return { status: 201, json: async () => ({ conversation_id: 'conv_dog_01' }) };
+    }
+    if (parsed.pathname === '/api/v1/agent/conversations/conv_dog_01' && (init.method ?? 'GET') === 'GET') {
+      return {
+        status: 200,
+        json: async () => ({
+          conversation_id: 'conv_dog_01',
+          messages: turnCompleted
+            ? [
+              { id: 'm1', seq: 1, role: 'user', text: '查看状态', turn_id: 't1' },
+              { id: 'm2', seq: 2, role: 'assistant', text: '当前电量充足，电机温度正常。', turn_id: 't1' },
+            ]
+            : [],
+          turns: turnCompleted ? [{ turn_id: 't1', state: 'completed' }] : [],
+          approvals: approvalState === 'pending' && turnCompleted
+            ? [{ approval_id: 'ap_nav_1', turn_id: 't1', tool_name: 'start_navigation', arguments: { x: 2.5, y: 1.0 }, state: 'pending' }]
+            : [],
+        }),
+      };
+    }
+    if (parsed.pathname === '/api/v1/agent/conversations/conv_dog_01/messages' && init.method === 'POST') {
+      turnCompleted = true;
+      return {
+        status: 202,
+        json: async () => ({ conversation_id: 'conv_dog_01', message_id: JSON.parse(init.body).message_id, turn_id: 't1', state: 'completed' }),
+      };
+    }
+    if (parsed.pathname === '/api/v1/agent/conversations/conv_dog_01/approvals/ap_nav_1' && init.method === 'POST') {
+      approvalState = JSON.parse(init.body).approved ? 'approved' : 'denied';
+      return {
+        status: 200,
+        json: async () => ({ approval_id: 'ap_nav_1', turn_id: 't1', tool_name: 'start_navigation', arguments: { x: 2.5, y: 1.0 }, state: approvalState }),
+      };
+    }
+    return { status: 404, json: async () => ({ error: 'not_found' }) };
+  };
+
   const screen = mount({
     landscapeDocksExpanded: true,
     dev: false,
     dimensions: { width: 960, height: 540, fontScale: 1 },
     video: { id: 'sim-front', phase: 'receiving' },
     videoSurface: 'plate',
-    connected: false,
-    runtimeState: { controlLink: 'disconnected', controlAuthority: 'not-held', posture: 'unknown', motorState: 'unknown' },
-    onListGestures: async () => {
-      throw Object.assign(new Error('UNIMPLEMENTED: ListGestures not supported'), { code: 'unimplemented' });
-    },
-    operationReadiness: {
-      playGesture: { ready: false, blockedReason: '未连接' },
-      stop: { ready: false, blockedReason: '未连接' },
-    },
-    operationCallbacks: {
-      playGesture: async name => { played.push(name); },
-      stop: async () => {},
+    connected: true,
+    canUseManualControl: true,
+    allowLocalVoiceHttp: true,
+    voiceFetch,
+    runtimeState: { controlLink: 'connected', controlAuthority: 'held', posture: 'standing', motorState: 'enabled' },
+    workspaceSettings: {
+      themePreference: 'dark',
+      onChangeTheme() {},
+      alertsEnabled: true,
+      onToggleAlerts() {},
+      connection: {
+        host: '192.168.66.64',
+        port: 13145,
+        connected: true,
+        readonlyConnected: true,
+        async onConnectControl() { return true; },
+        async onDisconnect() {},
+      },
     },
   });
   await screen.settle();
 
-  // (a1) Disconnected: 动作 ▾ still renders all 35 gestures + GIF preview, execute disabled with honest hint.
-  selectLeftCategory(screen, 'action');
-  assert.ok(screen.find('control-hud-gesture-deck'));
-  assert.ok(screen.find('control-hud-gesture-preview-image'));
-  for (const name of defaultNames) {
-    assert.ok(screen.find(`control-hud-gesture-${name}`), `missing HUD gesture ${name}`);
-  }
-  assert.equal(screen.find('control-hud-gesture-stand_up'), undefined);
-  assert.equal(screen.find('control-hud-gesture-wake_stand'), undefined);
-  assert.equal(screen.find('control-hud-gesture-execute').props.disabled, true);
-  assert.match(screen.copy, /请先连接机器狗/);
-  screen.find('control-hud-gesture-execute').props.onPress();
+  // 1. 1-click HUD voice button exists and opens floating dialogue card.
+  assert.ok(screen.find('control-hud-voice-toggle'));
+  assert.equal(screen.find('control-hud-voice-panel'), undefined);
+  screen.find('control-hud-voice-toggle').props.onPress();
+  screen.render();
   await screen.settle();
-  assert.deepEqual(played, []);
+  screen.render();
+  assert.ok(screen.find('control-hud-voice-panel'));
+  assert.equal(screen.find('control-voice-status').props.children, '就绪');
 
-  // Settings -> 操控 quick link & 机器人 full-width deck also render all 35 gestures + GIF preview while disabled.
+  // 2. Quick prompt sends message to LingTu :5050 conversation API and renders reply + pending action approval.
+  screen.find('control-voice-quick-查看状态').props.onPress();
+  screen.render();
+  await screen.settle();
+  screen.render();
+  assert.ok(apiCalls.some(c => c.path === '/api/v1/agent/conversations/conv_dog_01/messages' && c.body?.text === '查看状态'));
+  assert.ok(screen.find('control-voice-approval-ap_nav_1'));
+  screen.find('control-voice-approve-ap_nav_1').props.onPress();
+  screen.render();
+  await screen.settle();
+  screen.render();
+  assert.equal(approvalState, 'approved');
+  assert.equal(screen.find('control-voice-approval-ap_nav_1'), undefined);
+
+  // 3. Popover mutual exclusion: opening 动作 ▾ closes voice panel; Settings -> 音频 -> 打开对话 reopens voice panel.
+  screen.find('control-hud-category-action').props.onPress();
+  screen.render();
+  assert.equal(screen.find('control-hud-voice-panel'), undefined);
   screen.find('control-hud-settings').props.onPress();
   screen.render();
-  assert.ok(screen.find('control-open-action-deck'));
-  assert.match(screen.copy, /35 个动作/);
-  screen.find('control-settings-tab-机器人').props.onPress();
+  screen.find('control-settings-tab-音频').props.onPress();
   screen.render();
-  assert.ok(screen.find('control-settings-page-机器人'));
-  assert.ok(screen.find('control-settings-gesture-list'));
-  assert.ok(screen.find('control-settings-gesture-preview-image'));
-  for (const name of defaultNames) {
-    assert.ok(screen.find(`control-settings-gesture-${name}`), `missing Settings gesture ${name}`);
-  }
-  assert.equal(screen.find('control-settings-gesture-stand_up'), undefined);
-  assert.equal(screen.find('control-settings-gesture-wake_stand'), undefined);
-  assert.equal(screen.find('control-settings-gesture-execute').props.disabled, true);
-  assert.match(screen.copy, /请先连接机器狗/);
-
-  // 操控 -> 预设动作抽屉 jumps back to HUD action drawer in 1 tap.
-  screen.find('control-settings-tab-操控').props.onPress();
+  screen.find('control-setting-open-voice-chat').props.onPress();
   screen.render();
-  screen.find('control-open-action-deck').props.onPress();
+  await screen.settle();
   screen.render();
   assert.equal(screen.find('control-settings-menu'), undefined);
-  assert.ok(screen.find('control-hud-gesture-deck'));
+  assert.ok(screen.find('control-hud-voice-panel'));
 
-  // (a2) Connected to real robot where ListGestures rejects with UNIMPLEMENTED:
-  // still previews all 35 gestures + GIF, while execute stays disabled with 动作服务尚未启用 hint!
+  screen.unmount();
+});
+
+test('virtual disc toggle cancels active touch safely, hides discs, syncs with settings, and keeps E-stop + G20 physical sticks working', async () => {
+  const defaultPrefs = controlPrefsModule.exports.createDefaultControlPreferences();
+  assert.equal(defaultPrefs.showVirtualDiscControls, true);
+  assert.equal(controlPrefsModule.exports.normalizeControlPreferences({ showVirtualDiscControls: false }).showVirtualDiscControls, false);
+  assert.equal(controlPrefsModule.exports.normalizeControlPreferences({ showVirtualDiscControls: 'bad' }).showVirtualDiscControls, true);
+
+  const sent = [];
+  let interrupts = 0;
+  let stops = 0;
+  const hardware = physicalFixture();
+  const screen = mount({
+    landscapeDocksExpanded: false,
+    dev: false,
+    dimensions: { width: 960, height: 540, fontScale: 1 },
+    video: { id: 'sim-front', phase: 'receiving' },
+    videoSurface: 'plate',
+    ...capableProps(),
+    g20Controller: hardware.controller,
+    runtimeState: { controlLink: 'connected', controlAuthority: 'held', posture: 'standing', motorState: 'enabled' },
+    operationReadiness: { stop: { ready: true } },
+    operationCallbacks: { stop: async () => { stops += 1; } },
+    productionInput: {
+      ready: true,
+      touchReady: true,
+      onDrive(value) { sent.push(['drive', value]); },
+      onTurn(value) { sent.push(['turn', value]); },
+      onSticks(drive, turn) { sent.push(['sticks', drive, turn]); },
+      onInterrupt() { interrupts += 1; },
+    },
+  });
+
+  // Enabled by default on touch input: left velocity ('速度') & right yaw ('转向') discs visible even with G20 available.
+  assert.ok(screen.pair);
+  assert.equal(screen.pair.showVisuals, true);
+  assert.equal(screen.pair.left.label, '速度');
+  assert.equal(screen.pair.right.label, '转向');
+  assert.equal(screen.find('control-hud-virtual-disc-toggle').props.accessibilityState.checked, true);
+
+  // Active touch emits velocity; toggling OFF via HUD quick button immediately interrupts & blocks stale touch callbacks.
+  const staleSample = screen.pair.left.onSample;
+  screen.pair.left.onActiveChange(true);
+  staleSample({ x: 0.4, y: -0.8 });
+  assert.equal(sent.length, 1);
+  const interruptsBeforeHide = interrupts;
+
+  screen.find('control-hud-virtual-disc-toggle').props.onPress();
+  screen.render();
+  assert.ok(interrupts > interruptsBeforeHide, 'hiding virtual discs must immediately interrupt active touch vector');
+  assert.equal(screen.pair, undefined, 'control-joystick-pair must be hidden when showVirtualDiscControls is false');
+  assert.equal(screen.find('control-hud-virtual-disc-toggle').props.accessibilityState.checked, false);
+  staleSample({ x: 0.9, y: -0.9 });
+  assert.equal(sent.length, 1, 'stale touch callback cannot send motion after discs are hidden');
+
+  // E-stop stays fully operational while virtual discs are hidden.
+  assert.equal(screen.find('control-hud-stop').props.disabled, false);
+  screen.find('control-hud-stop').props.onPress();
+  await screen.settle();
+  assert.equal(stops, 1);
+
+  // G20 physical sticks remain 100% functional while virtual discs are hidden.
+  screen.render({ inputSource: 'physical' });
+  hardware.sample();
+  hardware.sample({ moving: true });
+  assert.ok(sent.some(([kind]) => kind === 'sticks'), 'G20 physical sticks must continue driving when virtual discs are hidden');
+
+  // Settings -> 操控 tab shows 「圆盘控制」 toggle synced to false and re-enables the virtual discs cleanly.
+  screen.render({ inputSource: 'touch' });
+  screen.find('control-hud-settings').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-settings-page-操控'));
+  assert.equal(screen.find('control-setting-virtual-discs').props.accessibilityState.checked, false);
+  assert.match(screen.copy, /圆盘控制/);
+  assert.match(screen.copy, /速度与转向/);
+  screen.find('control-setting-virtual-discs').props.onPress();
+  screen.render();
+  assert.equal(screen.find('control-setting-virtual-discs').props.accessibilityState.checked, true);
+  screen.find('control-close-settings').props.onPress();
+  screen.render();
+  assert.ok(screen.pair);
+  assert.equal(screen.pair.showVisuals, true);
+  screen.unmount();
+});
+
+test('body height panel enforces safety guards, dynamic robot range, mutual exclusion, and height mode/slider/fine/preset controls', async () => {
+  const modeCalls = [];
+  const heightCalls = [];
+  let refreshes = 0;
+
+  const screen = mount({
+    landscapeDocksExpanded: false,
+    dev: false,
+    dimensions: { width: 960, height: 540, fontScale: 1 },
+    video: { id: 'sim-front', phase: 'receiving' },
+    videoSurface: 'plate',
+    connected: false,
+    runtimeState: { controlLink: 'disconnected', controlAuthority: 'not-held', posture: 'unknown', motorState: 'unknown' },
+    onSetBodyHeightMode: async enabled => { modeCalls.push(enabled); },
+    onSetBodyHeight: async heightM => { heightCalls.push(heightM); },
+    onRefreshBodyHeight: async () => { refreshes += 1; },
+  });
+
+  // 1. Disconnected: open via HUD quick button -> fallback 0.15–0.50 m range, all controls disabled with short truthful hint.
+  assert.ok(screen.find('control-hud-height-toggle'));
+  screen.find('control-hud-height-toggle').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-hud-height-panel'));
+  assert.equal(screen.find('control-hud-height-range').props.children.props.children, '0.15–0.50 m');
+  assert.equal(screen.find('control-hud-height-hint').props.children, '请先连接机器狗');
+  assert.equal(screen.find('control-hud-height-mode-toggle').props.disabled, true);
+  assert.equal(screen.find('control-hud-height-slider').props.disabled, true);
+  assert.equal(screen.find('control-hud-height-dec').props.disabled, true);
+  assert.equal(screen.find('control-hud-height-inc').props.disabled, true);
+  assert.equal(screen.find('control-hud-height-preset-low').props.disabled, true);
+  assert.doesNotMatch(screen.copy, /gRPC|SwitchProfile|SetBodyHeight|ONNX|暂未接入/);
+
+  // 2. Mutual exclusion: opening 姿态 drawer closes height panel; clicking 姿态 -> 机身高度 reopens it and refreshes when connected.
   screen.render({
     connected: true,
     runtimeState: { controlLink: 'connected', controlAuthority: 'not-held', posture: 'standing', motorState: 'enabled' },
-    operationReadiness: {
-      playGesture: { ready: true },
-      stop: { ready: true },
+    bodyHeight: {
+      available: true,
+      modeId: 'height',
+      active: false,
+      supported: false,
+      currentHeightM: 0,
+      targetHeightM: 0,
+      defaultHeightM: 0.375,
+      minHeightM: 0.25,
+      maxHeightM: 0.50,
+      rateMps: 0.05,
+    },
+  });
+  screen.find('control-hud-category-posture').props.onPress();
+  screen.render();
+  assert.equal(screen.find('control-hud-height-panel'), undefined);
+  assert.ok(screen.find('control-hud-posture-height'));
+  screen.find('control-hud-posture-height').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-hud-height-panel'));
+  assert.equal(refreshes, 1);
+
+  // 3. Connected with height_v2 bounds (0.25–0.50 m) while mode inactive: slider disabled, hint '请先开启高度模式', mode toggle enabled.
+  assert.equal(screen.find('control-hud-height-range').props.children.props.children, '0.25–0.50 m');
+  assert.equal(screen.find('control-hud-height-current').props.children, '--');
+  assert.equal(screen.find('control-hud-height-hint').props.children, '请先开启高度模式');
+  assert.equal(screen.find('control-hud-height-slider').props.disabled, true);
+  assert.equal(screen.find('control-hud-height-mode-toggle').props.disabled, false);
+
+  screen.find('control-hud-height-mode-toggle').props.onPress();
+  await screen.settle();
+  assert.deepEqual(modeCalls, [true]);
+
+  // 4. Active height mode: live readouts, slider drag preview + clamped commit, ±0.02 m fine steps, and 3 quick presets.
+  screen.render({
+    bodyHeight: {
+      available: true,
+      modeId: 'height',
+      active: true,
+      supported: true,
+      currentHeightM: 0.375,
+      targetHeightM: 0.375,
+      defaultHeightM: 0.375,
+      minHeightM: 0.25,
+      maxHeightM: 0.50,
+      rateMps: 0.05,
+    },
+  });
+  assert.equal(screen.find('control-hud-height-current').props.children, '0.38 m');
+  assert.equal(screen.find('control-hud-height-target').props.children, '0.38 m');
+  assert.equal(screen.find('control-hud-height-hint'), undefined);
+  assert.equal(screen.find('control-hud-height-slider').props.minimumValue, 0.25);
+  assert.equal(screen.find('control-hud-height-slider').props.maximumValue, 0.50);
+  assert.equal(screen.find('control-hud-height-slider').props.disabled, false);
+
+  // Fine -0.02m and +0.02m
+  screen.find('control-hud-height-dec').props.onPress();
+  await screen.settle();
+  assert.deepEqual(heightCalls, [0.355]);
+  screen.find('control-hud-height-inc').props.onPress();
+  await screen.settle();
+  assert.deepEqual(heightCalls, [0.355, 0.395]);
+
+  // Slider drag preview does not commit; sliding complete clamps out-of-bounds input to [0.25, 0.50].
+  screen.find('control-hud-height-slider').props.onValueChange(0.31);
+  screen.render();
+  assert.equal(screen.find('control-hud-height-target').props.children, '0.31 m');
+  assert.equal(heightCalls.length, 2);
+  screen.find('control-hud-height-slider').props.onSlidingComplete(0.15);
+  await screen.settle();
+  assert.equal(heightCalls.at(-1), 0.25, 'height command must clamp to live robot minHeightM');
+
+  // Presets 低 / 标准 / 高
+  screen.find('control-hud-height-preset-low').props.onPress();
+  await screen.settle();
+  screen.find('control-hud-height-preset-standard').props.onPress();
+  await screen.settle();
+  screen.find('control-hud-height-preset-high').props.onPress();
+  await screen.settle();
+  assert.deepEqual(heightCalls.slice(-3), [0.25, 0.375, 0.5]);
+
+  // 5. Safety guards: leased & faulted disable adjustments cleanly.
+  screen.render({ runtimeState: { controlLink: 'connected', controlAuthority: 'held', posture: 'standing', motorState: 'enabled' } });
+  assert.equal(screen.find('control-hud-height-slider').props.disabled, true);
+  assert.equal(screen.find('control-hud-height-hint').props.children, '请先停止移动');
+
+  screen.render({ runtimeState: { controlLink: 'connected', controlAuthority: 'not-held', posture: 'standing', motorState: 'enabled', faultStatus: 'active' } });
+  assert.equal(screen.find('control-hud-height-slider').props.disabled, true);
+  assert.equal(screen.find('control-hud-height-mode-toggle').props.disabled, true);
+  assert.equal(screen.find('control-hud-height-hint').props.children, '存在本体故障');
+
+  screen.unmount();
+});
+
+test('gesture deck retries onListGestures when initial fetch failed transiently and skips retry on unimplemented', async () => {
+  let attempts = 0;
+  const screen = mount({
+    landscapeDocksExpanded: false,
+    dev: false,
+    dimensions: { width: 960, height: 540, fontScale: 1 },
+    video: { id: 'sim-front', phase: 'receiving' },
+    videoSurface: 'plate',
+    connected: true,
+    runtimeState: { controlLink: 'connected', controlAuthority: 'not-held', posture: 'standing', motorState: 'enabled' },
+    operationReadiness: { playGesture: { ready: true }, stop: { ready: true } },
+    operationCallbacks: { playGesture: async () => {}, stop: async () => {} },
+    onListGestures: async () => {
+      attempts += 1;
+      if (attempts === 1) throw Object.assign(new Error('busy'), { code: 'busy' });
+      return [{ name: 'nod_yes', description: '点头同意', durationMs: 4020 }];
     },
   });
   await screen.settle();
-  assert.ok(screen.find('control-hud-gesture-deck'));
-  assert.ok(screen.find('control-hud-gesture-preview-image'));
-  for (const name of defaultNames) {
-    assert.ok(screen.find(`control-hud-gesture-${name}`), `missing HUD gesture after UNIMPLEMENTED ${name}`);
-  }
-  assert.equal(screen.find('control-hud-gesture-stand_up'), undefined);
-  assert.equal(screen.find('control-hud-gesture-wake_stand'), undefined);
-  assert.equal(screen.find('control-hud-gesture-execute').props.disabled, true);
-  assert.match(screen.copy, /动作服务尚未启用/);
-  screen.find('control-hud-gesture-execute').props.onPress();
-  await screen.settle();
-  assert.deepEqual(played, []);
+  assert.equal(attempts, 1);
 
-  screen.find('control-hud-settings').props.onPress();
-  screen.render();
-  screen.find('control-settings-tab-机器人').props.onPress();
-  screen.render();
-  assert.ok(screen.find('control-settings-gesture-list'));
-  assert.ok(screen.find('control-settings-gesture-preview-image'));
-  for (const name of defaultNames) {
-    assert.ok(screen.find(`control-settings-gesture-${name}`), `missing Settings gesture after UNIMPLEMENTED ${name}`);
-  }
-  assert.equal(screen.find('control-settings-gesture-stand_up'), undefined);
-  assert.equal(screen.find('control-settings-gesture-wake_stand'), undefined);
-  assert.equal(screen.find('control-settings-gesture-execute').props.disabled, true);
-  assert.match(screen.copy, /动作服务尚未启用/);
-  screen.find('control-close-settings').props.onPress();
-  screen.render();
-
-  // (b) Mutual exclusion: opening 关节参数 resets leftCategory back to 'policy',
-  // and opening 动作 ▾ closes speedLimitExpanded and jointParamsOpen.
-  assert.ok(screen.find('control-hud-action-dock'));
-  screen.find('control-hud-joint-params-toggle').props.onPress();
-  screen.render();
-  assert.ok(screen.find('control-hud-joint-params-panel'));
-  assert.equal(screen.find('control-hud-action-dock'), undefined, 'opening 关节参数 resets leftCategory back to policy');
-
-  screen.find('control-hud-speed-limit-toggle').props.onPress();
-  screen.render();
-  assert.ok(screen.find('control-hud-speed-limit-bar'));
-
+  // Opening the action deck triggers a retry and enables execution once synced.
   screen.find('control-hud-category-action').props.onPress();
   screen.render();
-  assert.ok(screen.find('control-hud-gesture-deck'));
-  assert.equal(screen.find('control-hud-speed-limit-bar'), undefined, 'opening 动作 ▾ closes speedLimitExpanded');
-  assert.equal(screen.find('control-hud-joint-params-panel'), undefined, 'opening 动作 ▾ closes jointParamsOpen');
+  await screen.settle();
+  assert.equal(attempts, 2);
+  screen.find('control-hud-gesture-nod_yes').props.onPress();
+  screen.render();
+  assert.equal(screen.find('control-hud-gesture-execute').props.disabled, false);
+  screen.unmount();
 
+  // When backend reports unimplemented, opening the deck must NOT retry.
+  let unimplAttempts = 0;
+  const unimplScreen = mount({
+    landscapeDocksExpanded: false,
+    dev: false,
+    dimensions: { width: 960, height: 540, fontScale: 1 },
+    video: { id: 'sim-front', phase: 'receiving' },
+    videoSurface: 'plate',
+    connected: true,
+    runtimeState: { controlLink: 'connected', controlAuthority: 'not-held', posture: 'standing', motorState: 'enabled' },
+    onListGestures: async () => {
+      unimplAttempts += 1;
+      throw Object.assign(new Error('unimplemented'), { code: 'unimplemented' });
+    },
+  });
+  await unimplScreen.settle();
+  assert.equal(unimplAttempts, 1);
+  unimplScreen.find('control-hud-category-action').props.onPress();
+  unimplScreen.render();
+  await unimplScreen.settle();
+  assert.equal(unimplAttempts, 1, 'unimplemented gesture catalog must not keep retrying on deck open');
+  unimplScreen.unmount();
+});
+
+test('expanded bottom dashboard stays compact above dock, defaults collapsed, and constrains operation feedback toast to center lane', () => {
+  const screen = mount({
+    dev: false,
+    dimensions: { width: 960, height: 540, fontScale: 1 },
+    video: { id: 'sim-front', phase: 'receiving' },
+    videoSurface: 'plate',
+    connected: true,
+    canUseManualControl: false,
+    manualControlBlockedReason: '请先使能电机',
+    productionInput: { ready: false, touchReady: false, onDrive() {}, onTurn() {}, onInterrupt() {} },
+    runtimeState: {
+      controlLink: 'connected',
+      controlAuthority: 'not-held',
+      posture: 'sitting',
+      motorState: 'disabled',
+      battery: { percent: null, voltageV: 55.4, source: 'device' },
+      joints: [
+        { id: '0', label: '右前侧摆', online: true, temperatureC: 25, fault: 'clear', errors: [], source: 'device' },
+        { id: '1', label: '右前髋', online: true, temperatureC: 27, fault: 'clear', errors: [], source: 'device' },
+      ],
+    },
+  });
+
+  // Defaults collapsed so FPV center is unobstructed.
+  assert.ok(screen.find('control-hud-dashboard-collapsed'));
+  assert.equal(screen.find('control-hud-dashboard-expanded'), undefined);
+
+  // Operation feedback toast is centered and width-bounded to the safe center lane.
+  const feedbackNode = screen.find('control-operation-feedback');
+  assert.ok(feedbackNode);
+  const flatStyle = Object.assign({}, ...(Array.isArray(feedbackNode.props.style) ? feedbackNode.props.style.filter(Boolean) : [feedbackNode.props.style]));
+  assert.equal(flatStyle.alignSelf, 'center');
+  assert.ok(flatStyle.maxWidth > 0 && flatStyle.maxWidth <= 320, `expected bounded toast maxWidth <= 320, got ${flatStyle.maxWidth}`);
+  assert.equal(flatStyle.left, undefined);
+  assert.equal(flatStyle.right, undefined);
+
+  // Expanding dashboard renders compact horizontal bar with all controls & testIDs intact.
+  screen.find('control-hud-dashboard-toggle').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-hud-dashboard-expanded'));
+  assert.ok(screen.find('control-hud-temp-summary'));
+  assert.ok(screen.find('control-hud-battery-bar'));
+  assert.ok(screen.find('control-hud-charge'));
+  assert.ok(screen.find('control-hud-reverse-direction'));
+  assert.ok(screen.find('control-hud-joint-temp-toggle'));
+  assert.ok(screen.find('control-hud-joint-params-toggle'));
+  assert.equal(screen.find('control-hud-dashboard-toggle').props.accessibilityState.expanded, true);
+  assert.match(screen.copy, /25°C/);
+  assert.match(screen.copy, /27°C/);
+  assert.match(screen.copy, /55\.4V/);
   screen.unmount();
 });

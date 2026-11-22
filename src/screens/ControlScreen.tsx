@@ -5,11 +5,29 @@ import { useControlMediaCapture } from '../features/video/useControlMediaCapture
 import { beginRobotRecovery, presentRobotRecovery, type RobotRecoveryCommand, type RobotRecoveryOperatorAction, type RobotRecoveryStatus } from '../features/control/robotRecovery';
 import { controlLandscapeHud } from '../components/controlLandscapeHud';
 import { GestureDeckPanel } from '../components/ControlHudPanels';
-import { clampSpeedLimitPercent, DEFAULT_THUNDER_GESTURES, projectHudGestures, scaleControlVector, type HudCameraPosition, type HudForwardDirection, type HudGestureCategoryId, type HudGestureInput, type HudHeadlightMode, type HudJointModuleKind, type HudLeftCategory, type HudLegId } from '../components/controlHudModel';
+import { ControlVoiceChatPanel } from '../components/ControlVoiceChatPanel';
+import { useRobotVoiceChat } from '../features/control/useRobotVoiceChat';
+import { clampBodyHeightM, clampSpeedLimitPercent, DEFAULT_THUNDER_GESTURES, projectHudGestures, scaleControlVector, type HudBodyHeightState, type HudCameraPosition, type HudForwardDirection, type HudGestureCategoryId, type HudGestureInput, type HudHeadlightMode, type HudJointModuleKind, type HudLeftCategory, type HudLegId } from '../components/controlHudModel';
 import { RobotRecoveryControls } from '../components/RobotRecoveryControls';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { DosoWordmark, PostureGlyph, renderControlSettings, controlHudColors, controlSettingsColors, type ControlSettingsCategory, type ControlSettingsSnapshot } from '../components/ControlReferenceUi';
+import { DosoWordmark, PostureGlyph, renderControlSettings, controlHudColors, controlSettingsColors, type ControlSettingsCategory, type ControlSettingsSnapshot, type ControlSettingsSubview } from '../components/ControlReferenceUi';
+import {
+  applyForwardDirection,
+  applyJoystickSensitivity,
+  applyVideoStreamPreferences,
+  clampSensitivityPercent,
+  clampVolumePercent,
+  createDefaultControlPreferences,
+  estimateClientStorageGb,
+  loadControlPreferences,
+  playControlFeedbackCue,
+  saveControlPreferences,
+  startLocalMicrophoneCapture,
+  type ControlUserPreferences,
+  type LocalMicrophoneSession,
+  type VideoQualityPreset,
+} from '../features/control/controlPreferences';
 import { type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, type ImageSourcePropType, type LayoutChangeEvent, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -99,6 +117,9 @@ type Props = {
   defaultDualCameraEnabled?: boolean;
   /** Private LAN host already used for Brainstem. The probe port is derived from it. */
   videoProbeHost?: string | null;
+  voiceEndpoint?: string | null;
+  voiceViewerToken?: string;
+  allowLocalVoiceHttp?: boolean;
   /** Connected landscape docks start expanded unless this is explicitly false. */
   landscapeDocksExpanded?: boolean;
   /** Optional G20 / web-preview system-bar insets. Combined with useSafeAreaInsets. */
@@ -133,8 +154,32 @@ type Props = {
   onToggleWebStageMode?: () => void;
   speedMode?: 'normal' | 'high' | 'unsupported' | null;
   onChangeSpeedMode?: (mode: 'normal' | 'high') => Promise<void>;
+  bodyHeight?: HudBodyHeightState | null;
+  onSetBodyHeightMode?: (enabled: boolean) => Promise<void>;
+  onSetBodyHeight?: (heightM: number) => Promise<void>;
+  onRefreshBodyHeight?: () => Promise<void>;
   onReconnect?: () => void;
   hasDedicatedRearCamera?: boolean;
+  workspaceSettings?: Readonly<{
+    themePreference: 'light' | 'dark' | null;
+    onChangeTheme: (next: 'light' | 'dark' | null) => void;
+    alertsEnabled: boolean;
+    onToggleAlerts: () => void;
+    onLowLatencyChange?: (enabled: boolean) => void;
+    connection?: Readonly<{
+      host: string;
+      port: number;
+      connected: boolean;
+      readonlyConnected: boolean;
+      lastSyncLabel?: string;
+      firmwareVersion?: string;
+      onConnectControl: (host: string, port: number) => Promise<boolean>;
+      onProbeReadOnly?: (host: string, port: number) => Promise<boolean>;
+      onDisconnect: () => Promise<void>;
+      onOpenAdvanced?: () => void;
+      onOpenBle?: () => void;
+    }>;
+  }>;
 };
 
 // Offline preview callers keep a no-op. Only the explicitly selected development
@@ -194,7 +239,10 @@ export function ControlScreen({
   canRecall, recallBlockedReason, onRecall,
   runtimeState, operationReadiness, operationCallbacks, onListGestures, operationStates, operationTargetKey, brainstemIntegration,
   inputSource, physicalInputAvailable = false, g20Controller, onInputSourceChange, onNotifications,
-  stageDimensions, webStageMode, onToggleWebStageMode, speedMode = null, onChangeSpeedMode, onReconnect, hasDedicatedRearCamera,
+  stageDimensions, webStageMode, onToggleWebStageMode, speedMode = null, onChangeSpeedMode,
+  bodyHeight = null, onSetBodyHeightMode, onSetBodyHeight, onRefreshBodyHeight,
+  onReconnect, hasDedicatedRearCamera, workspaceSettings,
+  voiceEndpoint, voiceViewerToken, allowLocalVoiceHttp,
 }: Props) {
   const { colors, isDark } = useAppTheme();
   const appearance = getProductAppearance(isDark);
@@ -217,11 +265,29 @@ export function ControlScreen({
   });
   const videoPresentation = useProbeFallback ? robotVideo.presentation ?? video : video;
   const videoFrame = useProbeFallback ? robotVideo.surface ?? videoSurface : videoSurface;
-  const [docksExpanded, setDocksExpanded] = useState(landscapeDocksExpanded !== false);
+  const [docksExpanded, setDocksExpanded] = useState(landscapeDocksExpanded === true);
   const [leftCategory, setLeftCategory] = useState<HudLeftCategory>('policy');
   const [speedLimitPercent, setSpeedLimitPercent] = useState(100);
   const speedLimitRef = useRef(100);
   speedLimitRef.current = speedLimitPercent;
+  const [sensitivityPercent, setSensitivityPercent] = useState(100);
+  const sensitivityRef = useRef(100);
+  sensitivityRef.current = sensitivityPercent;
+  const [mirroredSticks, setMirroredSticks] = useState(false);
+  const [showVirtualDiscControls, setShowVirtualDiscControls] = useState(true);
+  const showVirtualDiscControlsRef = useRef(true);
+  showVirtualDiscControlsRef.current = showVirtualDiscControls;
+  const [lowLatencyMode, setLowLatencyMode] = useState(true);
+  const [videoQuality, setVideoQuality] = useState<VideoQualityPreset>('高清');
+  const [autoRecord, setAutoRecord] = useState(false);
+  const [soundVolumePercent, setSoundVolumePercent] = useState(80);
+  const [voiceBroadcastEnabled, setVoiceBroadcastEnabled] = useState(true);
+  const [microphoneActive, setMicrophoneActive] = useState(false);
+  const [microphoneError, setMicrophoneError] = useState<string | null>(null);
+  const micSessionRef = useRef<LocalMicrophoneSession | null>(null);
+  const [storageEstimate, setStorageEstimate] = useState<Readonly<{ usedGb: number; totalGb: number }> | null>(null);
+  const controlPrefsRef = useRef<ControlUserPreferences>(createDefaultControlPreferences());
+  const controlPrefsLoadedRef = useRef(false);
   const [speedLimitExpanded, setSpeedLimitExpanded] = useState(false);
   const [confirmingHighSpeed, setConfirmingHighSpeed] = useState(false);
   const [speedModePending, setSpeedModePending] = useState(false);
@@ -230,6 +296,11 @@ export function ControlScreen({
   const [jointTempOpen, setJointTempOpen] = useState(false);
   const [tempModuleKind, setTempModuleKind] = useState<HudJointModuleKind>('motor');
   const [faultPanelOpen, setFaultPanelOpen] = useState(false);
+  const [bodyHeightPanelOpen, setBodyHeightPanelOpen] = useState(false);
+  const [bodyHeightDraftM, setBodyHeightDraftM] = useState<number | null>(null);
+  const [bodyHeightBusy, setBodyHeightBusy] = useState(false);
+  const [bodyHeightError, setBodyHeightError] = useState<string | null>(null);
+  const bodyHeightBusyRef = useRef(false);
   const [headlightMode, setHeadlightMode] = useState<HudHeadlightMode>('off');
   const [dualCameraEnabled, setDualCameraEnabled] = useState(defaultDualCameraEnabled === true);
   const [depthModeActive, setDepthModeActive] = useState(false);
@@ -244,7 +315,9 @@ export function ControlScreen({
   const effectiveFrontRotation = useProbeFallback ? robotVideo.rotation ?? videoRotation : videoRotation;
   const effectiveRearStream = rearVideoStream;
   const effectiveRearRotation = rearVideoRotation;
-  const [forwardDirection] = useState<HudForwardDirection>('front');
+  const [forwardDirection, setForwardDirection] = useState<HudForwardDirection>('front');
+  const forwardDirectionRef = useRef<HudForwardDirection>('front');
+  forwardDirectionRef.current = forwardDirection;
   const [selectedBasicAction, setSelectedBasicAction] = useState('walk');
   const [robotGestures, setRobotGestures] = useState<readonly HudGestureInput[]>([]);
   const [gestureListUnimplemented, setGestureListUnimplemented] = useState(false);
@@ -253,15 +326,15 @@ export function ControlScreen({
   const [gestureGifPreview, setGestureGifPreview] = useState(true);
   const hasGestureCatalogSupport = typeof onListGestures === 'function';
   const gestureLinkReady = runtimeState?.controlLink === 'connected' && hasGestureCatalogSupport;
-  useEffect(() => {
-    if (!gestureLinkReady || !onListGestures) {
-      setRobotGestures([]);
-      setGestureListUnimplemented(false);
-      return;
-    }
-    let cancelled = false;
+  const gestureFetchSeqRef = useRef(0);
+  const gestureFetchInFlightRef = useRef(false);
+  const refreshGestureCatalog = useCallback(() => {
+    if (!gestureLinkReady || !onListGestures || gestureFetchInFlightRef.current) return;
+    const seq = ++gestureFetchSeqRef.current;
+    gestureFetchInFlightRef.current = true;
     onListGestures().then(list => {
-      if (!cancelled) {
+      if (mountedRef.current && seq === gestureFetchSeqRef.current) {
+        gestureFetchInFlightRef.current = false;
         setGestureListUnimplemented(false);
         setRobotGestures(list
           .filter(item => item?.name && item.name !== 'stand_up' && item.name !== 'wake_stand')
@@ -272,7 +345,8 @@ export function ControlScreen({
           })));
       }
     }).catch(caught => {
-      if (!cancelled) {
+      if (mountedRef.current && seq === gestureFetchSeqRef.current) {
+        gestureFetchInFlightRef.current = false;
         setRobotGestures([]);
         const unimpl = Boolean(caught && typeof caught === 'object' && (
           ('code' in caught && (caught as { code?: unknown }).code === 'unimplemented')
@@ -281,8 +355,21 @@ export function ControlScreen({
         setGestureListUnimplemented(unimpl);
       }
     });
-    return () => { cancelled = true; };
   }, [gestureLinkReady, onListGestures]);
+  useEffect(() => {
+    gestureFetchSeqRef.current++;
+    gestureFetchInFlightRef.current = false;
+    if (!gestureLinkReady || !onListGestures) {
+      setRobotGestures([]);
+      setGestureListUnimplemented(false);
+      return;
+    }
+    refreshGestureCatalog();
+    return () => {
+      gestureFetchSeqRef.current++;
+      gestureFetchInFlightRef.current = false;
+    };
+  }, [gestureLinkReady, onListGestures, operationTargetKey, refreshGestureCatalog]);
   const syncedGestureNames = useMemo(() => new Set(robotGestures.map(item => item.name)), [robotGestures]);
   const displayedGestures = useMemo<readonly HudGestureInput[]>(() => {
     if (!hasGestureCatalogSupport) return [];
@@ -330,8 +417,16 @@ export function ControlScreen({
   useEffect(() => {
     setSpeedLimitExpanded(false);
     setFaultPanelOpen(false);
+    setBodyHeightPanelOpen(false);
+    setBodyHeightDraftM(null);
+    setBodyHeightError(null);
     if (!appActive) clearHudNotice();
   }, [operationTargetKey, connected, appActive, isLandscape, clearHudNotice]);
+  useEffect(() => {
+    if (!bodyHeightPanelOpen || !bodyHeight?.active || !bodyHeight?.supported) {
+      setBodyHeightDraftM(null);
+    }
+  }, [bodyHeightPanelOpen, bodyHeight?.active, bodyHeight?.supported]);
   const [joystickSettingsOpen, setJoystickSettingsOpen] = useState(false);
   const [layoutEditorGeneration, setLayoutEditorGeneration] = useState(0);
   const layoutEditorGenerationRef = useRef(0);
@@ -348,6 +443,12 @@ export function ControlScreen({
   const [settingsMenuOpen, setSettingsMenuOpen] = useState(false);
   const settingsMenuRef = useRef(false);
   const [settingsCategory, setSettingsCategory] = useState<ControlSettingsCategory>('操控');
+  const [settingsSubview, setSettingsSubview] = useState<ControlSettingsSubview>('tabs');
+  const returnToSettingsRef = useRef(false);
+  const [hostDraft, setHostDraft] = useState(workspaceSettings?.connection?.host ?? '127.0.0.1');
+  const [portDraft, setPortDraft] = useState(String(workspaceSettings?.connection?.port ?? 13145));
+  const [inlineConnBusy, setInlineConnBusy] = useState(false);
+  const [inlineConnMsg, setInlineConnMsg] = useState<string | null>(null);
   const [showTelemetry, setShowTelemetry] = useState(true);
   const [gestureLibraryOpen, setGestureLibraryOpen] = useState(false);
   const [postureMenuOpen, setPostureMenuOpen] = useState(false);
@@ -498,6 +599,7 @@ export function ControlScreen({
     if (!settingsMenuRef.current) return;
     settingsMenuRef.current = false;
     setSettingsMenuOpen(false);
+    setSettingsSubview('tabs');
   }, []);
   const revokeOperationIntent = useCallback(() => {
     closeSettingsMenu();
@@ -573,6 +675,9 @@ export function ControlScreen({
       recallRef.current.appActive = state === 'active';
       operationContextRef.current.appActive = state === 'active';
       if (state !== 'active') {
+        micSessionRef.current?.stop();
+        micSessionRef.current = null;
+        setMicrophoneActive(false);
         revokeOperationIntent();
         interruptInput();
         resetControls();
@@ -585,6 +690,8 @@ export function ControlScreen({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      micSessionRef.current?.stop();
+      micSessionRef.current = null;
       if (hudNoticeTimer.current) {
         clearTimeout(hudNoticeTimer.current);
         hudNoticeTimer.current = null;
@@ -656,14 +763,14 @@ export function ControlScreen({
       : previewControlsEnabled);
   const previewAvailable = offlinePreview && appActive && !leaving && !settingsMenuOpen && !joystickSettingsOpen
     && !inputSettingsOpen && !gestureLibraryOpen && !postureMenuOpen && !operationInFlight && !visibleConfirmation && !selectingPolicy;
-  const joystickDisabled = offlinePreview ? !previewAvailable : !controlsEnabled || selectedInputSource !== 'touch';
-  const nextTouchSnapshot = [selectedInputSource, controlsEnabled, offlinePreview, appActive, leaving, inputSettingsOpen, joystickSettingsOpen,
-    isLandscape, width, height, fontScale, viewport.width, viewport.height, renderGeneration,
+  const joystickDisabled = !showVirtualDiscControls || (offlinePreview ? !previewAvailable : !controlsEnabled || selectedInputSource !== 'touch');
+  const nextTouchSnapshot = [selectedInputSource, showVirtualDiscControls, controlsEnabled, offlinePreview, appActive, leaving, inputSettingsOpen, joystickSettingsOpen,
+    mirroredSticks, forwardDirection, isLandscape, width, height, fontScale, viewport.width, viewport.height, renderGeneration,
     productionInput?.onDrive, productionInput?.onTurn, productionInput?.onInterrupt,
     developmentInput?.onDrive, developmentInput?.onTurn, developmentInput?.onInterrupt];
   if (touchSnapshot.current && nextTouchSnapshot.some((value, index) => !Object.is(value, touchSnapshot.current![index]))) touchGeneration.current++;
   touchSnapshot.current = nextTouchSnapshot;
-  touchAllowed.current = controlsEnabled && selectedInputSource === 'touch';
+  touchAllowed.current = controlsEnabled && selectedInputSource === 'touch' && showVirtualDiscControls;
   const renderedTouchGeneration = touchGeneration.current;
   const previewTouchActive = (side: 'drive' | 'turn', active: boolean) => {
     if (!mountedRef.current || renderedTouchGeneration !== touchGeneration.current) return;
@@ -690,6 +797,7 @@ export function ControlScreen({
     if (!mountedRef.current || renderedTouchGeneration !== touchGeneration.current || !touchAllowed.current
       || selectedSourceRef.current !== 'touch' || layoutEditingRef.current) return;
     if (inFlightRef.current || confirmationRef.current || policySelectionRef.current !== null || !operationContextRef.current.appActive || operationContextRef.current.leaving) return;
+    value = applyForwardDirection(applyJoystickSensitivity(value, sensitivityRef.current), forwardDirectionRef.current);
     value = scaleControlVector(value, speedLimitRef.current);
     if (productionInput && (productionInput.touchReady ?? (productionInput.ready && canUseManualControl)) && appActive && !leaving) { productionInput.onDrive(value); return; }
     if (__DEV__ && developmentInput?.ready && appActive && !leaving) developmentInput.onDrive(value);
@@ -698,6 +806,7 @@ export function ControlScreen({
     if (!mountedRef.current || renderedTouchGeneration !== touchGeneration.current || !touchAllowed.current
       || selectedSourceRef.current !== 'touch' || layoutEditingRef.current) return;
     if (inFlightRef.current || confirmationRef.current || policySelectionRef.current !== null || !operationContextRef.current.appActive || operationContextRef.current.leaving) return;
+    value = applyJoystickSensitivity(value, sensitivityRef.current);
     value = scaleControlVector(value, speedLimitRef.current);
     if (productionInput && (productionInput.touchReady ?? (productionInput.ready && canUseManualControl)) && appActive && !leaving) { productionInput.onTurn(value); return; }
     if (__DEV__ && developmentInput?.ready && appActive && !leaving) developmentInput.onTurn(value);
@@ -709,6 +818,96 @@ export function ControlScreen({
     interruptInput();
     resetControls();
   }, [resetControls, revokeOperationIntent]);
+
+  const controlPrefsRevisionRef = useRef(0);
+  const updateControlPrefs = useCallback((patch: Partial<ControlUserPreferences>) => {
+    controlPrefsRevisionRef.current++;
+    const next: ControlUserPreferences = { ...controlPrefsRef.current, ...patch, version: 1 };
+    controlPrefsRef.current = next;
+    void saveControlPreferences(next);
+  }, []);
+
+  const prevVirtualDiscControlsRef = useRef(true);
+  const cancelTouchForHiddenDiscs = useCallback(() => {
+    const hadTouch = heldTouchSides.current.drive || heldTouchSides.current.turn;
+    heldTouchSides.current = { drive: false, turn: false };
+    resetControls();
+    if (selectedSourceRef.current === 'touch' || hadTouch) {
+      interruptInput();
+    }
+  }, [interruptInput, resetControls]);
+  const toggleVirtualDiscControls = useCallback(() => {
+    const next = !showVirtualDiscControlsRef.current;
+    showVirtualDiscControlsRef.current = next;
+    prevVirtualDiscControlsRef.current = next;
+    if (!next) cancelTouchForHiddenDiscs();
+    setShowVirtualDiscControls(next);
+    updateControlPrefs({ showVirtualDiscControls: next });
+  }, [cancelTouchForHiddenDiscs, updateControlPrefs]);
+  useEffect(() => {
+    const prev = prevVirtualDiscControlsRef.current;
+    prevVirtualDiscControlsRef.current = showVirtualDiscControls;
+    if (prev && !showVirtualDiscControls) {
+      cancelTouchForHiddenDiscs();
+    }
+  }, [showVirtualDiscControls, cancelTouchForHiddenDiscs]);
+
+  useEffect(() => {
+    let active = true;
+    const revision = controlPrefsRevisionRef.current;
+    void loadControlPreferences().then(saved => {
+      if (!active || controlPrefsLoadedRef.current || revision !== controlPrefsRevisionRef.current) return;
+      controlPrefsLoadedRef.current = true;
+      controlPrefsRef.current = saved;
+      setSensitivityPercent(saved.sensitivityPercent);
+      setMirroredSticks(saved.mirroredSticks);
+      setShowVirtualDiscControls(saved.showVirtualDiscControls);
+      setLowLatencyMode(saved.lowLatencyMode);
+      setSpeedLimitPercent(saved.speedLimitPercent);
+      setShowTelemetry(saved.showOverlay);
+      setVideoQuality(saved.videoQuality);
+      setAutoRecord(saved.autoRecord);
+      setSoundVolumePercent(saved.soundVolumePercent);
+      setVoiceBroadcastEnabled(saved.voiceBroadcastEnabled);
+      if (saved.docksExpanded !== null && landscapeDocksExpanded !== false) setDocksExpanded(saved.docksExpanded);
+      if (saved.dualCameraEnabled !== null) setDualCameraEnabled(saved.dualCameraEnabled);
+    });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (workspaceSettings?.connection?.host) setHostDraft(workspaceSettings.connection.host);
+    if (typeof workspaceSettings?.connection?.port === 'number') setPortDraft(String(workspaceSettings.connection.port));
+  }, [workspaceSettings?.connection?.host, workspaceSettings?.connection?.port]);
+
+  useEffect(() => {
+    applyVideoStreamPreferences(activeCaptureStream, videoQuality, lowLatencyMode);
+  }, [activeCaptureStream, videoQuality, lowLatencyMode]);
+
+  useEffect(() => {
+    workspaceSettings?.onLowLatencyChange?.(lowLatencyMode);
+  }, [lowLatencyMode, workspaceSettings?.onLowLatencyChange]);
+
+  const autoRecordTriggeredRef = useRef(false);
+  useEffect(() => {
+    if (!autoRecord || !activeCaptureReceiving || !activeCaptureStream || !appActive || leaving) {
+      autoRecordTriggeredRef.current = false;
+      return;
+    }
+    if (!mediaCapture.recordingActive && !autoRecordTriggeredRef.current) {
+      autoRecordTriggeredRef.current = true;
+      void mediaCapture.toggleRecording();
+    }
+  }, [autoRecord, activeCaptureReceiving, activeCaptureStream, appActive, leaving, mediaCapture]);
+
+  useEffect(() => {
+    if (!settingsMenuOpen || settingsCategory !== '视频') return;
+    let active = true;
+    void estimateClientStorageGb().then(est => {
+      if (active && est) setStorageEstimate(est);
+    });
+    return () => { active = false; };
+  }, [settingsMenuOpen, settingsCategory, mediaCapture.lastSavedLabel]);
 
   useEffect(() => {
     let active = true;
@@ -761,18 +960,33 @@ export function ControlScreen({
     setJoystickPreferences(next);
     persistJoystickLayout(next);
   };
+  const cameraHudActiveRef = useRef(false);
   const openJoystickSettings = () => {
+    const fromHudSettings = cameraHudActiveRef.current && settingsMenuRef.current;
+    returnToSettingsRef.current = fromHudSettings;
     layoutEditingRef.current = true;
     setLayoutEditorGeneration(++layoutEditorGenerationRef.current);
     physicalContext.current.allowed = false;
     handleCancel();
     setJoystickSettingsOpen(true);
+    if (cameraHudActiveRef.current) {
+      settingsMenuRef.current = true;
+      setSettingsSubview('layout');
+      setSettingsMenuOpen(true);
+    }
   };
   const closeJoystickSettings = () => {
+    const reopenHudSettings = cameraHudActiveRef.current && returnToSettingsRef.current;
+    returnToSettingsRef.current = false;
     handleCancel();
     layoutEditingRef.current = false;
     if (layoutPreviewDirty.current) persistJoystickLayout(joystickPreferencesRef.current);
     setJoystickSettingsOpen(false);
+    setSettingsSubview('tabs');
+    if (reopenHudSettings) {
+      settingsMenuRef.current = true;
+      setSettingsMenuOpen(true);
+    }
   };
   const handleStickArea = (event: LayoutChangeEvent) => {
     if (settingsMenuRef.current) return;
@@ -938,13 +1152,27 @@ export function ControlScreen({
         g20MotionGate.current.reset(); revokeOperationIntent(); resetControls(); interruptInput(); return;
       }
       if (!context.allowed) return;
-      if (intent.action === 'toggleJointParams') { setJointParamsOpen(current => !current); return; }
+      if (intent.action === 'toggleJointParams') {
+        setJointParamsOpen(current => {
+          const next = !current;
+          if (next) {
+            setLeftCategory('policy');
+            setSpeedLimitExpanded(false);
+            setBodyHeightPanelOpen(false);
+          }
+          return next;
+        });
+        return;
+      }
       if (intent.action) { context.runOperation(intent.action, context.generation); return; }
       if (motion.send && intent.send && context.motion && context.productionInput?.ready && context.productionInput.onSticks) {
         const limit = speedLimitRef.current;
+        const sens = sensitivityRef.current;
+        const rawDrive = applyForwardDirection(applyJoystickSensitivity({ x: frame.vector.leftX, y: frame.vector.leftY }, sens), forwardDirectionRef.current);
+        const rawTurn = applyJoystickSensitivity({ x: frame.vector.rightX, y: frame.vector.rightY }, sens);
         context.productionInput.onSticks(
-          scaleControlVector({ x: frame.vector.leftX, y: frame.vector.leftY }, limit),
-          scaleControlVector({ x: frame.vector.rightX, y: frame.vector.rightY }, limit),
+          scaleControlVector(rawDrive, limit),
+          scaleControlVector(rawTurn, limit),
           sample.requestStartedAtMonotonicMs,
         );
       }
@@ -953,8 +1181,43 @@ export function ControlScreen({
   useEffect(() => {
     if (selectedInputSource === 'physical' && !physicalAvailable) setInputSource('touch');
   }, [selectedInputSource, physicalAvailable, setInputSource]);
-  const openInputSettings = () => { handleCancel(); setInputSettingsOpen(true); };
-  const closeInputSettings = () => { handleCancel(); setInputSettingsOpen(false); };
+  const openInputSettings = () => {
+    const fromHudSettings = cameraHudActiveRef.current && settingsMenuRef.current;
+    returnToSettingsRef.current = fromHudSettings;
+    handleCancel();
+    setInputSettingsOpen(true);
+    if (cameraHudActiveRef.current) {
+      settingsMenuRef.current = true;
+      setSettingsSubview('input');
+      setSettingsMenuOpen(true);
+    }
+  };
+  const closeInputSettings = () => {
+    const reopenHudSettings = cameraHudActiveRef.current && returnToSettingsRef.current;
+    returnToSettingsRef.current = false;
+    handleCancel();
+    setInputSettingsOpen(false);
+    setSettingsSubview('tabs');
+    if (reopenHudSettings) {
+      settingsMenuRef.current = true;
+      setSettingsMenuOpen(true);
+    }
+  };
+  const dismissHudSettingsForAction = () => {
+    returnToSettingsRef.current = false;
+    if (layoutEditingRef.current) {
+      layoutEditingRef.current = false;
+      if (layoutPreviewDirty.current) persistJoystickLayout(joystickPreferencesRef.current);
+    }
+    setJoystickSettingsOpen(false);
+    setInputSettingsOpen(false);
+    setSettingsSubview('tabs');
+    closeSettingsMenu();
+  };
+  const closeAllHudSettings = () => {
+    dismissHudSettingsForAction();
+    handleCancel();
+  };
   const recallEnabled = canRecall === true && typeof onRecall === 'function' && appActive && !leaving && !operationInFlight && !visibleConfirmation && !selectingPolicy;
   const handleRecall = useCallback(() => {
     const current = recallRef.current;
@@ -1295,12 +1558,34 @@ export function ControlScreen({
   </View>;
 
   const cameraHud = layout.useColumns && Boolean(videoProbeHost || videoPresentation && videoPresentation.phase !== 'unconfigured' || recovery || landscapeDocksExpanded !== undefined);
+  cameraHudActiveRef.current = cameraHud;
   const recoveryOperator = useRecoveryOperator(recovery, runtimeState, visibleConfirmation || selectingPolicy ? '请先确认或取消当前操作。' : null);
   const closeRecovery = () => { handleCancel(); setGestureLibraryOpen(false); };
+  const voiceChatHost = workspaceSettings?.connection?.host ?? videoProbeHost ?? null;
+  const voiceChatConnected = immersiveConnectionReady
+    || Boolean(workspaceSettings?.connection?.readonlyConnected)
+    || Boolean(directConnection?.fresh);
+  const voiceChat = useRobotVoiceChat({
+    appActive: appActive && !leaving,
+    connected: voiceChatConnected,
+    endpoint: voiceEndpoint,
+    host: voiceChatHost,
+    viewerToken: voiceViewerToken,
+    allowLocalHttp: allowLocalVoiceHttp ?? true,
+    volumePercent: soundVolumePercent,
+    voiceReplyEnabled: voiceBroadcastEnabled,
+    onToggleVoiceReply: () => setVoiceBroadcastEnabled(prev => {
+      const next = !prev;
+      updateControlPrefs({ voiceBroadcastEnabled: next });
+      return next;
+    }),
+  });
   useEffect(() => {
     if (!dismissWorkspaceOverlayRef) return;
     dismissWorkspaceOverlayRef.current = () => {
-      if (faultPanelOpen) setFaultPanelOpen(false);
+      if (voiceChat.open) voiceChat.setOpen(false);
+      else if (bodyHeightPanelOpen) setBodyHeightPanelOpen(false);
+      else if (faultPanelOpen) setFaultPanelOpen(false);
       else if (jointParamsOpen) setJointParamsOpen(false);
       else if (jointTempOpen) setJointTempOpen(false);
       else if (speedLimitExpanded) setSpeedLimitExpanded(false);
@@ -1308,6 +1593,7 @@ export function ControlScreen({
       else if (gestureLibraryOpen) closeRecovery();
       else if (joystickSettingsOpen) closeJoystickSettings();
       else if (inputSettingsOpen) closeInputSettings();
+      else if (settingsMenuRef.current && settingsSubview !== 'tabs') setSettingsSubview('tabs');
       else if (recoveryOperator.confirming) recoveryOperator.dismiss();
       else if (settingsMenuRef.current || postureMenuOpen || visibleConfirmation || selectingPolicy) handleCancel();
       else return false;
@@ -1392,11 +1678,11 @@ export function ControlScreen({
     && gestureReadiness.ready,
   );
   const effectiveGestureHint = runtimeState?.controlLink !== 'connected'
-    ? '请先连接机器狗（当前可预览全部 35 个动作）'
+    ? '请先连接机器狗'
     : !gestureCatalogSynced
-      ? '当前固件动作服务尚未启用（仅可预览动作库）'
+      ? '固件动作服务未启用'
       : resolvedSelectedGestureName && !syncedGestureNames.has(resolvedSelectedGestureName)
-        ? '当前固件未收录该动作（仅可预览动图）'
+        ? '固件未收录该动作'
         : gestureReadiness.blockedReason;
   const handleLeftCategoryChange = (next: HudLeftCategory) => {
     setLeftCategory(next);
@@ -1405,7 +1691,86 @@ export function ControlScreen({
       setJointParamsOpen(false);
       setJointTempOpen(false);
       setFaultPanelOpen(false);
+      setBodyHeightPanelOpen(false);
+      voiceChat.setOpen(false);
     }
+    if (next === 'action' && gestureLinkReady && robotGestures.length === 0 && !gestureListUnimplemented) {
+      refreshGestureCatalog();
+    }
+  };
+  const bodyHeightLeased = Boolean(
+    controlSession?.leaseActive
+    || runtimeState?.controlAuthority === 'held'
+    || anyJoystickActive,
+  );
+  const bodyHeightMoving = customMotionBlock !== null;
+  const toggleBodyHeightPanel = () => {
+    setBodyHeightPanelOpen(prev => {
+      const next = !prev;
+      if (next) {
+        setLeftCategory('policy');
+        setSpeedLimitExpanded(false);
+        setJointParamsOpen(false);
+        setJointTempOpen(false);
+        setFaultPanelOpen(false);
+        voiceChat.setOpen(false);
+        setBodyHeightError(null);
+        if (immersiveConnectionReady) {
+          void onRefreshBodyHeight?.().catch(() => undefined);
+        }
+      } else {
+        setBodyHeightDraftM(null);
+        setBodyHeightError(null);
+      }
+      return next;
+    });
+  };
+  const handleSetBodyHeightMode = (enabled: boolean) => {
+    if (!onSetBodyHeightMode || bodyHeightBusyRef.current || !appActive || leaving) return;
+    resetControls();
+    interruptInput();
+    bodyHeightBusyRef.current = true;
+    setBodyHeightBusy(true);
+    setBodyHeightError(null);
+    setBodyHeightDraftM(null);
+    void onSetBodyHeightMode(enabled)
+      .then(() => {
+        if (!mountedRef.current) return;
+        showHudNotice(enabled ? '已开启高度模式' : '已退出高度模式');
+      })
+      .catch(caught => {
+        if (!mountedRef.current) return;
+        const msg = caught instanceof Error && caught.message ? caught.message : '高度模式切换失败';
+        setBodyHeightError(msg);
+        showHudNotice(msg);
+      })
+      .finally(() => {
+        bodyHeightBusyRef.current = false;
+        if (mountedRef.current) setBodyHeightBusy(false);
+      });
+  };
+  const handleCommitBodyHeight = (heightM: number) => {
+    if (!onSetBodyHeight || bodyHeightBusyRef.current || !appActive || leaving) return;
+    const clamped = clampBodyHeightM(heightM, bodyHeight);
+    setBodyHeightDraftM(clamped);
+    setBodyHeightError(null);
+    bodyHeightBusyRef.current = true;
+    setBodyHeightBusy(true);
+    void onSetBodyHeight(clamped)
+      .then(() => {
+        if (mountedRef.current) setBodyHeightDraftM(null);
+      })
+      .catch(caught => {
+        if (!mountedRef.current) return;
+        setBodyHeightDraftM(null);
+        const msg = caught instanceof Error && caught.message ? caught.message : '高度调节失败';
+        setBodyHeightError(msg);
+        showHudNotice(msg);
+      })
+      .finally(() => {
+        bodyHeightBusyRef.current = false;
+        if (mountedRef.current) setBodyHeightBusy(false);
+      });
   };
   const zeroReadiness = maintenanceReadiness('setZero');
   const clearFaultReadiness = maintenanceReadiness('clearMotorFault');
@@ -1417,7 +1782,7 @@ export function ControlScreen({
     const label = id === 'stand' ? '站立' : id === 'sit' ? '坐下' : id === 'prone' ? '趴下' : '恢复';
     const action = id === 'stand' ? 'stand' as const : id === 'sit' ? 'sit' as const : null;
     if (id === 'recover') {
-      if (!recovery) return { id, label, disabled: true, selected: false, hint: '恢复指令尚未接通。', onPress: () => { } };
+      if (!recovery) return { id, label, disabled: true, selected: false, hint: '恢复指令尚未接通。', onPress: () => {} };
       const followUp = recoveryOperator.view.actions.exit.enabled ? 'exit' as const : recoveryOperator.view.actions.cancel.enabled ? 'cancel' as const : null;
       if (followUp) return {
         id, label: recoveryOperator.view.actions[followUp].label, disabled: recoveryOperator.pending, selected: false,
@@ -1430,7 +1795,7 @@ export function ControlScreen({
       };
     }
     if (!action) {
-      return { id, label, disabled: true, selected: false, hint: '趴下指令尚未接通。', onPress: () => { } };
+      return { id, label, disabled: true, selected: false, hint: '趴下指令尚未接通。', onPress: () => {} };
     }
     const readiness = visibleConfirmation || selectingPolicy
       ? { ready: false, blockedReason: '请先确认或取消当前操作。' }
@@ -1467,9 +1832,7 @@ export function ControlScreen({
   const toggleDualCamera = () => {
     setDualCameraEnabled(prev => {
       const next = !prev;
-      if (next && effectiveRearVideo?.phase !== 'receiving' && effectiveRearVideo?.phase !== 'connecting') {
-        showHudNotice('已开启双广角视窗；后广角流待机器狗推流接入');
-      }
+      updateControlPrefs({ dualCameraEnabled: next });
       return next;
     });
   };
@@ -1477,8 +1840,68 @@ export function ControlScreen({
   const toggleHeadlight = () => {
     const next: HudHeadlightMode = headlightMode === 'off' ? 'front' : headlightMode === 'front' ? 'both' : 'off';
     setHeadlightMode(next);
-    showHudNotice(next === 'off' ? '已关闭本地照明状态预览' : '当前机器狗暂未接入照明控制协议（仅本地状态预览）');
+    showHudNotice(next === 'off' ? '补光灯已关闭' : next === 'front' ? '前补光灯已开启' : '前后补光灯已开启');
   };
+  const toggleForwardDirection = () => {
+    handleCancel();
+    setForwardDirection(prev => {
+      const next: HudForwardDirection = prev === 'front' ? 'rear' : 'front';
+      const label = next === 'rear' ? '已切换为后向操控' : '已恢复前向操控';
+      showHudNotice(label);
+      playControlFeedbackCue(label, soundVolumePercent, voiceBroadcastEnabled);
+      return next;
+    });
+  };
+  const toggleMicrophone = () => {
+    if (micSessionRef.current) {
+      micSessionRef.current.stop();
+      micSessionRef.current = null;
+      setMicrophoneActive(false);
+      setMicrophoneError(null);
+      return;
+    }
+    setMicrophoneError(null);
+    void startLocalMicrophoneCapture()
+      .then(session => {
+        if (!mountedRef.current || !appActive) {
+          session.stop();
+          return;
+        }
+        micSessionRef.current = session;
+        setMicrophoneActive(true);
+      })
+      .catch(caught => {
+        if (mountedRef.current) {
+          setMicrophoneActive(false);
+          setMicrophoneError(caught instanceof Error && caught.message ? caught.message : '麦克风不可用');
+        }
+      });
+  };
+  const layoutEditorBody = (
+    <View style={[styles.layoutEditor, isLandscape && styles.layoutEditorWide]}>
+      <View style={[styles.layoutCanvas, !isLandscape && styles.layoutCanvasPortrait]} testID="joystick-layout-canvas" onLayout={event => {
+        const { width: cw, height: ch } = event.nativeEvent.layout;
+        if (Number.isFinite(cw) && Number.isFinite(ch)) setLayoutCanvas({ width: Math.max(0, cw), height: Math.max(0, ch) });
+      }}>
+        {(['left', 'right'] as const).map(side => {
+          const disc = layoutCanvasDiscs[side];
+          const stickName = (mirroredSticks ? side === 'right' : side === 'left') ? '移动' : '转向';
+          return <View key={side} pointerEvents="none" testID={`joystick-layout-disc-${side}`} style={[styles.layoutDisc, { left: disc.left, top: disc.top, width: disc.size, height: disc.size, borderRadius: disc.size / 2, borderColor: controlSetupAppearance.border, backgroundColor: controlSetupAppearance.surface }]}>
+            <Text style={[styles.caption, { color: controlSetupAppearance.ink }]}>{stickName}</Text>
+          </View>;
+        })}
+      </View>
+      <View style={styles.layoutSettingsColumn}>
+        {controlSession?.error ? <Text accessibilityLiveRegion="assertive" style={[styles.caption, { color: colors.dangerText }]}>{controlSession.error}</Text> : null}
+        <JoystickLayoutSettings key={`${orientation}-${layoutEditorGeneration}`} orientation={orientation} layout={joystickPreferences[orientation]} onPreview={previewJoystickLayout} onChange={changeJoystickLayout} onReset={restoreJoystickLayout} onClose={closeJoystickSettings} storageError={layoutStorageError} />
+        {layoutStorageError ? <Pressable accessibilityRole="button" onPress={() => persistJoystickLayout(joystickPreferencesRef.current)} style={styles.layoutRetry} testID="joystick-layout-retry"><Text style={[styles.caption, { color: controlSetupAppearance.blueInk }]}>重试保存</Text></Pressable> : null}
+      </View>
+    </View>
+  );
+  const driveStickSpec = { axis: 'xy' as const, label: '速度', onActiveChange: offlinePreview ? (active: boolean) => previewTouchActive('drive', active) : (active: boolean) => touchActive('drive', active), onChange: offlinePreview ? ignoreLocalInput : productionInput || developmentInput ? handleDrive : ignoreLocalInput, onSample: !offlinePreview && productionInput ? handleDrive : undefined, testID: 'control-drive-stick' };
+  const turnStickSpec = { axis: 'x' as const, label: '转向', onActiveChange: offlinePreview ? (active: boolean) => previewTouchActive('turn', active) : (active: boolean) => touchActive('turn', active), onChange: offlinePreview ? ignoreLocalInput : productionInput || developmentInput ? handleTurn : ignoreLocalInput, onSample: !offlinePreview && productionInput ? handleTurn : undefined, testID: 'control-turn-stick' };
+  const hudSettingsVisible = settingsMenuOpen || joystickSettingsOpen || Boolean(inputSettingsOpen && g20Controller);
+  const activeHudSubview: ControlSettingsSubview = joystickSettingsOpen ? 'layout' : inputSettingsOpen && g20Controller ? 'input' : settingsSubview;
   const showLandscapeRecovery = Boolean(cameraHud && recovery && (recoveryOperator.confirming || recoveryOperator.error || recoveryOperator.view.sessionActive));
   const renderCameraHud = () => <View style={[styles.immersiveSurface, { backgroundColor: 'transparent', height: immersiveCanvasHeight }]} testID="control-immersive-surface">
     {controlLandscapeHud({
@@ -1486,9 +1909,20 @@ export function ControlScreen({
       connectionLabel: immersiveConnectionLabel,
       connectionState: immersiveConnectionReady ? 'connected' : directConnection?.fresh ? 'readonly' : 'disconnected',
       onBack: handleBack,
-      onOpenConnection: onOpenConnection || onOpenConnectionDiagnostics ? () => openView(onOpenConnection || onOpenConnectionDiagnostics) : undefined,
+      onOpenConnection: workspaceSettings?.connection
+        ? () => {
+          setFaultPanelOpen(false);
+          setSpeedLimitExpanded(false);
+          setBodyHeightPanelOpen(false);
+          closeAllHudSettings();
+          settingsMenuRef.current = true;
+          setSettingsSubview('tabs');
+          setSettingsCategory('网络');
+          setSettingsMenuOpen(true);
+        }
+        : (onOpenConnection || onOpenConnectionDiagnostics ? () => openView(onOpenConnection || onOpenConnectionDiagnostics) : undefined),
       onOpenJointStatus: onOpenJointStatus ? () => openView(onOpenJointStatus) : undefined,
-      onOpenWorkspaceSettings: onOpenWorkspaceSettings ? () => openView(onOpenWorkspaceSettings) : undefined,
+      onOpenWorkspaceSettings: undefined,
       showLocalControl: runtimeState?.controlAuthority === 'held',
       showUnlocked: safetyLock === false,
       runtimeState,
@@ -1521,12 +1955,23 @@ export function ControlScreen({
       },
       onSelectBasicAction: (id, supported, label) => {
         if (supported) { setSelectedBasicAction(id); return; }
-        showHudNotice(`${label} 动作暂未接入机器狗协议`);
+        showHudNotice(`${label} 暂未接入`);
       },
       speedLimitPercent,
       speedLimitExpanded,
-      onToggleSpeedLimitExpanded: () => setSpeedLimitExpanded(value => !value),
-      onChangeSpeedLimit: next => setSpeedLimitPercent(clampSpeedLimitPercent(next)),
+      onToggleSpeedLimitExpanded: () => setSpeedLimitExpanded(value => {
+        const next = !value;
+        if (next) {
+          setLeftCategory('policy');
+          setBodyHeightPanelOpen(false);
+        }
+        return next;
+      }),
+      onChangeSpeedLimit: next => {
+        const clamped = clampSpeedLimitPercent(next);
+        setSpeedLimitPercent(clamped);
+        updateControlPrefs({ speedLimitPercent: clamped });
+      },
       speedMode,
       onSelectSpeedMode: onChangeSpeedMode ? mode => {
         if (speedModePending || !appActive || leaving) return;
@@ -1538,7 +1983,7 @@ export function ControlScreen({
         }
         setSpeedModePending(true);
         void onChangeSpeedMode('normal')
-          .then(() => { showHudNotice('已恢复标准速度档位（1.0 m/s）'); })
+          .then(() => { showHudNotice('已切换为标准速度（1.0 m/s）'); })
           .catch(caught => { showHudNotice(caught instanceof Error && caught.message ? caught.message : '速度档位切换失败'); })
           .finally(() => { if (mountedRef.current) setSpeedModePending(false); });
       } : undefined,
@@ -1547,42 +1992,88 @@ export function ControlScreen({
       batteryPercent: resolvedBatteryPercent,
       voltageV: runtimeState?.battery?.voltageV ?? null,
       remainingRangeKm: runtimeState?.remainingRangeKm ?? null,
-      onStop: () => { closeSettingsMenu(); setFaultPanelOpen(false); setSpeedLimitExpanded(false); runOperation('stop', renderGeneration); },
+      onStop: () => { dismissHudSettingsForAction(); voiceChat.setOpen(false); setFaultPanelOpen(false); setSpeedLimitExpanded(false); setBodyHeightPanelOpen(false); runOperation('stop', renderGeneration); },
       stopDisabled: !stopReadiness.ready || ['submitted', 'accepted', 'executing'].includes(stopState.status),
       stopHint: stopState.detail ?? stopReadiness.blockedReason,
       docksExpanded,
-      onToggleDocks: () => { setSpeedLimitExpanded(false); setDocksExpanded(value => !value); },
+      onToggleDocks: () => {
+        setSpeedLimitExpanded(false);
+        setDocksExpanded(value => {
+          const next = !value;
+          updateControlPrefs({ docksExpanded: next });
+          return next;
+        });
+      },
       onOpenSettings: () => {
-        if (settingsMenuOpen) {
-          handleCancel();
+        if (hudSettingsVisible) {
+          closeAllHudSettings();
           return;
         }
+        voiceChat.setOpen(false);
         setFaultPanelOpen(false);
         setSpeedLimitExpanded(false);
+        setBodyHeightPanelOpen(false);
         handleCancel();
         settingsMenuRef.current = true;
+        setSettingsSubview('tabs');
         setSettingsCategory('操控');
         setSettingsMenuOpen(true);
       },
-      settingsOpen: settingsMenuOpen,
-      onCloseSettings: handleCancel,
-      settingsLabel: prepareWorkspaceLeaveRef ? '操控设置' : '设置',
-      settingsMenu: settingsMenuOpen ? renderControlSettings({
+      settingsOpen: hudSettingsVisible,
+      onCloseSettings: closeAllHudSettings,
+      settingsLabel: '设置',
+      settingsMenu: hudSettingsVisible ? renderControlSettings({
         width: effectiveViewportWidth || width,
         height: immersiveCanvasHeight || height,
         category: settingsCategory,
-        onCategory: setSettingsCategory,
-        snapshot: settingsSnapshot,
+        onCategory: next => {
+          setSettingsSubview('tabs');
+          setSettingsCategory(next);
+          if (next === '机器人' && gestureLinkReady && robotGestures.length === 0 && !gestureListUnimplemented) {
+            refreshGestureCatalog();
+          }
+        },
+        subview: activeHudSubview,
+        subviewTitle: activeHudSubview === 'layout' ? '圆盘布局' : activeHudSubview === 'input' ? '遥控器输入' : activeHudSubview === 'privacy' ? '数据与隐私' : '设置',
+        onBackSubview: activeHudSubview === 'layout' ? closeJoystickSettings : activeHudSubview === 'input' ? closeInputSettings : () => setSettingsSubview('tabs'),
+        onOpenPrivacySubview: () => setSettingsSubview('privacy'),
+        subviewContent: activeHudSubview === 'layout'
+          ? layoutEditorBody
+          : activeHudSubview === 'input' && g20Controller
+            ? <G20InputPanel
+              embedded
+              state={g20Controller.state}
+              source={selectedInputSource}
+              onStart={() => { g20Controller.observe(); }}
+              onStop={() => { g20Controller.stop(); }}
+              onBeginCalibration={() => { g20Controller.beginCalibration(); }}
+              onLearnAxis={axis => { g20Controller.learnAxis(axis); }}
+              onLearnButton={action => { g20Controller.learnButton(action); }}
+              onFinishCalibration={() => { g20Controller.finishCalibration(); }}
+              onClearCalibration={() => { g20Controller.clearCalibration(); }}
+              onSourceChange={setInputSource}
+              onClose={closeInputSettings}
+            />
+            : null,
+        snapshot: {
+          ...settingsSnapshot,
+          storageUsedGb: settingsSnapshot?.storageUsedGb ?? storageEstimate?.usedGb,
+          storageTotalGb: settingsSnapshot?.storageTotalGb ?? storageEstimate?.totalGb,
+        },
         overlay: showTelemetry,
-        onOverlay: () => setShowTelemetry(value => !value),
-        onClose: handleCancel,
+        onOverlay: () => setShowTelemetry(value => {
+          const next = !value;
+          updateControlPrefs({ showOverlay: next });
+          return next;
+        }),
+        onClose: closeAllHudSettings,
         onLayout: openJoystickSettings,
         onInput: g20Controller ? openInputSettings : undefined,
         onConnection: onOpenConnection || onOpenConnectionDiagnostics ? () => openView(onOpenConnection || onOpenConnectionDiagnostics) : undefined,
         onDiagnostics: onOpenJointStatus || onOpenConnectionDiagnostics ? () => openView(onOpenJointStatus || onOpenConnectionDiagnostics) : undefined,
-        onPostures: () => { handleCancel(); handleLeftCategoryChange('posture'); },
-        onActions: hasGestureCatalogSupport ? () => { handleCancel(); handleLeftCategoryChange('action'); } : undefined,
-        onPolicy: () => { handleCancel(); handleLeftCategoryChange('policy'); },
+        onPostures: () => { closeAllHudSettings(); handleLeftCategoryChange('posture'); },
+        onActions: hasGestureCatalogSupport ? () => { closeAllHudSettings(); handleLeftCategoryChange('action'); } : undefined,
+        onPolicy: () => { closeAllHudSettings(); handleLeftCategoryChange('policy'); },
         ownerLabel: controlOwnerLabel,
         lease: controlSession ? renderControlLease(true) : null,
         robotName,
@@ -1590,15 +2081,57 @@ export function ControlScreen({
         endpointLabel: directConnection?.endpointLabel,
         runtimeState,
         inputSource: selectedInputSource,
-        videoLabel: allowInteractionPreview ? '静态设计画面' : ({ unconfigured: '未配置', connecting: '连接中', receiving: '接收中', stalled: '已中断', error: '连接失败' } as const)[videoPresentation?.phase ?? 'unconfigured'],
+        videoLabel: allowInteractionPreview ? '静态画面' : ({ unconfigured: '未连接', connecting: '连接中', receiving: '实时图传', stalled: '画面中断', error: '连接失败' } as const)[videoPresentation?.phase ?? 'unconfigured'],
         inHudOverlay: true,
+        themePreference: workspaceSettings?.themePreference,
+        onChangeTheme: workspaceSettings?.onChangeTheme,
+        alertsEnabled: workspaceSettings?.alertsEnabled,
+        onToggleAlerts: workspaceSettings?.onToggleAlerts,
         docksExpanded,
-        onToggleDocks: () => setDocksExpanded(value => !value),
+        onToggleDocks: () => setDocksExpanded(value => {
+          const next = !value;
+          updateControlPrefs({ docksExpanded: next });
+          return next;
+        }),
+        sensitivityPercent,
+        onChangeSensitivity: next => {
+          const v = clampSensitivityPercent(next);
+          setSensitivityPercent(v);
+          updateControlPrefs({ sensitivityPercent: v });
+        },
+        mirroredSticks,
+        onToggleMirroredSticks: () => {
+          resetControls();
+          interruptInput();
+          setMirroredSticks(prev => {
+            const next = !prev;
+            updateControlPrefs({ mirroredSticks: next });
+            return next;
+          });
+        },
+        showVirtualDiscControls,
+        onToggleVirtualDiscControls: toggleVirtualDiscControls,
+        lowLatencyMode,
+        onToggleLowLatency: () => setLowLatencyMode(prev => {
+          const next = !prev;
+          updateControlPrefs({ lowLatencyMode: next });
+          return next;
+        }),
+        forwardDirection,
+        onToggleForwardDirection: () => {
+          resetControls();
+          interruptInput();
+          setForwardDirection(prev => prev === 'front' ? 'rear' : 'front');
+        },
         speedLimitPercent,
-        onChangeSpeedLimit: next => setSpeedLimitPercent(clampSpeedLimitPercent(next)),
+        onChangeSpeedLimit: next => {
+          const clamped = clampSpeedLimitPercent(next);
+          setSpeedLimitPercent(clamped);
+          updateControlPrefs({ speedLimitPercent: clamped });
+        },
         speedMode,
         onSelectSpeedMode: onChangeSpeedMode ? mode => {
-          closeSettingsMenu();
+          closeAllHudSettings();
           if (speedModePending || !appActive || leaving) return;
           if (mode === 'high') {
             handleCancel();
@@ -1607,7 +2140,7 @@ export function ControlScreen({
           }
           setSpeedModePending(true);
           void onChangeSpeedMode('normal')
-            .then(() => { showHudNotice('已恢复标准速度档位（1.0 m/s）'); })
+            .then(() => { showHudNotice('已切换为标准速度（1.0 m/s）'); })
             .catch(caught => { showHudNotice(caught instanceof Error && caught.message ? caught.message : '速度档位切换失败'); })
             .finally(() => { if (mountedRef.current) setSpeedModePending(false); });
         } : undefined,
@@ -1619,6 +2152,17 @@ export function ControlScreen({
         onToggleDualCamera: toggleDualCamera,
         headlightMode,
         onToggleHeadlight: toggleHeadlight,
+        videoQuality,
+        onChangeVideoQuality: next => {
+          setVideoQuality(next);
+          updateControlPrefs({ videoQuality: next });
+        },
+        autoRecord,
+        onToggleAutoRecord: () => setAutoRecord(prev => {
+          const next = !prev;
+          updateControlPrefs({ autoRecord: next });
+          return next;
+        }),
         recordingActive: mediaCapture.recordingActive,
         recordingDurationLabel: mediaCapture.recordingDurationLabel,
         mediaStatusLabel: mediaCapture.mediaStatusLabel,
@@ -1626,11 +2170,98 @@ export function ControlScreen({
         mediaLastSavedLabel: mediaCapture.lastSavedLabel,
         onToggleRecord: () => { void mediaCapture.toggleRecording(); },
         onCapturePhoto: () => { void mediaCapture.capturePhoto(); },
-        onOpenWorkspaceSettings: onOpenWorkspaceSettings ? () => openView(onOpenWorkspaceSettings) : undefined,
+        soundVolumePercent,
+        onChangeSoundVolume: next => {
+          const v = clampVolumePercent(next);
+          setSoundVolumePercent(v);
+          updateControlPrefs({ soundVolumePercent: v });
+        },
+        voiceBroadcastEnabled,
+        onToggleVoiceBroadcast: () => setVoiceBroadcastEnabled(prev => {
+          const next = !prev;
+          updateControlPrefs({ voiceBroadcastEnabled: next });
+          return next;
+        }),
+        onTestAudioCue: () => playControlFeedbackCue('操控提示音已就绪', soundVolumePercent, voiceBroadcastEnabled),
+        microphoneActive,
+        microphoneError,
+        onToggleMicrophone: toggleMicrophone,
+        voiceChatStatusLabel: voiceChat.statusLabel,
+        onOpenVoiceChat: () => {
+          closeAllHudSettings();
+          setLeftCategory('policy');
+          setJointParamsOpen(false);
+          setJointTempOpen(false);
+          setFaultPanelOpen(false);
+          setSpeedLimitExpanded(false);
+          setBodyHeightPanelOpen(false);
+          voiceChat.setOpen(true);
+        },
+        inlineConnection: workspaceSettings?.connection ? {
+          hostDraft,
+          portDraft,
+          onChangeHost: value => { setInlineConnMsg(null); setHostDraft(value); },
+          onChangePort: value => { setInlineConnMsg(null); setPortDraft(value); },
+          connected: immersiveConnectionReady,
+          readonlyConnected: workspaceSettings.connection.readonlyConnected,
+          busy: inlineConnBusy,
+          statusMessage: inlineConnMsg,
+          lastSyncLabel: workspaceSettings.connection.lastSyncLabel,
+          firmwareVersion: workspaceSettings.connection.firmwareVersion,
+          onConnectControl: () => {
+            const parsedPort = Number(portDraft.trim());
+            const cleanHost = hostDraft.trim();
+            if (!cleanHost || !Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+              setInlineConnMsg('请输入有效的 IP 与端口');
+              return;
+            }
+            setInlineConnBusy(true);
+            setInlineConnMsg(null);
+            void workspaceSettings.connection!.onConnectControl(cleanHost, parsedPort)
+              .then(ok => {
+                if (!mountedRef.current) return;
+                setInlineConnMsg(ok ? '已连接控制通道' : '连接未成功，请检查机器狗地址与服务状态');
+              })
+              .catch(caught => {
+                if (mountedRef.current) setInlineConnMsg(caught instanceof Error && caught.message ? caught.message : '连接失败');
+              })
+              .finally(() => { if (mountedRef.current) setInlineConnBusy(false); });
+          },
+          onProbeReadOnly: workspaceSettings.connection.onProbeReadOnly ? () => {
+            const parsedPort = Number(portDraft.trim());
+            const cleanHost = hostDraft.trim();
+            if (!cleanHost || !Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+              setInlineConnMsg('请输入有效的 IP 与端口');
+              return;
+            }
+            setInlineConnBusy(true);
+            setInlineConnMsg(null);
+            void workspaceSettings.connection!.onProbeReadOnly!(cleanHost, parsedPort)
+              .then(ok => {
+                if (!mountedRef.current) return;
+                setInlineConnMsg(ok ? '只读遥测已同步' : '只读读取失败');
+              })
+              .catch(caught => {
+                if (mountedRef.current) setInlineConnMsg(caught instanceof Error && caught.message ? caught.message : '读取失败');
+              })
+              .finally(() => { if (mountedRef.current) setInlineConnBusy(false); });
+          } : undefined,
+          onDisconnect: () => {
+            setInlineConnBusy(true);
+            setInlineConnMsg(null);
+            void workspaceSettings.connection!.onDisconnect()
+              .then(() => { if (mountedRef.current) setInlineConnMsg('已断开连接'); })
+              .finally(() => { if (mountedRef.current) setInlineConnBusy(false); });
+          },
+          onOpenAdvanced: workspaceSettings.connection.onOpenAdvanced ? () => openView(workspaceSettings.connection?.onOpenAdvanced) : undefined,
+          onOpenBle: workspaceSettings.connection.onOpenBle ? () => openView(workspaceSettings.connection?.onOpenBle) : undefined,
+        } : undefined,
+        onStopNow: () => { dismissHudSettingsForAction(); setFaultPanelOpen(false); setSpeedLimitExpanded(false); setBodyHeightPanelOpen(false); runOperation('stop', renderGeneration); },
+        stopDisabled: !stopReadiness.ready || ['submitted', 'accepted', 'executing'].includes(stopState.status),
         webStageMode,
         onToggleWebStageMode,
         policies: hudPolicies,
-        onSelectPolicy: id => { closeSettingsMenu(); handleSelectHudPolicy(id); },
+        onSelectPolicy: id => { dismissHudSettingsForAction(); handleSelectHudPolicy(id); },
         gestures: displayedGestures,
         gestureCategory,
         onGestureCategoryChange: setGestureCategory,
@@ -1650,8 +2281,8 @@ export function ControlScreen({
         onSetZero: () => runFromSettings('setZero'),
         clearFaultReady: clearFaultReadiness.ready,
         onClearMotorFault: () => runFromSettings('clearMotorFault'),
-        onOpenHudJointParams: () => { closeSettingsMenu(); setLeftCategory('policy'); setJointParamsOpen(true); },
-        onOpenHudJointTemp: () => { closeSettingsMenu(); setLeftCategory('policy'); setJointTempOpen(true); },
+        onOpenHudJointParams: () => { closeAllHudSettings(); setLeftCategory('policy'); setBodyHeightPanelOpen(false); setJointParamsOpen(true); },
+        onOpenHudJointTemp: () => { closeAllHudSettings(); setLeftCategory('policy'); setBodyHeightPanelOpen(false); setJointTempOpen(true); },
       }) : null,
       headlightMode,
       onToggleHeadlight: toggleHeadlight,
@@ -1679,12 +2310,16 @@ export function ControlScreen({
         />
       ) : null,
       forwardDirection,
-      onReverseDirection: () => showHudNotice('机器狗端运动换向协议暂未接入，当前运动正方向保持前方'),
-      onChargePress: () => showHudNotice('自主充电需导航任务协议支持，当前暂未接入'),
+      onReverseDirection: toggleForwardDirection,
+      onChargePress: () => showHudNotice('需配合自动充电桩使用'),
       jointTempOpen,
       onToggleJointTemp: () => setJointTempOpen(prev => {
         const next = !prev;
-        if (next) setLeftCategory('policy');
+        if (next) {
+          setLeftCategory('policy');
+          setBodyHeightPanelOpen(false);
+          voiceChat.setOpen(false);
+        }
         return next;
       }),
       tempModuleKind,
@@ -1692,7 +2327,11 @@ export function ControlScreen({
       jointParamsOpen,
       onToggleJointParams: () => setJointParamsOpen(prev => {
         const next = !prev;
-        if (next) setLeftCategory('policy');
+        if (next) {
+          setLeftCategory('policy');
+          setBodyHeightPanelOpen(false);
+          voiceChat.setOpen(false);
+        }
         return next;
       }),
       selectedLegId,
@@ -1700,22 +2339,60 @@ export function ControlScreen({
       faultPanelOpen,
       onToggleFaultPanel: () => setFaultPanelOpen(prev => {
         const next = !prev;
-        if (next) setLeftCategory('policy');
+        if (next) {
+          setLeftCategory('policy');
+          setBodyHeightPanelOpen(false);
+          voiceChat.setOpen(false);
+        }
         return next;
       }),
+      voiceChatOpen: voiceChat.open,
+      voiceChatStatusLabel: voiceChat.statusLabel,
+      voiceChatActive: voiceChat.listening || voiceChat.busy || voiceChat.phase === 'awaiting',
+      onToggleVoiceChat: () => {
+        const next = !voiceChat.open;
+        if (next) {
+          setLeftCategory('policy');
+          setJointTempOpen(false);
+          setJointParamsOpen(false);
+          setFaultPanelOpen(false);
+          setSpeedLimitExpanded(false);
+          setBodyHeightPanelOpen(false);
+        }
+        voiceChat.setOpen(next);
+      },
+      voiceChatPanel: voiceChat.open ? ControlVoiceChatPanel({
+        controller: voiceChat,
+        maxHeight: Math.max(120, Math.min(220, Math.round((immersiveCanvasHeight || height) * 0.34))),
+        onClose: () => voiceChat.setOpen(false),
+        surfaceTone: 'dark',
+      }) : null,
+      showVirtualDiscControls,
+      onToggleVirtualDiscControls: toggleVirtualDiscControls,
+      bodyHeightPanelOpen,
+      onToggleBodyHeightPanel: toggleBodyHeightPanel,
+      bodyHeight,
+      bodyHeightDraftM,
+      bodyHeightBusy,
+      bodyHeightError,
+      bodyHeightMoving,
+      bodyHeightLeased,
+      onSetBodyHeightMode: onSetBodyHeightMode ? handleSetBodyHeightMode : undefined,
+      onPreviewBodyHeight: setBodyHeightDraftM,
+      onCommitBodyHeight: onSetBodyHeight ? handleCommitBodyHeight : undefined,
       joints: runtimeState?.joints,
       hudNotice,
-      joystick: configuredJoystickLayout.usable ? <ControlJoystickPair
+      joystick: showVirtualDiscControls && configuredJoystickLayout.usable && !joystickSettingsOpen && !inputSettingsOpen ? <ControlJoystickPair
         key={offlinePreview ? 'offline-preview' : 'control'}
         disabled={joystickDisabled}
         floating
-        showVisuals={showLandscapeJoystickVisuals}
+        showVisuals={selectedInputSource === 'touch'}
         variant="glass"
         onCancel={offlinePreview ? cancelPreview : handleCancel}
         gap={immersiveJoystickGap}
-        left={{ axis: 'xy', label: '移动', onActiveChange: offlinePreview ? active => previewTouchActive('drive', active) : active => touchActive('drive', active), onChange: offlinePreview ? ignoreLocalInput : productionInput || developmentInput ? handleDrive : ignoreLocalInput, onSample: !offlinePreview && productionInput ? handleDrive : undefined, testID: 'control-drive-stick' }}
+        left={mirroredSticks ? turnStickSpec : driveStickSpec}
         resetKey={resetKey}
-        right={{ axis: 'x', label: '转向', onActiveChange: offlinePreview ? active => previewTouchActive('turn', active) : active => touchActive('turn', active), onChange: offlinePreview ? ignoreLocalInput : productionInput || developmentInput ? handleTurn : ignoreLocalInput, onSample: !offlinePreview && productionInput ? handleTurn : undefined, testID: 'control-turn-stick' }}
+        right={mirroredSticks ? driveStickSpec : turnStickSpec}
         showLabels={false}
         size={immersiveJoystickSize}
         layout={configuredJoystickLayout}
@@ -1732,7 +2409,7 @@ export function ControlScreen({
       video: videoPresentation || videoFrame ? <ControlVideoSurface presentation={videoPresentation} surface={videoFrame} active={appActive && !leaving} onInterrupted={handleCancel}
         backgroundColor="transparent" statusColor="#CED3CF" /> : null,
       videoReceiving: videoPresentation?.phase === 'receiving',
-      rearVideo: effectiveRearVideo || effectiveRearSurface ? <ControlVideoSurface presentation={effectiveRearVideo} surface={effectiveRearSurface} active={appActive && !leaving} onInterrupted={() => { }}
+      rearVideo: effectiveRearVideo || effectiveRearSurface ? <ControlVideoSurface presentation={effectiveRearVideo} surface={effectiveRearSurface} active={appActive && !leaving} onInterrupted={() => {}}
         backgroundColor="transparent" statusColor="#CED3CF" /> : null,
       rearVideoReceiving: effectiveRearVideo?.phase === 'receiving',
       feedback: operationFeedback,
@@ -1778,7 +2455,14 @@ export function ControlScreen({
     </> : null}
     {settingsMenuOpen ? renderControlSettings({
       width: viewport.width || width, height: immersiveCanvasHeight || height, category: settingsCategory,
-      onCategory: setSettingsCategory, snapshot: settingsSnapshot, overlay: showTelemetry,
+      onCategory: next => {
+        setSettingsCategory(next);
+        if (next === '机器人' && gestureLinkReady && robotGestures.length === 0 && !gestureListUnimplemented) {
+          refreshGestureCatalog();
+        }
+      }, snapshot: settingsSnapshot, overlay: showTelemetry,
+      showVirtualDiscControls,
+      onToggleVirtualDiscControls: toggleVirtualDiscControls,
       onOverlay: () => setShowTelemetry(value => !value), onClose: handleCancel,
       onLayout: openJoystickSettings, onInput: g20Controller ? openInputSettings : undefined,
       onConnection: onOpenConnection || onOpenConnectionDiagnostics ? () => openView(onOpenConnection || onOpenConnectionDiagnostics) : undefined,
@@ -1797,11 +2481,25 @@ export function ControlScreen({
       mediaLastSavedLabel: mediaCapture.lastSavedLabel,
       onToggleRecord: () => { void mediaCapture.toggleRecording(); },
       onCapturePhoto: () => { void mediaCapture.capturePhoto(); },
+      gestures: displayedGestures,
+      gestureCategory,
+      onGestureCategoryChange: setGestureCategory,
+      selectedGestureName,
+      onSelectGesture: setSelectedGestureName,
+      gestureGifPreview,
+      onToggleGestureGifPreview: () => setGestureGifPreview(prev => !prev),
+      gestureReady: effectiveGestureReady,
+      gestureHint: effectiveGestureHint,
+      onPlayGesture: name => {
+        if (effectiveGestureReady && syncedGestureNames.has(name)) {
+          runFromSettings('playGesture', name);
+        }
+      },
     }) : null}
     {renderImmersiveAuthority()}
     {showTelemetry && !settingsMenuOpen ? <View pointerEvents="none" testID="control-telemetry-center" style={styles.referenceCenterTelemetry}>{renderImmersiveTelemetry()}</View> : null}
-    <View onLayout={handleStickArea} pointerEvents={settingsMenuOpen ? 'none' : 'auto'} style={[styles.immersiveSticks, { top: immersiveTopInset, bottom: stickBottomInset, opacity: settingsMenuOpen ? 0 : 1, transform: [{ translateY: immersiveCanvasHeight * .022 }] }]} testID="control-immersive-sticks">
-      {configuredJoystickLayout.usable ? <ControlJoystickPair
+    <View onLayout={handleStickArea} pointerEvents={settingsMenuOpen || !showVirtualDiscControls ? 'none' : 'auto'} style={[styles.immersiveSticks, { top: immersiveTopInset, bottom: stickBottomInset, opacity: settingsMenuOpen || !showVirtualDiscControls ? 0 : 1, transform: [{ translateY: immersiveCanvasHeight * .022 }] }]} testID="control-immersive-sticks">
+      {showVirtualDiscControls && configuredJoystickLayout.usable ? <ControlJoystickPair
         key={offlinePreview ? 'offline-preview' : 'control'}
         disabled={joystickDisabled}
         floating
@@ -1859,29 +2557,12 @@ export function ControlScreen({
       </Pressable>
     </View>
   </SafeAreaView>;
-  if (joystickSettingsOpen) return <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={[styles.safe, { backgroundColor: controlSetupAppearance.canvas }]}>
+  if (joystickSettingsOpen && !cameraHud) return <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={[styles.safe, { backgroundColor: controlSetupAppearance.canvas }]}>
     <ControlSetupPage title="摇杆布局" onBack={closeJoystickSettings} header={isLandscape ? renderControlHeader(closeJoystickSettings) : undefined} media={{ presentation: video, surface: videoSurface, active: appActive && !leaving, onInterrupted: handleCancel }}>
-      <View style={[styles.layoutEditor, isLandscape && styles.layoutEditorWide]}>
-        <View style={[styles.layoutCanvas, !isLandscape && styles.layoutCanvasPortrait]} testID="joystick-layout-canvas" onLayout={event => {
-          const { width, height } = event.nativeEvent.layout;
-          if (Number.isFinite(width) && Number.isFinite(height)) setLayoutCanvas({ width: Math.max(0, width), height: Math.max(0, height) });
-        }}>
-          {(['left', 'right'] as const).map(side => {
-            const disc = layoutCanvasDiscs[side];
-            return <View key={side} pointerEvents="none" testID={`joystick-layout-disc-${side}`} style={[styles.layoutDisc, { left: disc.left, top: disc.top, width: disc.size, height: disc.size, borderRadius: disc.size / 2, borderColor: controlSetupAppearance.border, backgroundColor: controlSetupAppearance.surface }]}>
-              <Text style={[styles.caption, { color: controlSetupAppearance.ink }]}>{side === 'left' ? '移动' : '转向'}</Text>
-            </View>;
-          })}
-        </View>
-        <View style={styles.layoutSettingsColumn}>
-          {controlSession?.error ? <Text accessibilityLiveRegion="assertive" style={[styles.caption, { color: colors.dangerText }]}>{controlSession.error}</Text> : null}
-          <JoystickLayoutSettings key={`${orientation}-${layoutEditorGeneration}`} orientation={orientation} layout={joystickPreferences[orientation]} onPreview={previewJoystickLayout} onChange={changeJoystickLayout} onReset={restoreJoystickLayout} onClose={closeJoystickSettings} storageError={layoutStorageError} />
-          {layoutStorageError ? <Pressable accessibilityRole="button" onPress={() => persistJoystickLayout(joystickPreferencesRef.current)} style={styles.layoutRetry} testID="joystick-layout-retry"><Text style={[styles.caption, { color: controlSetupAppearance.blueInk }]}>重试保存</Text></Pressable> : null}
-        </View>
-      </View>
+      {layoutEditorBody}
     </ControlSetupPage>
   </SafeAreaView>;
-  if (inputSettingsOpen && g20Controller) return <G20InputPanel
+  if (inputSettingsOpen && g20Controller && !cameraHud) return <G20InputPanel
     header={isLandscape ? renderControlHeader(closeInputSettings) : undefined} media={{ presentation: video, surface: videoSurface, active: appActive && !leaving, onInterrupted: handleCancel }}
     state={g20Controller.state} source={selectedInputSource}
     onStart={() => { handleCancel(); g20Controller.observe(); }}
@@ -1913,6 +2594,20 @@ export function ControlScreen({
               <Text accessibilityRole="header" style={[styles.title, { color: colors.ink }]}>{robotName}</Text>
               <Text style={[styles.caption, { color: colors.muted }]}>{robotType}</Text>
             </View>
+            <Pressable
+              accessibilityLabel={voiceChat.open ? '收起语音对话' : '打开语音对话'}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: voiceChat.open, selected: voiceChat.open }}
+              onPress={() => voiceChat.toggleOpen()}
+              style={styles.back}
+              testID="control-portrait-voice-toggle"
+            >
+              <Ionicons
+                color={voiceChat.open ? appearance.blueInk : colors.ink}
+                name={voiceChat.open ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'}
+                size={22}
+              />
+            </Pressable>
             <Pressable accessibilityLabel="摇杆布局设置" accessibilityRole="button" onPress={openJoystickSettings} style={styles.back} testID="control-open-joystick-layout"><Ionicons color={colors.ink} name="resize-outline" size={22} /></Pressable>
             {g20Controller ? <Pressable accessibilityLabel="遥控器输入设置" accessibilityRole="button" onPress={openInputSettings} style={styles.back} testID="control-open-input">
               <Ionicons color={colors.ink} name="game-controller-outline" size={22} />
@@ -1930,6 +2625,16 @@ export function ControlScreen({
             </Pressable>
           </View>
 
+          {voiceChat.open ? (
+            <View style={{ marginBottom: 12 }}>
+              {ControlVoiceChatPanel({
+                controller: voiceChat,
+                maxHeight: 210,
+                onClose: () => voiceChat.setOpen(false),
+                surfaceTone: isDark ? 'dark' : 'light',
+              })}
+            </View>
+          ) : null}
           {directConnection ? <View style={styles.statusSummary} testID="control-direct-connection">
             <Text style={[styles.label, { color: colors.ink }]}>{directConnection.endpointLabel}</Text>
             <Text accessibilityLiveRegion="polite" style={[styles.caption, { color: colors.muted }]}>{directConnection.summary}</Text>
@@ -2207,7 +2912,7 @@ export function ControlScreen({
                     </View>
                   </View>
                   <View style={styles.sticks}>
-                    {layout.joystickSize >= 48 ? <ControlJoystickPair
+                    {showVirtualDiscControls ? (layout.joystickSize >= 48 ? <ControlJoystickPair
                       key={offlinePreview ? 'offline-preview' : 'control'}
                       disabled={joystickDisabled}
                       onCancel={offlinePreview ? cancelPreview : handleCancel}
@@ -2221,7 +2926,7 @@ export function ControlScreen({
                       touchAreaWidth={configuredWidth}
                       touchAreaHeight={configuredHeight}
                       showVisuals
-                    /> : <Text style={[styles.caption, { color: colors.muted }]}>当前窗口过小，暂不可操作摇杆</Text>}
+                    /> : <Text style={[styles.caption, { color: colors.muted }]}>当前窗口过小，暂不可操作摇杆</Text>) : null}
                   </View>
                   <Pressable
                     accessibilityLabel="召回机器人" accessibilityRole="button"

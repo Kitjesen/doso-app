@@ -3,13 +3,19 @@ import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { gesturePreviews } from '../assets';
 import { Text } from './AppText';
+import { ControlSlider } from './ControlSlider';
 import type { ControlJointState } from '../features/control/controlOperations';
 import {
+  BODY_HEIGHT_STEP_M,
+  clampBodyHeightM,
+  formatBodyHeightMeters,
   HUD_GESTURE_CATEGORIES,
   HUD_LEGS,
+  projectBodyHeightUi,
   projectHudGestures,
   projectJointTemperatures,
   projectLegJointParameters,
+  type HudBodyHeightState,
   type HudFaultItem,
   type HudGestureCategoryId,
   type HudGestureInput,
@@ -226,7 +232,7 @@ export function JointTemperaturePanel({
 
       {moduleKind === 'driver' && !projected.driverReported ? (
         <Text style={styles.truthfulNote} testID="control-hud-driver-temp-note">
-          当前固件未上报驱动器温度，驱动器测温待接入
+          驱动器未上报温度
         </Text>
       ) : null}
     </View>
@@ -389,7 +395,7 @@ export function GestureDeckPanel({
             </View>
           )}
           <View style={styles.gesturePreviewCornerBadge}>
-            <Text style={styles.gesturePreviewCornerText}>{`${selected.sourceTag} · ${selected.durationText}`}</Text>
+            <Text style={styles.gesturePreviewCornerText}>{selected.durationText}</Text>
           </View>
         </View>
       ) : null}
@@ -433,7 +439,7 @@ export function GestureDeckPanel({
         >
           <Ionicons color={isLight && executeDisabled ? '#475569' : '#FFFFFF'} name="play" size={12} />
           <Text numberOfLines={1} style={[styles.gestureExecuteText, isLight && executeDisabled && styles.gestureExecuteTextDisabledLight]}>
-            {gestureDisabled ? '暂不可执行' : '执行动作'}
+            执行动作
           </Text>
         </Pressable>
       </View>
@@ -602,6 +608,207 @@ export function GestureDeckPanel({
           {inspectorNode}
         </View>
       )}
+    </View>
+  );
+}
+
+export function BodyHeightPanel({
+  bodyHeight,
+  draftHeightM = null,
+  connected,
+  faulted,
+  leased,
+  remoteControlled = false,
+  moving,
+  busy = false,
+  error = null,
+  onToggleMode,
+  onPreviewHeight,
+  onCommitHeight,
+  onClose,
+}: {
+  bodyHeight?: HudBodyHeightState | null;
+  draftHeightM?: number | null;
+  connected: boolean;
+  faulted: boolean;
+  leased: boolean;
+  remoteControlled?: boolean;
+  moving: boolean;
+  busy?: boolean;
+  error?: string | null;
+  onToggleMode?: (enabled: boolean) => void;
+  onPreviewHeight?: (heightM: number) => void;
+  onCommitHeight?: (heightM: number) => void;
+  onClose: () => void;
+}) {
+  const projected = projectBodyHeightUi({
+    state: bodyHeight,
+    draftHeightM,
+    connected,
+    faulted,
+    leased,
+    remoteControlled,
+    moving,
+    busy,
+    hasModeCallback: typeof onToggleMode === 'function',
+    hasSetCallback: typeof onCommitHeight === 'function',
+  });
+  const { state, bounds } = projected;
+  const stepHeight = (deltaM: number) => {
+    if (projected.adjustDisabled || !onCommitHeight) return;
+    const nextM = clampBodyHeightM(projected.effectiveTargetM + deltaM, state);
+    onCommitHeight(nextM);
+  };
+  const noticeText = error || projected.hint;
+
+  return (
+    <View style={[styles.panelCard, styles.heightPanelCard]} testID="control-hud-height-panel">
+      <View style={styles.panelHeader}>
+        <View style={styles.heightHeaderLeft}>
+          <Text style={styles.panelTitle}>机身高度</Text>
+          <View style={styles.heightRangeBadge} testID="control-hud-height-range">
+            <Text style={styles.heightRangeText}>{bounds.rangeText}</Text>
+          </View>
+        </View>
+        <View style={styles.heightHeaderRight}>
+          <Pressable
+            accessibilityLabel="高度模式"
+            accessibilityRole="switch"
+            accessibilityState={{ checked: state.active, disabled: projected.modeToggleDisabled, busy }}
+            disabled={projected.modeToggleDisabled}
+            onPress={() => {
+              if (!projected.modeToggleDisabled) onToggleMode?.(!state.active);
+            }}
+            style={({ pressed }) => [
+              styles.heightModeBtn,
+              state.active && styles.heightModeBtnActive,
+              projected.modeToggleDisabled && styles.heightControlDisabled,
+              pressed && !projected.modeToggleDisabled && styles.pressed,
+            ]}
+            testID="control-hud-height-mode-toggle"
+          >
+            <View style={[styles.heightModeDot, state.active && styles.heightModeDotActive]} />
+            <Text style={[styles.heightModeBtnText, state.active && styles.heightModeBtnTextActive]}>高度模式</Text>
+          </Pressable>
+          <Pressable
+            accessibilityLabel="关闭机身高度面板"
+            accessibilityRole="button"
+            onPress={onClose}
+            style={({ pressed }) => [styles.closeBtn, pressed && styles.pressed]}
+            testID="control-hud-height-close"
+          >
+            <Ionicons color={MUTED} name="close" size={16} />
+          </Pressable>
+        </View>
+      </View>
+
+      <View style={styles.heightReadoutRow}>
+        <View style={styles.heightReadoutCell}>
+          <Text style={styles.heightReadoutLabel}>当前</Text>
+          <Text style={styles.heightReadoutValue} testID="control-hud-height-current">{projected.currentText}</Text>
+        </View>
+        <View style={styles.heightReadoutCell}>
+          <Text style={styles.heightReadoutLabel}>目标</Text>
+          <Text
+            style={[styles.heightReadoutValue, state.active && styles.heightReadoutValueActive]}
+            testID="control-hud-height-target"
+          >
+            {projected.targetText}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.heightSliderRow}>
+        <Pressable
+          accessibilityLabel="降低机身高度"
+          accessibilityRole="button"
+          accessibilityState={{ disabled: projected.decDisabled }}
+          disabled={projected.decDisabled}
+          onPress={() => stepHeight(-BODY_HEIGHT_STEP_M)}
+          style={({ pressed }) => [
+            styles.heightStepBtn,
+            projected.decDisabled && styles.heightControlDisabled,
+            pressed && !projected.decDisabled && styles.pressed,
+          ]}
+          testID="control-hud-height-dec"
+        >
+          <Ionicons color={INK} name="remove" size={16} />
+        </Pressable>
+
+        <View style={styles.heightSliderTrackWrap}>
+          <ControlSlider
+            accessibilityLabel="机身高度"
+            disabled={projected.adjustDisabled}
+            formatValue={value => formatBodyHeightMeters(value)}
+            glass
+            maximumValue={bounds.maxM}
+            minimumValue={bounds.minM}
+            onSlidingComplete={value => {
+              if (!projected.adjustDisabled) onCommitHeight?.(clampBodyHeightM(value, state));
+            }}
+            onValueChange={value => {
+              if (!projected.adjustDisabled) onPreviewHeight?.(clampBodyHeightM(value, state));
+            }}
+            step={0.01}
+            testID="control-hud-height-slider"
+            value={projected.effectiveTargetM}
+          />
+        </View>
+
+        <Pressable
+          accessibilityLabel="提高机身高度"
+          accessibilityRole="button"
+          accessibilityState={{ disabled: projected.incDisabled }}
+          disabled={projected.incDisabled}
+          onPress={() => stepHeight(BODY_HEIGHT_STEP_M)}
+          style={({ pressed }) => [
+            styles.heightStepBtn,
+            projected.incDisabled && styles.heightControlDisabled,
+            pressed && !projected.incDisabled && styles.pressed,
+          ]}
+          testID="control-hud-height-inc"
+        >
+          <Ionicons color={INK} name="add" size={16} />
+        </Pressable>
+      </View>
+
+      <View style={styles.heightPresetRow}>
+        {bounds.presets.map(preset => {
+          const selected = projected.activePresetId === preset.id;
+          return (
+            <Pressable
+              key={preset.id}
+              accessibilityLabel={`机身高度${preset.label} ${preset.valueText}`}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: projected.adjustDisabled, selected }}
+              disabled={projected.adjustDisabled}
+              onPress={() => {
+                if (!projected.adjustDisabled) onCommitHeight?.(preset.valueM);
+              }}
+              style={({ pressed }) => [
+                styles.heightPresetBtn,
+                selected && styles.heightPresetBtnActive,
+                projected.adjustDisabled && styles.heightControlDisabled,
+                pressed && !projected.adjustDisabled && styles.pressed,
+              ]}
+              testID={`control-hud-height-preset-${preset.id}`}
+            >
+              <Text style={[styles.heightPresetLabel, selected && styles.heightPresetTextActive]}>{preset.label}</Text>
+              <Text style={[styles.heightPresetValue, selected && styles.heightPresetTextActive]}>{preset.valueText}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {noticeText ? (
+        <Text
+          numberOfLines={1}
+          style={[styles.heightHintText, error ? styles.heightErrorText : null]}
+          testID="control-hud-height-hint"
+        >
+          {noticeText}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -1250,6 +1457,171 @@ const styles = StyleSheet.create({
   },
   gestureTextMutedLight: {
     color: '#475569',
+  },
+  heightPanelCard: {
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  heightHeaderLeft: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  heightHeaderRight: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  heightRangeBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    borderRadius: 6,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  heightRangeText: {
+    color: MUTED,
+    fontSize: 11,
+    fontVariant: ['tabular-nums'],
+    fontWeight: '600',
+    lineHeight: 14,
+  },
+  heightModeBtn: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.16)',
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 5,
+    minHeight: 28,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
+  heightModeBtnActive: {
+    backgroundColor: ACTIVE_BLUE,
+    borderColor: '#93C5FD',
+  },
+  heightModeDot: {
+    backgroundColor: '#737B80',
+    borderRadius: 3.5,
+    height: 7,
+    width: 7,
+  },
+  heightModeDotActive: {
+    backgroundColor: GREEN,
+  },
+  heightModeBtnText: {
+    color: INK,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+  },
+  heightModeBtnTextActive: {
+    color: '#FFFFFF',
+  },
+  heightReadoutRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  heightReadoutCell: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 10,
+    borderWidth: 1,
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  heightReadoutLabel: {
+    color: MUTED,
+    fontSize: 12,
+    fontWeight: '500',
+    lineHeight: 16,
+  },
+  heightReadoutValue: {
+    color: INK,
+    fontSize: 14,
+    fontVariant: ['tabular-nums'],
+    fontWeight: '700',
+    lineHeight: 19,
+  },
+  heightReadoutValueActive: {
+    color: '#93C5FD',
+  },
+  heightSliderRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  heightSliderTrackWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  heightStepBtn: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: 'rgba(255, 255, 255, 0.16)',
+    borderRadius: 16,
+    borderWidth: 1,
+    height: 32,
+    justifyContent: 'center',
+    width: 32,
+  },
+  heightPresetRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  heightPresetBtn: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderRadius: 9,
+    borderWidth: 1,
+    flex: 1,
+    flexDirection: 'row',
+    gap: 5,
+    justifyContent: 'center',
+    minHeight: 30,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  heightPresetBtnActive: {
+    backgroundColor: ACTIVE_BLUE,
+    borderColor: '#93C5FD',
+  },
+  heightPresetLabel: {
+    color: INK,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+  },
+  heightPresetValue: {
+    color: MUTED,
+    fontSize: 11,
+    fontVariant: ['tabular-nums'],
+    fontWeight: '500',
+    lineHeight: 15,
+  },
+  heightPresetTextActive: {
+    color: '#FFFFFF',
+  },
+  heightControlDisabled: {
+    opacity: 0.42,
+  },
+  heightHintText: {
+    color: MUTED,
+    fontSize: 11.5,
+    lineHeight: 15,
+    textAlign: 'center',
+  },
+  heightErrorText: {
+    color: '#FCA5A5',
   },
   pressed: { opacity: 0.7 },
 });

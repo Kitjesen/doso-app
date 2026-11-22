@@ -2,9 +2,12 @@ import { requireOptionalNativeModule } from 'expo';
 
 import { matchRobotHotspot } from './robotHotspotRules';
 import {
+  clampLanDiscoveryTimeout,
   isWifiJoinResult,
+  sanitizeLanDiscoveryPayload,
   WifiDiscoveryError,
   wifiErrorFromUnknown,
+  type LanDiscoveryPayload,
   type WifiDiscoveryAdapter,
   type WifiJoinResult,
 } from './wifiDiscoverySession';
@@ -13,6 +16,8 @@ type NativeRobotWifi = {
   readCurrentSsid(): Promise<unknown>;
   joinKnownSsid(ssid: string): Promise<unknown>;
   releaseJoinedNetwork(): Promise<void>;
+  discoverLanRobots?: (timeoutMs?: number) => Promise<unknown>;
+  stopLanDiscovery?: () => Promise<void>;
 };
 
 function loadNative(): NativeRobotWifi | null {
@@ -31,12 +36,13 @@ function requireNative(module: NativeRobotWifi | null): NativeRobotWifi {
 }
 
 export function createIosWifiDiscoveryAdapter(module: NativeRobotWifi | null = nativeModule): WifiDiscoveryAdapter {
+  const hasLanDiscovery = typeof module?.discoverLanRobots === 'function';
   return {
     platform: 'ios-current',
     canJoinKnownHotspot: true,
+    canDiscoverLan: hasLanDiscovery,
     async scan() {
-      // iOS does not provide a public API that lists nearby SSIDs. Callers must
-      // read the current network or ask to join a known hotspot instead.
+      // iOS does not provide a public API that lists nearby SSIDs.
       throw new WifiDiscoveryError('unsupported');
     },
     async currentSsid() {
@@ -48,11 +54,31 @@ export function createIosWifiDiscoveryAdapter(module: NativeRobotWifi | null = n
         throw wifiErrorFromUnknown(error, 'scan_failed');
       }
     },
+    async discoverLanRobots(timeoutMs?: number): Promise<LanDiscoveryPayload> {
+      if (!module || typeof module.discoverLanRobots !== 'function') {
+        return { robots: [], timedOut: false };
+      }
+      try {
+        const payload = await module.discoverLanRobots(clampLanDiscoveryTimeout(timeoutMs));
+        return sanitizeLanDiscoveryPayload(payload);
+      } catch (error) {
+        throw wifiErrorFromUnknown(error, 'discovery_failed');
+      }
+    },
+    async stopLanDiscovery() {
+      if (!module || typeof module.stopLanDiscovery !== 'function') return;
+      try {
+        await module.stopLanDiscovery();
+      } catch {
+        /* stopping LAN discovery is best-effort */
+      }
+    },
     async joinKnownHotspot(ssid: string): Promise<WifiJoinResult> {
-      if (!matchRobotHotspot(ssid)) throw new WifiDiscoveryError('join_failed');
+      const matched = matchRobotHotspot(ssid);
+      if (!matched) throw new WifiDiscoveryError('join_failed');
       const native = requireNative(module);
       try {
-        const result = await native.joinKnownSsid(ssid);
+        const result = await native.joinKnownSsid(matched.ssid);
         if (!isWifiJoinResult(result)) throw new WifiDiscoveryError('join_failed');
         return result;
       } catch (error) {

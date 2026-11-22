@@ -41,10 +41,12 @@ test('native control session compiles and obeys the lease/ACK/deadman lifecycle 
       '}',
     ].join('\n'));
     run('javac', ['-encoding', 'UTF-8', '-d', classes, clock, source('ControlStatusParser.java'),
-      source('ProfileInfoParser.java'), source('VoltageParser.java'), source('MotorStatusParser.java'),
+      source('ProfileInfoParser.java'), source('BodyHeightStatusParser.java'), source('VoltageParser.java'), source('MotorStatusParser.java'),
       source('GestureListParser.java'), source('ControlWire.java'), source('ImuParser.java'), source('RecoveryStatusParser.java'),
-      fixture('java/expo/modules/brainstemgrpc/ControlWireTest.java')]);
+      fixture('java/expo/modules/brainstemgrpc/ControlWireTest.java'),
+      fixture('java/expo/modules/brainstemgrpc/BodyHeightStatusParserTest.java')]);
     assert.match(run('java', ['-cp', classes, 'expo.modules.brainstemgrpc.ControlWireTest']), /PASS: control wire/);
+    assert.match(run('java', ['-cp', classes, 'expo.modules.brainstemgrpc.BodyHeightStatusParserTest']), /PASS: body height status/);
     const compiler = await Promise.all([
       jar('org.jetbrains.kotlin', 'kotlin-compiler-embeddable', '2.1.20'),
       jar('org.jetbrains.kotlin', 'kotlin-stdlib', '2.1.20'),
@@ -63,6 +65,7 @@ test('native control session compiles and obeys the lease/ACK/deadman lifecycle 
     const sessionResult = run('java', ['-cp', classpath, 'expo.modules.brainstemgrpc.ControlSessionTestKt']);
     assert.match(sessionResult, /PASS: native lease/);
     assert.match(sessionResult, /PASS: successful ACK receive cooldown includes initial zero/);
+    assert.match(sessionResult, /PASS: native body-height switch, get\/set and recovery block/);
     t.diagnostic(sessionResult.trim());
 
     // Compile the real Expo bridge too, using the SDK and already-built/cached dependencies.
@@ -110,7 +113,7 @@ test('real Expo bridge admits only same-peer telemetry and keeps its executor se
     await writeFile(clock, 'package android.os; public final class SystemClock { public static long elapsedRealtime() { return System.nanoTime()/1000000L; } }');
     run('javac', ['-encoding', 'UTF-8', '-d', classes, clock,
       fixture('bridge-stubs/Base64.java'),
-      ...['ControlStatusParser.java', 'ProfileInfoParser.java', 'VoltageParser.java', 'MotorStatusParser.java', 'GestureListParser.java', 'ControlWire.java', 'ImuParser.java', 'RecoveryStatusParser.java', 'LocalIdentityCrypto.java'].map(source)]);
+      ...['ControlStatusParser.java', 'ProfileInfoParser.java', 'BodyHeightStatusParser.java', 'VoltageParser.java', 'MotorStatusParser.java', 'GestureListParser.java', 'ControlWire.java', 'ImuParser.java', 'RecoveryStatusParser.java', 'LocalIdentityCrypto.java'].map(source)]);
     const compiler = await Promise.all([
       jar('org.jetbrains.kotlin', 'kotlin-compiler-embeddable', '2.1.20'), jar('org.jetbrains.kotlin', 'kotlin-stdlib', '2.1.20'),
       jar('org.jetbrains.kotlin', 'kotlin-script-runtime', '2.1.20'), jar('org.jetbrains.kotlin', 'kotlin-reflect', '1.6.10'),

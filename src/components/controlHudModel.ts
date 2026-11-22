@@ -1,4 +1,4 @@
-import type { ControlJointState, ControlRuntimeState } from '../features/control/controlOperations';
+import type { ControlBodyHeightState, ControlJointState, ControlRuntimeState } from '../features/control/controlOperations';
 
 export type HudLegId = 'front-left' | 'rear-left' | 'front-right' | 'rear-right';
 export type HudJointModuleKind = 'motor' | 'driver';
@@ -522,5 +522,183 @@ export function projectHudGestures(
     filteredItems: effectiveList,
     selectedItem,
     categoryCounts: counts,
+  };
+}
+
+export type HudBodyHeightState = ControlBodyHeightState;
+
+export const BODY_HEIGHT_DEFAULT_MIN_M = 0.15;
+export const BODY_HEIGHT_DEFAULT_MAX_M = 0.50;
+export const BODY_HEIGHT_DEFAULT_M = 0.375;
+export const BODY_HEIGHT_STEP_M = 0.02;
+
+export const DEFAULT_HUD_BODY_HEIGHT: HudBodyHeightState = Object.freeze({
+  available: false,
+  modeId: null,
+  active: false,
+  supported: false,
+  currentHeightM: null,
+  targetHeightM: null,
+  defaultHeightM: BODY_HEIGHT_DEFAULT_M,
+  minHeightM: BODY_HEIGHT_DEFAULT_MIN_M,
+  maxHeightM: BODY_HEIGHT_DEFAULT_MAX_M,
+  rateMps: null,
+});
+
+export type HudBodyHeightPreset = Readonly<{
+  id: 'low' | 'standard' | 'high';
+  label: string;
+  valueM: number;
+  valueText: string;
+}>;
+
+export type HudBodyHeightBounds = Readonly<{
+  minM: number;
+  maxM: number;
+  defaultM: number;
+  rangeText: string;
+  presets: readonly [HudBodyHeightPreset, HudBodyHeightPreset, HudBodyHeightPreset];
+}>;
+
+export type HudBodyHeightProjection = Readonly<{
+  state: HudBodyHeightState;
+  bounds: HudBodyHeightBounds;
+  currentText: string;
+  targetText: string;
+  effectiveTargetM: number;
+  modeToggleDisabled: boolean;
+  adjustDisabled: boolean;
+  decDisabled: boolean;
+  incDisabled: boolean;
+  activePresetId: HudBodyHeightPreset['id'] | null;
+  hint: string | null;
+}>;
+
+function roundHeightMeters(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+export function formatBodyHeightMeters(heightM: number | null | undefined): string {
+  if (typeof heightM !== 'number' || !Number.isFinite(heightM) || heightM <= 0) return '--';
+  return `${heightM.toFixed(2)} m`;
+}
+
+export function resolveBodyHeightBounds(state?: HudBodyHeightState | null): HudBodyHeightBounds {
+  const minM = typeof state?.minHeightM === 'number' && Number.isFinite(state.minHeightM) && state.minHeightM > 0
+    ? roundHeightMeters(state.minHeightM)
+    : BODY_HEIGHT_DEFAULT_MIN_M;
+  const maxM = typeof state?.maxHeightM === 'number' && Number.isFinite(state.maxHeightM) && state.maxHeightM > minM
+    ? roundHeightMeters(state.maxHeightM)
+    : Math.max(roundHeightMeters(minM + 0.1), BODY_HEIGHT_DEFAULT_MAX_M);
+  const rawDefault = typeof state?.defaultHeightM === 'number' && Number.isFinite(state.defaultHeightM)
+    ? state.defaultHeightM
+    : BODY_HEIGHT_DEFAULT_M;
+  const defaultM = roundHeightMeters(Math.min(maxM, Math.max(minM, rawDefault)));
+  return {
+    minM,
+    maxM,
+    defaultM,
+    rangeText: `${minM.toFixed(2)}–${maxM.toFixed(2)} m`,
+    presets: [
+      { id: 'low', label: '低', valueM: minM, valueText: formatBodyHeightMeters(minM) },
+      { id: 'standard', label: '标准', valueM: defaultM, valueText: formatBodyHeightMeters(defaultM) },
+      { id: 'high', label: '高', valueM: maxM, valueText: formatBodyHeightMeters(maxM) },
+    ],
+  };
+}
+
+export function clampBodyHeightM(valueM: number, state?: HudBodyHeightState | null): number {
+  const bounds = resolveBodyHeightBounds(state);
+  if (!Number.isFinite(valueM)) return bounds.defaultM;
+  return roundHeightMeters(Math.min(bounds.maxM, Math.max(bounds.minM, valueM)));
+}
+
+export function formatBodyHeightRange(state?: HudBodyHeightState | null): string {
+  return resolveBodyHeightBounds(state).rangeText;
+}
+
+export function projectBodyHeightUi({
+  state,
+  draftHeightM = null,
+  connected,
+  faulted,
+  leased,
+  remoteControlled = false,
+  moving,
+  busy,
+  hasModeCallback,
+  hasSetCallback,
+}: {
+  state?: HudBodyHeightState | null;
+  draftHeightM?: number | null;
+  connected: boolean;
+  faulted: boolean;
+  leased: boolean;
+  remoteControlled?: boolean;
+  moving: boolean;
+  busy: boolean;
+  hasModeCallback: boolean;
+  hasSetCallback: boolean;
+}): HudBodyHeightProjection {
+  const resolved = state ?? DEFAULT_HUD_BODY_HEIGHT;
+  const bounds = resolveBodyHeightBounds(resolved);
+  const liveCurrentM = resolved.active && resolved.supported
+    && typeof resolved.currentHeightM === 'number' && Number.isFinite(resolved.currentHeightM) && resolved.currentHeightM > 0
+    ? resolved.currentHeightM
+    : null;
+  const liveTargetM = resolved.active && resolved.supported
+    && typeof resolved.targetHeightM === 'number' && Number.isFinite(resolved.targetHeightM) && resolved.targetHeightM > 0
+    ? resolved.targetHeightM
+    : null;
+  const effectiveTargetM = typeof draftHeightM === 'number' && Number.isFinite(draftHeightM)
+    ? clampBodyHeightM(draftHeightM, resolved)
+    : liveTargetM !== null
+      ? clampBodyHeightM(liveTargetM, resolved)
+      : liveCurrentM !== null
+        ? clampBodyHeightM(liveCurrentM, resolved)
+        : bounds.defaultM;
+  const modeToggleDisabled = !connected || faulted || remoteControlled || leased || moving || busy || !hasModeCallback
+    || (!resolved.active && !resolved.available);
+  const adjustDisabled = !connected || faulted || remoteControlled || leased || busy || !hasSetCallback
+    || !resolved.active || !resolved.supported;
+  const decDisabled = adjustDisabled || effectiveTargetM <= bounds.minM + 0.0005;
+  const incDisabled = adjustDisabled || effectiveTargetM >= bounds.maxM - 0.0005;
+
+  let activePresetId: HudBodyHeightPreset['id'] | null = null;
+  if (resolved.active && resolved.supported) {
+    let bestDist = 0.015;
+    for (const preset of bounds.presets) {
+      const dist = Math.abs(effectiveTargetM - preset.valueM);
+      if (dist < bestDist) {
+        bestDist = dist;
+        activePresetId = preset.id;
+      }
+    }
+  }
+
+  let hint: string | null = null;
+  if (!connected) hint = '请先连接机器狗';
+  else if (faulted) hint = '存在本体故障';
+  else if (remoteControlled) hint = '控制权被占用';
+  else if (leased) hint = '请先停止移动';
+  else if (moving) hint = '行走中不可调节';
+  else if (!resolved.active && !resolved.available) hint = '高度模式未就绪';
+  else if (!resolved.active) hint = '请先开启高度模式';
+  else if (!resolved.supported) hint = '正在同步高度';
+
+  return {
+    state: resolved,
+    bounds,
+    currentText: formatBodyHeightMeters(liveCurrentM),
+    targetText: resolved.active && (liveTargetM !== null || draftHeightM !== null || liveCurrentM !== null)
+      ? formatBodyHeightMeters(effectiveTargetM)
+      : '--',
+    effectiveTargetM,
+    modeToggleDisabled,
+    adjustDisabled,
+    decDisabled,
+    incDisabled,
+    activePresetId,
+    hint,
   };
 }

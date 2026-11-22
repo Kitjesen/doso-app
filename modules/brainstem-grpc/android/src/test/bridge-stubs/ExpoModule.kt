@@ -1,5 +1,6 @@
 package expo.modules.kotlin.modules
 
+import expo.modules.kotlin.events.OnActivityResultPayload
 import expo.modules.kotlin.functions.Queues
 
 class AppContext {
@@ -17,12 +18,14 @@ class Definition {
   lateinit var foreground: () -> Unit
   lateinit var background: () -> Unit
   lateinit var destroy: () -> Unit
+  var activityResult: ((android.app.Activity, OnActivityResultPayload) -> Unit)? = null
   fun Name(name: String) {}
   fun Events(vararg names: String) {}
   fun Constants(body: () -> Map<String, Any?>) { body() }
   fun <T : Any> AsyncFunction(name: String, body: T): AsyncComponent { functions[name] = body; return AsyncComponent() }
   fun OnActivityEntersForeground(body: () -> Unit) { foreground = body }
   fun OnActivityEntersBackground(body: () -> Unit) { background = body }
+  fun OnActivityResult(body: (android.app.Activity, OnActivityResultPayload) -> Unit) { activityResult = body }
   fun OnDestroy(body: () -> Unit) { destroy = body }
 }
 fun ModuleDefinition(body: Definition.() -> Unit) = Definition().apply(body)
