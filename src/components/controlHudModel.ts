@@ -341,3 +341,184 @@ export const HUD_BASIC_ACTIONS: readonly HudBasicActionSpec[] = Object.freeze([
   Object.freeze({ id: 'follow', label: '智能跟随', supported: false }),
   Object.freeze({ id: 'wave', label: '打招呼', supported: false }),
 ]);
+
+export type HudGestureCategoryId = 'all' | 'social' | 'observe' | 'rhythm' | 'stage';
+
+export type HudGestureInput = Readonly<{
+  name: string;
+  label: string;
+  durationMs?: number;
+}>;
+
+export type HudGestureProjectedItem = Readonly<{
+  name: string;
+  label: string;
+  category: Exclude<HudGestureCategoryId, 'all'>;
+  durationMs: number;
+  durationText: string;
+  endPoseNote: string;
+  cautionTag: string | null;
+  sourceTag: '基础库' | 'Flip' | '扩展';
+  previewKey: string;
+}>;
+
+export const HUD_GESTURE_CATEGORIES: readonly Readonly<{ id: HudGestureCategoryId; label: string }>[] = Object.freeze([
+  Object.freeze({ id: 'all', label: '全部' }),
+  Object.freeze({ id: 'social', label: '问候社交' }),
+  Object.freeze({ id: 'observe', label: '观察表情' }),
+  Object.freeze({ id: 'rhythm', label: '机身律动' }),
+  Object.freeze({ id: 'stage', label: '舞台特殊' }),
+]);
+
+type GestureStaticMeta = Readonly<{
+  category: Exclude<HudGestureCategoryId, 'all'>;
+  defaultDurationMs: number;
+  endPoseNote: string;
+  cautionTag: string | null;
+  sourceTag: '基础库' | 'Flip';
+  previewKey?: string;
+}>;
+
+const GESTURE_STATIC_META: Readonly<Record<string, GestureStaticMeta>> = Object.freeze({
+  // Social & Greeting (8 + legacy alias)
+  sit_greet: { category: 'social', defaultDurationMs: 7420, endPoseNote: '三轮支撑 · 结束后停坐姿', cautionTag: '停坐姿', sourceTag: '基础库' },
+  greet_stand: { category: 'social', defaultDurationMs: 4620, endPoseNote: '三轮支撑 · 结束后回站姿', cautionTag: '三足', sourceTag: '基础库' },
+  offer_paw: { category: 'social', defaultDurationMs: 4820, endPoseNote: '三轮支撑 · 结束后回站姿', cautionTag: '三足', sourceTag: '基础库' },
+  hello: { category: 'social', defaultDurationMs: 8400, endPoseNote: '四轮接地 · 结束后回站姿', cautionTag: null, sourceTag: 'Flip' },
+  new_year_bow: { category: 'social', defaultDurationMs: 12500, endPoseNote: '四轮接地 · 三次拜年回站姿', cautionTag: null, sourceTag: 'Flip' },
+  play_bow: { category: 'social', defaultDurationMs: 3220, endPoseNote: '四轮接地 · 结束后回站姿', cautionTag: null, sourceTag: '基础库' },
+  flip_play_bow: { category: 'social', defaultDurationMs: 16000, endPoseNote: '四轮接地 · 长版深鞠躬回站姿', cautionTag: null, sourceTag: 'Flip' },
+  diagonal_curtsy: { category: 'social', defaultDurationMs: 5400, endPoseNote: '四轮接地 · 对角行礼回站姿', cautionTag: null, sourceTag: 'Flip' },
+  bow: { category: 'social', defaultDurationMs: 2400, endPoseNote: '四轮接地 · 结束后回站姿', cautionTag: null, sourceTag: '基础库', previewKey: 'play_bow' },
+
+  // Observe & Expression (8 + legacy alias)
+  nod_yes: { category: 'observe', defaultDurationMs: 4020, endPoseNote: '四轮接地 · 结束后回站姿', cautionTag: null, sourceTag: '基础库' },
+  shake_no: { category: 'observe', defaultDurationMs: 3620, endPoseNote: '四轮接地 · 结束后回站姿', cautionTag: null, sourceTag: '基础库' },
+  curious_look: { category: 'observe', defaultDurationMs: 4020, endPoseNote: '四轮接地 · 结束后回站姿', cautionTag: null, sourceTag: '基础库' },
+  curious_peek: { category: 'observe', defaultDurationMs: 6900, endPoseNote: '四轮接地 · 交替探头回站姿', cautionTag: null, sourceTag: 'Flip' },
+  head_tilt: { category: 'observe', defaultDurationMs: 5700, endPoseNote: '四轮接地 · 歪头观察回站姿', cautionTag: null, sourceTag: 'Flip' },
+  listen_tilt: { category: 'observe', defaultDurationMs: 3820, endPoseNote: '四轮接地 · 结束后回站姿', cautionTag: null, sourceTag: '基础库' },
+  look_back: { category: 'observe', defaultDurationMs: 4020, endPoseNote: '四轮接地 · 结束后回站姿', cautionTag: null, sourceTag: '基础库' },
+  inspect_down: { category: 'observe', defaultDurationMs: 4020, endPoseNote: '四轮接地 · 结束后回站姿', cautionTag: null, sourceTag: '基础库' },
+  ready_alert: { category: 'observe', defaultDurationMs: 3620, endPoseNote: '四轮接地 · 警戒压低回站姿', cautionTag: null, sourceTag: '基础库' },
+  nod: { category: 'observe', defaultDurationMs: 1600, endPoseNote: '四轮接地 · 结束后回站姿', cautionTag: null, sourceTag: '基础库', previewKey: 'nod_yes' },
+
+  // Body Rhythm (8)
+  stand_idle: { category: 'rhythm', defaultDurationMs: 4020, endPoseNote: '四轮接地 · 原地呼吸微摆', cautionTag: null, sourceTag: '基础库' },
+  wiggle: { category: 'rhythm', defaultDurationMs: 4620, endPoseNote: '四轮接地 · 后摆扭身回站姿', cautionTag: null, sourceTag: 'Flip' },
+  breathing_squat: { category: 'rhythm', defaultDurationMs: 2820, endPoseNote: '四轮接地 · 垂直下蹲回站姿', cautionTag: null, sourceTag: 'Flip' },
+  body_sway: { category: 'rhythm', defaultDurationMs: 6920, endPoseNote: '四轮接地 · 横摆联动回站姿', cautionTag: null, sourceTag: 'Flip' },
+  side_dip: { category: 'rhythm', defaultDurationMs: 5000, endPoseNote: '四轮接地 · 交替压肩回站姿', cautionTag: null, sourceTag: 'Flip' },
+  body_circle: { category: 'rhythm', defaultDurationMs: 10600, endPoseNote: '四轮接地 · 圆周律动回站姿', cautionTag: null, sourceTag: 'Flip' },
+  stretch: { category: 'rhythm', defaultDurationMs: 4820, endPoseNote: '四轮接地 · 前后伸展回站姿', cautionTag: null, sourceTag: '基础库' },
+  shake_body: { category: 'rhythm', defaultDurationMs: 3220, endPoseNote: '四轮接地 · 抖毛回站姿', cautionTag: null, sourceTag: '基础库' },
+
+  // Stage & Special Posture/Wheel Transitions (10)
+  celebrate: { category: 'stage', defaultDurationMs: 3220, endPoseNote: '四轮接地 · 欢快弹跳回站姿', cautionTag: null, sourceTag: '基础库' },
+  happy_bounce: { category: 'stage', defaultDurationMs: 5700, endPoseNote: '四轮接地 · 双次弹跳回站姿', cautionTag: null, sourceTag: 'Flip' },
+  shake: { category: 'stage', defaultDurationMs: 5600, endPoseNote: '四轮接地 · 快速甩身回站姿', cautionTag: null, sourceTag: 'Flip' },
+  figure8: { category: 'stage', defaultDurationMs: 10000, endPoseNote: '四轮接地 · 8字摆动回站姿', cautionTag: null, sourceTag: 'Flip' },
+  hip_pop: { category: 'stage', defaultDurationMs: 5700, endPoseNote: '四轮接地 · 髋部节拍回站姿', cautionTag: null, sourceTag: 'Flip' },
+  dance: { category: 'stage', defaultDurationMs: 26800, endPoseNote: '四轮接地 · 组合长舞回站姿', cautionTag: '长时', sourceTag: 'Flip' },
+  step_back: { category: 'stage', defaultDurationMs: 3020, endPoseNote: '车轮滚动后退约 0.32m', cautionTag: '后退0.32m', sourceTag: '基础库' },
+  sit: { category: 'stage', defaultDurationMs: 2820, endPoseNote: '站姿起 · 结束后停在坐姿', cautionTag: '停坐姿', sourceTag: '基础库' },
+  sit_wait: { category: 'stage', defaultDurationMs: 6220, endPoseNote: '站姿起 · 结束后停在坐姿', cautionTag: '停坐姿', sourceTag: '基础库' },
+  lie_down: { category: 'stage', defaultDurationMs: 3220, endPoseNote: '站姿起 · 结束后停在趴姿', cautionTag: '停趴姿', sourceTag: '基础库' },
+});
+
+function formatGestureDuration(durationMs: number): string {
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return '--';
+  return `${(durationMs / 1000).toFixed(1)}s`;
+}
+
+export const DEFAULT_THUNDER_GESTURES: readonly HudGestureInput[] = Object.freeze([
+  Object.freeze({ name: 'stand_idle', label: '原地待命', durationMs: 4020 }),
+  Object.freeze({ name: 'sit_greet', label: '坐下打招呼', durationMs: 7420 }),
+  Object.freeze({ name: 'greet_stand', label: '站立打招呼', durationMs: 4620 }),
+  Object.freeze({ name: 'offer_paw', label: '站立伸爪', durationMs: 4820 }),
+  Object.freeze({ name: 'hello', label: '你好问候', durationMs: 8400 }),
+  Object.freeze({ name: 'new_year_bow', label: '拜年鞠躬', durationMs: 12500 }),
+  Object.freeze({ name: 'play_bow', label: '玩耍鞠躬', durationMs: 3220 }),
+  Object.freeze({ name: 'flip_play_bow', label: '玩耍深鞠躬（长版）', durationMs: 16020 }),
+  Object.freeze({ name: 'diagonal_curtsy', label: '对角屈身', durationMs: 5400 }),
+  Object.freeze({ name: 'nod_yes', label: '点头同意', durationMs: 4020 }),
+  Object.freeze({ name: 'shake_no', label: '摇头拒绝', durationMs: 3620 }),
+  Object.freeze({ name: 'curious_look', label: '好奇张望', durationMs: 4020 }),
+  Object.freeze({ name: 'curious_peek', label: '好奇探头', durationMs: 6900 }),
+  Object.freeze({ name: 'head_tilt', label: '歪头观察', durationMs: 5700 }),
+  Object.freeze({ name: 'listen_tilt', label: '侧耳倾听', durationMs: 3820 }),
+  Object.freeze({ name: 'look_back', label: '回头看', durationMs: 4020 }),
+  Object.freeze({ name: 'inspect_down', label: '低头查看', durationMs: 4020 }),
+  Object.freeze({ name: 'ready_alert', label: '警戒就绪', durationMs: 3620 }),
+  Object.freeze({ name: 'wiggle', label: '后摆扭身', durationMs: 4620 }),
+  Object.freeze({ name: 'breathing_squat', label: '呼吸下蹲', durationMs: 2820 }),
+  Object.freeze({ name: 'body_sway', label: '机身横摆', durationMs: 6920 }),
+  Object.freeze({ name: 'side_dip', label: '侧向压肩', durationMs: 5000 }),
+  Object.freeze({ name: 'body_circle', label: '机身画圆', durationMs: 10600 }),
+  Object.freeze({ name: 'stretch', label: '伸懒腰', durationMs: 4820 }),
+  Object.freeze({ name: 'shake_body', label: '抖毛', durationMs: 3220 }),
+  Object.freeze({ name: 'celebrate', label: '庆祝', durationMs: 3220 }),
+  Object.freeze({ name: 'happy_bounce', label: '开心弹跳', durationMs: 5700 }),
+  Object.freeze({ name: 'shake', label: '快速甩身', durationMs: 5600 }),
+  Object.freeze({ name: 'figure8', label: '8字摆动', durationMs: 10000 }),
+  Object.freeze({ name: 'hip_pop', label: '髋部弹点', durationMs: 5700 }),
+  Object.freeze({ name: 'dance', label: '组合舞蹈', durationMs: 26800 }),
+  Object.freeze({ name: 'step_back', label: '后退两步', durationMs: 3020 }),
+  Object.freeze({ name: 'sit', label: '坐下', durationMs: 2820 }),
+  Object.freeze({ name: 'sit_wait', label: '坐姿待命', durationMs: 6220 }),
+  Object.freeze({ name: 'lie_down', label: '趴下', durationMs: 3220 }),
+]);
+
+export function projectHudGestures(
+  gestures: readonly HudGestureInput[],
+  category: HudGestureCategoryId = 'all',
+  selectedName?: string | null,
+): Readonly<{
+  allItems: readonly HudGestureProjectedItem[];
+  filteredItems: readonly HudGestureProjectedItem[];
+  selectedItem: HudGestureProjectedItem | null;
+  categoryCounts: Readonly<Record<HudGestureCategoryId, number>>;
+}> {
+  const counts: Record<HudGestureCategoryId, number> = {
+    all: 0,
+    social: 0,
+    observe: 0,
+    rhythm: 0,
+    stage: 0,
+  };
+  const allItems: HudGestureProjectedItem[] = gestures.map(raw => {
+    const meta = GESTURE_STATIC_META[raw.name];
+    const resolvedCategory = meta?.category ?? 'stage';
+    const durationMs = typeof raw.durationMs === 'number' && Number.isFinite(raw.durationMs) && raw.durationMs > 0
+      ? Math.round(raw.durationMs)
+      : meta?.defaultDurationMs ?? 0;
+    counts.all += 1;
+    counts[resolvedCategory] += 1;
+    return {
+      name: raw.name,
+      label: raw.label || raw.name,
+      category: resolvedCategory,
+      durationMs,
+      durationText: formatGestureDuration(durationMs),
+      endPoseNote: meta?.endPoseNote ?? '站姿触发动作',
+      cautionTag: meta?.cautionTag ?? null,
+      sourceTag: meta?.sourceTag ?? '扩展',
+      previewKey: meta?.previewKey ?? raw.name,
+    };
+  });
+
+  const filteredItems = category === 'all'
+    ? allItems
+    : allItems.filter(item => item.category === category);
+  const effectiveList = filteredItems.length > 0 ? filteredItems : allItems;
+  const selectedItem = effectiveList.find(item => item.name === selectedName)
+    ?? effectiveList[0]
+    ?? null;
+
+  return {
+    allItems,
+    filteredItems: effectiveList,
+    selectedItem,
+    categoryCounts: counts,
+  };
+}

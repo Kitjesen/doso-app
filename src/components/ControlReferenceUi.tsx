@@ -3,6 +3,8 @@ import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { ControlPanelMotion } from './ControlPanelMotion';
+import { GestureDeckPanel } from './ControlHudPanels';
+import type { HudGestureCategoryId, HudGestureInput } from './controlHudModel';
 import { Text } from './AppText';
 import type { ControlInputSource, ControlRuntimeState } from '../features/control/controlOperations';
 
@@ -90,7 +92,13 @@ type SettingsProps = {
   onToggleWebStageMode?: () => void;
   policies?: readonly Readonly<{ id: string; label: string; disabled: boolean; selected: boolean; hint?: string }>[];
   onSelectPolicy?: (id: string) => void;
-  gestures?: readonly Readonly<{ name: string; label: string }>[];
+  gestures?: readonly HudGestureInput[];
+  gestureCategory?: HudGestureCategoryId;
+  onGestureCategoryChange?: (category: HudGestureCategoryId) => void;
+  selectedGestureName?: string | null;
+  onSelectGesture?: (name: string) => void;
+  gestureGifPreview?: boolean;
+  onToggleGestureGifPreview?: () => void;
   gestureReady?: boolean;
   gestureHint?: string;
   onPlayGesture?: (name: string) => void;
@@ -437,7 +445,7 @@ export function renderControlSettings(p: SettingsProps) {
       const joints = observed?.joints ?? [];
       const onlineCount = joints.filter(item => item.online === true).length;
       const livePolicies = observed ? (p.policies ?? []) : [];
-      const liveGestures = observed ? (p.gestures ?? []) : [];
+      const liveGestures = p.gestures ?? [];
       const chip = (id: string, label: string, onPress: (() => void) | undefined, opts: { active?: boolean; disabled?: boolean; hint?: string; danger?: boolean } = {}) => (
         <Pressable
           key={id}
@@ -479,14 +487,22 @@ export function renderControlSettings(p: SettingsProps) {
           </View>
           {livePolicies.length > 0 ? blockedNote(!livePolicies.every(option => option.disabled && !option.selected), livePolicies.find(option => option.hint)?.hint) : null}
         </>)}
-        {panel('动作', 'body-outline', <>
-          <View style={st.chipWrap} testID="control-settings-gesture-list">
-            {liveGestures.length > 0
-              ? liveGestures.map(item => chip(`control-settings-gesture-${item.name}`, item.label,
-                p.onPlayGesture ? () => p.onPlayGesture?.(item.name) : undefined, { disabled: !p.gestureReady, hint: p.gestureHint }))
-              : <Text style={small}>{observed ? '暂无动作' : '未读取'}</Text>}
-          </View>
-          {liveGestures.length > 0 ? blockedNote(p.gestureReady, p.gestureHint) : null}
+        {panel(`动作${liveGestures.length ? ` (${liveGestures.length})` : ''}`, 'body-outline', <>
+          {liveGestures.length > 0
+            ? GestureDeckPanel({
+              gestures: liveGestures,
+              category: p.gestureCategory ?? 'all',
+              onSelectCategory: next => p.onGestureCategoryChange?.(next),
+              selectedGestureName: p.selectedGestureName ?? null,
+              onSelectGesture: name => p.onSelectGesture?.(name),
+              showGifPreview: p.gestureGifPreview ?? true,
+              onToggleGifPreview: () => p.onToggleGestureGifPreview?.(),
+              gestureDisabled: !observed || !p.gestureReady,
+              gestureHint: !observed ? '请先连接机器狗（当前可预览全部动作库）' : p.gestureHint,
+              onPlayGesture: p.onPlayGesture,
+              variant: 'settings',
+            })
+            : <View style={st.chipWrap} testID="control-settings-gesture-list"><Text style={small}>{observed ? '暂无动作' : '未读取'}</Text></View>}
         </>)}
       </>, <>
         {panel(`电机状态 ${joints.length ? `${onlineCount}/${joints.length}` : ''}`.trim(), 'speedometer-outline', <>

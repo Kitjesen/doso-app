@@ -1603,3 +1603,42 @@ test('ListenImu samples stay on the live session and drop when the stream or the
     assert.equal(emit, null);
   } finally { f.session.dispose(); }
 });
+
+test('playGesture strictly disallows Grounded even with motors enabled and allows only Standing without active lease', async () => {
+  const profile = slotProfile();
+  profile.modeCapabilities.push({
+    id: 'height', kind: 'body-height', available: true, availability: 'available',
+    label: '身高控制', profileId: 'single_frame_height_v2', unavailableReason: '',
+  });
+  const f = fixture(profile);
+  try {
+    await f.session.connect(endpoint, 'doso-g20@robot');
+    for (const disallowed of [
+      { fsmKind: 'grounded', motorOutputEnabled: false },
+      { fsmKind: 'grounded', motorOutputEnabled: true },
+      { fsmKind: 'zero', motorOutputEnabled: true },
+      { fsmKind: 'walking', motorOutputEnabled: true },
+      { fsmKind: 'transitioning', motorOutputEnabled: true },
+      { fsmKind: 'standing', motorOutputEnabled: false },
+      { fsmKind: 'standing', motorOutputEnabled: true, grpcLeaseActive: true },
+    ]) {
+      f.set({ grpcLeaseActive: false, ...disallowed });
+      await f.session.refresh();
+      assert.equal(f.session.operationReadiness.playGesture.ready, false, JSON.stringify(disallowed));
+      await assert.rejects(f.session.action('play-gesture', 'nod_yes'), /机器狗当前状态不允许/);
+    }
+    assert.equal(f.calls.some(call => call[0] === 'action'), false);
+
+    // Body-height capability must not be accepted as a switchable locomotion profile.
+    f.set({ fsmKind: 'standing', motorOutputEnabled: true, grpcLeaseActive: false });
+    await f.session.refresh();
+    await assert.rejects(f.session.action('switch-profile', 'height'), /所选策略已不可用/);
+    assert.equal(f.calls.some(call => call[0] === 'action'), false);
+
+    assert.equal(f.session.operationReadiness.playGesture.ready, true);
+    await f.session.action('play-gesture', 'nod_yes');
+    assert.deepEqual(f.calls.filter(call => call[0] === 'action'), [['action', 'play-gesture', 'nod_yes']]);
+  } finally {
+    f.session.dispose();
+  }
+});

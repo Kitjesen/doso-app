@@ -1,5 +1,7 @@
 import http from 'node:http';
 import { randomBytes } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import grpc from '@grpc/grpc-js';
 import {
@@ -46,14 +48,69 @@ const PLATFORM_MODE_TO_PROFILE = Object.freeze({
   platform: 'mini-platform',
   'mini-platform': 'mini-platform',
 });
-const SIM_GESTURES = Object.freeze([
-  Object.freeze({ name: 'bow', description: '鞠躬', durationMs: 2400 }),
-  Object.freeze({ name: 'nod', description: '点头', durationMs: 1600 }),
-  Object.freeze({ name: 'wiggle', description: '扭动', durationMs: 2000 }),
-  Object.freeze({ name: 'stretch', description: '伸展', durationMs: 2800 }),
-  Object.freeze({ name: 'dance', description: '跳舞', durationMs: 4000 }),
-  Object.freeze({ name: 'step_back', description: '后退', durationMs: 2000 }),
+const FALLBACK_SIM_GESTURES = Object.freeze([
+  Object.freeze({ name: 'play_bow', description: '玩耍鞠躬', durationMs: 3220, endPose: 'standing', keyframes: null }),
+  Object.freeze({ name: 'nod_yes', description: '点头同意', durationMs: 4020, endPose: 'standing', keyframes: null }),
+  Object.freeze({ name: 'wiggle', description: '后摆扭身', durationMs: 4620, endPose: 'standing', keyframes: null }),
+  Object.freeze({ name: 'stretch', description: '伸懒腰', durationMs: 4820, endPose: 'standing', keyframes: null }),
+  Object.freeze({ name: 'dance', description: '组合舞蹈', durationMs: 26800, endPose: 'standing', keyframes: null }),
+  Object.freeze({ name: 'step_back', description: '后退两步', durationMs: 3020, endPose: 'standing', keyframes: null }),
 ]);
+const LEGACY_GESTURE_ALIASES = Object.freeze({
+  bow: 'play_bow',
+  nod: 'nod_yes',
+});
+
+function loadMergedSimGestures() {
+  const gestureDir = path.resolve(import.meta.dirname, '../../../gesture');
+  const indexPath = path.join(gestureDir, 'index.json');
+  const libraryPath = path.join(gestureDir, 'library.json');
+  if (!existsSync(indexPath) || !existsSync(libraryPath)) return FALLBACK_SIM_GESTURES;
+  try {
+    const indexJson = JSON.parse(readFileSync(indexPath, 'utf8'));
+    const libraryJson = JSON.parse(readFileSync(libraryPath, 'utf8'));
+    const keyframesByName = new Map(
+      Array.isArray(libraryJson)
+        ? libraryJson.map((item) => [item.name, Array.isArray(item.keyframes) ? item.keyframes : null])
+        : [],
+    );
+    const items = (indexJson?.gestures ?? [])
+      .filter((item) => item?.standing_trigger_allowed !== false && item?.start_pose === 'standing')
+      .map((item) => Object.freeze({
+        name: String(item.name),
+        description: String(item.description || item.name),
+        durationMs: Math.max(20, Math.round(Number(item.duration_ms) || 2000)),
+        endPose: String(item.end_pose || 'standing'),
+        keyframes: keyframesByName.get(item.name) ?? null,
+      }));
+    return items.length > 0 ? Object.freeze(items) : FALLBACK_SIM_GESTURES;
+  } catch {
+    return FALLBACK_SIM_GESTURES;
+  }
+}
+
+const SIM_GESTURES = loadMergedSimGestures();
+
+function sampleGestureKeyframes(keyframes, elapsedGestureMs) {
+  if (!Array.isArray(keyframes) || keyframes.length === 0) return null;
+  let prev = Array.isArray(keyframes[0]?.targetPose) && keyframes[0].targetPose.length >= 16
+    ? keyframes[0].targetPose
+    : STANDING_POSE;
+  if (keyframes.length === 1 || elapsedGestureMs <= 0) return prev;
+  let remainingTicks = elapsedGestureMs / 20;
+  for (let i = 1; i < keyframes.length; i += 1) {
+    const kf = keyframes[i];
+    const target = Array.isArray(kf?.targetPose) && kf.targetPose.length >= 16 ? kf.targetPose : prev;
+    const segTicks = Math.max(1, Number(kf?.counts) || 0);
+    if (remainingTicks <= segTicks) {
+      const alpha = Math.max(0, Math.min(1, remainingTicks / segTicks));
+      return prev.map((v, idx) => v + (target[idx] - v) * alpha);
+    }
+    remainingTicks -= segTicks;
+    prev = target;
+  }
+  return prev;
+}
 const REASONS = Object.freeze({
   NONE: 0,
   INVALID_VECTOR: 1,
@@ -84,7 +141,9 @@ export async function createLocalBrainstemSimServer({
   transitionDurationMs = 300,
   imuIntervalMs = 100,
   platformConfigured = false,
+  heightConfigured = false,
   recoveryConfigured = false,
+  extraModeCapabilities = [],
   recoveryDurationMs = 1800,
   recoveryHeartbeatTimeoutMs = 1500,
 } = {}) {
@@ -131,6 +190,8 @@ export async function createLocalBrainstemSimServer({
   let leaseTimer = null;
   let transitionTimer = null;
   let gestureName = '';
+  let activeGesture = null;
+  let gestureStartedAt = 0;
   let zeroCalibratedAt = 0;
   let zeroCount = 0;
   let recoveryPhase = 1; // RECOVERY_PHASE_ABSENT
@@ -219,9 +280,13 @@ export async function createLocalBrainstemSimServer({
         platformConfigured
           ? { id: 'platform', kind: 1, availability: 2, profileId: 'mini-platform', unavailableReason: '' }
           : { id: 'platform', kind: 1, availability: 1, profileId: '', unavailableReason: '本机仿真未配置高台策略' },
+        ...(heightConfigured
+          ? [{ id: 'height', kind: 3, availability: 2, profileId: 'single_frame_height_v2', unavailableReason: '' }]
+          : []),
         recoveryConfigured
           ? { id: 'recovery', kind: 2, availability: 2, profileId: 'mujica-v89', unavailableReason: '' }
           : { id: 'recovery', kind: 2, availability: 1, profileId: '', unavailableReason: '本机仿真未配置摔倒恢复模型' },
+        ...extraModeCapabilities,
       ],
       activeModeId,
     };
@@ -308,6 +373,9 @@ export async function createLocalBrainstemSimServer({
     const moving = fsmKind === 3 && (cmdVelocity.x !== 0 || cmdVelocity.y !== 0 || cmdVelocity.z !== 0);
     const speedMag = Math.hypot(cmdVelocity.x, cmdVelocity.y);
     const activeScale = Math.min(1, speedMag + Math.abs(cmdVelocity.z) * 0.3);
+    const gesturePose = fsmKind === 4 && transitionKind === 3 && activeGesture?.keyframes
+      ? sampleGestureKeyframes(activeGesture.keyframes, elapsedMs() - gestureStartedAt)
+      : null;
     return Array.from({ length: 16 }, (_, id) => {
       const leg = Math.floor(id / 3);
       const jointInLeg = id % 3;
@@ -323,7 +391,7 @@ export async function createLocalBrainstemSimServer({
       const wheelVel = wheelIdx >= 0
         ? cmdVelocity.x * 8 + wheelSideSign * cmdVelocity.z * 2.5
         : moving ? 1.4 * Math.cos(legPhase) * speedMag : 0;
-      const pos = id < 12 ? basePos + swing : wheelPositions[wheelIdx];
+      const pos = gesturePose ? gesturePose[id] : id < 12 ? basePos + swing : wheelPositions[wheelIdx];
       return {
         id,
         online: true,
@@ -438,10 +506,14 @@ export async function createLocalBrainstemSimServer({
       activeModeId = enabledProfiles[mapped].modeId;
       return buildProfileInfo();
     }, { write: true }),
-    ListGestures: unaryHandler(() => ({ gestures: SIM_GESTURES.map((item) => ({ ...item })) })),
+    ListGestures: unaryHandler(() => ({
+      gestures: SIM_GESTURES.map(({ name, description, durationMs }) => ({ name, description, durationMs })),
+    })),
     PlayGesture: unaryHandler((request) => {
       syncLeaseFreshness();
-      const gesture = SIM_GESTURES.find((item) => item.name === String(request.name ?? '').trim());
+      const rawName = String(request.name ?? '').trim();
+      const resolvedName = LEGACY_GESTURE_ALIASES[rawName] ?? rawName;
+      const gesture = SIM_GESTURES.find((item) => item.name === resolvedName);
       if (!gesture) throw grpcError(grpc.status.INVALID_ARGUMENT, 'Unknown gesture');
       if (token || !motorOutputEnabled || fsmKind !== 2) {
         throw grpcError(grpc.status.FAILED_PRECONDITION, 'PlayGesture requires Standing with motors enabled and no lease');
@@ -450,12 +522,22 @@ export async function createLocalBrainstemSimServer({
       fsmKind = 4;
       transitionKind = 3;
       gestureName = gesture.name;
+      activeGesture = gesture;
+      gestureStartedAt = elapsedMs();
       transitionTimer = setTimeout(() => {
         transitionTimer = null;
         if (closed) return;
+        const endsGrounded = gesture.endPose === 'sitting' || gesture.endPose === 'lying';
         gestureName = '';
+        activeGesture = null;
         transitionKind = 0;
-        fsmKind = motorOutputEnabled ? 2 : 1;
+        if (!motorOutputEnabled || endsGrounded) {
+          fsmKind = 1;
+          poseBlend = 0;
+        } else {
+          fsmKind = 2;
+          poseBlend = 1;
+        }
       }, Math.max(0, Math.min(gesture.durationMs, transitionDurationMs > 0 ? gesture.durationMs : 0)));
       transitionTimer.unref?.();
       return {};

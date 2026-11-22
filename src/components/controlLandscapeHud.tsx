@@ -9,7 +9,7 @@ import type {
   ControlRuntimeState,
 } from '../features/control/controlOperations';
 import { ControlHudDashboard } from './ControlHudDashboard';
-import { FaultListPanel, JointParametersPanel, JointTemperaturePanel } from './ControlHudPanels';
+import { FaultListPanel, GestureDeckPanel, JointParametersPanel, JointTemperaturePanel } from './ControlHudPanels';
 import {
   collectHudFaults,
   HUD_BASIC_ACTIONS,
@@ -17,6 +17,8 @@ import {
   projectTopSignalBadges,
   type HudCameraPosition,
   type HudForwardDirection,
+  type HudGestureCategoryId,
+  type HudGestureInput,
   type HudHeadlightMode,
   type HudJointModuleKind,
   type HudLeftCategory,
@@ -84,7 +86,13 @@ export type ControlLandscapeHudProps = Readonly<{
   onLeftCategoryChange: (category: HudLeftCategory) => void;
   selectedBasicAction: string;
   onSelectBasicAction: (id: string, supported: boolean, label: string) => void;
-  gestures?: readonly Readonly<{ name: string; label: string }>[];
+  gestures?: readonly HudGestureInput[];
+  gestureCategory?: HudGestureCategoryId;
+  onGestureCategoryChange?: (category: HudGestureCategoryId) => void;
+  selectedGestureName?: string | null;
+  onSelectGesture?: (name: string) => void;
+  gestureGifPreview?: boolean;
+  onToggleGestureGifPreview?: () => void;
   gestureDisabled?: boolean;
   gestureHint?: string;
   onPlayGesture?: (name: string) => void;
@@ -199,6 +207,12 @@ export function controlLandscapeHud({
   selectedBasicAction,
   onSelectBasicAction,
   gestures = [],
+  gestureCategory = 'all',
+  onGestureCategoryChange,
+  selectedGestureName = null,
+  onSelectGesture,
+  gestureGifPreview = true,
+  onToggleGestureGifPreview,
   gestureDisabled = true,
   gestureHint,
   onPlayGesture,
@@ -289,13 +303,19 @@ export function controlLandscapeHud({
   const fBodyLine = sp(18);
   const fMeta = Math.max(11, sp(11.5));
   const fMetaLine = sp(16);
+  const effectiveStageW = stageWidth && stageWidth > 0 ? stageWidth : 960;
+  const effectiveStageH = stageHeight && stageHeight > 0 ? stageHeight : 540;
+  const compactTopBar = effectiveStageW < 1080;
+  const compactRightRail = effectiveStageH < 480;
   const pipW = stageWidth && stageWidth > 0
-    ? Math.max(180, Math.min(288, Math.round(stageWidth * 0.19)))
-    : sp(196);
+    ? Math.max(156, Math.min(compactRightRail ? 204 : 264, Math.round(stageWidth * (compactRightRail ? 0.175 : 0.19))))
+    : sp(188);
   const pipH = Math.round((pipW * 9) / 16);
-  const pipTop = sp(64);
-  const overlayW = Math.min(440, Math.max(350, Math.round((stageWidth || 960) * 0.44)));
+  const pipTop = sp(compactRightRail ? 54 : 60);
+  const overlayW = Math.min(440, Math.max(350, Math.round(effectiveStageW * 0.44)));
   const centerStackInset = Math.round((joystickSize || 220) + sp(24));
+  const centerFreeWidth = Math.max(320, effectiveStageW - Math.round((joystickSize || 160) * 2) - sp(56));
+  const gestureDeckWidth = Math.min(sp(468), centerFreeWidth);
   const faults = collectHudFaults({ runtimeState, sessionError, recoveryError });
   const signals = projectTopSignalBadges({ connection, runtimeState });
   const tempSummary = projectJointTemperatures('motor', joints);
@@ -342,10 +362,10 @@ export function controlLandscapeHud({
         ) : null}
 
         {/* Concept A-1 Top Floating Three-Island Bar */}
-        <View style={[styles.header, { left: sp(18), right: sp(18), top: sp(14) }]} pointerEvents="box-none">
-          <View style={[styles.topBarRow, { gap: sp(10), minHeight: sp(40) }]} pointerEvents="box-none" testID="control-hud-status-bar">
+        <View style={[styles.header, { left: sp(compactTopBar ? 12 : 18), right: sp(compactTopBar ? 12 : 18), top: sp(12) }]} pointerEvents="box-none">
+          <View style={[styles.topBarRow, { gap: sp(compactTopBar ? 6 : 10), minHeight: sp(38) }]} pointerEvents="box-none" testID="control-hud-status-bar">
             {/* Island 1 (Top-Left): Identity + Connection + Auth + Status + Control Settings + Workspace Settings */}
-            <View style={[styles.islandLeft, { gap: sp(7), minHeight: sp(40), paddingHorizontal: sp(13), paddingVertical: sp(4) }]} pointerEvents="box-none">
+            <View style={[styles.islandLeft, { gap: sp(compactTopBar ? 5 : 7), minHeight: sp(38), paddingHorizontal: sp(compactTopBar ? 10 : 13), paddingVertical: sp(3) }]} pointerEvents="box-none">
               <Pressable
                 accessibilityLabel={'设备连接' + connectionLabel}
                 accessibilityRole="button"
@@ -414,7 +434,7 @@ export function controlLandscapeHud({
             </View>
 
             {/* Island 2 (Top-Center): Mode + Segmented Terrain Capsules + Speed Chip */}
-            <View style={[styles.islandCenter, { gap: sp(6), minHeight: sp(40), paddingHorizontal: sp(7), paddingVertical: sp(4) }]} pointerEvents="box-none">
+            <View style={[styles.islandCenter, { gap: sp(compactTopBar ? 4 : 6), minHeight: sp(38), paddingHorizontal: sp(compactTopBar ? 5 : 7), paddingVertical: sp(3) }]} pointerEvents="box-none">
               <Pressable
                 accessibilityLabel={recoveryModeSelected ? '恢复模式' : '常规模式，切换左侧控制组'}
                 accessibilityRole="button"
@@ -475,7 +495,7 @@ export function controlLandscapeHud({
             </View>
 
             {/* Island 3 (Top-Right): Signal / Voltage / Thermal Telemetry + Guarded Crimson E-Stop */}
-            <View style={[styles.islandRight, { gap: sp(10), minHeight: sp(40), paddingLeft: sp(13), paddingRight: sp(5), paddingVertical: sp(4) }]} pointerEvents="box-none" testID="control-telemetry">
+            <View style={[styles.islandRight, { flexShrink: 1, gap: sp(compactTopBar ? 6 : 10), minHeight: sp(38), paddingLeft: sp(compactTopBar ? 9 : 13), paddingRight: sp(5), paddingVertical: sp(3) }]} pointerEvents="box-none" testID="control-telemetry">
               {faults.length > 0 ? (
                 <Pressable
                   accessibilityLabel={`异常列表，共 ${faults.length} 项`}
@@ -737,34 +757,41 @@ export function controlLandscapeHud({
           </View>
         ) : null}
 
-        {/* Expanded Dashboard Floats Above Concept A-1 Obsidian Bottom Dock */}
-        {docksExpanded && !settingsMenu ? ControlHudDashboard({
-          expanded: true,
-          scale: hudScale,
-          onToggleExpanded: onToggleDocks,
-          headlightMode,
-          frontVideoReceiving: videoReceiving,
-          rearVideoReceiving,
-          remainingRangeKm,
-          batteryPercent,
-          voltageV,
-          minTempC: tempSummary.minTempC,
-          maxTempC: tempSummary.maxTempC,
-          minTempSeverity: tempSummary.minSeverity,
-          maxTempSeverity: tempSummary.maxSeverity,
-          forwardDirection,
-          jointTempOpen,
-          jointParamsOpen,
-          onToggleJointTemp,
-          onToggleJointParams,
-          onChargePress,
-          onReverseDirection,
-        }) : null}
+        {/* Expanded Dashboard Floats Above Concept A-1 Obsidian Bottom Dock (yields center stage when popovers/panels are open) */}
+        {docksExpanded && !settingsMenu ? (
+          <View
+            pointerEvents={leftCategory !== 'policy' || anyFloatingPanel ? 'none' : 'box-none'}
+            style={[StyleSheet.absoluteFill, (leftCategory !== 'policy' || anyFloatingPanel) ? styles.hiddenBehindPopover : null]}
+          >
+            {ControlHudDashboard({
+              expanded: true,
+              scale: hudScale,
+              onToggleExpanded: onToggleDocks,
+              headlightMode,
+              frontVideoReceiving: videoReceiving,
+              rearVideoReceiving,
+              remainingRangeKm,
+              batteryPercent,
+              voltageV,
+              minTempC: tempSummary.minTempC,
+              maxTempC: tempSummary.maxTempC,
+              minTempSeverity: tempSummary.minSeverity,
+              maxTempSeverity: tempSummary.maxSeverity,
+              forwardDirection,
+              jointTempOpen,
+              jointParamsOpen,
+              onToggleJointTemp,
+              onToggleJointParams,
+              onChargePress,
+              onReverseDirection,
+            })}
+          </View>
+        ) : null}
 
         {/* Concept A-1 Bottom-Center Floating Obsidian Pill Dock + Popover */}
-        {!settingsMenu ? <View pointerEvents="box-none" style={[styles.bottomDockContainer, { bottom: sp(14) }]} testID="control-hud-left-controls">
+        {!settingsMenu ? <View pointerEvents="box-none" style={[styles.bottomDockContainer, { bottom: sp(12) }]} testID="control-hud-left-controls">
           {leftCategory !== 'policy' ? (
-            <View style={[styles.drawerPopover, { borderRadius: sp(16), marginBottom: sp(8), maxWidth: sp(480), paddingHorizontal: sp(12), paddingVertical: sp(9) }]}>
+            <View style={[styles.drawerPopover, { borderRadius: sp(16), marginBottom: sp(8), maxWidth: leftCategory === 'action' && gestures.length > 0 ? gestureDeckWidth + sp(24) : sp(440), paddingHorizontal: sp(11), paddingVertical: sp(8) }]}>
               {leftCategory === 'posture' ? (
                 <View style={[styles.drawerWrap, { gap: sp(6) }]} testID="control-hud-posture-dock">
                   {postures.map(option => (
@@ -817,26 +844,20 @@ export function controlLandscapeHud({
 
               {leftCategory === 'action' ? (
                 <View style={[styles.drawerWrap, { gap: sp(6) }]} testID="control-hud-action-dock">
-                  {gestures.length > 0 ? gestures.map(item => (
-                    <Pressable
-                      key={item.name}
-                      accessibilityHint={gestureDisabled ? gestureHint : undefined}
-                      accessibilityLabel={item.label}
-                      accessibilityRole="button"
-                      accessibilityState={{ disabled: gestureDisabled }}
-                      disabled={gestureDisabled}
-                      onPress={() => onPlayGesture?.(item.name)}
-                      style={({ pressed }) => [
-                        styles.drawerPillBtn,
-                        { gap: sp(5), minHeight: sp(32), paddingHorizontal: sp(13), paddingVertical: sp(4) },
-                        gestureDisabled && styles.disabled,
-                        pressed && styles.pressed,
-                      ]}
-                      testID={`control-hud-gesture-${item.name}`}
-                    >
-                      <Text numberOfLines={1} style={[styles.drawerPillText, { fontSize: fBody, lineHeight: fBodyLine }]}>{item.label}</Text>
-                    </Pressable>
-                  )) : HUD_BASIC_ACTIONS.map(item => {
+                  {gestures.length > 0 ? GestureDeckPanel({
+                    gestures,
+                    category: gestureCategory,
+                    onSelectCategory: next => onGestureCategoryChange?.(next),
+                    selectedGestureName,
+                    onSelectGesture: name => onSelectGesture?.(name),
+                    showGifPreview: gestureGifPreview,
+                    onToggleGifPreview: () => onToggleGestureGifPreview?.(),
+                    gestureDisabled,
+                    gestureHint,
+                    onPlayGesture,
+                    variant: 'hud',
+                    deckWidth: gestureDeckWidth,
+                  }) : HUD_BASIC_ACTIONS.map(item => {
                     const selected = selectedBasicAction === item.id;
                     return (
                       <Pressable
@@ -884,13 +905,8 @@ export function controlLandscapeHud({
             >
               <View style={[styles.motorDot, { borderRadius: sp(4), height: sp(8), width: sp(8) }, motorEnabled ? styles.motorDotArmed : styles.motorDotOff]} />
               <Text style={[styles.dockMotorText, { fontSize: fBody, lineHeight: fBodyLine }, motorEnabled && styles.dockMotorTextArmed]}>
-                {motorEnabled ? '电机已使能' : '使能电机'}
+                {motorEnabled ? '失能电机' : '使能电机'}
               </Text>
-              {motorEnabled ? (
-                <View style={[styles.motorDisablePill, { paddingHorizontal: sp(8), paddingVertical: sp(2) }]}>
-                  <Text style={[styles.motorDisableSub, { fontSize: fMeta, lineHeight: fMetaLine }]}>失能电机</Text>
-                </View>
-              ) : null}
             </Pressable>
 
             <View style={[styles.dockDivider, { height: sp(16) }]} />
@@ -1065,6 +1081,7 @@ const styles = StyleSheet.create({
   islandNavTextActive: { color: '#FFFFFF', fontWeight: '600' },
   settingsBackdrop: { backgroundColor: 'rgba(6, 10, 9, 0.46)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0, zIndex: 10 },
   hiddenStickFrame: { opacity: 0 },
+  hiddenBehindPopover: { opacity: 0 },
 
   islandCenter: {
     alignItems: 'center',

@@ -9,9 +9,14 @@ const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.Modu
 const api = await import(`data:text/javascript;base64,${Buffer.from(compiled.replace('../features/control/robotModeCapabilities.ts', new URL('../src/features/control/robotModeCapabilities.ts', import.meta.url).href)).toString('base64')}`);
 const now = Date.parse('2026-10-23T10:00:00.000Z');
 const endpoint = () => ({ host: ' ROBOT.EXAMPLE ', port: 13145, clientIdentityAlias: 'not-for-storage' });
-test('recovery capability survives the snapshot without becoming a profile', () => {
-  const profile = { current: 'flat', available: ['flat'], descriptions: [], currentDescription: '', activeModeId: 'recovery',
-    modeCapabilities: [{ id: 'recovery', kind: 2, availability: 1, profileId: '', unavailableReason: 'Selected' }] };
+test('recovery and body-height capabilities survive the snapshot without becoming locomotion profiles', () => {
+  const profile = {
+    current: 'flat', available: ['flat'], descriptions: [], currentDescription: '', activeModeId: 'recovery',
+    modeCapabilities: [
+      { id: 'height', kind: 'body-height', available: true, availability: 'available', label: '身高控制', profileId: 'single_frame_height_v2', unavailableReason: '' },
+      { id: 'recovery', kind: 'recovery-action', available: false, availability: 'unavailable', label: '摔倒恢复', profileId: '', unavailableReason: 'Selected' },
+    ],
+  };
   const view = api.describeDirectRobotConnection(api.createDirectRobotConnectionSnapshot(endpoint(), { ...observation(), profile }, now), now);
   assert.deepEqual(view.runtimeState.recoveryMode, { status: 'unavailable', selected: true });
   assert.deepEqual(api.profileOptions(profile).map(x => x.id), ['flat']);
