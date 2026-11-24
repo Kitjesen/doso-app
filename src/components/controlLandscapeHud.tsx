@@ -147,6 +147,11 @@ export type ControlLandscapeHudProps = Readonly<{
   voiceChatOpen?: boolean;
   voiceChatStatusLabel?: string;
   voiceChatActive?: boolean;
+  voiceChatLiveState?: 'idle' | 'listening' | 'thinking' | 'speaking';
+  voiceChatEmotionLabel?: string | null;
+  voiceChatQuietMode?: boolean;
+  voiceChatPendingReminders?: number;
+  voiceChatConnected?: boolean;
   onToggleVoiceChat?: () => void;
   voiceChatPanel?: ReactNode;
   showVirtualDiscControls?: boolean;
@@ -289,6 +294,11 @@ export function controlLandscapeHud({
   voiceChatOpen = false,
   voiceChatStatusLabel,
   voiceChatActive = false,
+  voiceChatLiveState = 'idle',
+  voiceChatEmotionLabel = null,
+  voiceChatQuietMode = false,
+  voiceChatPendingReminders = 0,
+  voiceChatConnected = false,
   onToggleVoiceChat,
   voiceChatPanel,
   showVirtualDiscControls = true,
@@ -741,33 +751,85 @@ export function controlLandscapeHud({
         {/* Upper-Left Quick Tool Rail: Voice / Virtual Discs / Body Height */}
         {!settingsMenu && (onToggleVoiceChat || onToggleVirtualDiscControls || onToggleBodyHeightPanel) ? (
           <View pointerEvents="box-none" style={[styles.leftVoiceRail, { gap: sp(ultraShortStage ? 6 : 8), left: pipRight, top: pipTop }]}>
-            {onToggleVoiceChat ? (
-              <Pressable
-                accessibilityLabel={voiceChatOpen ? '收起语音对话' : '打开语音对话'}
-                accessibilityRole="button"
-                accessibilityState={{ expanded: voiceChatOpen, selected: voiceChatOpen || voiceChatActive }}
-                onPress={onToggleVoiceChat}
-                style={({ pressed }) => [styles.circleBtnGroup, { gap: sp(2) }, pressed && styles.pressed]}
-                testID="control-hud-voice-toggle"
-              >
-                <View
-                  style={[
-                    styles.circleBtn,
-                    { borderRadius: circleRadius, height: circleSize, width: circleSize },
-                    (voiceChatOpen || voiceChatActive) && styles.circleBtnActive,
-                  ]}
+            {onToggleVoiceChat ? (() => {
+              const voiceBusyState = voiceChatLiveState === 'listening' || voiceChatLiveState === 'thinking' || voiceChatLiveState === 'speaking' || voiceChatActive;
+              const voiceDotColor =
+                voiceChatLiveState === 'listening'
+                  ? '#22C55E'
+                  : voiceChatLiveState === 'speaking'
+                    ? '#38BDF8'
+                    : voiceChatLiveState === 'thinking'
+                      ? '#60A5FA'
+                      : voiceChatQuietMode
+                        ? '#F59E0B'
+                        : voiceChatConnected
+                          ? '#22C55E'
+                          : '#94A3B8';
+              const voiceHaloColor =
+                voiceChatLiveState === 'listening'
+                  ? 'rgba(34, 197, 94, 0.34)'
+                  : voiceChatLiveState === 'speaking'
+                    ? 'rgba(56, 189, 248, 0.34)'
+                    : 'rgba(96, 165, 250, 0.32)';
+              const dockVoiceLabel = voiceBusyState && voiceChatStatusLabel
+                ? voiceChatStatusLabel
+                : voiceChatQuietMode
+                  ? '轻声'
+                  : '对话';
+              return (
+                <Pressable
+                  accessibilityLabel={voiceChatOpen ? '收起语音对话' : '打开语音对话'}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: voiceChatOpen, selected: voiceChatOpen || voiceBusyState }}
+                  onPress={onToggleVoiceChat}
+                  style={({ pressed }) => [styles.circleBtnGroup, { gap: sp(2) }, pressed && styles.pressed]}
+                  testID="control-hud-voice-toggle"
                 >
-                  <Ionicons
-                    color={INK}
-                    name={voiceChatActive ? 'mic' : voiceChatOpen ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'}
-                    size={circleIconSize}
-                  />
-                </View>
-                <Text numberOfLines={1} style={[styles.circleCaption, { fontSize: fMeta, lineHeight: railMetaLine }]}>
-                  {voiceChatActive && voiceChatStatusLabel ? voiceChatStatusLabel : '对话'}
-                </Text>
-              </Pressable>
-            ) : null}
+                  <View
+                    style={[
+                      styles.circleBtn,
+                      styles.circleBtnRelative,
+                      { borderRadius: circleRadius, height: circleSize, width: circleSize },
+                      (voiceChatOpen || voiceBusyState) && styles.circleBtnActive,
+                    ]}
+                  >
+                    <Ionicons
+                      color={INK}
+                      name={voiceBusyState ? 'mic' : voiceChatOpen ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'}
+                      size={circleIconSize}
+                    />
+                    {voiceChatConnected || voiceBusyState ? (
+                      <View
+                        style={[
+                          styles.voiceDotHalo,
+                          voiceBusyState && { backgroundColor: voiceHaloColor },
+                        ]}
+                        testID="control-hud-voice-presence-dot"
+                      >
+                        <View style={[styles.voiceDotCore, { backgroundColor: voiceDotColor }]} />
+                      </View>
+                    ) : null}
+                    {voiceChatPendingReminders > 0 ? (
+                      <View style={styles.voiceReminderBadge} testID="control-hud-voice-reminder-badge">
+                        <Text style={styles.voiceReminderBadgeText}>{String(voiceChatPendingReminders)}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text numberOfLines={1} style={[styles.circleCaption, { fontSize: fMeta, lineHeight: railMetaLine }]}>
+                    {dockVoiceLabel}
+                  </Text>
+                  {voiceChatEmotionLabel ? (
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.voiceEmotionBadge, { fontSize: Math.max(9, sp(9.5)), lineHeight: sp(12) }]}
+                      testID="control-hud-voice-emotion"
+                    >
+                      {voiceChatEmotionLabel}
+                    </Text>
+                  ) : null}
+                </Pressable>
+              );
+            })() : null}
             {onToggleVirtualDiscControls ? (
               <Pressable
                 accessibilityLabel={showVirtualDiscControls ? '隐藏圆盘控制' : '显示圆盘控制'}
@@ -1529,6 +1591,12 @@ const styles = StyleSheet.create({
     width: 40,
   },
   circleBtnActive: { backgroundColor: 'rgba(59, 110, 246, 0.68)', borderColor: '#93C5FD' },
+  circleBtnRelative: { position: 'relative' },
+  voiceDotHalo: { alignItems: 'center', borderRadius: 6, height: 11, justifyContent: 'center', position: 'absolute', right: 2, top: 2, width: 11 },
+  voiceDotCore: { borderRadius: 3.5, height: 6.5, width: 6.5 },
+  voiceEmotionBadge: { color: '#93C5FD', fontWeight: '600' },
+  voiceReminderBadge: { alignItems: 'center', backgroundColor: '#2563EB', borderRadius: 7, height: 14, justifyContent: 'center', left: -2, minWidth: 14, paddingHorizontal: 3, position: 'absolute', top: -2 },
+  voiceReminderBadgeText: { color: '#FFFFFF', fontSize: 9.5, fontWeight: '700', lineHeight: 12 },
   circleCaption: { color: '#E2E8EE', fontSize: 10, fontWeight: '600', lineHeight: 13 },
   secondaryUtilityStrip: {
     alignItems: 'center',

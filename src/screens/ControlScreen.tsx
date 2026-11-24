@@ -2186,6 +2186,10 @@ export function ControlScreen({
           setSoundVolumePercent(v);
           updateControlPrefs({ soundVolumePercent: v });
         },
+        dogVolumePercent: voiceChat.isXiaosuanMode ? (voiceChat.dogVolume ?? soundVolumePercent) : undefined,
+        onChangeDogVolume: voiceChat.isXiaosuanMode ? voiceChat.onSetDogVolume : undefined,
+        dogQuietMode: voiceChat.isXiaosuanMode ? voiceChat.quietMode : undefined,
+        onToggleDogQuietMode: voiceChat.isXiaosuanMode ? voiceChat.onToggleQuietMode : undefined,
         voiceBroadcastEnabled,
         onToggleVoiceBroadcast: () => setVoiceBroadcastEnabled(prev => {
           const next = !prev;
@@ -2358,7 +2362,12 @@ export function ControlScreen({
       }),
       voiceChatOpen: voiceChat.open,
       voiceChatStatusLabel: voiceChat.statusLabel,
-      voiceChatActive: voiceChat.listening || voiceChat.busy || voiceChat.phase === 'awaiting',
+      voiceChatActive: voiceChat.listening || voiceChat.busy || voiceChat.phase === 'speaking' || voiceChat.phase === 'awaiting',
+      voiceChatLiveState: voiceChat.liveState,
+      voiceChatEmotionLabel: voiceChat.emotionLabel,
+      voiceChatQuietMode: voiceChat.quietMode,
+      voiceChatPendingReminders: voiceChat.pendingRemindersCount,
+      voiceChatConnected: voiceChat.phase !== 'disconnected' && voiceChat.phase !== 'unavailable',
       onToggleVoiceChat: () => {
         const next = !voiceChat.open;
         if (next) {
@@ -2624,6 +2633,26 @@ export function ControlScreen({
                 name={voiceChat.open ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'}
                 size={22}
               />
+              {voiceChat.phase !== 'disconnected' && voiceChat.phase !== 'unavailable' ? (
+                <View
+                  style={[
+                    styles.portraitVoiceDot,
+                    {
+                      backgroundColor:
+                        voiceChat.phase === 'listening'
+                          ? '#22C55E'
+                          : voiceChat.phase === 'speaking'
+                            ? '#38BDF8'
+                            : voiceChat.phase === 'thinking'
+                              ? '#60A5FA'
+                              : voiceChat.quietMode
+                                ? '#F59E0B'
+                                : '#22C55E',
+                    },
+                  ]}
+                  testID="control-portrait-voice-dot"
+                />
+              ) : null}
             </Pressable>
             <Pressable accessibilityLabel="摇杆布局设置" accessibilityRole="button" onPress={openJoystickSettings} style={styles.back} testID="control-open-joystick-layout"><Ionicons color={colors.ink} name="resize-outline" size={22} /></Pressable>
             {g20Controller ? <Pressable accessibilityLabel="遥控器输入设置" accessibilityRole="button" onPress={openInputSettings} style={styles.back} testID="control-open-input">
@@ -2993,7 +3022,8 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { flexGrow: 1, paddingTop: 4, paddingBottom: 16 },
   header: { alignItems: 'center', flexDirection: 'row', gap: 8, marginBottom: 12, minHeight: 56 },
-  back: { alignItems: 'center', justifyContent: 'center', height: 48, width: 48, borderRadius: 24 },
+  back: { alignItems: 'center', justifyContent: 'center', height: 48, width: 48, borderRadius: 24, position: 'relative' },
+  portraitVoiceDot: { position: 'absolute', top: 10, right: 10, width: 7, height: 7, borderRadius: 3.5 },
   identity: { flex: 1, minWidth: 0 },
   title: { ...typography.pageTitle },
   label: { ...typography.secondary, fontWeight: '500' },
