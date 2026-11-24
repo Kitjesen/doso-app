@@ -601,8 +601,7 @@ export function ControlScreen({
     setSettingsMenuOpen(false);
     setSettingsSubview('tabs');
   }, []);
-  const revokeOperationIntent = useCallback(() => {
-    closeSettingsMenu();
+  const cancelPendingOperations = useCallback(() => {
     setPostureMenuOpen(false);
     setConfirmingHighSpeed(false);
     operationGeneration.current++;
@@ -612,7 +611,11 @@ export function ControlScreen({
     setPolicySelection(null);
     setOperationMessage(null);
     retireOperationResults();
-  }, [closeSettingsMenu, retireOperationResults]);
+  }, [retireOperationResults]);
+  const revokeOperationIntent = useCallback(() => {
+    closeSettingsMenu();
+    cancelPendingOperations();
+  }, [cancelPendingOperations, closeSettingsMenu]);
   revokeOperationIntentRef.current = revokeOperationIntent;
   const setLocalOperationState = useCallback((action: ControlOperation, status: ControlOperationState['status'], detail?: string) => {
     setLocalOperationStates(current => ({
@@ -722,13 +725,19 @@ export function ControlScreen({
     // Even without rotation, Android system bars or multi-window can move the
     // touch baseline. Cancel the current local session before changing geometry.
     if (viewportRef.current.width > 0 && viewportRef.current.height > 0) {
-      revokeOperationIntent();
+      // Keep the settings modal open when only height changes (e.g. soft keyboard opening on IP input).
+      const widthChanged = Math.abs(viewportRef.current.width - next.width) > 2;
+      if (settingsMenuRef.current && !widthChanged) {
+        cancelPendingOperations();
+      } else {
+        revokeOperationIntent();
+      }
       interruptInput();
       resetControls();
     }
     viewportRef.current = next;
     setViewport(next);
-  }, [resetControls, revokeOperationIntent]);
+  }, [cancelPendingOperations, resetControls, revokeOperationIntent]);
 
   const prepareWorkspaceLeave = useCallback(() => {
     recallRef.current.leaving = true;
@@ -2576,7 +2585,14 @@ export function ControlScreen({
   />;
   return (
     <SafeAreaView edges={__DEV__ && developmentInput ? ['left', 'right'] : ['top', 'left', 'right', 'bottom']} style={[styles.safe, { backgroundColor: isLandscape ? 'transparent' : appearance.canvas }]}>
-      <View onLayout={handleLayout} onTouchCancel={handleCancel} style={styles.viewport} testID="control-surface">
+      <View onLayout={handleLayout} onTouchCancel={() => {
+        if (settingsMenuRef.current) {
+          interruptInput();
+          resetControls();
+          return;
+        }
+        handleCancel();
+      }} style={styles.viewport} testID="control-surface">
         {layout.useColumns ? cameraHud && !postureMenuOpen ? renderCameraHud() : renderImmersiveSurface() : <ScrollView
           contentContainerStyle={[styles.content, { paddingHorizontal: layout.horizontalPadding }]}
           contentInsetAdjustmentBehavior="automatic"

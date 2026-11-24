@@ -1274,15 +1274,21 @@ export function controlLandscapeHud({
         </View> : null}
 
         {settingsMenu ? (
-          <Pressable
-            accessibilityLabel="关闭操控设置背景"
-            accessibilityRole="button"
-            onPress={onCloseSettings}
-            style={styles.settingsBackdrop}
-            testID="control-settings-background"
-          />
+          <View style={styles.settingsLayer} pointerEvents="box-none">
+            <Pressable
+              accessibilityLabel="关闭操控设置背景"
+              accessibilityRole="button"
+              onPress={event => {
+                if (event.target === event.currentTarget) {
+                  onCloseSettings?.();
+                }
+              }}
+              style={styles.settingsBackdrop}
+              testID="control-settings-background"
+            />
+            {settingsMenu}
+          </View>
         ) : null}
-        {settingsMenu}
         {feedback || hudNotice ? (
           <View pointerEvents="none" style={[styles.toastLane, { gap: sp(6), top: topToastTop }]}>
             {feedback ? (
@@ -1348,7 +1354,8 @@ const styles = StyleSheet.create({
   islandNavBtnActive: { backgroundColor: 'rgba(59, 110, 246, 0.34)' },
   islandNavText: { color: INK, fontSize: 13, fontWeight: '500', lineHeight: 18 },
   islandNavTextActive: { color: '#FFFFFF', fontWeight: '600' },
-  settingsBackdrop: { backgroundColor: 'rgba(6, 10, 9, 0.46)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0, zIndex: 10 },
+  settingsLayer: { bottom: 0, elevation: 30, left: 0, position: 'absolute', right: 0, top: 0, zIndex: 30 },
+  settingsBackdrop: { backgroundColor: 'rgba(6, 10, 9, 0.46)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0, zIndex: 0 },
   hiddenStickFrame: { opacity: 0 },
   dashboardOverlay: { ...StyleSheet.absoluteFill, zIndex: 7 },
   hiddenBehindPopover: { opacity: 0 },

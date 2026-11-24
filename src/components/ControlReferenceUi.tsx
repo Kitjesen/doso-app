@@ -180,8 +180,8 @@ export function renderControlSettings(p: SettingsProps) {
   const small = { color: c.muted, fontSize: sp(12.5), lineHeight: sp(18), fontWeight: '400' as const };
   const rawHudRatio = Math.min(p.width / 960, p.height / 540);
   const hudScale = p.inHudOverlay ? (rawHudRatio < 1 ? Math.max(0.90, rawHudRatio) : Math.min(1.22, 1 + (rawHudRatio - 1) * 0.22)) : 1;
-  const topOffset = p.inHudOverlay ? Math.round(58 * hudScale) : Math.max(66, p.height * .133);
-  const bottomOffset = p.inHudOverlay ? Math.round(14 * hudScale) : Math.max(14, p.height * .035);
+  const topOffset = p.inHudOverlay ? Math.round(44 * hudScale) : Math.max(54, p.height * .11);
+  const bottomOffset = p.inHudOverlay ? Math.round(8 * hudScale) : Math.max(10, p.height * .025);
   const shellMaxWidth = p.inHudOverlay ? Math.min(1000, Math.max(760, Math.round(p.width * 0.78))) : 940;
   const categories: readonly [ControlSettingsCategory, keyof typeof Ionicons.glyphMap][] = [
     ['通用', 'settings-outline'], ['操控', 'game-controller-outline'], ['视频', 'videocam-outline'], ['音频', 'volume-high-outline'],
@@ -300,7 +300,7 @@ export function renderControlSettings(p: SettingsProps) {
     {detail ? <Text style={[small, { maxWidth: '52%', textAlign: 'right', color: onPress ? '#93C5FD' : c.muted }]}>{detail}</Text> : null}
     {onPress ? icon('chevron-forward', 16, c.muted) : null}
   </Pressable>;
-  const panel = (title: string, glyph: keyof typeof Ionicons.glyphMap, children: ReactNode, flex = 1) => <View style={[st.card, { flexGrow: flex, flexBasis: 'auto' }]}>
+  const panel = (title: string, glyph: keyof typeof Ionicons.glyphMap, children: ReactNode, flex?: number) => <View style={[st.card, flex ? { flexGrow: flex } : null]}>
     <View style={st.panelHeading}>
       <View style={st.panelTitleIcon}>{icon(glyph, 16, '#93C5FD')}</View>
       <Text accessibilityRole="header" style={[st.panelTitle, { fontSize: sp(15), lineHeight: sp(21) }]}>{title}</Text>
@@ -725,13 +725,17 @@ export function renderControlSettings(p: SettingsProps) {
         const ic = p.inlineConnection;
         content = columns(<>
           {panel('机器狗连接', 'link-outline', <>
-            {row('设备名称', value(p.robotName))}
-            {row('连接状态', value(p.connected ? '已连接' : ic?.readonlyConnected ? '只读在线' : '未连接', p.connected))}
             {ic ? (
-              <View style={{ paddingVertical: 8, gap: 8 }} testID="control-settings-inline-connection">
+              <View style={{ paddingVertical: 2, gap: 6 }} testID="control-settings-inline-connection">
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <Text numberOfLines={1} style={[small, { flex: 1 }]}>{p.robotName}</Text>
+                  <Text style={[small, { color: p.connected ? c.green : ic.readonlyConnected ? '#93C5FD' : c.muted, fontWeight: '600' }]}>
+                    {p.connected ? '已连接' : ic.readonlyConnected ? '只读在线' : '未连接'}
+                  </Text>
+                </View>
                 <View style={{ flexDirection: 'row', gap: 8 }}>
                   <View style={{ flex: 2 }}>
-                    <Text style={[small, { marginBottom: 4 }]}>机器狗 IP</Text>
+                    <Text style={[small, { marginBottom: 2 }]}>机器狗 IP</Text>
                     <TextInput
                       accessibilityLabel="机器狗 IP 地址"
                       autoCapitalize="none"
@@ -746,7 +750,7 @@ export function renderControlSettings(p: SettingsProps) {
                     />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={[small, { marginBottom: 4 }]}>端口</Text>
+                    <Text style={[small, { marginBottom: 2 }]}>端口</Text>
                     <TextInput
                       accessibilityLabel="机器狗端口"
                       editable={!ic.busy}
@@ -769,54 +773,27 @@ export function renderControlSettings(p: SettingsProps) {
                     style={st.presetChip}
                     testID="control-settings-host-sim"
                   >
-                    <Text style={st.presetChipText}>本机 127.0.0.1</Text>
+                    <Text style={st.presetChipText}>本机 .1</Text>
                   </Pressable>
                   <Pressable
-                    accessibilityLabel="填入真机热点地址 192.168.66.64"
+                    accessibilityLabel="填入三号机地址 192.168.66.13"
+                    accessibilityRole="button"
+                    disabled={ic.busy}
+                    onPress={() => { ic.onChangeHost('192.168.66.13'); ic.onChangePort('13145'); }}
+                    style={st.presetChip}
+                    testID="control-settings-host-robot3"
+                  >
+                    <Text style={st.presetChipText}>三号机 .13</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityLabel="填入二号机地址 192.168.66.64"
                     accessibilityRole="button"
                     disabled={ic.busy}
                     onPress={() => { ic.onChangeHost('192.168.66.64'); ic.onChangePort('13145'); }}
                     style={st.presetChip}
                     testID="control-settings-host-robot"
                   >
-                    <Text style={st.presetChipText}>真机 192.168.66.64</Text>
-                  </Pressable>
-                </View>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  <Pressable
-                    accessibilityLabel="连接机器狗控制"
-                    accessibilityRole="button"
-                    disabled={Boolean(ic.busy)}
-                    onPress={ic.onConnectControl}
-                    style={[st.inlineActionBtn, st.inlineSegmentChipActive, ic.busy && st.stepBtnDisabled]}
-                    testID="control-settings-connect-submit"
-                  >
-                    <Ionicons color="#FFFFFF" name="flash-outline" size={14} />
-                    <Text style={[st.inlineActionText, st.inlineSegmentTextActive]}>{ic.busy ? '连接中…' : '连接控制'}</Text>
-                  </Pressable>
-                  {ic.onProbeReadOnly ? (
-                    <Pressable
-                      accessibilityLabel="只读状态检查"
-                      accessibilityRole="button"
-                      disabled={Boolean(ic.busy)}
-                      onPress={ic.onProbeReadOnly}
-                      style={[st.inlineActionBtn, ic.busy && st.stepBtnDisabled]}
-                      testID="control-settings-probe-submit"
-                    >
-                      <Ionicons color="#93C5FD" name="pulse-outline" size={14} />
-                      <Text style={st.inlineActionText}>只读检查</Text>
-                    </Pressable>
-                  ) : null}
-                  <Pressable
-                    accessibilityLabel="断开连接"
-                    accessibilityRole="button"
-                    disabled={Boolean(ic.busy) || (!p.connected && !ic.readonlyConnected)}
-                    onPress={ic.onDisconnect}
-                    style={[st.inlineActionBtn, (!p.connected && !ic.readonlyConnected) && st.stepBtnDisabled]}
-                    testID="control-settings-disconnect-submit"
-                  >
-                    <Ionicons color="#FCA5A5" name="close-circle-outline" size={14} />
-                    <Text style={[st.inlineActionText, { color: '#FCA5A5' }]}>断开</Text>
+                    <Text style={st.presetChipText}>二号机 .64</Text>
                   </Pressable>
                 </View>
                 {ic.statusMessage ? <Text style={small} testID="control-settings-connection-msg">{ic.statusMessage}</Text> : null}
@@ -829,10 +806,49 @@ export function renderControlSettings(p: SettingsProps) {
                 {connectionLink()}
               </>
             )}
-          </>, 1.2)}
+          </>)}
           {panel('终端网络', 'wifi-outline', <>{row('Wi-Fi', value(snapshot.wifiName ?? (p.connected ? '局域网在线' : '未读取')))}</>)}
         </>, <>
-          {panel('控制权', 'key-outline', <>{row('当前控制者', value(ownerLabel))}<View style={{ paddingVertical: 8 }}>{p.lease ?? <Text style={small}>{!p.connected ? '连接后显示控制权状态' : p.inputSource === 'touch' ? '推动摇杆时自动请求控制权' : '当前无控制权操作'}</Text>}</View></>, 1.2)}
+          {ic ? panel('连接操作', 'flash-outline', <>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingVertical: 4 }}>
+              <Pressable
+                accessibilityLabel="连接机器狗控制"
+                accessibilityRole="button"
+                disabled={Boolean(ic.busy)}
+                onPress={ic.onConnectControl}
+                style={[st.inlineActionBtn, st.inlineSegmentChipActive, ic.busy && st.stepBtnDisabled]}
+                testID="control-settings-connect-submit"
+              >
+                <Ionicons color="#FFFFFF" name="flash-outline" size={14} />
+                <Text style={[st.inlineActionText, st.inlineSegmentTextActive]}>{ic.busy ? '连接中…' : '连接控制'}</Text>
+              </Pressable>
+              {ic.onProbeReadOnly ? (
+                <Pressable
+                  accessibilityLabel="只读状态检查"
+                  accessibilityRole="button"
+                  disabled={Boolean(ic.busy)}
+                  onPress={ic.onProbeReadOnly}
+                  style={[st.inlineActionBtn, ic.busy && st.stepBtnDisabled]}
+                  testID="control-settings-probe-submit"
+                >
+                  <Ionicons color="#93C5FD" name="pulse-outline" size={14} />
+                  <Text style={st.inlineActionText}>只读检查</Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                accessibilityLabel="断开连接"
+                accessibilityRole="button"
+                disabled={Boolean(ic.busy) || (!p.connected && !ic.readonlyConnected)}
+                onPress={ic.onDisconnect}
+                style={[st.inlineActionBtn, (!p.connected && !ic.readonlyConnected) && st.stepBtnDisabled]}
+                testID="control-settings-disconnect-submit"
+              >
+                <Ionicons color="#FCA5A5" name="close-circle-outline" size={14} />
+                <Text style={[st.inlineActionText, { color: '#FCA5A5' }]}>断开</Text>
+              </Pressable>
+            </View>
+          </>) : null}
+          {panel('控制权', 'key-outline', <>{row('当前控制者', value(ownerLabel))}<View style={{ paddingVertical: 4 }}>{p.lease ?? <Text style={small}>{!p.connected ? '连接后显示控制权状态' : p.inputSource === 'touch' ? '推动摇杆时自动请求控制权' : '当前无控制权操作'}</Text>}</View></>)}
           {panel('App 输入', 'game-controller-outline', <>{row('当前来源', value(inputLabel))}{inputLink()}</>)}
         </>); break;
       }
@@ -994,7 +1010,14 @@ export function renderControlSettings(p: SettingsProps) {
     }
   }
 
-  return <ControlPanelMotion testID="control-settings-menu" style={[st.root, { top: topOffset, bottom: bottomOffset }]}>
+  return <View
+    testID="control-settings-menu"
+    style={[st.root, { top: topOffset, bottom: bottomOffset }]}
+    onTouchStart={event => event.stopPropagation()}
+    onTouchMove={event => event.stopPropagation()}
+    onTouchEnd={event => event.stopPropagation()}
+    onTouchCancel={event => event.stopPropagation()}
+  >
     <View style={[st.consoleShell, { maxWidth: shellMaxWidth }]}>
       <View style={[st.topHeader, { minHeight: sp(36) }]}>
         <View style={st.titleGroup}>
@@ -1051,16 +1074,24 @@ export function renderControlSettings(p: SettingsProps) {
       {activeSubview === 'layout' || activeSubview === 'input' ? (
         <View style={{ flex: 1, minHeight: 0 }} testID="control-settings-subview-body">{content}</View>
       ) : (
-        <ScrollView key={`${activeSubview}-${p.category}`} testID="control-settings-scroll" style={st.bodyScroll} contentContainerStyle={st.content} showsVerticalScrollIndicator={false}>
-          <ControlPanelMotion style={{ flexGrow: 1 }}>{content}</ControlPanelMotion>
+        <ScrollView
+          key={`${activeSubview}-${p.category}`}
+          testID="control-settings-scroll"
+          style={st.bodyScroll}
+          contentContainerStyle={st.content}
+          showsVerticalScrollIndicator={true}
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+        >
+          {content}
         </ScrollView>
       )}
     </View>
-  </ControlPanelMotion>;
+  </View>;
 }
 
 const st = StyleSheet.create({
-  root: { position: 'absolute', left: 12, right: 12, alignItems: 'center', zIndex: 11 },
+  root: { position: 'absolute', left: 12, right: 12, alignItems: 'center', zIndex: 20, elevation: 20 },
   consoleShell: {
     flex: 1,
     width: '100%',
@@ -1093,9 +1124,9 @@ const st = StyleSheet.create({
   navItemActive: { backgroundColor: controlSettingsColors.blue, borderColor: controlSettingsColors.blueBorder },
   navLabel: { color: controlSettingsColors.muted, fontSize: 13.5, lineHeight: 19, fontWeight: '500' },
   navLabelActive: { color: '#FFFFFF', fontWeight: '600' },
-  bodyScroll: { flex: 1 },
-  content: { flexGrow: 1, paddingBottom: 4 },
-  columns: { flexGrow: 1, flexDirection: 'row', gap: 10 },
+  bodyScroll: { flex: 1, minHeight: 0 },
+  content: { paddingBottom: 20 },
+  columns: { flexDirection: 'row', gap: 10 },
   columnsStacked: { flexDirection: 'column' },
   column: { flex: 1, minWidth: 0, gap: 10 },
   card: { backgroundColor: controlSettingsColors.surface, borderWidth: 1, borderColor: controlSettingsColors.line, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, gap: 4 },
@@ -1125,7 +1156,7 @@ const st = StyleSheet.create({
   inlineSegmentTextActive: { color: '#FFFFFF', fontWeight: '600' },
   inlineActionBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, height: 30, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.08)', borderColor: controlSettingsColors.line, borderWidth: 1 },
   inlineActionText: { color: controlSettingsColors.ink, fontSize: 12.5, lineHeight: 17, fontWeight: '500' },
-  inputField: { height: 34, borderRadius: 9, borderWidth: 1, borderColor: controlSettingsColors.line, backgroundColor: 'rgba(0,0,0,0.28)', color: '#FFFFFF', paddingHorizontal: 10, fontSize: 13, fontVariant: ['tabular-nums'] },
+  inputField: { height: 38, borderRadius: 9, borderWidth: 1, borderColor: controlSettingsColors.line, backgroundColor: 'rgba(0,0,0,0.28)', color: '#FFFFFF', paddingHorizontal: 10, paddingVertical: 0, textAlignVertical: 'center', includeFontPadding: false, fontSize: 13, fontVariant: ['tabular-nums'] },
   pressed: { opacity: 0.72 },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingVertical: 6 },
   actionChip: { minHeight: 34, paddingHorizontal: 14, borderRadius: 999, justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)' },
