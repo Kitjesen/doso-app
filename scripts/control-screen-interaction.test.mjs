@@ -57,11 +57,38 @@ const gestureAssetsStub = {
     get: (_target, prop) => (typeof prop === 'string' ? { uri: `asset://gestures/${prop}.gif` } : undefined),
   }),
 };
+const gesturePreviewAssetsStub = {
+  GESTURE_PREVIEW_ASSETS: gestureAssetsStub.gesturePreviews,
+  getGesturePreviewAsset: key => (typeof key === 'string' ? { uri: `asset://gestures/${key}.gif` } : undefined),
+};
+const standbyScenesStub = {
+  DEFAULT_STANDBY_SCENE: 'charcoal',
+  STANDBY_SCENES: [
+    { id: 'charcoal', label: '炭灰影棚', shortLabel: '影棚', source: { uri: 'asset://scene/cockpit-standby-charcoal.jpg' } },
+    { id: 'gallery', label: '建筑展厅', shortLabel: '展厅', source: { uri: 'asset://scene/cockpit-standby-gallery.jpg' } },
+    { id: 'hangar', label: '星际舱室', shortLabel: '舱室', source: { uri: 'asset://scene/cockpit-standby-hangar.jpg' } },
+  ],
+  normalizeStandbyScene: v => (v === 'gallery' || v === 'hangar' ? v : 'charcoal'),
+  getStandbySceneSpec: v => standbyScenesStub.STANDBY_SCENES.find(s => s.id === (v === 'gallery' || v === 'hangar' ? v : 'charcoal')),
+  getStandbySceneAsset: v => ({ uri: `asset://scene/cockpit-standby-${v === 'gallery' || v === 'hangar' ? v : 'charcoal'}.jpg` }),
+};
+const hudAnimatedStub = {
+  Value: class { setValue() { } interpolate() { return 0; } },
+  View: 'AnimatedView',
+  timing: () => ({ start(cb) { cb?.({ finished: true }); }, stop() { } }),
+  spring: () => ({ start(cb) { cb?.({ finished: true }); }, stop() { } }),
+  loop: () => ({ start() { }, stop() { } }),
+  sequence: () => ({ start() { }, stop() { } }),
+  delay: () => ({ start() { }, stop() { } }),
+};
 const hudComponentDependencies = {
+  react: { useEffect() { }, useRef: v => ({ current: v }), useState: v => [typeof v === 'function' ? v() : v, () => { }] },
   'react/jsx-runtime': require('react/jsx-runtime'),
-  'react-native': { Image: 'Image', Pressable: 'Pressable', ScrollView: 'ScrollView', StyleSheet: { create: value => value, absoluteFill: { position: 'absolute' } }, View: 'View' },
+  'react-native': { Animated: hudAnimatedStub, Image: 'Image', Pressable: 'Pressable', ScrollView: 'ScrollView', StyleSheet: { create: value => value, absoluteFill: { position: 'absolute' }, hairlineWidth: 1 }, View: 'View' },
   '@expo/vector-icons': { Ionicons: 'Ionicons' },
   '../assets': gestureAssetsStub,
+  './gesturePreviewAssets': gesturePreviewAssetsStub,
+  './standbyScenes': standbyScenesStub,
   './AppText': { Text: 'Text' },
   './ControlSlider': { ControlSlider: 'ControlSlider' },
   './controlHudModel': controlHudModelModule.exports,
@@ -156,6 +183,8 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
   const navigationCalls = [];
   const timers = new Map();
   const intervals = new Set();
+  const keepAwakeCalls = [];
+  const hapticCalls = [];
   let timerId = 0, now = 0, unmounted = false, lateUpdates = 0;
   let cursor = 0;
   let dirty = false;
@@ -223,11 +252,14 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     },
     Image: 'Image', Pressable: 'Pressable', ScrollView: 'ScrollView', TextInput: 'TextInput', View: 'View',
     Platform: { OS: 'ios' },
-    StyleSheet: { create: value => value },
+    StyleSheet: { create: value => value, absoluteFill: { position: 'absolute' }, hairlineWidth: 1 },
     useWindowDimensions: () => viewport,
   };
   const dependencies = {
     '../features/control/useControlRobotVideo': { useControlRobotVideo: () => ({}) },
+    '../features/app-update/androidApkUpdater': { checkAndroidApkUpdate: async () => null },
+    '../features/control/useKeepScreenAwake': { useKeepScreenAwake: active => { keepAwakeCalls.push(Boolean(active)); } },
+    '../utils/haptics': { triggerControlHaptic: kind => { hapticCalls.push(kind); } },
     '../features/video/controlMediaModel': controlMediaModelModule.exports,
     '../components/DepthSnapshotView': { DepthSnapshotView: 'DepthSnapshotView' },
     react,
@@ -263,7 +295,7 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     '../features/control/controlPreferences': {
       ...controlPrefsModule.exports,
       loadControlPreferences: async () => controlPrefsModule.exports.createDefaultControlPreferences(),
-      saveControlPreferences: async () => {},
+      saveControlPreferences: async () => { },
       estimateClientStorageGb: async () => ({ usedGb: 1.2, totalGb: 32 }),
     },
     '../components/AppText': { Text: 'Text', TextInput: 'TextInput' },
@@ -286,7 +318,7 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
       isNativeVoiceInputAvailable: async () => false,
       recognizeNativeVoiceOnce: async () => '',
       speakNativeVoiceText: async () => false,
-      stopNativeVoiceSpeech: () => {},
+      stopNativeVoiceSpeech: () => { },
     },
   };
   const referenceUi = { exports: {} };
@@ -301,7 +333,13 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
         ? controlHudPanelsModule.exports
         : name === './controlHudModel'
           ? controlHudModelModule.exports
-          : dependencies[name],
+          : name === './standbyScenes'
+            ? standbyScenesStub
+            : name === './FsdMotionPrimitives'
+              ? { FsdSegmentedControl: 'FsdSegmentedControl', FsdSwitch: 'FsdSwitch', FsdDetentSlider: 'FsdDetentSlider', FsdSheetMotion: 'FsdSheetMotion', FsdTabReveal: 'FsdTabReveal', FsdRadarPulse: 'FsdRadarPulse', triggerFsdLayoutSpring() { } }
+              : name === '../screens/WifiDiscoveryPanel'
+                ? { WifiDiscoveryPanel: 'WifiDiscoveryPanel' }
+                : dependencies[name],
   });
   dependencies['../components/ControlReferenceUi'] = referenceUi.exports;
 
@@ -408,6 +446,40 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
   });
   dependencies['../components/ControlVoiceChatPanel'] = voicePanelModule.exports;
 
+  const bentoSlots = [];
+  let bentoCursor = 0;
+  const bentoReact = {
+    useState(initial) {
+      const index = bentoCursor++;
+      if (!(index in bentoSlots)) bentoSlots[index] = typeof initial === 'function' ? initial() : initial;
+      return [bentoSlots[index], value => {
+        const next = typeof value === 'function' ? value(bentoSlots[index]) : value;
+        if (!Object.is(next, bentoSlots[index])) {
+          bentoSlots[index] = next;
+          dirty = true;
+        }
+      }];
+    },
+  };
+  const statusBentoModule = { exports: {} };
+  vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/StatusBentoCard.tsx', import.meta.url), 'utf8'), {
+    compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, {
+    module: statusBentoModule,
+    exports: statusBentoModule.exports,
+    require(name) {
+      if (name === 'react') return bentoReact;
+      if (name === 'react/jsx-runtime') return require('react/jsx-runtime');
+      if (name === 'react-native') return { ...host, Modal: 'Modal' };
+      if (name === '@expo/vector-icons') return { Ionicons: 'Ionicons' };
+      if (name === './AppText') return { Text: 'Text', TextInput: 'TextInput' };
+      if (name === '../../assets/scene/thunder-r44-top.png') return { uri: 'asset://scene/thunder-r44-top.png' };
+      if (name in dependencies) return dependencies[name];
+      throw new Error(`Unexpected StatusBentoCard dependency: ${name}`);
+    },
+  });
+  dependencies['../components/StatusBentoCard'] = statusBentoModule.exports;
+
   const module = { exports: {} };
   vm.runInNewContext(compiled, {
     module,
@@ -443,6 +515,7 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     do {
       assert.ok(++passes < 30, 'ControlScreen effects must settle');
       cursor = 0;
+      bentoCursor = 0;
       dirty = false;
       nodes = [];
       const root = module.exports.ControlScreen(props);
@@ -451,6 +524,10 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
         if (Array.isArray(node)) return node.forEach(walk);
         if (typeof node !== 'object') {
           nodes.push({ type: 'copy', value: String(node) });
+          return;
+        }
+        if (node.type === statusBentoModule.exports.StatusBentoCard) {
+          walk(statusBentoModule.exports.StatusBentoCard(node.props ?? {}));
           return;
         }
         nodes.push(node);
@@ -473,6 +550,8 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     render,
     get backCalls() { return backCalls; },
     get navigationCalls() { return navigationCalls; },
+    get keepAwakeCalls() { return keepAwakeCalls; },
+    get hapticCalls() { return hapticCalls; },
     get copy() {
       return nodes.filter(node => node.type === 'copy').map(node => node.value).join(' ').replace(/\s+/g, ' ').trim();
     },
@@ -553,7 +632,12 @@ function openSettings(screen, id) {
   }
   const more = screen.find('control-open-more');
   if (more && !screen.find(id)) { more.props.onPress(); screen.render(); }
-  if (!screen.find(id) && screen.find('control-settings-tab-通用')) { screen.find('control-settings-tab-通用').props.onPress(); screen.render(); }
+  for (const tab of ['操控', '机器狗维护', '连接与设备', '图传与音频', '关于与隐私']) {
+    if (!screen.find(id) && screen.find(`control-settings-tab-${tab}`)) {
+      screen.find(`control-settings-tab-${tab}`).props.onPress();
+      screen.render();
+    }
+  }
   assert.ok(screen.find(id), `missing settings action ${id}`);
   screen.find(id).props.onPress();
 }
@@ -757,34 +841,32 @@ test('settings links open real connection and diagnostics handlers', () => {
     onOpenConnection: () => { connections++; }, onOpenJointStatus: () => { diagnostics++; }
   });
   screen.find('control-open-more').props.onPress(); screen.render();
-  screen.find('control-settings-tab-网络').props.onPress(); screen.render();
+  screen.find('control-settings-tab-连接与设备').props.onPress(); screen.render();
   screen.find('control-settings-connection').props.onPress(); screen.render();
   assert.equal(connections, 1);
   screen.find('control-open-more').props.onPress(); screen.render();
-  screen.find('control-settings-tab-机器人').props.onPress(); screen.render();
+  screen.find('control-settings-tab-机器狗维护').props.onPress(); screen.render();
   screen.find('control-open-diagnostics').props.onPress();
   assert.equal(diagnostics, 1);
   screen.unmount();
 });
 
-test('reference settings do not invent capabilities and overlay visibility grants no motion', () => {
+test('reference settings hide unimplemented placeholders cleanly and overlay visibility grants no motion', () => {
   let sent = 0;
   const screen = mount({
     dev: false, dimensions: { width: 753, height: 447, fontScale: 1 },
     productionInput: { ready: false, onDrive() { sent++; }, onTurn() { }, onInterrupt() { } }
   });
-  assert.equal(screen.find('control-action-prone').props.disabled, true);
-  assert.equal(screen.find('control-action-recovery').props.disabled, true);
+  assert.equal(screen.find('control-action-prone'), undefined);
+  assert.equal(screen.find('control-action-recovery'), undefined);
   screen.find('control-open-more').props.onPress(); screen.render();
-  assert.equal(screen.find('control-setting-mirror').props.disabled, true);
-  screen.find('control-settings-tab-视频').props.onPress(); screen.render();
-  assert.equal(screen.find('control-setting-recording').props.disabled, true);
+  assert.equal(screen.find('control-setting-mirror'), undefined);
+  screen.find('control-settings-tab-图传与音频').props.onPress(); screen.render();
+  assert.equal(screen.find('control-setting-recording'), undefined);
+  assert.equal(screen.find('control-setting-volume'), undefined);
   screen.find('control-setting-overlay').props.onPress(); screen.render();
-  screen.find('control-settings-tab-音频').props.onPress(); screen.render();
-  assert.equal(screen.find('control-setting-volume').props.accessibilityState.disabled, true);
-  screen.find('control-settings-tab-安全').props.onPress(); screen.render();
-  assert.equal(screen.find('control-setting-stop-confirm').props.disabled, true);
-  assert.equal(screen.find('control-setting-stop-confirm').props['aria-checked'], false);
+  screen.find('control-settings-tab-机器狗维护').props.onPress(); screen.render();
+  assert.equal(screen.find('control-setting-stop-confirm'), undefined);
   screen.find('control-close-settings').props.onPress(); screen.render();
   assert.equal(screen.find('control-telemetry-speed'), undefined);
   assert.equal(screen.find('control-telemetry-battery'), undefined);
@@ -793,7 +875,7 @@ test('reference settings do not invent capabilities and overlay visibility grant
   screen.unmount();
 });
 
-test('all eight settings pages show distinct content without granting control or sending motion', () => {
+test('all five FSD settings pages show distinct content without granting control or sending motion', () => {
   let sent = 0, acquired = 0, released = 0;
   const screen = mount({
     dev: false, dimensions: { width: 753, height: 447, fontScale: 1.25 },
@@ -806,8 +888,8 @@ test('all eight settings pages show distinct content without granting control or
   });
   screen.find('control-open-more').props.onPress(); screen.render();
   const pages = [
-    ['通用', '显示设置'], ['操控', '摇杆设置'], ['视频', '录像设置'], ['音频', '对讲服务'],
-    ['网络', '机器狗连接'], ['机器人', '机器人状态'], ['安全', '输入保护'], ['关于', '界面素材'],
+    ['操控', '摇杆设置'], ['图传与音频', '待机场景'],
+    ['连接与设备', '热点扫描'], ['机器狗维护', '机器人状态'], ['关于与隐私', '应用与版本'],
   ];
   for (const [page, heading] of pages) {
     screen.find(`control-settings-tab-${page}`).props.onPress(); screen.render();
@@ -817,7 +899,7 @@ test('all eight settings pages show distinct content without granting control or
     assert.ok(screen.find('control-action-stop'));
     assert.ok(screen.find('control-close-settings'));
     assert.equal(screen.find(`control-settings-tab-${page}`).props.accessibilityState.selected, true);
-    assert.equal(Boolean(screen.find('control-lease')), page === '网络');
+    assert.equal(Boolean(screen.find('control-lease')), page === '连接与设备');
     assert.equal(screen.pair.disabled, true);
   }
   assert.equal(sent, 0); assert.equal(acquired, 0); assert.equal(released, 0);
@@ -834,12 +916,12 @@ test('settings keep robot authority separate from input source and retire discon
     connected: true, inputSource: 'physical', runtimeState
   });
   screen.find('control-open-more').props.onPress(); screen.render();
-  screen.find('control-settings-tab-网络').props.onPress(); screen.render();
+  screen.find('control-settings-tab-连接与设备').props.onPress(); screen.render();
   assert.match(screen.copy, /机器人侧遥控中/); assert.match(screen.copy, /G20 实体摇杆/);
-  screen.find('control-settings-tab-机器人').props.onPress(); screen.render();
+  screen.find('control-settings-tab-机器狗维护').props.onPress(); screen.render();
   assert.match(screen.copy, /已使能/); assert.match(screen.copy, /楼梯/);
   screen.render({ connected: false, runtimeState: { ...runtimeState, controlLink: 'disconnected' } });
-  const panel = screen.find('control-settings-page-机器人');
+  const panel = screen.find('control-settings-page-机器狗维护');
   const panelText = JSON.stringify(panel);
   assert.doesNotMatch(panelText, /已使能|楼梯|本设备控制/);
   assert.match(panelText, /未读取/);
@@ -1260,10 +1342,7 @@ test('posture menu retires old touch and keeps recovery unavailable', () => {
   const sentBefore = sent, interruptedBefore = interrupted;
   openSettings(screen, 'control-open-gestures'); screen.render();
   assert.ok(screen.find('control-posture-menu'));
-  assert.match(screen.copy, /摔倒恢复/);
-  const recovery = screen.find('control-posture-recovery');
-  assert.equal(recovery.props.disabled, true);
-  assert.match(recovery.props.accessibilityHint, /当前版本暂不支持恢复操作/);
+  assert.equal(screen.find('control-posture-recovery'), undefined);
   assert.equal(screen.find('control-action-stand').props.disabled, true);
   assert.ok(screen.find('control-action-stop'));
   assert.ok(interrupted > interruptedBefore);
@@ -2357,7 +2436,7 @@ test('compact landscape keeps the stop visible and moves lease management into s
     controlSession: { label: '未连接', canAcquire: false, leaseActive: false, busy: false, onAcquire() { }, onRelease() { } }
   });
   screen.find('control-open-more').props.onPress(); screen.render();
-  screen.find('control-settings-tab-网络').props.onPress(); screen.render();
+  screen.find('control-settings-tab-连接与设备').props.onPress(); screen.render();
   assert.ok(screen.find('control-lease'));
   assert.ok(screen.find('control-action-stop'));
   screen.unmount();
@@ -2458,12 +2537,17 @@ test('touch release uses the neutral callback and blocked posture has a visible 
 });
 
 function selectLeftCategory(screen, category) {
-  const dockId = category === 'policy'
-    ? 'control-hud-terrain-capsule-flat'
-    : category === 'posture'
-      ? 'control-hud-posture-dock'
-      : 'control-hud-action-dock';
-  if (!screen.find(dockId)) {
+  if (category === 'policy') {
+    if (screen.find('control-hud-action-dock')) {
+      screen.find('control-hud-category-action').props.onPress();
+      screen.render();
+    }
+    return;
+  }
+  const dockId = category === 'posture'
+    ? 'control-hud-posture-dock'
+    : 'control-hud-action-dock';
+  if (!screen.find(dockId) && screen.find(`control-hud-category-${category}`)) {
     screen.find(`control-hud-category-${category}`).props.onPress();
     screen.render();
   }
@@ -2540,22 +2624,17 @@ test('receiving landscape video renders G20 HUD controls and confirms eligible t
   assert.match(screen.copy, /高台/);
   assert.equal(screen.find('control-hud-terrain-capsule-stairs').props.disabled, false);
 
-  selectLeftCategory(screen, 'posture');
-  assert.deepEqual(policies, [], 'switching categories must not send a policy command');
-  assert.ok(screen.find('control-hud-posture-selected-stand'));
+  assert.equal(screen.find('control-hud-quick-stand').props.accessibilityState.selected, true);
   assert.match(screen.copy, /坐下/);
-  assert.match(screen.copy, /趴下/);
-  assert.match(screen.copy, /恢复/);
-  assert.equal(screen.find('control-hud-posture-prone').props.accessibilityState.disabled, true);
-  assert.equal(screen.find('control-hud-posture-recover').props.accessibilityState.disabled, true);
+  assert.equal(screen.find('control-hud-posture-recover'), undefined);
 
   selectLeftCategory(screen, 'action');
+  assert.equal(screen.find('control-hud-hero-speed'), undefined, 'Action Studio hides top-left telemetry for clean focus');
   assert.ok(screen.find('control-hud-basic-action-walk'));
-  assert.ok(screen.find('control-hud-basic-action-step'));
-  screen.find('control-hud-basic-action-wave').props.onPress();
-  screen.render();
-  assert.ok(screen.find('control-hud-notice'));
-  assert.match(screen.copy, /打招呼.*暂未接入/);
+  assert.equal(screen.find('control-hud-basic-action-step'), undefined);
+  assert.equal(screen.find('control-hud-basic-action-wave'), undefined);
+  selectLeftCategory(screen, 'policy');
+  assert.ok(screen.find('control-hud-hero-speed'));
 
   assert.equal(screen.find('control-hud-lidar'), undefined);
   assert.equal(screen.find('control-hud-map'), undefined);
@@ -2571,13 +2650,12 @@ test('receiving landscape video renders G20 HUD controls and confirms eligible t
   assert.equal(flat(screen.find('control-immersive-sticks').props.style).bottom, stickFrame.bottom);
   const beforeFold = flat(screen.find('control-immersive-sticks').props.style);
 
-  // Collapse dashboard (⑩) and verify collapsed tray (⑪–⑭) then expand again.
+  // Collapse dashboard (⑩) and verify collapsed tray then expand again.
   assert.ok(screen.find('control-hud-dashboard-expanded'));
   screen.find('control-hud-dashboard-toggle').props.onPress();
   screen.render();
   assert.ok(screen.find('control-hud-dashboard-collapsed'));
-  assert.ok(screen.find('control-hud-range-readout'));
-  assert.match(screen.copy, /-- KM/);
+  assert.doesNotMatch(screen.copy, /-- KM/);
   assert.ok(screen.find('control-hud-stop'));
   assert.ok(screen.find('control-hud-settings'));
   assert.ok(screen.videoStage);
@@ -2658,13 +2736,10 @@ test('connected landscape stand, sit, and stop call the live operation callbacks
       stop: { ready: true },
     },
   });
-  selectLeftCategory(screen, 'posture');
-  screen.find('control-hud-posture-sit').props.onPress();
+  screen.find('control-hud-quick-sit').props.onPress();
   await screen.settle();
   assert.deepEqual(calls, ['stop', 'stand', 'sit']);
-  assert.equal(screen.find('control-hud-posture-prone').props.accessibilityState.disabled, true);
-  assert.equal(screen.find('control-hud-posture-recover').props.accessibilityState.disabled, true);
-  assert.match(screen.copy, /趴下/);
+  assert.equal(screen.find('control-hud-posture-recover'), undefined);
   assert.equal([...screen.copy].some(ch => ch.codePointAt(0) === 0x8DBA), false);
   assert.doesNotMatch(screen.copy, /躺下|蹬下|趿下/);
   screen.render({ operationReadiness: { stand: { ready: false, blockedReason: '尚未取得控制权' }, sit: { ready: false, blockedReason: '尚未取得控制权' }, stop: { ready: false, blockedReason: '尚未取得控制权' } } });
@@ -2686,8 +2761,7 @@ test('landscape emergency stop still sends while a posture command is in flight'
       stop: async () => { calls.push('stop'); },
     },
   });
-  selectLeftCategory(screen, 'posture');
-  screen.find('control-hud-posture-sit').props.onPress();
+  screen.find('control-hud-quick-sit').props.onPress();
   screen.render();
   assert.deepEqual(calls, ['sit']);
   assert.equal(screen.find('control-hud-stop').props.disabled, false);
@@ -2733,10 +2807,7 @@ test('one confirmed press enters recovery and a stable stand returns through Exi
     recovery,
   });
   assert.deepEqual(commands, [], 'opening the control screen must not enter recovery');
-  const dock = () => {
-    selectLeftCategory(screen, 'posture');
-    return screen.find('control-hud-posture-recover');
-  };
+  const dock = () => screen.find('control-hud-posture-recover');
   assert.equal(dock().props.disabled, false);
   assert.equal(dock().props.accessibilityLabel, '摔倒恢复');
   assert.equal(screen.find('control-recovery-begin'), undefined);
@@ -2795,9 +2866,7 @@ test('portrait recovery offers one button and does not open when the channel is 
   assert.doesNotMatch(screen.copy, /进入恢复|使能恢复|摔倒起立|退出并回到运动/);
   screen.unmount();
   const closed = mount({ landscapeDocksExpanded: true, dev: false, dimensions: { width: 844, height: 390, fontScale: 1 }, connected: true, runtimeState: standing });
-  selectLeftCategory(closed, 'posture');
-  assert.equal(closed.find('control-hud-posture-recover').props.accessibilityState.disabled, true);
-  assert.match(closed.find('control-hud-posture-recover').props.accessibilityHint, /恢复指令尚未接通/);
+  assert.equal(closed.find('control-hud-posture-recover'), undefined);
   closed.unmount();
 });
 
@@ -2950,7 +3019,7 @@ test('landscape HUD motor power button displays explicit label and confirms enab
   assert.equal(powerBtn().props.disabled, false);
   assert.equal(powerBtn().props.accessibilityLabel, '使能电机');
   assert.equal(powerBtn().props.accessibilityState.checked, false);
-  assert.match(screen.copy, /使能电机/);
+  assert.match(screen.copy, /使能/);
 
   powerBtn().props.onPress();
   screen.render();
@@ -2965,7 +3034,7 @@ test('landscape HUD motor power button displays explicit label and confirms enab
   });
   assert.equal(powerBtn().props.accessibilityLabel, '失能电机');
   assert.equal(powerBtn().props.accessibilityState.checked, true);
-  assert.match(screen.copy, /失能电机/);
+  assert.match(screen.copy, /失能/);
   screen.unmount();
 });
 
@@ -3001,19 +3070,23 @@ test('G20 camera HUD settings overlay keeps live video HUD mounted, updates HUD 
   screen.render();
   assert.equal(screen.find('control-setting-speed-value').props.children, '60%');
 
-  // Switch to 视频 tab and toggle dual camera + primary swap.
-  screen.find('control-settings-tab-视频').props.onPress();
+  // Switch to 图传与音频 tab and toggle dual camera + primary swap + standby scene picker.
+  screen.find('control-settings-tab-图传与音频').props.onPress();
   screen.render();
-  assert.ok(screen.find('control-settings-page-视频'));
+  assert.ok(screen.find('control-settings-page-图传与音频'));
+  assert.ok(screen.find('control-settings-standby-scene-picker'));
+  screen.find('control-setting-scene-gallery').props.onPress();
+  screen.render();
   screen.find('control-setting-dual-camera').props.onPress();
   screen.render();
   screen.find('control-setting-camera-swap').props.onPress();
   screen.render();
 
-  // Switch to 通用 tab and toggle bottom dashboard expansion.
-  screen.find('control-settings-tab-通用').props.onPress();
+  // Switch to 连接与设备 tab and toggle bottom dashboard expansion.
+  screen.find('control-settings-tab-连接与设备').props.onPress();
   screen.render();
-  assert.ok(screen.find('control-settings-page-通用'));
+  assert.ok(screen.find('control-settings-page-连接与设备'));
+  assert.ok(screen.find('control-settings-hotspot-radar'));
   screen.find('control-setting-hud-dashboard').props.onPress();
   screen.render();
 
@@ -3115,12 +3188,12 @@ test('landscape HUD capture and recording fail closed without receiving stream a
   screen.advance(1000);
   assert.match(JSON.stringify(screen.find('control-hud-recording-badge')), /REC 00:02/);
 
-  // Settings -> 视频 tab shows live status, storage location, and quick controls with interactive auto-recording toggle.
+  // Settings -> 图传与音频 tab shows live status, storage location, and quick controls with interactive auto-recording toggle.
   screen.find('control-hud-settings').props.onPress();
   screen.render();
-  screen.find('control-settings-tab-视频').props.onPress();
+  screen.find('control-settings-tab-图传与音频').props.onPress();
   screen.render();
-  assert.equal(screen.find('control-setting-recording').props.disabled, false);
+  assert.ok(screen.find('control-setting-recording'));
   assert.ok(screen.find('control-setting-record-toggle'));
   assert.match(screen.copy, /DOSO_SNAP_test_front\.jpg/);
 
@@ -3188,7 +3261,7 @@ test('landscape and settings gesture decks group 35 gestures, toggle single-inst
   assert.equal(screen.find('control-hud-gesture-execute').props.disabled, true, 'grounded/non-standing blocks execution');
   assert.match(screen.copy, /请先站立/);
 
-  // Filter to social category and select flip_play_bow (16.0s).
+  // Filter to social category and select flip_play_bow (no duration seconds shown on Action Studio cards).
   screen.find('control-hud-gesture-cat-social').props.onPress();
   screen.render();
   assert.ok(screen.find('control-hud-gesture-flip_play_bow'));
@@ -3197,7 +3270,8 @@ test('landscape and settings gesture decks group 35 gestures, toggle single-inst
   screen.render();
   assert.deepEqual(played, [], 'selecting a gesture previews it without accidental execution');
   assert.deepEqual(screen.find('control-hud-gesture-preview-image').props.source, { uri: 'asset://gestures/flip_play_bow.gif' });
-  assert.match(screen.copy, /16\.0s/);
+  assert.doesNotMatch(screen.copy, /16\.0s/);
+  assert.match(screen.copy, /执行「玩耍深鞠躬（长版）」/);
 
   // Toggle GIF preview off and back on.
   screen.find('control-hud-gesture-gif-toggle').props.onPress();
@@ -3220,10 +3294,10 @@ test('landscape and settings gesture decks group 35 gestures, toggle single-inst
   await screen.settle();
   assert.deepEqual(played, ['flip_play_bow']);
 
-  // Settings -> 机器人 tab shares the same categorized deck and executes cleanly.
+  // Settings -> 机器狗维护 tab shares the same categorized deck and executes cleanly.
   screen.find('control-hud-settings').props.onPress();
   screen.render();
-  screen.find('control-settings-tab-机器人').props.onPress();
+  screen.find('control-settings-tab-机器狗维护').props.onPress();
   screen.render();
   assert.ok(screen.find('control-settings-gesture-list'));
   assert.ok(screen.find('control-settings-gesture-preview-image'));
@@ -3300,16 +3374,16 @@ test('1-click HUD voice dialogue connects to LingTu conversation API, enforces p
     runtimeState: { controlLink: 'connected', controlAuthority: 'held', posture: 'standing', motorState: 'enabled' },
     workspaceSettings: {
       themePreference: 'dark',
-      onChangeTheme() {},
+      onChangeTheme() { },
       alertsEnabled: true,
-      onToggleAlerts() {},
+      onToggleAlerts() { },
       connection: {
         host: '192.168.66.64',
         port: 13145,
         connected: true,
         readonlyConnected: true,
         async onConnectControl() { return true; },
-        async onDisconnect() {},
+        async onDisconnect() { },
       },
     },
   });
@@ -3319,38 +3393,32 @@ test('1-click HUD voice dialogue connects to LingTu conversation API, enforces p
   assert.ok(screen.find('control-hud-voice-toggle'));
   assert.equal(screen.find('control-hud-voice-panel'), undefined);
   screen.find('control-hud-voice-toggle').props.onPress();
-  screen.render();
   await screen.settle();
-  screen.render();
+  await screen.settle();
+  await screen.settle();
   assert.ok(screen.find('control-hud-voice-panel'));
   assert.equal(screen.find('control-voice-status').props.children, '就绪');
 
   // 2. Quick prompt sends message to LingTu :5050 conversation API and renders reply + pending action approval.
   screen.find('control-voice-quick-查看状态').props.onPress();
-  screen.render();
   await screen.settle();
-  screen.render();
   assert.ok(apiCalls.some(c => c.path === '/api/v1/agent/conversations/conv_dog_01/messages' && c.body?.text === '查看状态'));
   assert.ok(screen.find('control-voice-approval-ap_nav_1'));
   screen.find('control-voice-approve-ap_nav_1').props.onPress();
-  screen.render();
   await screen.settle();
-  screen.render();
   assert.equal(approvalState, 'approved');
   assert.equal(screen.find('control-voice-approval-ap_nav_1'), undefined);
 
-  // 3. Popover mutual exclusion: opening 动作 ▾ closes voice panel; Settings -> 音频 -> 打开对话 reopens voice panel.
+  // 3. Popover mutual exclusion: opening 动作 ▾ closes voice panel; Settings -> 图传与音频 -> 打开对话 reopens voice panel.
   screen.find('control-hud-category-action').props.onPress();
   screen.render();
   assert.equal(screen.find('control-hud-voice-panel'), undefined);
   screen.find('control-hud-settings').props.onPress();
   screen.render();
-  screen.find('control-settings-tab-音频').props.onPress();
+  screen.find('control-settings-tab-图传与音频').props.onPress();
   screen.render();
   screen.find('control-setting-open-voice-chat').props.onPress();
-  screen.render();
   await screen.settle();
-  screen.render();
   assert.equal(screen.find('control-settings-menu'), undefined);
   assert.ok(screen.find('control-hud-voice-panel'));
 
@@ -3489,11 +3557,7 @@ test('body height panel enforces safety guards, dynamic robot range, mutual excl
       rateMps: 0.05,
     },
   });
-  screen.find('control-hud-category-posture').props.onPress();
-  screen.render();
-  assert.equal(screen.find('control-hud-height-panel'), undefined);
-  assert.ok(screen.find('control-hud-posture-height'));
-  screen.find('control-hud-posture-height').props.onPress();
+  screen.find('control-hud-height-toggle').props.onPress();
   screen.render();
   assert.ok(screen.find('control-hud-height-panel'));
   assert.equal(refreshes, 1);
@@ -3625,55 +3689,659 @@ test('gesture deck retries onListGestures when initial fetch failed transiently 
   unimplScreen.unmount();
 });
 
-test('expanded bottom dashboard stays compact above dock, defaults collapsed, and constrains operation feedback toast to center lane', () => {
+test('floating Status Bento B card stays on ControlScreen, toggles IMU callback, keeps E-Stop live, and standby yields only when live video receives frames', async () => {
+  const statusCardEvents = [];
+  let pageJumpCalls = 0;
+  let stopCalls = 0;
+  const dismissRef = { current: null };
+  const flat = style => Object.assign({}, ...(Array.isArray(style) ? style.filter(Boolean) : [style]));
   const screen = mount({
     dev: false,
     dimensions: { width: 960, height: 540, fontScale: 1 },
-    video: { id: 'sim-front', phase: 'receiving' },
-    videoSurface: 'plate',
+    landscapeDocksExpanded: false,
     connected: true,
-    canUseManualControl: false,
-    manualControlBlockedReason: '请先使能电机',
-    productionInput: { ready: false, touchReady: false, onDrive() {}, onTurn() {}, onInterrupt() {} },
+    dismissWorkspaceOverlayRef: dismissRef,
+    onOpenJointStatus: () => { pageJumpCalls += 1; },
+    onStatusCardOpenChange: open => { statusCardEvents.push(open); },
+    operationReadiness: { stop: { ready: true } },
+    operationCallbacks: { stop: () => { stopCalls += 1; } },
     runtimeState: {
       controlLink: 'connected',
-      controlAuthority: 'not-held',
-      posture: 'sitting',
-      motorState: 'disabled',
-      battery: { percent: null, voltageV: 55.4, source: 'device' },
+      controlAuthority: 'held',
+      controlOwner: 'this-device',
+      posture: 'standing',
+      motorState: 'enabled',
+      faultStatus: 'clear',
+      battery: { voltageV: 53.4 },
+      imu: { source: 'device', quaternion: { w: 1, x: 0, y: 0, z: 0 }, gyroscope: { x: 0.01, y: -0.02, z: 0 } },
       joints: [
-        { id: '0', label: '右前侧摆', online: true, temperatureC: 25, fault: 'clear', errors: [], source: 'device' },
-        { id: '1', label: '右前髋', online: true, temperatureC: 27, fault: 'clear', errors: [], source: 'device' },
+        { id: '3', label: '前左髋', source: 'device', online: true, statusCode: 2, temperatureC: 35, positionDeg: 2.4 },
+        { id: '4', label: '前左大腿', source: 'device', online: true, statusCode: 2, temperatureC: 38, positionDeg: 42.1 },
       ],
     },
   });
+  await screen.settle();
 
-  // Defaults collapsed so FPV center is unobstructed.
-  assert.ok(screen.find('control-hud-dashboard-collapsed'));
-  assert.equal(screen.find('control-hud-dashboard-expanded'), undefined);
-
-  // Operation feedback toast is centered and width-bounded to the safe center lane.
-  const feedbackNode = screen.find('control-operation-feedback');
-  assert.ok(feedbackNode);
-  const flatStyle = Object.assign({}, ...(Array.isArray(feedbackNode.props.style) ? feedbackNode.props.style.filter(Boolean) : [feedbackNode.props.style]));
-  assert.equal(flatStyle.alignSelf, 'center');
-  assert.ok(flatStyle.maxWidth > 0 && flatStyle.maxWidth <= 320, `expected bounded toast maxWidth <= 320, got ${flatStyle.maxWidth}`);
-  assert.equal(flatStyle.left, undefined);
-  assert.equal(flatStyle.right, undefined);
-
-  // Expanding dashboard renders compact horizontal bar with all controls & testIDs intact.
-  screen.find('control-hud-dashboard-toggle').props.onPress();
+  // Tapping top-right telemetry opens the centered floating Bento B overlay WITHOUT jumping away.
+  assert.equal(screen.find('status-bento-card'), undefined);
+  screen.find('control-hud-open-status').props.onPress();
   screen.render();
-  assert.ok(screen.find('control-hud-dashboard-expanded'));
-  assert.ok(screen.find('control-hud-temp-summary'));
-  assert.ok(screen.find('control-hud-battery-bar'));
-  assert.ok(screen.find('control-hud-charge'));
-  assert.ok(screen.find('control-hud-reverse-direction'));
-  assert.ok(screen.find('control-hud-joint-temp-toggle'));
-  assert.ok(screen.find('control-hud-joint-params-toggle'));
-  assert.equal(screen.find('control-hud-dashboard-toggle').props.accessibilityState.expanded, true);
-  assert.match(screen.copy, /25°C/);
-  assert.match(screen.copy, /27°C/);
-  assert.match(screen.copy, /55\.4V/);
+  assert.equal(pageJumpCalls, 0);
+  assert.ok(screen.find('status-bento-card'));
+  assert.ok(screen.find('control-status-overlay'));
+  assert.ok(screen.find('joint-status-horizon'));
+  assert.equal(statusCardEvents.at(-1), true);
+
+  // E-Stop remains live and unobstructed while floating Status Bento card is open.
+  assert.ok(screen.find('control-hud-stop'));
+  assert.equal(screen.find('control-hud-stop').props.disabled, false);
+
+  // Tapping a joint opens inline detail overlay inside the card (no fullscreen modal blocking E-Stop).
+  screen.find('joint-status-overview-4').props.onPress();
+  screen.render();
+  assert.ok(screen.find('joint-status-detail-overlay'));
+  assert.ok(screen.find('joint-status-detail'));
+  screen.find('joint-status-detail-close').props.onPress();
+  screen.render();
+  assert.equal(screen.find('joint-status-detail'), undefined);
+
+  // Opening Settings closes floating Status Bento card cleanly (mutually exclusive).
+  screen.find('control-hud-settings').props.onPress();
+  screen.render();
+  assert.equal(screen.find('status-bento-card'), undefined);
+  assert.equal(statusCardEvents.at(-1), false);
+  screen.find('control-close-settings').props.onPress();
+  screen.render();
+
+  // Reopen and verify hardware back dismisses it cleanly, then reopen and verify E-Stop fires & closes it.
+  screen.find('control-hud-open-status').props.onPress();
+  screen.render();
+  assert.ok(screen.find('status-bento-card'));
+  assert.equal(dismissRef.current(), true);
+  screen.render();
+  assert.equal(screen.find('status-bento-card'), undefined);
+
+  screen.find('control-hud-open-status').props.onPress();
+  screen.render();
+  screen.find('control-hud-stop').props.onPress();
+  screen.render();
+  assert.equal(stopCalls, 1);
+  assert.equal(screen.find('status-bento-card'), undefined);
+
+  // Seamless standby-to-live-video handoff: connecting keeps 3D standby visible underneath with buffering media hidden (opacity 0).
+  screen.render({ video: { id: 'cam-1', phase: 'connecting' }, videoSurface: 'plate' });
+  assert.ok(screen.find('control-hud-standby-scene-charcoal'));
+  assert.ok(screen.find('control-media-stage'));
+  assert.equal(flat(screen.find('control-media-stage').props.style).opacity, 0);
+  assert.ok(screen.find('control-hud-video-empty'));
+  assert.match(screen.copy, /连接画面中/);
+
+  // The moment first live frame arrives (phase === 'receiving'), standby yields cleanly and live video reveals.
+  screen.render({ video: { id: 'cam-1', phase: 'receiving' }, videoSurface: 'plate' });
+  assert.equal(screen.find('control-hud-standby-scene-charcoal'), undefined);
+  assert.ok(screen.find('control-media-stage'));
+  assert.notEqual(flat(screen.find('control-media-stage').props.style).opacity, 0);
+  assert.equal(screen.find('control-hud-video-empty'), undefined);
+
+  screen.unmount();
+});
+
+test('proactive alert banner, physical auto-hide discs, unified openSettingsSignal, keep-awake and tactile haptics work together safely', async () => {
+  let cleared = 0;
+  let stood = 0;
+  let stopped = 0;
+  const committedHeights = [];
+  const screen = mount({
+    dev: false,
+    dimensions: { width: 960, height: 540, fontScale: 1 },
+    landscapeDocksExpanded: false,
+    connected: true,
+    physicalInputAvailable: true,
+    inputSource: 'touch',
+    video: { id: 'live-cam', phase: 'receiving' },
+    videoSurface: 'plate',
+    bodyHeight: { supported: true, active: true, minHeightM: 0.2, maxHeightM: 0.45, defaultHeightM: 0.32, currentHeightM: 0.32, targetHeightM: 0.32 },
+    onSetBodyHeight: async h => { committedHeights.push(h); },
+    operationReadiness: {
+      stop: { ready: true },
+      stand: { ready: true },
+      clearMotorFault: { ready: true },
+    },
+    operationCallbacks: {
+      stop: () => { stopped += 1; },
+      stand: () => { stood += 1; },
+      clearMotorFault: () => { cleared += 1; },
+    },
+    runtimeState: {
+      controlLink: 'connected',
+      controlAuthority: 'held',
+      controlOwner: 'this-device',
+      posture: 'sitting',
+      motorState: 'enabled',
+      faultStatus: 'clear',
+      battery: { voltageV: 53.0 },
+      joints: [
+        { id: '12', label: '前右足轮', source: 'device', online: true, statusCode: 2, temperatureC: 42 },
+      ],
+    },
+  });
+  await screen.settle();
+
+  // 1. Keep screen awake active in foreground; no alert banner when healthy.
+  assert.equal(screen.keepAwakeCalls.at(-1), true);
+  assert.equal(screen.find('control-hud-alert-banner'), undefined);
+  assert.equal(screen.hapticCalls.includes('alert'), false);
+
+  // 2. Priority 3: Low voltage (<44V) displays proactive banner, triggers edge haptic once, and tapping opens floating Status card.
+  screen.render({
+    runtimeState: {
+      controlLink: 'connected',
+      controlAuthority: 'held',
+      controlOwner: 'this-device',
+      posture: 'sitting',
+      motorState: 'enabled',
+      faultStatus: 'clear',
+      battery: { voltageV: 43.2 },
+      joints: [
+        { id: '12', label: '前右足轮', source: 'device', online: true, statusCode: 2, temperatureC: 42 },
+      ],
+    },
+  });
+  assert.ok(screen.find('control-hud-alert-banner'));
+  assert.match(screen.copy, /电量偏低 43\.2V/);
+  assert.equal(screen.hapticCalls.filter(k => k === 'alert').length, 1);
+  // Rerendering same alert key does not re-trigger alert haptic.
+  screen.render();
+  assert.equal(screen.hapticCalls.filter(k => k === 'alert').length, 1);
+  // Tapping alert opens floating Status Bento card (and hides the banner while card is open).
+  screen.find('control-hud-alert-open-status').props.onPress();
+  screen.render();
+  assert.ok(screen.find('status-bento-card'));
+  assert.equal(screen.find('control-hud-alert-banner'), undefined);
+  screen.find('status-bento-close').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-hud-alert-banner'));
+
+  // 3. Priority 2: Motor overheat (>=65°C) overrides low battery and names hottest joint cleanly.
+  screen.render({
+    runtimeState: {
+      controlLink: 'connected',
+      controlAuthority: 'held',
+      controlOwner: 'this-device',
+      posture: 'sitting',
+      motorState: 'enabled',
+      faultStatus: 'clear',
+      battery: { voltageV: 43.2 },
+      joints: [
+        { id: '12', label: '前右足轮', source: 'device', online: true, statusCode: 2, temperatureC: 68 },
+      ],
+    },
+  });
+  assert.match(screen.copy, /右前轮 68°C/);
+  assert.equal(screen.hapticCalls.filter(k => k === 'alert').length, 2);
+
+  // 4. Priority 1: Active fault overrides overheat and offers inline 清除 action.
+  screen.render({
+    runtimeState: {
+      controlLink: 'connected',
+      controlAuthority: 'held',
+      controlOwner: 'this-device',
+      posture: 'sitting',
+      motorState: 'enabled',
+      faultStatus: 'active',
+      battery: { voltageV: 43.2 },
+      joints: [
+        { id: '12', label: '前右足轮', source: 'device', online: true, statusCode: 2, temperatureC: 68 },
+      ],
+    },
+  });
+  assert.ok(screen.find('control-hud-alert-clear'));
+  screen.find('control-hud-alert-clear').props.onPress();
+  screen.render();
+  assert.equal(cleared, 1);
+  // Restore healthy runtime state after clearing fault so stand & height controls are ready.
+  screen.render({
+    runtimeState: {
+      controlLink: 'connected',
+      controlAuthority: 'not-held',
+      controlOwner: 'none',
+      posture: 'sitting',
+      motorState: 'enabled',
+      faultStatus: 'clear',
+      battery: { voltageV: 53.0 },
+      joints: [
+        { id: '12', label: '前右足轮', source: 'device', online: true, statusCode: 2, temperatureC: 42 },
+      ],
+    },
+  });
+  await screen.settle();
+
+  // 5. Tactile haptics: confirm on stand, step on speed limit & body height, estop on 急停.
+  screen.find('control-hud-quick-stand').props.onPress();
+  screen.render();
+  assert.equal(stood, 1);
+  assert.ok(screen.hapticCalls.includes('confirm'));
+
+  screen.find('control-hud-speed-limit-toggle').props.onPress();
+  screen.render();
+  screen.find('control-hud-speed-limit-dec').props.onPress();
+  screen.render();
+  assert.equal(screen.hapticCalls.filter(k => k === 'step').length, 1);
+
+  screen.find('control-hud-height-toggle').props.onPress();
+  screen.render();
+  screen.find('control-hud-height-inc').props.onPress();
+  screen.render();
+  assert.equal(committedHeights.length, 1);
+  assert.equal(screen.hapticCalls.filter(k => k === 'step').length, 2);
+
+  screen.find('control-hud-stop').props.onPress();
+  screen.render();
+  assert.equal(stopped, 1);
+  assert.ok(screen.hapticCalls.includes('estop'));
+
+  // 6. Physical input transition auto-hides virtual discs, shows 实体摇杆 micro-tag, allows manual override, and restores on touch.
+  assert.ok(screen.pair);
+  assert.equal(screen.find('control-hud-physical-mode'), undefined);
+  screen.render({ inputSource: 'physical' });
+  assert.equal(screen.pair, undefined);
+  assert.equal(screen.find('control-hud-virtual-disc-toggle').props.accessibilityState.checked, false);
+  assert.ok(screen.find('control-hud-physical-mode'));
+  assert.match(screen.copy, /实体摇杆/);
+  screen.render({ inputSource: 'touch' });
+  assert.ok(screen.pair);
+  assert.equal(screen.find('control-hud-virtual-disc-toggle').props.accessibilityState.checked, true);
+  assert.equal(screen.find('control-hud-physical-mode'), undefined);
+
+  // 7. Unified openSettingsSignal opens the 5-tab Settings Center and dismisses competing Status overlay.
+  screen.find('control-hud-open-status').props.onPress();
+  screen.render();
+  assert.ok(screen.find('status-bento-card'));
+  screen.render({ openSettingsSignal: 1 });
+  assert.equal(screen.find('status-bento-card'), undefined);
+  assert.ok(screen.find('control-settings-menu'));
+
+  // 7b. Settings polish contracts (#187): unified 摇杆布局 title, embedded layout editor, clean 机器狗维护 copy (no L1 badge, no 未读取 · 未读取).
+  screen.find('control-open-joystick-layout').props.onPress();
+  screen.render();
+  assert.ok(screen.find('joystick-layout-canvas'));
+  assert.equal(screen.joystickSettings.embedded, true);
+  assert.match(screen.copy, /摇杆布局/);
+  assert.doesNotMatch(screen.copy, /圆盘布局/);
+  screen.find('control-settings-subview-back').props.onPress();
+  screen.render();
+  screen.render({ connected: false, runtimeState: { controlLink: 'disconnected' } });
+  screen.find('control-settings-tab-机器狗维护').props.onPress();
+  screen.render();
+  assert.match(screen.copy, /关节状态/);
+  assert.doesNotMatch(screen.copy, /未读取 · 未读取/);
+  assert.doesNotMatch(JSON.stringify(screen.find('control-settings-open-joint-params')), /"L1"/);
+
+  // 8. Backgrounding turns off keep-screen-awake cleanly.
+  screen.background('background');
+  assert.equal(screen.keepAwakeCalls.at(-1), false);
+  screen.unmount();
+});
+
+test('FSD matte charcoal 3-scene standby backdrop, 5-tab settings, hotspot radar, and 2-column Action Studio exclude fall recovery & jargon', async () => {
+  const defaults = controlPrefsModule.exports.createDefaultControlPreferences();
+  assert.equal(defaults.standbyScene, 'charcoal');
+  assert.equal(defaults.accentTone, 'graphite');
+  assert.equal(controlPrefsModule.exports.normalizeControlPreferences({ standbyScene: 'gallery' }).standbyScene, 'gallery');
+  assert.equal(controlPrefsModule.exports.normalizeControlPreferences({ standbyScene: 'hangar' }).standbyScene, 'hangar');
+  assert.equal(controlPrefsModule.exports.normalizeControlPreferences({ standbyScene: 'aurora' }).standbyScene, 'charcoal');
+  assert.equal(controlPrefsModule.exports.normalizeControlPreferences({ accentTone: 'fsdBlue' }).accentTone, 'fsdBlue');
+  assert.equal(controlPrefsModule.exports.normalizeControlPreferences({ accentTone: 'neon' }).accentTone, 'graphite');
+
+  const screen = mount({
+    landscapeDocksExpanded: false,
+    dev: false,
+    dimensions: { width: 960, height: 540, fontScale: 1 },
+    connected: true,
+    runtimeState: { controlLink: 'connected', controlAuthority: 'held', posture: 'standing', motorState: 'enabled', battery: { voltageV: 55.4, source: 'device' } },
+    speedMode: 'unsupported',
+    onChangeSpeedMode: async () => { },
+    onListGestures: async () => [
+      { name: 'hello', description: '你好问候', durationMs: 8420 },
+      { name: 'fall_recovery', description: '摔倒恢复', durationMs: 5000 },
+    ],
+    recovery: { status: recoveryStatus(), profile: recoveryProfile, onCommand: async () => recoveryStatus() },
+    workspaceSettings: {
+      themePreference: 'dark',
+      onChangeTheme() { },
+      alertsEnabled: true,
+      onToggleAlerts() { },
+      connection: {
+        host: '192.168.66.64',
+        port: 13145,
+        connected: true,
+        readonlyConnected: false,
+        onConnectControl: async () => true,
+        onDisconnect: async () => { },
+      },
+    },
+  });
+  await screen.settle();
+
+  // Default charcoal standby backdrop renders when live video is absent, and 摔倒恢复 is promoted directly onto center dock.
+  assert.ok(screen.find('control-hud-standby-scene-charcoal'));
+  assert.ok(screen.find('control-hud-posture-recover'));
+
+  // Action Studio excludes 摔倒恢复 and hides duration seconds + left telemetry.
+  screen.find('control-hud-category-action').props.onPress();
+  screen.render();
+  assert.equal(screen.find('control-hud-hero-speed'), undefined);
+  assert.ok(screen.find('control-hud-gesture-hello'));
+  assert.equal(screen.find('control-hud-gesture-fall_recovery'), undefined);
+  assert.doesNotMatch(screen.copy, /8\.4s/);
+  screen.find('control-hud-gesture-close').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-hud-hero-speed'));
+
+  // Top-right 机器狗 Wi-Fi opens Settings directly to 连接与设备 with flattened embedded WifiDiscoveryPanel.
+  screen.find('control-open-connection').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-settings-page-连接与设备'));
+  assert.ok(screen.find('control-settings-hotspot-radar'));
+  assert.ok(screen.find('control-settings-wifi-discovery'));
+  assert.equal(screen.find('control-settings-wifi-discovery').props.embedded, true);
+
+  // 图传与音频 -> 待机场景 switches live HUD backdrop to 星际舱室, and 操控 hides unsupported 高速 2.5.
+  screen.find('control-settings-tab-操控').props.onPress();
+  screen.render();
+  assert.equal(screen.find('control-setting-speed-mode-high'), undefined);
+  screen.find('control-setting-accent-blue').props.onPress();
+  screen.render();
+
+  screen.find('control-settings-tab-图传与音频').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-setting-scene-charcoal'));
+  assert.ok(screen.find('control-setting-scene-gallery'));
+  assert.ok(screen.find('control-setting-scene-hangar'));
+  assert.equal(screen.find('control-setting-scene-aurora'), undefined);
+  screen.find('control-setting-scene-hangar').props.onPress();
+  screen.render();
+
+  // Check zero jargon / zero lecturing across all 5 tabs.
+  for (const tab of ['操控', '图传与音频', '连接与设备', '机器狗维护', '关于与隐私']) {
+    screen.find(`control-settings-tab-${tab}`).props.onPress();
+    screen.render();
+    assert.doesNotMatch(screen.copy, /gRPC|WebRTC|WHEP|mDNS|Avahi|NsdManager|RFC1918|暂未接入|仅作预览/);
+  }
+  screen.find('control-close-settings').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-hud-standby-scene-hangar'));
+  screen.unmount();
+});
+
+test('Android scroll onTouchCancel and child backdrop events do not close Settings or Status overlays while preserving onInterrupt safety', async () => {
+  let interrupts = 0;
+  const screen = mount({
+    landscapeDocksExpanded: false,
+    dev: false,
+    dimensions: { width: 960, height: 540, fontScale: 1 },
+    connected: true,
+    canUseManualControl: true,
+    runtimeState: { controlLink: 'connected', controlAuthority: 'held', posture: 'standing', motorState: 'enabled' },
+    productionInput: {
+      ready: true,
+      onDrive() { },
+      onTurn() { },
+      onInterrupt() { interrupts++; },
+    },
+  });
+  await screen.settle();
+
+  // Open Settings center.
+  screen.find('control-hud-settings').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-settings-menu'));
+
+  // Settings card stops touch propagation so root onTouchCancel isn't triggered unnecessarily.
+  let stopped = 0;
+  screen.find('control-settings-menu').props.onTouchStart({ stopPropagation() { stopped++; } });
+  screen.find('control-settings-menu').props.onTouchCancel({ stopPropagation() { stopped++; } });
+  assert.equal(stopped, 2);
+
+  // Even when Android ScrollView intercepts a vertical swipe and fires ACTION_CANCEL on control-surface,
+  // Settings stays mounted while productionInput.onInterrupt() STILL fires for motion safety.
+  const beforeSettingsCancel = interrupts;
+  screen.find('control-surface').props.onTouchCancel();
+  screen.render();
+  assert.ok(screen.find('control-settings-menu'), 'Settings must remain open on Android ScrollView ACTION_CANCEL');
+  assert.equal(interrupts, beforeSettingsCancel + 1, 'onInterrupt must still fire on root touch cancel');
+
+  // Backdrop ignores bubbled press events where target !== currentTarget, and closes on direct backdrop tap.
+  screen.find('control-settings-background').props.onPress({ target: 'child-node', currentTarget: 'backdrop-node' });
+  screen.render();
+  assert.ok(screen.find('control-settings-menu'), 'child press event must not close Settings via backdrop');
+  screen.find('control-settings-background').props.onPress({ target: 'backdrop-node', currentTarget: 'backdrop-node' });
+  screen.render();
+  assert.equal(screen.find('control-settings-menu'), undefined);
+
+  // Floating Status card is equally protected against Android ScrollView ACTION_CANCEL and child backdrop events.
+  screen.find('control-hud-open-status').props.onPress();
+  screen.render();
+  assert.ok(screen.find('status-bento-card'));
+  const beforeStatusCancel = interrupts;
+  screen.find('control-surface').props.onTouchCancel();
+  screen.render();
+  assert.ok(screen.find('status-bento-card'), 'Status card must remain open on Android ScrollView ACTION_CANCEL');
+  assert.equal(interrupts, beforeStatusCancel + 1);
+  screen.find('control-status-backdrop').props.onPress({ target: 'child-node', currentTarget: 'backdrop-node' });
+  screen.render();
+  assert.ok(screen.find('status-bento-card'));
+  screen.find('control-status-backdrop').props.onPress({ target: 'backdrop-node', currentTarget: 'backdrop-node' });
+  screen.render();
+  assert.equal(screen.find('status-bento-card'), undefined);
+  screen.unmount();
+});
+
+test('Android soft-keyboard height-only layout change keeps Settings open while width resize still revokes overlays', async () => {
+  let interrupts = 0;
+  const screen = mount({
+    landscapeDocksExpanded: false,
+    dev: false,
+    dimensions: { width: 960, height: 540, fontScale: 1 },
+    connected: true,
+    canUseManualControl: true,
+    runtimeState: { controlLink: 'connected', controlAuthority: 'held', posture: 'standing', motorState: 'enabled' },
+    productionInput: {
+      ready: true,
+      onDrive() { },
+      onTurn() { },
+      onInterrupt() { interrupts++; },
+    },
+    workspaceSettings: {
+      themePreference: 'dark',
+      onChangeTheme() { },
+      alertsEnabled: true,
+      onToggleAlerts() { },
+      connection: {
+        host: '192.168.66.64',
+        port: 13145,
+        connected: true,
+        readonlyConnected: false,
+        onConnectControl: async () => true,
+        onDisconnect: async () => { },
+      },
+    },
+  });
+  await screen.settle();
+
+  // Open Settings -> 连接与设备 tab (where IP/Port TextInputs trigger Android soft keyboard).
+  screen.find('control-open-connection').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-settings-menu'));
+  assert.ok(screen.find('control-settings-page-连接与设备'));
+
+  // Height-only resize (960x540 -> 960x300 -> 960x540) keeps Settings open while safely interrupting stick input.
+  const beforeIme = interrupts;
+  screen.layout(960, 300);
+  assert.ok(screen.find('control-settings-menu'), 'Android IME height shrink must not close Settings');
+  assert.ok(screen.find('control-settings-page-连接与设备'));
+  assert.equal(interrupts, beforeIme + 1);
+
+  screen.layout(960, 540);
+  assert.ok(screen.find('control-settings-menu'), 'Android IME height restore must not close Settings');
+  assert.equal(interrupts, beforeIme + 2);
+
+  // Substantial width change (split-screen / rotation geometry change) still revokes overlays cleanly.
+  screen.layout(720, 540);
+  assert.equal(screen.find('control-settings-menu'), undefined);
+  assert.equal(interrupts, beforeIme + 3);
+  screen.unmount();
+});
+
+test('real FsdDetentSlider yields vertical scroll swipes to Android ScrollView without mutating value, and handles taps and horizontal drags', () => {
+  const fsdModule = { exports: {} };
+  const slots = [];
+  let cursor = 0;
+  const sliderReact = {
+    useState(initial) {
+      const idx = cursor++;
+      if (!(idx in slots)) slots[idx] = typeof initial === 'function' ? initial() : initial;
+      return [slots[idx], v => { slots[idx] = typeof v === 'function' ? v(slots[idx]) : v; }];
+    },
+    useRef(initial) {
+      const idx = cursor++;
+      return slots[idx] ??= { current: initial };
+    },
+    useMemo(factory, deps) {
+      const idx = cursor++;
+      const prev = slots[idx];
+      if (!prev || prev.deps.length !== deps.length || deps.some((d, i) => !Object.is(d, prev.deps[i]))) {
+        slots[idx] = { deps, value: factory() };
+      }
+      return slots[idx].value;
+    },
+    useEffect() { },
+  };
+  vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/FsdMotionPrimitives.tsx', import.meta.url), 'utf8'), {
+    compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText, {
+    module: fsdModule,
+    exports: fsdModule.exports,
+    require(name) {
+      if (name === 'react') return sliderReact;
+      if (name === 'react/jsx-runtime') return require('react/jsx-runtime');
+      if (name === './AppText') return { Text: 'Text' };
+      if (name === 'react-native') {
+        return {
+          AccessibilityInfo: { isReduceMotionEnabled: async () => true },
+          Animated: hudAnimatedStub,
+          Easing: { cubic: v => v, out: v => v },
+          LayoutAnimation: { configureNext() { }, Types: { easeInEaseOut: 'easeInEaseOut', spring: 'spring' }, Properties: { opacity: 'opacity' } },
+          PanResponder: { create: cfg => ({ panHandlers: cfg }) },
+          Platform: { OS: 'android' },
+          Pressable: 'Pressable',
+          StyleSheet: { create: v => v },
+          UIManager: { setLayoutAnimationEnabledExperimental() { } },
+          View: 'View',
+        };
+      }
+      throw new Error(`Unexpected FsdMotionPrimitives dependency: ${name}`);
+    },
+  });
+
+  const changes = [];
+  const completes = [];
+  cursor = 0;
+  const tree = fsdModule.exports.FsdDetentSlider({
+    value: 50,
+    min: 0,
+    max: 100,
+    step: 10,
+    onChange: v => changes.push(v),
+    onComplete: v => completes.push(v),
+    accessibilityLabel: '速度上限',
+    testID: 'fsd-detent-slider-test',
+  });
+  const props = tree.props;
+  props.onLayout({ nativeEvent: { layout: { width: 200 } } });
+
+  // Must never block Android native ScrollView responder.
+  assert.equal(props.onShouldBlockNativeResponder(), false);
+  assert.equal(props.onStartShouldSetPanResponderCapture(), false);
+  assert.equal(props.onMoveShouldSetPanResponderCapture(), false);
+
+  // Directional thresholds: vertical swipe yields immediately, horizontal drag claims.
+  assert.equal(props.onMoveShouldSetPanResponder({}, { dx: 2, dy: 20 }), false);
+  assert.equal(props.onMoveShouldSetPanResponder({}, { dx: 20, dy: 2 }), true);
+  assert.equal(props.onPanResponderTerminationRequest({}, { dx: 2, dy: 20 }), true);
+  assert.equal(props.onPanResponderTerminationRequest({}, { dx: 20, dy: 2 }), false);
+
+  // Vertical scroll gesture starting on top of the slider must NOT mutate or commit slider value.
+  props.onPanResponderGrant({ nativeEvent: { locationX: 160 } }, { dx: 0, dy: 0 });
+  props.onPanResponderMove({ nativeEvent: { locationX: 160 } }, { dx: 2, dy: 24 });
+  props.onPanResponderTerminate({}, { dx: 2, dy: 24 });
+  assert.deepEqual(changes, []);
+  assert.deepEqual(completes, []);
+
+  // Stationary tap commits quantized value cleanly.
+  props.onPanResponderGrant({ nativeEvent: { locationX: 160 } }, { dx: 0, dy: 0 });
+  props.onPanResponderRelease({ nativeEvent: { locationX: 160 } }, { dx: 1, dy: 1 });
+  assert.deepEqual(changes, [80]);
+  assert.deepEqual(completes, [80]);
+
+  // Horizontal drag emits continuously and completes on release.
+  props.onPanResponderGrant({ nativeEvent: { locationX: 100 } }, { dx: 0, dy: 0 });
+  props.onPanResponderMove({ nativeEvent: { locationX: 40 } }, { dx: -60, dy: 2 });
+  props.onPanResponderRelease({ nativeEvent: { locationX: 40 } }, { dx: -60, dy: 2 });
+  assert.deepEqual(changes, [80, 20, 20]);
+  assert.deepEqual(completes, [80, 20]);
+});
+
+test('Settings ScrollView exposes Android scroll props, non-flexGrow content, E-Stop elevation precedence, and 三号机 .13 IP preset', async () => {
+  const screen = mount({
+    landscapeDocksExpanded: false,
+    dev: false,
+    dimensions: { width: 960, height: 540, fontScale: 1 },
+    connected: false,
+    workspaceSettings: {
+      themePreference: 'dark',
+      onChangeTheme() { },
+      alertsEnabled: true,
+      onToggleAlerts() { },
+      connection: {
+        host: '192.168.66.64',
+        port: 13145,
+        connected: false,
+        readonlyConnected: false,
+        onConnectControl: async () => true,
+        onDisconnect: async () => { },
+      },
+    },
+  });
+  await screen.settle();
+
+  screen.find('control-open-connection').props.onPress();
+  screen.render();
+
+  const scroll = screen.find('control-settings-scroll');
+  assert.ok(scroll);
+  assert.equal(scroll.props.nestedScrollEnabled, true);
+  assert.equal(scroll.props.keyboardShouldPersistTaps, 'handled');
+  assert.equal(scroll.props.overScrollMode, 'never');
+  assert.equal(scroll.props.style.minHeight, 0);
+  assert.equal(scroll.props.contentContainerStyle.flexGrow, undefined);
+
+  // 三号机 .13 preset chip fills 192.168.66.13:13145 cleanly.
+  const dog3Chip = screen.find('control-settings-host-dog3');
+  assert.ok(dog3Chip);
+  dog3Chip.props.onPress();
+  screen.render();
+  assert.equal(screen.find('control-settings-host-input').props.value, '192.168.66.13');
+  assert.equal(screen.find('control-settings-port-input').props.value, '13145');
+
+  // TextInput styling prevents Android vertical clipping.
+  const hostStyle = screen.find('control-settings-host-input').props.style;
+  assert.equal(hostStyle.height, 38);
+  assert.equal(hostStyle.paddingVertical, 0);
+  assert.equal(hostStyle.textAlignVertical, 'center');
+  assert.equal(hostStyle.includeFontPadding, false);
+
+  // E-Stop remains mounted & unobstructed above Settings layer.
+  assert.ok(screen.find('control-hud-stop'));
   screen.unmount();
 });

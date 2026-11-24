@@ -441,7 +441,7 @@ export const DEFAULT_THUNDER_GESTURES: readonly HudGestureInput[] = Object.freez
   Object.freeze({ name: 'hello', label: '你好问候', durationMs: 8420 }),
   Object.freeze({ name: 'new_year_bow', label: '拜年鞠躬', durationMs: 12520 }),
   Object.freeze({ name: 'play_bow', label: '玩耍鞠躬', durationMs: 3220 }),
-  Object.freeze({ name: 'flip_play_bow', label: '玩耍深鞠躬（长版）', durationMs: 16020 }),
+  Object.freeze({ name: 'flip_play_bow', label: '玩耍深鞠躬', durationMs: 16020 }),
   Object.freeze({ name: 'diagonal_curtsy', label: '对角屈身', durationMs: 5320 }),
   Object.freeze({ name: 'nod_yes', label: '点头同意', durationMs: 4020 }),
   Object.freeze({ name: 'shake_no', label: '摇头拒绝', durationMs: 3620 }),
@@ -471,6 +471,24 @@ export const DEFAULT_THUNDER_GESTURES: readonly HudGestureInput[] = Object.freez
   Object.freeze({ name: 'lie_down', label: '趴下', durationMs: 3220 }),
 ]);
 
+const EXCLUDED_ACTION_LIBRARY_NAMES = new Set([
+  'recover',
+  'fall_recovery',
+  'recovery',
+  'self_right',
+  'self_righting',
+  '摔倒恢复',
+]);
+
+export function isActionLibraryGesture(raw: HudGestureInput): boolean {
+  const key = (raw.name ?? '').trim().toLowerCase();
+  const label = (raw.label ?? '').trim();
+  if (!key) return false;
+  if (EXCLUDED_ACTION_LIBRARY_NAMES.has(key)) return false;
+  if (label === '摔倒恢复' || label.includes('摔倒恢复')) return false;
+  return true;
+}
+
 export function projectHudGestures(
   gestures: readonly HudGestureInput[],
   category: HudGestureCategoryId = 'all',
@@ -488,7 +506,7 @@ export function projectHudGestures(
     rhythm: 0,
     stage: 0,
   };
-  const allItems: HudGestureProjectedItem[] = gestures.map(raw => {
+  const allItems: HudGestureProjectedItem[] = gestures.filter(isActionLibraryGesture).map(raw => {
     const meta = GESTURE_STATIC_META[raw.name];
     const resolvedCategory = meta?.category ?? 'stage';
     const durationMs = typeof raw.durationMs === 'number' && Number.isFinite(raw.durationMs) && raw.durationMs > 0

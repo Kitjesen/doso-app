@@ -221,6 +221,7 @@ type NativeControl = {
   addListener?(event: string, listener: (payload: unknown) => void): { remove: () => void };
   startListenImu?(sessionId: string): Promise<unknown>;
   stopListenImu?(sessionId: string): Promise<void>;
+  setKeepScreenOn?(enabled: boolean): Promise<void> | void;
 };
 let native: NativeControl | null = null;
 try { if (Platform.OS === 'android') native = requireOptionalNativeModule<NativeControl>('DosoBrainstemGrpc'); } catch { /* Old APK. */ }
@@ -243,6 +244,17 @@ export function isBrainstemControlAvailable() {
   }
   const bridge = webDevControl();
   return bridge !== null && webDevMethods.every(key => typeof bridge[key] === 'function');
+}
+
+export async function setKeepScreenOn(enabled: boolean): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  const bridge = native;
+  if (!bridge || typeof bridge.setKeepScreenOn !== 'function') return;
+  try {
+    await bridge.setKeepScreenOn(Boolean(enabled));
+  } catch {
+    // No-op if unavailable on older binary or during activity transitions.
+  }
 }
 
 function client(): NativeControl {

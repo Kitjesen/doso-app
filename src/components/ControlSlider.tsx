@@ -27,6 +27,8 @@ type Gesture = Readonly<{
 type KeyboardInput = Readonly<{ key: string; preventDefault?: () => void }>;
 const THUMB_SIZE = 28;
 const RADIUS = THUMB_SIZE / 2;
+const VISUAL_THUMB = 15;
+const VISUAL_RADIUS = VISUAL_THUMB / 2;
 
 function timestamp(event: GestureResponderEvent) {
   const value = event.nativeEvent.timestamp;
@@ -45,7 +47,7 @@ function validIdentifier(value: unknown): value is TouchIdentifier {
 export function ControlSlider({ value, minimumValue, maximumValue, step = 0.01, label, accessibilityLabel,
   testID, disabled = false, glass = false, formatValue = String, onValueChange, onSlidingComplete }: Props) {
   const { isDark } = useAppTheme();
-  const appearance = glass ? { ...getProductAppearance(true), ...controlSetupAppearance, canvas: '#FCFCFD' } : getProductAppearance(isDark);
+  const appearance = glass ? { ...getProductAppearance(true), ...controlSetupAppearance, canvas: '#F2F2F2' } : getProductAppearance(isDark);
   const validRange = Number.isFinite(minimumValue) && Number.isFinite(maximumValue) && maximumValue > minimumValue
     && Number.isFinite(step) && step > 0;
   const min = validRange ? minimumValue : 0, max = validRange ? maximumValue : 1;
@@ -185,7 +187,7 @@ export function ControlSlider({ value, minimumValue, maximumValue, step = 0.01, 
 
   return <View style={styles.container}>
     {label ? <View pointerEvents="none" style={styles.labelRow}>
-      <Text style={[styles.label, { color: appearance.secondary }]}>{label}</Text>
+      <Text style={[styles.label, glass && styles.labelGlass, { color: appearance.secondary }]}>{label}</Text>
       <Text style={[styles.value, { color: appearance.ink }]} testID={`${testID}-value`}>{formatValue(displayValue)}</Text>
     </View> : null}
     <View {...keyboardProps} accessible accessibilityRole="adjustable" accessibilityLabel={accessibilityLabel}
@@ -197,11 +199,11 @@ export function ControlSlider({ value, minimumValue, maximumValue, step = 0.01, 
       onMoveShouldSetResponder={() => mounted.current && !current.current.unavailable && widthRef.current > THUMB_SIZE}
       onResponderGrant={onGrant} onResponderMove={onMove} onResponderEnd={onEnd} onResponderRelease={onEnd}
       onResponderTerminate={onCancel} onTouchCancel={onCancel} onResponderTerminationRequest={() => false}
-      style={[styles.touchArea, { opacity: unavailable ? 0.4 : 1 }]}>
-      <View pointerEvents="none" style={[styles.track, { backgroundColor: appearance.border }]} />
-      <View pointerEvents="none" style={[styles.fill, { width: Math.max(0, thumbLeft), backgroundColor: appearance.action }]} />
-      <View pointerEvents="none" style={[styles.thumb, { left: thumbLeft, borderColor: active ? appearance.blueInk : appearance.border,
-        backgroundColor: appearance.canvas }]} />
+      style={[styles.touchArea, glass && styles.touchAreaGlass, { opacity: unavailable ? 0.4 : 1 }]}>
+      <View pointerEvents="none" style={[styles.track, glass && styles.trackGlass, { backgroundColor: glass ? 'rgba(255, 255, 255, 0.14)' : appearance.border }]} />
+      <View pointerEvents="none" style={[styles.fill, glass && styles.trackGlass, { width: Math.max(0, thumbLeft), backgroundColor: glass ? '#EAEAEA' : appearance.action }]} />
+      <View pointerEvents="none" style={[styles.thumb, glass && styles.thumbGlass, { left: thumbLeft + RADIUS - VISUAL_RADIUS, borderColor: active ? '#FFFFFF' : glass ? 'rgba(18, 18, 18, 0.55)' : appearance.border,
+        backgroundColor: glass ? '#F2F2F2' : appearance.canvas }]} />
     </View>
   </View>;
 }
@@ -210,9 +212,13 @@ const styles = StyleSheet.create({
   container: { gap: 0 },
   labelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   label: { fontSize: 14, lineHeight: 22 },
+  labelGlass: { fontSize: 12.5, lineHeight: 17 },
   value: { fontSize: 12, lineHeight: 18, fontWeight: '500', fontVariant: ['tabular-nums'] },
   touchArea: { height: 44, minHeight: 44, justifyContent: 'center' },
+  touchAreaGlass: { height: 34, minHeight: 34 },
   track: { position: 'absolute', top: 20, left: RADIUS, right: RADIUS, height: 4, borderRadius: 2 },
   fill: { position: 'absolute', top: 20, left: RADIUS, height: 4, borderRadius: 2 },
-  thumb: { position: 'absolute', top: 8, height: THUMB_SIZE, width: THUMB_SIZE, borderRadius: RADIUS, borderWidth: 0.5, elevation: 1 },
+  trackGlass: { top: 15, height: 4, borderRadius: 2 },
+  thumb: { position: 'absolute', top: 14.5, height: VISUAL_THUMB, width: VISUAL_THUMB, borderRadius: VISUAL_RADIUS, borderWidth: 1, elevation: 1 },
+  thumbGlass: { top: 9.5 },
 });

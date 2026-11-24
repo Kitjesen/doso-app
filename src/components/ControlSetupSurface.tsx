@@ -9,14 +9,14 @@ import { ControlPanelMotion } from './ControlPanelMotion';
 import { Text } from './AppText';
 
 export const controlSetupAppearance = {
-  canvas: '#182432', surface: controlHudColors.glass, raised: 'rgba(187,210,235,0.30)',
-  ink: controlHudColors.ink, secondary: controlHudColors.muted, border: controlHudColors.line,
-  blue: '#8CC8FF', blueInk: '#A9D5FF', action: '#8CC8FF', actionInk: '#102E48',
+  canvas: '#141414', surface: controlHudColors.glass, raised: '#2C2C2C',
+  ink: controlHudColors.ink, secondary: controlHudColors.muted, border: 'rgba(255, 255, 255, 0.09)',
+  blue: '#EAEAEA', blueInk: '#F2F2F2', action: '#F2F2F2', actionInk: '#141414',
 };
 export const controlSetupColors = {
   background: controlSetupAppearance.canvas, surface: controlSetupAppearance.surface,
   ink: controlSetupAppearance.ink, muted: controlSetupAppearance.secondary, line: controlSetupAppearance.border,
-  authPrimary: controlSetupAppearance.action, authPrimaryInk: controlSetupAppearance.actionInk, dangerText: '#FFB1B0',
+  authPrimary: controlSetupAppearance.action, authPrimaryInk: controlSetupAppearance.actionInk, dangerText: '#FCA5A5',
 };
 
 export type ControlSetupMedia = Readonly<{
@@ -36,7 +36,7 @@ export function ControlSetupBackground({ media }: { media?: ControlSetupMedia })
         onInterrupted={media?.onInterrupted ?? noMediaInterruption} statusTop={100} statusColor={glass.muted} />
     </ControlGlassTarget>
     {glass.backdrop()}
-    <LinearGradient colors={['rgba(9,20,33,0.35)', 'rgba(9,20,33,0.46)']} style={StyleSheet.absoluteFill} />
+    <LinearGradient colors={['rgba(0,0,0,0.42)', 'rgba(0,0,0,0.52)']} style={StyleSheet.absoluteFill} />
     {!media?.surface || !media.active || media.presentation?.phase !== 'receiving' ? <Text style={styles.mediaStatus}>无实时画面</Text> : null}
   </View>;
 }
@@ -62,7 +62,7 @@ const styles = StyleSheet.create({
   page: { flex: 1, position: 'relative', backgroundColor: controlSetupAppearance.canvas },
   mediaStatus: { position: 'absolute', left: '4%', bottom: 12, color: controlHudColors.muted, fontSize: 12, lineHeight: 18 },
   header: { position: 'absolute', top: 12, left: '4%', right: '3%', height: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', zIndex: 10 },
-  titlePill: { position: 'absolute', left: '50%', width: 220, transform: [{ translateX: -110 }], alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 30, backgroundColor: 'rgba(16,29,42,0.52)', borderWidth: .5, borderColor: 'rgba(255,255,255,0.23)' },
+  titlePill: { position: 'absolute', left: '50%', width: 220, transform: [{ translateX: -110 }], alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 30, backgroundColor: 'rgba(24, 24, 24, 0.88)', borderWidth: .5, borderColor: 'rgba(255, 255, 255, 0.12)' },
   title: { color: controlHudColors.ink, fontSize: 18, lineHeight: 24, fontWeight: '500' },
   back: { position: 'absolute', right: '3%', bottom: 0, width: 44, height: 40, alignItems: 'center', justifyContent: 'center', zIndex: 11 },
   content: { flex: 1, paddingTop: 80, paddingBottom: 40, paddingHorizontal: '3.6%' },

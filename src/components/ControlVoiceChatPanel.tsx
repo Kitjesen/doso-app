@@ -161,7 +161,7 @@ export function ControlVoiceChatPanel({
             ? '#F59E0B'
             : controller.phase === 'ready'
               ? (controller.quietMode ? '#F59E0B' : '#22C55E')
-              : '#94A3B8';
+              : '#888888';
 
   const statusHaloColor =
     controller.phase === 'listening'
@@ -283,7 +283,7 @@ export function ControlVoiceChatPanel({
       <View style={styles.header}>
         <View style={styles.titleRow}>
           <Ionicons
-            color={light ? '#1D4ED8' : '#93C5FD'}
+            color={light ? '#1D4ED8' : '#F2F2F2'}
             name={isXiaosuan ? 'sparkles-outline' : 'chatbubble-ellipses-outline'}
             size={15}
           />
@@ -355,7 +355,7 @@ export function ControlVoiceChatPanel({
                   ]}
                   testID="control-voice-wake-btn"
                 >
-                  <Ionicons color={light ? '#1D4ED8' : '#93C5FD'} name="radio-outline" size={12} />
+                  <Ionicons color={light ? '#1D4ED8' : '#F2F2F2'} name="radio-outline" size={12} />
                   <Text style={[styles.actionPillText, light && styles.actionPillTextLight]}>唤醒</Text>
                 </Pressable>
               )}
@@ -376,7 +376,7 @@ export function ControlVoiceChatPanel({
                 testID="control-voice-quiet-toggle"
               >
                 <Ionicons
-                  color={controller.quietMode ? '#F59E0B' : (light ? '#475569' : '#CBD5E1')}
+                  color={controller.quietMode ? '#F59E0B' : (light ? '#475569' : '#C8C8C8')}
                   name={controller.quietMode ? 'moon' : 'moon-outline'}
                   size={12}
                 />
@@ -431,7 +431,7 @@ export function ControlVoiceChatPanel({
                   <View style={styles.overrideDot} testID="control-voice-override-dot" />
                 ) : null}
                 <Ionicons
-                  color={controller.styleDrawerOpen ? (light ? '#1D4ED8' : '#93C5FD') : (light ? '#64748B' : '#94A3B8')}
+                  color={controller.styleDrawerOpen ? (light ? '#1D4ED8' : '#F2F2F2') : (light ? '#64748B' : '#A0A0A0')}
                   name={controller.styleDrawerOpen ? 'chevron-up' : 'chevron-down'}
                   size={11}
                 />
@@ -455,8 +455,8 @@ export function ControlVoiceChatPanel({
                 <Ionicons
                   color={
                     controller.voiceReplyEnabled
-                      ? (light ? '#1D4ED8' : '#93C5FD')
-                      : (light ? '#64748B' : '#94A3B8')
+                      ? (light ? '#1D4ED8' : '#F2F2F2')
+                      : (light ? '#64748B' : '#A0A0A0')
                   }
                   name={controller.voiceReplyEnabled ? 'volume-high-outline' : 'volume-mute-outline'}
                   size={15}
@@ -476,7 +476,7 @@ export function ControlVoiceChatPanel({
                 ]}
                 testID="control-voice-reset"
               >
-                <Ionicons color={light ? '#334155' : '#CBD5E1'} name="refresh-outline" size={15} />
+                <Ionicons color={light ? '#334155' : '#C8C8C8'} name="refresh-outline" size={15} />
               </Pressable>
             </>
           )}
@@ -488,7 +488,7 @@ export function ControlVoiceChatPanel({
             style={({ pressed }) => [styles.iconBtn, light && styles.iconBtnLight, pressed && styles.pressed]}
             testID="control-voice-close"
           >
-            <Ionicons color={light ? '#334155' : '#CBD5E1'} name="close" size={16} />
+            <Ionicons color={light ? '#334155' : '#C8C8C8'} name="close" size={16} />
           </Pressable>
         </View>
       </View>
@@ -574,7 +574,7 @@ export function ControlVoiceChatPanel({
                           color={
                             mod.enabled
                               ? (light ? '#D97706' : '#FBBF24')
-                              : (light ? '#64748B' : '#94A3B8')
+                              : (light ? '#64748B' : '#A0A0A0')
                           }
                           name={mod.enabled ? 'lock-open-outline' : 'lock-closed-outline'}
                           size={12}
@@ -965,7 +965,7 @@ export function ControlVoiceChatPanel({
                               if (canEnrollSpeaker) controller.onEnrollSpeaker();
                             }}
                             placeholder="称呼…"
-                            placeholderTextColor={light ? '#94A3B8' : '#64748B'}
+                            placeholderTextColor={light ? '#94A3B8' : '#707070'}
                             returnKeyType="done"
                             style={[styles.speakerInput, light && styles.inputLight]}
                             testID="control-voice-speaker-input"
@@ -1075,7 +1075,7 @@ export function ControlVoiceChatPanel({
             ]}
             testID="control-voice-memory-refresh"
           >
-            <Ionicons color={light ? '#334155' : '#CBD5E1'} name="refresh-outline" size={14} />
+            <Ionicons color={light ? '#334155' : '#C8C8C8'} name="refresh-outline" size={14} />
           </Pressable>
         ) : activeTab === 'reminders' ? (
           <Pressable
@@ -1091,7 +1091,7 @@ export function ControlVoiceChatPanel({
             ]}
             testID="control-voice-reminders-refresh"
           >
-            <Ionicons color={light ? '#334155' : '#CBD5E1'} name="refresh-outline" size={14} />
+            <Ionicons color={light ? '#334155' : '#C8C8C8'} name="refresh-outline" size={14} />
           </Pressable>
         ) : activeTab === 'moments' ? (
           <Pressable
@@ -1107,7 +1107,7 @@ export function ControlVoiceChatPanel({
             ]}
             testID="control-voice-moments-refresh"
           >
-            <Ionicons color={light ? '#334155' : '#CBD5E1'} name="refresh-outline" size={14} />
+            <Ionicons color={light ? '#334155' : '#C8C8C8'} name="refresh-outline" size={14} />
           </Pressable>
         ) : isXiaosuan ? (
           <Pressable
@@ -1123,7 +1123,7 @@ export function ControlVoiceChatPanel({
             ]}
             testID="control-voice-reset"
           >
-            <Ionicons color={light ? '#334155' : '#CBD5E1'} name="trash-outline" size={14} />
+            <Ionicons color={light ? '#334155' : '#C8C8C8'} name="trash-outline" size={14} />
           </Pressable>
         ) : null}
         </View>
@@ -1141,12 +1141,12 @@ export function ControlVoiceChatPanel({
       {activeTab === 'memory' && modMemory ? (
         <View style={styles.sectionWrap} testID="control-voice-memory-view">
           <View style={[styles.searchRow, light && styles.searchRowLight]} testID="control-voice-memory-search-row">
-            <Ionicons color={light ? '#64748B' : '#94A3B8'} name="search-outline" size={13} />
+            <Ionicons color={light ? '#64748B' : '#A0A0A0'} name="search-outline" size={13} />
             <TextInput
               accessibilityLabel="搜索记忆"
               onChangeText={controller.setMemoryQuery}
               placeholder="搜记忆…"
-              placeholderTextColor={light ? '#94A3B8' : '#64748B'}
+              placeholderTextColor={light ? '#94A3B8' : '#707070'}
               style={[styles.searchInput, light && styles.searchInputLight]}
               testID="control-voice-memory-search"
               value={controller.memoryQuery}
@@ -1159,7 +1159,7 @@ export function ControlVoiceChatPanel({
                 style={({ pressed }) => [styles.clearSearchBtn, pressed && styles.pressed]}
                 testID="control-voice-memory-search-clear"
               >
-                <Ionicons color={light ? '#64748B' : '#94A3B8'} name="close-circle" size={14} />
+                <Ionicons color={light ? '#64748B' : '#A0A0A0'} name="close-circle" size={14} />
               </Pressable>
             ) : null}
           </View>
@@ -1204,20 +1204,31 @@ export function ControlVoiceChatPanel({
           </ScrollView>
 
           <ScrollView
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[
+              styles.listContent,
+              (disconnected || filteredMemories.length === 0) && styles.messageContentEmpty,
+            ]}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
             style={[styles.listScroll, { maxHeight: listMaxHeight }]}
             testID="control-voice-memory-list"
           >
             {disconnected ? (
-              <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>未连接</Text>
+              <View style={styles.emptyWrap}>
+                <Ionicons color={light ? '#737373' : '#6B6B6B'} name="cloud-offline-outline" size={18} />
+                <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>未连接</Text>
+              </View>
             ) : controller.memoryLoading && filteredMemories.length === 0 ? (
-              <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>加载中…</Text>
+              <View style={styles.emptyWrap}>
+                <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>加载中…</Text>
+              </View>
             ) : filteredMemories.length === 0 ? (
-              <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>
-                {normalizedQuery ? '无匹配项' : '暂无记忆'}
-              </Text>
+              <View style={styles.emptyWrap}>
+                <Ionicons color={light ? '#737373' : '#6B6B6B'} name="bookmark-outline" size={18} />
+                <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>
+                  {normalizedQuery ? '无匹配项' : '暂无记忆'}
+                </Text>
+              </View>
             ) : (
               filteredMemories.map(item => {
                 const itemBusy = controller.memoryBusyId === item.id;
@@ -1345,7 +1356,7 @@ export function ControlVoiceChatPanel({
                           testID={`control-voice-memory-pin-${item.id}`}
                         >
                           <Ionicons
-                            color={item.pinned ? '#F59E0B' : (light ? '#94A3B8' : '#64748B')}
+                            color={item.pinned ? '#F59E0B' : (light ? '#94A3B8' : '#707070')}
                             name={item.pinned ? 'star' : 'star-outline'}
                             size={14}
                           />
@@ -1364,7 +1375,7 @@ export function ControlVoiceChatPanel({
                           testID={`control-voice-memory-edit-${item.id}`}
                         >
                           <Ionicons
-                            color={light ? '#475569' : '#94A3B8'}
+                            color={light ? '#475569' : '#A0A0A0'}
                             name="create-outline"
                             size={14}
                           />
@@ -1420,7 +1431,7 @@ export function ControlVoiceChatPanel({
                 <Text style={[styles.roomSelectText, light && styles.roomSelectTextLight]}>
                   {memoryRoomLabels[effectiveMemoryRoomDraft]}
                 </Text>
-                <Ionicons color={light ? '#475569' : '#94A3B8'} name="chevron-down" size={11} />
+                <Ionicons color={light ? '#475569' : '#A0A0A0'} name="chevron-down" size={11} />
               </Pressable>
 
               <Pressable
@@ -1439,7 +1450,7 @@ export function ControlVoiceChatPanel({
                 testID="control-voice-memory-add-pin"
               >
                 <Ionicons
-                  color={controller.memoryPinOnAdd ? '#F59E0B' : (light ? '#64748B' : '#94A3B8')}
+                  color={controller.memoryPinOnAdd ? '#F59E0B' : (light ? '#64748B' : '#A0A0A0')}
                   name={controller.memoryPinOnAdd ? 'star' : 'star-outline'}
                   size={14}
                 />
@@ -1456,7 +1467,7 @@ export function ControlVoiceChatPanel({
                   }
                 }}
                 placeholder="添加记忆…"
-                placeholderTextColor={light ? '#94A3B8' : '#64748B'}
+                placeholderTextColor={light ? '#94A3B8' : '#707070'}
                 returnKeyType="done"
                 style={[styles.input, light && styles.inputLight]}
                 testID="control-voice-memory-input"
@@ -1594,7 +1605,7 @@ export function ControlVoiceChatPanel({
               ) : (
                 <>
                   <View style={styles.timerReadoutWrap}>
-                    <Ionicons color={light ? '#2563EB' : '#93C5FD'} name="timer-outline" size={14} />
+                    <Ionicons color={light ? '#2563EB' : '#D4D4D4'} name="timer-outline" size={14} />
                     <Text style={[styles.timerTitle, light && styles.titleLight]}>番茄钟</Text>
                   </View>
                   <View style={styles.timerActions}>
@@ -1710,18 +1721,29 @@ export function ControlVoiceChatPanel({
           </ScrollView>
 
           <ScrollView
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[
+              styles.listContent,
+              (disconnected || controller.reminders.length === 0) && styles.messageContentEmpty,
+            ]}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
             style={[styles.listScroll, { maxHeight: listMaxHeight }]}
             testID="control-voice-reminders-list"
           >
             {disconnected ? (
-              <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>未连接</Text>
+              <View style={styles.emptyWrap}>
+                <Ionicons color={light ? '#737373' : '#6B6B6B'} name="cloud-offline-outline" size={18} />
+                <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>未连接</Text>
+              </View>
             ) : controller.remindersLoading && controller.reminders.length === 0 ? (
-              <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>加载中…</Text>
+              <View style={styles.emptyWrap}>
+                <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>加载中…</Text>
+              </View>
             ) : controller.reminders.length === 0 ? (
-              <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>暂无提醒</Text>
+              <View style={styles.emptyWrap}>
+                <Ionicons color={light ? '#737373' : '#6B6B6B'} name="notifications-outline" size={18} />
+                <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>暂无提醒</Text>
+              </View>
             ) : (
               controller.reminders.map(item => {
                 const itemBusy = controller.remindersBusyId === item.id;
@@ -1812,7 +1834,7 @@ export function ControlVoiceChatPanel({
               maxLength={32}
               onChangeText={controller.setReminderTimeDraft}
               placeholder="时间"
-              placeholderTextColor={light ? '#94A3B8' : '#64748B'}
+              placeholderTextColor={light ? '#94A3B8' : '#707070'}
               style={[styles.reminderTimeInput, light && styles.inputLight]}
               testID="control-voice-reminder-time-input"
               value={controller.reminderTimeDraft}
@@ -1832,7 +1854,7 @@ export function ControlVoiceChatPanel({
                 }
               }}
               placeholder="提醒事项…"
-              placeholderTextColor={light ? '#94A3B8' : '#64748B'}
+              placeholderTextColor={light ? '#94A3B8' : '#707070'}
               returnKeyType="done"
               style={[styles.input, light && styles.inputLight]}
               testID="control-voice-reminder-content-input"
@@ -2125,7 +2147,10 @@ export function ControlVoiceChatPanel({
         <>
           <ScrollView
             ref={node => { scrollNode = node; }}
-            contentContainerStyle={styles.messageContent}
+            contentContainerStyle={[
+              styles.messageContent,
+              controller.messages.length === 0 && controller.pendingApprovals.length === 0 && styles.messageContentEmpty,
+            ]}
             keyboardShouldPersistTaps="handled"
             onContentSizeChange={() => { scrollNode?.scrollToEnd({ animated: true }); }}
             showsVerticalScrollIndicator={false}
@@ -2133,7 +2158,16 @@ export function ControlVoiceChatPanel({
             testID="control-voice-messages"
           >
             {controller.messages.length === 0 && controller.pendingApprovals.length === 0 ? (
-              <View style={styles.emptyWrap}>
+              <View style={styles.emptyWrap} testID="control-voice-empty-state">
+                <Ionicons
+                  color={light ? '#737373' : '#6B6B6B'}
+                  name={
+                    disconnected || controller.phase === 'unavailable'
+                      ? 'cloud-offline-outline'
+                      : 'chatbubble-ellipses-outline'
+                  }
+                  size={18}
+                />
                 <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>
                   {disconnected
                     ? '未连接'
@@ -2150,7 +2184,7 @@ export function ControlVoiceChatPanel({
               if (message.role === 'tool') {
                 return (
                   <View key={message.id} style={styles.toolRow}>
-                    <Ionicons color="#60A5FA" name="flash-outline" size={12} />
+                    <Ionicons color={light ? '#2563EB' : '#C8C8C8'} name="flash-outline" size={12} />
                     <Text numberOfLines={1} style={[styles.toolText, light && styles.toolTextLight]}>
                       {message.toolLabel ?? '执行操作'}
                     </Text>
@@ -2183,7 +2217,7 @@ export function ControlVoiceChatPanel({
                             style={[styles.inlineToolChip, light && styles.inlineToolChipLight]}
                             testID={`control-voice-tool-chip-${message.id}-${idx}`}
                           >
-                            <Ionicons color={light ? '#2563EB' : '#93C5FD'} name="flash-outline" size={10} />
+                            <Ionicons color={light ? '#2563EB' : '#C8C8C8'} name="flash-outline" size={10} />
                             <Text style={[styles.inlineToolText, light && styles.inlineToolTextLight]}>
                               {toolLabel}
                             </Text>
@@ -2554,6 +2588,7 @@ export function ControlVoiceChatPanel({
                 onPress={controller.onToggleListening}
                 style={({ pressed }) => [
                   styles.micBtn,
+                  light && styles.micBtnLight,
                   controller.listening && styles.micBtnListening,
                   (disconnected || controller.busy) && styles.disabled,
                   pressed && styles.pressed,
@@ -2561,11 +2596,13 @@ export function ControlVoiceChatPanel({
                 testID="control-voice-mic-btn"
               >
                 <Ionicons
-                  color="#FFFFFF"
+                  color={controller.listening ? '#FFFFFF' : (light ? '#FFFFFF' : '#F2F2F2')}
                   name={controller.listening ? 'radio-button-on' : 'mic'}
                   size={16}
                 />
-                <Text style={styles.micBtnText}>{controller.listening ? '完成' : '说话'}</Text>
+                <Text style={[styles.micBtnText, !controller.listening && !light && styles.micBtnTextDark]}>
+                  {controller.listening ? '完成' : '说话'}
+                </Text>
               </Pressable>
             ) : null}
 
@@ -2578,7 +2615,7 @@ export function ControlVoiceChatPanel({
                 if (canSend) controller.onSubmit();
               }}
               placeholder={controller.listening ? '聆听中…' : controller.broadcastMode ? '输入传话…' : '输入消息…'}
-              placeholderTextColor={light ? '#94A3B8' : '#64748B'}
+              placeholderTextColor={light ? '#94A3B8' : '#707070'}
               returnKeyType="send"
               style={[styles.input, light && styles.inputLight]}
               testID="control-voice-input"
@@ -2604,14 +2641,15 @@ export function ControlVoiceChatPanel({
                 onPress={() => controller.onSubmit()}
                 style={({ pressed }) => [
                   styles.sendBtn,
+                  light && styles.sendBtnLight,
                   controller.broadcastMode && styles.broadcastSendBtn,
-                  !canSend && styles.sendBtnDisabled,
+                  !canSend && (light ? styles.sendBtnDisabledLight : styles.sendBtnDisabled),
                   pressed && canSend && styles.pressed,
                 ]}
                 testID="control-voice-send-btn"
               >
                 <Ionicons
-                  color="#FFFFFF"
+                  color={controller.broadcastMode ? '#FFFFFF' : !canSend ? (light ? '#FFFFFF' : '#707070') : (light ? '#FFFFFF' : '#141414')}
                   name={controller.broadcastMode ? 'megaphone-outline' : 'arrow-up'}
                   size={15}
                 />
@@ -2633,8 +2671,8 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   cardDark: {
-    backgroundColor: 'rgba(13, 18, 25, 0.94)',
-    borderColor: 'rgba(255, 255, 255, 0.16)',
+    backgroundColor: 'rgba(20, 20, 20, 0.95)',
+    borderColor: 'rgba(255, 255, 255, 0.09)',
   },
   cardLight: {
     backgroundColor: 'rgba(255, 255, 255, 0.96)',
@@ -2657,7 +2695,7 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     lineHeight: 18,
     fontWeight: '600',
-    color: '#F1F5F9',
+    color: '#F2F2F2',
   },
   titleLight: {
     color: '#0F172A',
@@ -2669,15 +2707,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 999,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: '#222222',
   },
   statusBadgeLight: {
     backgroundColor: 'rgba(15, 23, 42, 0.06)',
   },
   statusBadgeLive: {
-    backgroundColor: 'rgba(59, 110, 246, 0.18)',
+    backgroundColor: '#2A2A2A',
     borderWidth: 1,
-    borderColor: 'rgba(147, 197, 253, 0.32)',
+    borderColor: 'rgba(255, 255, 255, 0.20)',
   },
   statusBadgeLiveLight: {
     backgroundColor: 'rgba(59, 110, 246, 0.10)',
@@ -2699,7 +2737,7 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 11,
     lineHeight: 14,
-    color: '#CBD5E1',
+    color: '#C8C8C8',
     fontWeight: '500',
   },
   statusTextLight: {
@@ -2708,7 +2746,7 @@ const styles = StyleSheet.create({
   emotionTag: {
     fontSize: 10.5,
     lineHeight: 14,
-    color: '#93C5FD',
+    color: '#D4D4D4',
     fontWeight: '600',
     paddingLeft: 3,
   },
@@ -2726,15 +2764,15 @@ const styles = StyleSheet.create({
     borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: '#242424',
   },
   iconBtnLight: {
     backgroundColor: 'rgba(15, 23, 42, 0.06)',
   },
   iconBtnActive: {
-    backgroundColor: 'rgba(59, 110, 246, 0.24)',
+    backgroundColor: '#2A2A2A',
     borderWidth: 1,
-    borderColor: 'rgba(147, 197, 253, 0.4)',
+    borderColor: 'rgba(255, 255, 255, 0.22)',
   },
   iconBtnActiveLight: {
     backgroundColor: 'rgba(59, 110, 246, 0.14)',
@@ -2749,13 +2787,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: '#242424',
   },
   actionPillText: {
     fontSize: 11,
     lineHeight: 14,
     fontWeight: '500',
-    color: '#CBD5E1',
+    color: '#C8C8C8',
   },
   actionPillTextLight: {
     color: '#334155',
@@ -2798,8 +2836,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   styleDrawerDark: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderColor: 'rgba(255, 255, 255, 0.10)',
+    backgroundColor: '#1A1A1A',
+    borderColor: 'rgba(255, 255, 255, 0.09)',
   },
   styleDrawerLight: {
     backgroundColor: '#F8FAFC',
@@ -2815,7 +2853,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 15,
     fontWeight: '600',
-    color: '#94A3B8',
+    color: '#A0A0A0',
   },
   styleLabelLight: {
     color: '#64748B',
@@ -2829,14 +2867,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
-    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+    backgroundColor: '#222222',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.09)',
   },
   styleChipText: {
     fontSize: 11,
     lineHeight: 14,
-    color: '#CBD5E1',
+    color: '#C8C8C8',
     fontWeight: '500',
   },
   tabBarRow: {
@@ -2849,7 +2887,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: '#1A1A1A',
     borderRadius: 10,
     padding: 2,
     gap: 2,
@@ -2867,7 +2905,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   tabBtnActive: {
-    backgroundColor: 'rgba(59, 110, 246, 0.28)',
+    backgroundColor: '#323232',
   },
   tabBtnActiveLight: {
     backgroundColor: '#FFFFFF',
@@ -2876,13 +2914,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '500',
-    color: '#94A3B8',
+    color: '#A0A0A0',
   },
   tabTextLight: {
     color: '#64748B',
   },
   tabTextActive: {
-    color: '#EFF6FF',
+    color: '#F2F2F2',
     fontWeight: '600',
   },
   tabTextActiveLight: {
@@ -2896,10 +2934,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(148, 163, 184, 0.26)',
+    backgroundColor: '#333333',
   },
   tabBadgeAccent: {
-    backgroundColor: '#3B6EF6',
+    backgroundColor: '#4A4A4A',
   },
   tabBadgeText: {
     fontSize: 10,
@@ -2939,9 +2977,9 @@ const styles = StyleSheet.create({
     height: 30,
     borderRadius: 10,
     paddingHorizontal: 9,
-    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+    backgroundColor: '#1A1A1A',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.10)',
+    borderColor: 'rgba(255, 255, 255, 0.09)',
   },
   searchRowLight: {
     backgroundColor: '#F8FAFC',
@@ -2951,7 +2989,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     fontSize: 12,
-    color: '#F8FAFC',
+    color: '#F2F2F2',
     paddingVertical: 0,
   },
   searchInputLight: {
@@ -2970,17 +3008,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
-    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+    backgroundColor: '#222222',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.09)',
   },
   filterChipLight: {
     backgroundColor: '#F1F5F9',
     borderColor: '#E2E8F0',
   },
   filterChipActive: {
-    backgroundColor: 'rgba(59, 110, 246, 0.24)',
-    borderColor: 'rgba(147, 197, 253, 0.45)',
+    backgroundColor: '#323232',
+    borderColor: 'rgba(255, 255, 255, 0.24)',
   },
   filterChipActiveLight: {
     backgroundColor: 'rgba(59, 110, 246, 0.12)',
@@ -2989,14 +3027,14 @@ const styles = StyleSheet.create({
   filterChipText: {
     fontSize: 11,
     lineHeight: 15,
-    color: '#CBD5E1',
+    color: '#C8C8C8',
     fontWeight: '500',
   },
   filterChipTextLight: {
     color: '#475569',
   },
   filterChipTextActive: {
-    color: '#DBEAFE',
+    color: '#F2F2F2',
     fontWeight: '600',
   },
   filterChipTextActiveLight: {
@@ -3028,8 +3066,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   memoryCardDark: {
-    backgroundColor: 'rgba(255, 255, 255, 0.07)',
-    borderColor: 'rgba(255, 255, 255, 0.10)',
+    backgroundColor: '#1A1A1A',
+    borderColor: 'rgba(255, 255, 255, 0.09)',
   },
   memoryCardLight: {
     backgroundColor: '#F8FAFC',
@@ -3070,9 +3108,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.09)',
+    backgroundColor: '#262626',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
   editInput: {
     flex: 1,
@@ -3082,10 +3120,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 0,
     fontSize: 12,
-    color: '#F8FAFC',
-    backgroundColor: 'rgba(255, 255, 255, 0.09)',
+    color: '#F2F2F2',
+    backgroundColor: '#262626',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.16)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
   editBtnRow: {
     flexDirection: 'row',
@@ -3152,13 +3190,13 @@ const styles = StyleSheet.create({
     color: '#7E22CE',
   },
   reminderTimeTag: {
-    backgroundColor: 'rgba(59, 110, 246, 0.22)',
+    backgroundColor: '#2A2A2A',
   },
   reminderTimeTagLight: {
     backgroundColor: 'rgba(59, 110, 246, 0.12)',
   },
   reminderTimeText: {
-    color: '#93C5FD',
+    color: '#D4D4D4',
   },
   reminderTimeTextLight: {
     color: '#1D4ED8',
@@ -3167,13 +3205,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: 7,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: '#2A2A2A',
   },
   reminderActionText: {
     fontSize: 10.5,
     lineHeight: 14,
     fontWeight: '500',
-    color: '#CBD5E1',
+    color: '#C8C8C8',
   },
   roomSelectBtn: {
     height: 32,
@@ -3182,9 +3220,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.09)',
+    backgroundColor: '#222222',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
+    borderColor: 'rgba(255, 255, 255, 0.10)',
   },
   roomSelectBtnLight: {
     backgroundColor: '#F1F5F9',
@@ -3194,7 +3232,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 14,
     fontWeight: '600',
-    color: '#E2E8F0',
+    color: '#F2F2F2',
   },
   roomSelectTextLight: {
     color: '#334155',
@@ -3205,9 +3243,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.09)',
+    backgroundColor: '#222222',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
+    borderColor: 'rgba(255, 255, 255, 0.10)',
   },
   pinAddBtnActive: {
     backgroundColor: 'rgba(245, 158, 11, 0.22)',
@@ -3220,10 +3258,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 0,
     fontSize: 11.5,
-    color: '#F8FAFC',
-    backgroundColor: 'rgba(255, 255, 255, 0.09)',
+    color: '#F2F2F2',
+    backgroundColor: '#222222',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
+    borderColor: 'rgba(255, 255, 255, 0.10)',
   },
   rememberBtn: {
     height: 32,
@@ -3231,7 +3269,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#3B6EF6',
+    backgroundColor: '#323232',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.16)',
   },
   rememberBtnText: {
     fontSize: 12,
@@ -3246,7 +3286,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingTop: 4,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.08)',
+    borderTopColor: 'rgba(255, 255, 255, 0.09)',
   },
   memoryFooterEnd: {
     justifyContent: 'flex-end',
@@ -3259,7 +3299,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
     fontSize: 11,
     lineHeight: 15,
-    color: '#94A3B8',
+    color: '#A0A0A0',
   },
   summaryTextLight: {
     color: '#64748B',
@@ -3268,7 +3308,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: '#2A2A2A',
   },
   clearSessionBtnLight: {
     backgroundColor: '#F1F5F9',
@@ -3277,7 +3317,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 15,
     fontWeight: '500',
-    color: '#CBD5E1',
+    color: '#C8C8C8',
   },
   clearSessionTextLight: {
     color: '#475569',
@@ -3289,13 +3329,22 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 2,
   },
+  messageContentEmpty: {
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
   emptyWrap: {
+    minHeight: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
     paddingVertical: 8,
   },
   emptyHint: {
     fontSize: 12,
-    lineHeight: 17,
-    color: '#94A3B8',
+    lineHeight: 16,
+    color: '#9A9A9A',
+    fontWeight: '500',
   },
   emptyHintLight: {
     color: '#64748B',
@@ -3313,9 +3362,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 4,
     borderRadius: 999,
-    backgroundColor: 'rgba(59, 110, 246, 0.16)',
+    backgroundColor: '#242424',
     borderWidth: 1,
-    borderColor: 'rgba(147, 197, 253, 0.28)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
   quickChipLight: {
     backgroundColor: 'rgba(59, 110, 246, 0.10)',
@@ -3324,7 +3373,7 @@ const styles = StyleSheet.create({
   quickChipText: {
     fontSize: 11.5,
     lineHeight: 15,
-    color: '#BFDBFE',
+    color: '#D4D4D4',
     fontWeight: '500',
   },
   quickChipTextLight: {
@@ -3340,7 +3389,7 @@ const styles = StyleSheet.create({
   toolText: {
     fontSize: 11.5,
     lineHeight: 15,
-    color: '#93C5FD',
+    color: '#C8C8C8',
   },
   toolTextLight: {
     color: '#2563EB',
@@ -3357,7 +3406,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 6,
-    backgroundColor: 'rgba(59, 110, 246, 0.18)',
+    backgroundColor: '#2A2A2A',
   },
   inlineToolChipLight: {
     backgroundColor: 'rgba(59, 110, 246, 0.10)',
@@ -3366,7 +3415,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     lineHeight: 13,
     fontWeight: '600',
-    color: '#93C5FD',
+    color: '#D4D4D4',
   },
   inlineToolTextLight: {
     color: '#2563EB',
@@ -3403,7 +3452,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.22)',
   },
   sourceBadgeAssistant: {
-    backgroundColor: 'rgba(148, 163, 184, 0.22)',
+    backgroundColor: '#333333',
   },
   sourceBadgeAssistantLight: {
     backgroundColor: '#E2E8F0',
@@ -3420,7 +3469,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   sourceBadgeTextDark: {
-    color: '#CBD5E1',
+    color: '#C8C8C8',
   },
   sourceBadgeTextLight: {
     color: '#475569',
@@ -3429,12 +3478,14 @@ const styles = StyleSheet.create({
     color: '#FCD34D',
   },
   bubbleUser: {
-    backgroundColor: '#3B6EF6',
+    backgroundColor: '#323232',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
   },
   bubbleAssistantDark: {
-    backgroundColor: 'rgba(255, 255, 255, 0.09)',
+    backgroundColor: '#222222',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.10)',
+    borderColor: 'rgba(255, 255, 255, 0.09)',
   },
   bubbleAssistantLight: {
     backgroundColor: '#F1F5F9',
@@ -3450,7 +3501,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   bubbleTextDark: {
-    color: '#F1F5F9',
+    color: '#F2F2F2',
   },
   bubbleTextLight: {
     color: '#0F172A',
@@ -3464,12 +3515,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
-    backgroundColor: 'rgba(59, 110, 246, 0.25)',
+    backgroundColor: '#2A2A2A',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
   },
   choiceBtnText: {
     fontSize: 11.5,
     lineHeight: 15,
-    color: '#DBEAFE',
+    color: '#F2F2F2',
     fontWeight: '500',
   },
   approvalCard: {
@@ -3510,19 +3563,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 4,
     borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    backgroundColor: '#333333',
   },
   rejectBtnText: {
     fontSize: 11.5,
     lineHeight: 15,
-    color: '#E2E8F0',
+    color: '#F2F2F2',
     fontWeight: '500',
   },
   approveBtn: {
     paddingHorizontal: 9,
     paddingVertical: 4,
     borderRadius: 8,
-    backgroundColor: '#3B6EF6',
+    backgroundColor: '#323232',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
   },
   approveBtnText: {
     fontSize: 11.5,
@@ -3548,16 +3603,26 @@ const styles = StyleSheet.create({
     height: 32,
     paddingHorizontal: 9,
     borderRadius: 16,
-    backgroundColor: '#3B6EF6',
+    backgroundColor: '#2A2A2A',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.16)',
+  },
+  micBtnLight: {
+    backgroundColor: '#2563EB',
+    borderColor: '#2563EB',
   },
   micBtnListening: {
-    backgroundColor: '#DC2626',
+    backgroundColor: '#EF4444',
+    borderColor: '#EF4444',
   },
   micBtnText: {
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '600',
     color: '#FFFFFF',
+  },
+  micBtnTextDark: {
+    color: '#F2F2F2',
   },
   input: {
     flex: 1,
@@ -3567,10 +3632,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 11,
     paddingVertical: 0,
     fontSize: 12.5,
-    color: '#F8FAFC',
-    backgroundColor: 'rgba(255, 255, 255, 0.09)',
+    color: '#F2F2F2',
+    backgroundColor: '#222222',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
+    borderColor: 'rgba(255, 255, 255, 0.10)',
   },
   inputLight: {
     color: '#0F172A',
@@ -3583,10 +3648,16 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#3B6EF6',
+    backgroundColor: '#F2F2F2',
+  },
+  sendBtnLight: {
+    backgroundColor: '#2563EB',
   },
   sendBtnDisabled: {
-    backgroundColor: 'rgba(148, 163, 184, 0.28)',
+    backgroundColor: '#2A2A2A',
+  },
+  sendBtnDisabledLight: {
+    backgroundColor: '#CBD5E1',
   },
   stopTurnBtn: {
     width: 32,
@@ -3607,12 +3678,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 15,
     fontWeight: '600',
-    color: '#94A3B8',
+    color: '#A0A0A0',
   },
   emptyMiniHint: {
     fontSize: 11,
     lineHeight: 15,
-    color: '#94A3B8',
+    color: '#A0A0A0',
   },
   speakerSection: {
     gap: 5,
@@ -3626,9 +3697,9 @@ const styles = StyleSheet.create({
     paddingRight: 5,
     paddingVertical: 3,
     borderRadius: 999,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: '#222222',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: 'rgba(255, 255, 255, 0.10)',
   },
   speakerDelBtn: {
     width: 16,
@@ -3651,10 +3722,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 0,
     fontSize: 11.5,
-    color: '#F8FAFC',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    color: '#F2F2F2',
+    backgroundColor: '#222222',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
+    borderColor: 'rgba(255, 255, 255, 0.10)',
   },
   speakerEnrollBtn: {
     height: 26,
@@ -3662,7 +3733,9 @@ const styles = StyleSheet.create({
     borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#3B6EF6',
+    backgroundColor: '#323232',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.16)',
   },
   speakerEnrollText: {
     fontSize: 11,
@@ -3690,13 +3763,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '600',
-    color: '#E2E8F0',
+    color: '#F2F2F2',
   },
   timerReadoutText: {
     fontSize: 12.5,
     lineHeight: 16,
     fontWeight: '700',
-    color: '#F8FAFC',
+    color: '#F2F2F2',
   },
   timerActions: {
     flexDirection: 'row',
@@ -3710,7 +3783,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 7,
-    backgroundColor: '#3B6EF6',
+    backgroundColor: '#323232',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.16)',
   },
   timerPrimaryText: {
     fontSize: 10.5,
@@ -3738,7 +3813,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '600',
-    color: '#F8FAFC',
+    color: '#F2F2F2',
   },
   momentsContent: {
     gap: 10,
@@ -3757,7 +3832,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '600',
-    color: '#E2E8F0',
+    color: '#F2F2F2',
   },
   photoGrid: {
     flexDirection: 'row',
@@ -3774,7 +3849,7 @@ const styles = StyleSheet.create({
   photoThumb: {
     width: '100%',
     height: 76,
-    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+    backgroundColor: '#1A1A1A',
   },
   photoTileCaption: {
     fontSize: 11,
@@ -3789,14 +3864,14 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   photoPreviewDark: {
-    backgroundColor: 'rgba(15, 23, 42, 0.96)',
-    borderColor: 'rgba(147, 197, 253, 0.32)',
+    backgroundColor: 'rgba(20, 20, 20, 0.96)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
   photoPreviewImage: {
     width: '100%',
     height: 140,
     borderRadius: 8,
-    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    backgroundColor: '#1A1A1A',
   },
   photoPreviewCaption: {
     fontSize: 12,
@@ -3853,7 +3928,7 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     lineHeight: 15,
     fontWeight: '600',
-    color: '#E2E8F0',
+    color: '#F2F2F2',
   },
   diaryBodyText: {
     fontSize: 12,
@@ -3893,9 +3968,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.09)',
+    backgroundColor: '#222222',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
+    borderColor: 'rgba(255, 255, 255, 0.10)',
   },
   broadcastToggleActive: {
     backgroundColor: 'rgba(245, 158, 11, 0.26)',
@@ -3905,7 +3980,7 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     lineHeight: 15,
     fontWeight: '600',
-    color: '#CBD5E1',
+    color: '#C8C8C8',
   },
   broadcastToggleTextActive: {
     color: '#FDE68A',
@@ -3917,12 +3992,12 @@ const styles = StyleSheet.create({
     width: 5,
     height: 5,
     borderRadius: 2.5,
-    backgroundColor: '#60A5FA',
+    backgroundColor: '#F2F2F2',
   },
   drawerTabTrack: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: '#1A1A1A',
     borderRadius: 8,
     padding: 2,
     gap: 2,
@@ -3961,7 +4036,7 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     lineHeight: 15,
     fontWeight: '500',
-    color: '#E2E8F0',
+    color: '#F2F2F2',
   },
   capSwitchBtn: {
     minWidth: 44,
@@ -3970,7 +4045,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+    backgroundColor: '#222222',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.09)',
   },
@@ -3994,7 +4069,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
-    backgroundColor: 'rgba(148, 163, 184, 0.16)',
+    backgroundColor: '#2A2A2A',
   },
   capStatusBadgeLight: {
     backgroundColor: '#E2E8F0',
@@ -4003,7 +4078,7 @@ const styles = StyleSheet.create({
     fontSize: 10.5,
     lineHeight: 14,
     fontWeight: '500',
-    color: '#94A3B8',
+    color: '#A0A0A0',
   },
   capStatusTextLight: {
     color: '#64748B',

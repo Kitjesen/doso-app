@@ -41,6 +41,8 @@ import { AppearanceControlContext, ThemePreferenceContext, useAppTheme } from '.
 import type { AppStage } from './src/types';
 
 const WORKSPACE_OWNER_KEY = 'local-workspace';
+const THUNDER_R44_TOP_STUDIO = require('./assets/scene/thunder-r44-top.png');
+const FSD_CHARCOAL_BG = '#141414';
 
 const FSM_LABELS = {
   zero: '初始化',
@@ -75,11 +77,17 @@ export default function App() {
   const effectiveIsLandscape = webTargetStage ? webTargetStage.width > webTargetStage.height : isLandscape;
 
   const [stage, setStage] = useState<AppStage>('control');
+  const [openSettingsSignal, setOpenSettingsSignal] = useState(0);
+  const [controlStatusCardOpen, setControlStatusCardOpen] = useState(false);
   const [robotConnectionVisible, setRobotConnectionVisible] = useState(false);
   const [dataPrivacyVisible, setDataPrivacyVisible] = useState(false);
   const [profileDeviceOpen, setProfileDeviceOpen] = useState(false);
   const [productTheme, setProductTheme] = useState<'light' | 'dark' | null>('dark');
   const [alertsEnabled, setAlertsEnabled] = useState(true);
+  const [, setLowLatencyMode] = useState(true);
+  const handleLowLatencyChange = useCallback((enabled: boolean) => {
+    setLowLatencyMode(enabled);
+  }, []);
   const [notice, setNotice] = useState<ToastNotice | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -113,7 +121,7 @@ export default function App() {
   useEffect(() => {
     setStatusBarStyle(stage === 'main' ? (isDark ? 'light' : 'dark') : 'light', true);
     if (Platform.OS !== 'web') {
-      void SystemUI.setBackgroundColorAsync(appColors.background);
+      void SystemUI.setBackgroundColorAsync(stage === 'main' && !isDark ? appColors.background : FSD_CHARCOAL_BG);
     }
   }, [appColors.background, isDark, stage]);
 
@@ -139,8 +147,13 @@ export default function App() {
   });
 
   useEffect(() => {
-    brainstemControl.setImuNotifyEnabled(stage === 'joint-status');
-  }, [brainstemControl.setImuNotifyEnabled, stage]);
+    if (stage !== 'control') setControlStatusCardOpen(false);
+    if (stage === 'joint-status' || robotConnectionVisible) setOpenSettingsSignal(0);
+  }, [robotConnectionVisible, stage]);
+
+  useEffect(() => {
+    brainstemControl.setImuNotifyEnabled(stage === 'joint-status' || (stage === 'control' && controlStatusCardOpen));
+  }, [brainstemControl.setImuNotifyEnabled, controlStatusCardOpen, stage]);
 
   useEffect(() => {
     if (rememberedControl.connection && !controlEndpoint && !robotConnectionVisible) {
@@ -357,8 +370,8 @@ export default function App() {
   }, []);
 
   const openRobotPage = useCallback(async (tab: RobotMainTab | null) => {
-    if (tab === workspaceTab) return;
-    const destination = tab === null ? null : tab === 'control' ? 'control' : tab === 'status' ? 'joint-status' : 'main';
+    if (tab !== 'settings' && tab === workspaceTab) return;
+    const destination = tab === null ? null : tab === 'status' ? 'joint-status' : 'control';
     if (stage === 'control') {
       if (controlExitPending.current || diagnosticNavigation.current !== diagnosticNavigationOwner || AppState.currentState !== 'active') return;
       controlExitPending.current = true;
@@ -378,6 +391,7 @@ export default function App() {
           return;
         }
         diagnosticNavigation.current = { ...diagnosticNavigationOwner };
+        if (destination === 'control') resume?.();
       } catch {
         resume?.();
         return;
@@ -388,11 +402,13 @@ export default function App() {
     if (!destination) return;
     setProfileDeviceOpen(false);
     setStage(destination);
+    if (tab === 'settings') setOpenSettingsSignal(n => n + 1);
   }, [workspaceTab, stage, diagnosticNavigationOwner, brainstemControl.state.connected, brainstemControl.state.failureCode, brainstemControl.operationCallbacks.stop]);
 
   const returnToDeviceSettings = useCallback(() => {
     setProfileDeviceOpen(true);
-    setStage('main');
+    setStage('control');
+    setOpenSettingsSignal(n => n + 1);
   }, []);
 
   const handleDisconnectRobot = useCallback(async () => {
@@ -405,9 +421,9 @@ export default function App() {
       directConnection.clear();
       setControlEndpoint(null);
       setNavigationBinding(null);
-      notify('已断开机器狗连接', '当前连接会话与自动重连记录已清除。', 'info');
+      notify('已断开连接', '连接与自动重连记录已清除', 'info');
     } catch {
-      notify('停止请求未确认', '请检查机器狗状态并使用硬件急停，确认安全后再断开连接。', 'error');
+      notify('停止未确认', '请确认设备安全后再断开', 'error');
     }
   }, [brainstemControl, directConnection, notify, rememberedControl, setControlEndpoint]);
 
@@ -458,10 +474,10 @@ export default function App() {
   const workspaceConnected = brainstemControl.state.connected || Boolean(statusObservation);
   const workspaceDeviceName = directEndpoint ? directEndpointLabel : '机器狗 Wi-Fi';
   const workspaceDeviceType = brainstemControl.state.connected
-    ? '局域网控制已连接'
+    ? '已连接'
     : statusObservation
-      ? '局域网只读已响应'
-      : '等待连接机器狗';
+      ? '只读连接'
+      : '未连接';
   const workspaceRobotVersion = brainstemControl.state.profile?.current
     || statusObservation?.profile?.current
     || '待同步';
@@ -583,7 +599,7 @@ export default function App() {
 
         {isRobotWorkspace ? (
           <AppearanceControlContext.Provider value={{ preference: productTheme, onChange: setProductTheme }}>
-            <View style={[styles.screen, { backgroundColor: '#060809' }, useWebTargetStage && styles.webConsoleBackdrop]}>
+            <View style={[styles.screen, { backgroundColor: FSD_CHARCOAL_BG }, useWebTargetStage && styles.webConsoleBackdrop]}>
               <View
                 style={[
                   useWebTargetStage ? { width: webStageWidth, height: webStageHeight } : styles.screen,
@@ -594,9 +610,10 @@ export default function App() {
                   {stage === 'joint-status' ? (
                     <JointStatusScreen
                       isWorkspace
-                      connectionLabel={liveControlState ? '局域网已连接' : statusObservation ? '局域网只读已响应' : '未连接'}
+                      connectionLabel={liveControlState ? '已连接' : statusObservation ? '只读连接' : '未连接'}
                       deviceName={workspaceDeviceName}
                       robotDiagram={images.thunderJointDiagram}
+                      studioDiagram={THUNDER_R44_TOP_STUDIO}
                       joints={statusRuntime?.joints}
                       observedAt={statusObservation?.observedAt}
                       refreshing={directTelemetry.refreshing}
@@ -620,7 +637,7 @@ export default function App() {
                 {stage === 'control' ? (
                   <ControlScreen
                     landscapeDocksExpanded={false}
-                    defaultDualCameraEnabled
+                    defaultDualCameraEnabled={false}
                     onRearCameraActiveChange={setRearCameraActive}
                     showPlanning={false}
                     prepareWorkspaceLeaveRef={prepareControlExit}
@@ -663,10 +680,10 @@ export default function App() {
                     } : undefined}
                     controlSession={controlEndpoint ? {
                       label: brainstemControl.state.status
-                        ? `电机${brainstemControl.state.status.motorOutputEnabled ? '已使能' : '未使能'}，${FSM_LABELS[brainstemControl.state.status.fsmKind]}`
+                        ? `电机${brainstemControl.state.status.motorOutputEnabled ? '已使能' : '未使能'} · ${FSM_LABELS[brainstemControl.state.status.fsmKind]}`
                         : brainstemControl.state.connected
                           ? '状态待更新'
-                          : '尚未建立控制连接',
+                          : '未连接',
                       canAcquire: brainstemControl.canAcquire,
                       leaseActive: brainstemControl.state.leaseActive || brainstemControl.manualPrepared,
                       busy: brainstemControl.state.phase === 'operating' || brainstemControl.state.phase === 'connecting',
@@ -684,9 +701,11 @@ export default function App() {
                     onBack={() => openRobotPage('status')}
                     onOpenConnection={() => { void brainstemControl.suspend(); setRobotConnectionVisible(true); }}
                     onOpenJointStatus={() => openRobotPage('status')}
+                    onStatusCardOpenChange={setControlStatusCardOpen}
+                    openSettingsSignal={openSettingsSignal}
                     onOpenWorkspaceSettings={() => openRobotPage('settings')}
                     canRecall={false}
-                    recallBlockedReason="召回需要云端或自主导航任务协议，当前暂未接入。"
+                    recallBlockedReason="暂不支持召回"
                     directConnection={controlEndpoint
                       ? directTelemetry.presentation ?? { ...describeDirectRobotConnection(null), endpointLabel: directEndpointLabel }
                       : directConnection.presentation ?? describeDirectRobotConnection(null)}
@@ -713,7 +732,7 @@ export default function App() {
                       onChangeTheme: setProductTheme,
                       alertsEnabled,
                       onToggleAlerts: () => setAlertsEnabled(current => !current),
-                      onLowLatencyChange: enabled => brainstemControl.setImuNotifyEnabled(enabled),
+                      onLowLatencyChange: handleLowLatencyChange,
                       connection: {
                         host: directEndpoint?.host ?? (Platform.OS === 'web' && typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location?.hostname ?? '') ? '127.0.0.1' : '192.168.66.64'),
                         port: directEndpoint?.port ?? 13145,
@@ -760,10 +779,10 @@ export default function App() {
                     onListGestures={brainstemControl.listGestures}
                     operationReadiness={brainstemControl.operationReadiness}
                     manualControlBlockedReason={brainstemControl.touchBlockedReason ?? undefined}
-                    onNotifications={() => notify('状态提醒', '设备告警与异常将根据实时遥测在界面内直接提示。', 'info')}
+                    onNotifications={() => notify('状态提醒', '设备异常将在界面实时提示', 'info')}
                     robotImage={images.thunderHero}
                     robotName={workspaceDeviceName}
-                    robotType={brainstemControl.state.connected ? '局域网控制已连接' : statusObservation ? '只读连接' : '未连接'}
+                    robotType={brainstemControl.state.connected ? '已连接' : statusObservation ? '只读连接' : '未连接'}
                     videoProbeHost={lanVideoOrigin && isBrainstemLanAvailable() ? directEndpoint?.host ?? null : null}
                     voiceEndpoint={navigationBinding?.endpoint ?? null}
                     voiceViewerToken={navigationBinding?.viewerToken}
@@ -775,7 +794,7 @@ export default function App() {
                 ) : null}
 
                   {stage === 'main' ? (
-                    <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={[styles.safeArea, { backgroundColor: appColors.background }]}>
+                    <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={[styles.safeArea, { backgroundColor: isDark ? FSD_CHARCOAL_BG : appColors.background }]}>
                       <AppToast notice={notice} onDismiss={() => setNotice(null)} withinSafeArea />
                       <View style={styles.screen}>
                         <ProfileScreen
@@ -795,12 +814,10 @@ export default function App() {
                           canOpenProvisioning={false}
                           onConnect={() => setRobotConnectionVisible(true)}
                           onDisconnect={() => { void handleDisconnectRobot(); }}
-                          firmwareUpdateBlockedReason="固件升级通道尚未接入，仅可查看说明。"
-                          provisioningBlockedReason="无线配网协议尚未接入，请在连接页面直接填写局域网地址。"
                           onOpenBleDiscovery={() => setStage('ble-discovery')}
                           onOpenFirmwareUpdate={() => setStage('firmware-update')}
                           onOpenProvisioning={() => setStage('provisioning')}
-                          onRetry={() => notify('设备状态说明', 'App 只展示当前局域网/证书连接同步到的实时状态；断开连接会清除已保存的地址。', 'info')}
+                          onRetry={() => notify('状态同步', '连接设备后自动同步实时状态', 'info')}
                           onToggleAlerts={() => setAlertsEnabled(current => !current)}
                           runtimeHours={null}
                           safetyLock={null}
@@ -839,5 +856,5 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   webConsoleBackdrop: { alignItems: 'center', justifyContent: 'center' },
   webConsoleStageFlush: { overflow: 'hidden', position: 'relative' },
-  webConsoleStageFramed: { borderColor: 'rgba(255, 255, 255, 0.12)', borderRadius: 16, borderWidth: 1, overflow: 'hidden', position: 'relative' },
+  webConsoleStageFramed: { backgroundColor: FSD_CHARCOAL_BG, borderColor: 'rgba(255, 255, 255, 0.08)', borderRadius: 20, borderWidth: 1, overflow: 'hidden', position: 'relative' },
 });

@@ -1,8 +1,14 @@
 import { Feather } from '@expo/vector-icons';
 import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { officialDark } from '../officialPalette';
 import { Text } from './AppText';
+
+const NAV_NEUTRAL = {
+  surface: 'rgba(26, 26, 26, 0.94)',
+  border: 'rgba(255, 255, 255, 0.08)',
+  ink: '#F2F2F2',
+  muted: '#9A9A9A',
+} as const;
 
 type NavItem<Tab extends string> = { key: Tab; label: string; icon: keyof typeof Feather.glyphMap };
 
@@ -38,7 +44,7 @@ function TabBar<Tab extends string>({ active, onChange, items, showLabels = fals
     <View testID="main-navigation" style={[styles.nav, landscape && styles.navLandscape, landscape && showLabels && styles.robotRail]}>
       {items.map(item => {
         const selected = active === item.key;
-        const color = selected ? officialDark.ink : officialDark.muted;
+        const color = selected ? NAV_NEUTRAL.ink : NAV_NEUTRAL.muted;
         return (
           <Pressable
             accessibilityLabel={item.label}
@@ -62,7 +68,7 @@ function TabBar<Tab extends string>({ active, onChange, items, showLabels = fals
   return (
     <View style={[
       styles.outer,
-      { backgroundColor: 'rgba(28,28,27,0.92)', borderTopColor: officialDark.line },
+      { backgroundColor: NAV_NEUTRAL.surface, borderTopColor: NAV_NEUTRAL.border },
       width < 350 && styles.outerNarrow,
       !landscape && { paddingBottom: Math.max(insets.bottom, 8) },
       landscape && styles.outerLandscape,
@@ -95,7 +101,7 @@ const styles = StyleSheet.create({
   item: { flex: 1, minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center', gap: 3 },
   itemLandscape: { flex: 0, width: 48 },
   label: { fontSize: 12, lineHeight: 16, fontWeight: '600', alignSelf: 'stretch', textAlign: 'center' },
-  activeLine: { width: 16, height: 2, borderRadius: 1, backgroundColor: officialDark.ink },
+  activeLine: { width: 16, height: 2, borderRadius: 1, backgroundColor: NAV_NEUTRAL.ink },
   activeLineHidden: { width: 16, height: 2, borderRadius: 1, backgroundColor: 'transparent' },
   pressed: { opacity: 0.65 },
 });

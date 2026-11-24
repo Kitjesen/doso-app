@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { gesturePreviews } from '../assets';
 import { Text } from './AppText';
 import { ControlSlider } from './ControlSlider';
+import { getGesturePreviewAsset } from './gesturePreviewAssets';
 import type { ControlJointState } from '../features/control/controlOperations';
+import type { ControlAccentTone } from '../features/control/controlPreferences';
 import {
   BODY_HEIGHT_STEP_M,
   clampBodyHeightM,
@@ -25,14 +26,43 @@ import {
   type HudTemperatureSeverity,
 } from './controlHudModel';
 
-const ACTIVE_BLUE = '#3B6EF6';
-const PANEL_BG = 'rgba(16, 20, 24, 0.92)';
-const PANEL_BORDER = 'rgba(255, 255, 255, 0.16)';
-const INK = '#F4F7FB';
-const MUTED = '#9AA4B2';
-const GREEN = '#22C55E';
+const PANEL_BG = 'rgba(24, 24, 24, 0.95)';
+const WELL_BG = '#222222';
+const TRACK_BG = '#161616';
+const ACTIVE_GRAPHITE_BG = '#323232';
+const ACTIVE_BLUE_BG = '#3E6AE1';
+const CTA_GRAPHITE_BG = '#EAEAEA';
+const CTA_GRAPHITE_INK = '#141414';
+const PANEL_BORDER = 'rgba(255, 255, 255, 0.08)';
+const SUBTLE_BORDER = 'rgba(255, 255, 255, 0.06)';
+const INK = '#F2F2F2';
+const MUTED = '#9A9A9A';
+const GREEN = '#34D399';
 const ORANGE = '#F59E0B';
 const RED = '#EF4444';
+
+function resolveAccent(tone: ControlAccentTone = 'graphite') {
+  if (tone === 'fsdBlue') {
+    return {
+      pillBg: ACTIVE_BLUE_BG,
+      pillBorder: 'rgba(147, 197, 253, 0.56)',
+      pillInk: '#FFFFFF',
+      ctaBg: ACTIVE_BLUE_BG,
+      ctaInk: '#FFFFFF',
+      softBg: 'rgba(62, 106, 225, 0.22)',
+      highlightText: '#93C5FD',
+    };
+  }
+  return {
+    pillBg: ACTIVE_GRAPHITE_BG,
+    pillBorder: 'rgba(255, 255, 255, 0.30)',
+    pillInk: INK,
+    ctaBg: CTA_GRAPHITE_BG,
+    ctaInk: CTA_GRAPHITE_INK,
+    softBg: 'rgba(255, 255, 255, 0.14)',
+    highlightText: INK,
+  };
+}
 
 function tempTint(severity: HudTemperatureSeverity): string {
   if (severity === 'protect') return RED;
@@ -46,13 +76,16 @@ export function JointParametersPanel({
   onSelectLeg,
   joints,
   onClose,
+  accentTone = 'graphite',
 }: {
   selectedLegId: HudLegId;
   onSelectLeg: (legId: HudLegId) => void;
   joints?: readonly ControlJointState[];
   onClose: () => void;
+  accentTone?: ControlAccentTone;
 }) {
   const params = projectLegJointParameters(selectedLegId, joints);
+  const accent = resolveAccent(accentTone);
 
   return (
     <View style={styles.panelCard} testID="control-hud-joint-params-panel">
@@ -81,12 +114,12 @@ export function JointParametersPanel({
               onPress={() => onSelectLeg(leg.id)}
               style={({ pressed }) => [
                 styles.tabPill,
-                selected && styles.tabPillActive,
+                selected && { backgroundColor: accent.pillBg },
                 pressed && styles.pressed,
               ]}
               testID={`control-hud-leg-tab-${leg.id}`}
             >
-              <Text style={[styles.tabText, selected && styles.tabTextActive]}>{leg.label}</Text>
+              <Text numberOfLines={1} style={[styles.tabText, selected && { color: accent.pillInk, fontWeight: '600' }]}>{leg.label}</Text>
             </Pressable>
           );
         })}
@@ -101,10 +134,10 @@ export function JointParametersPanel({
               : MUTED;
           return (
             <View key={item.id} style={styles.paramCell} testID={`control-hud-joint-param-${item.id}`}>
-              <Text style={styles.paramLabel}>{item.label}：</Text>
+              <Text numberOfLines={1} style={styles.paramLabel}>{item.label}：</Text>
               <Text numberOfLines={1} style={styles.paramValue}>{item.valueText}</Text>
               <View style={[styles.statusBadge, { borderColor: statusColor }]}>
-                <Text style={[styles.statusBadgeText, { color: statusColor }]}>{item.statusLabel}</Text>
+                <Text numberOfLines={1} style={[styles.statusBadgeText, { color: statusColor }]}>{item.statusLabel}</Text>
               </View>
             </View>
           );
@@ -129,8 +162,8 @@ function LegTempCluster({ group }: { group: HudLegTemperatureGroup }) {
               style={[styles.tempNodeBadge, { borderColor: tint }]}
               testID={`control-hud-joint-temp-${node.id}`}
             >
-              <Text style={styles.tempNodeName}>{node.shortLabel}</Text>
-              <Text style={[styles.tempNodeValue, { color: tint }]}>{node.text}</Text>
+              <Text numberOfLines={1} style={styles.tempNodeName}>{node.shortLabel}</Text>
+              <Text numberOfLines={1} style={[styles.tempNodeValue, { color: tint }]}>{node.text}</Text>
             </View>
           );
         })}
@@ -144,13 +177,16 @@ export function JointTemperaturePanel({
   onSelectModule,
   joints,
   onClose,
+  accentTone = 'graphite',
 }: {
   moduleKind: HudJointModuleKind;
   onSelectModule: (kind: HudJointModuleKind) => void;
   joints?: readonly ControlJointState[];
   onClose: () => void;
+  accentTone?: ControlAccentTone;
 }) {
   const projected = projectJointTemperatures(moduleKind, joints);
+  const accent = resolveAccent(accentTone);
   const frontLeft = projected.groups.find(g => g.id === 'front-left')!;
   const frontRight = projected.groups.find(g => g.id === 'front-right')!;
   const rearLeft = projected.groups.find(g => g.id === 'rear-left')!;
@@ -187,12 +223,12 @@ export function JointTemperaturePanel({
                 onPress={() => onSelectModule(kind)}
                 style={({ pressed }) => [
                   styles.moduleBtn,
-                  selected && styles.tabPillActive,
+                  selected && { backgroundColor: accent.pillBg },
                   pressed && styles.pressed,
                 ]}
                 testID={`control-hud-temp-tab-${kind}`}
               >
-                <Text style={[styles.tabText, selected && styles.tabTextActive]}>{label}</Text>
+                <Text numberOfLines={1} style={[styles.tabText, selected && { color: accent.pillInk, fontWeight: '600' }]}>{label}</Text>
               </Pressable>
             );
           })}
@@ -292,7 +328,7 @@ export function FaultListPanel({
             style={({ pressed }) => [styles.faultActionBtn, pressed && styles.pressed]}
             testID="control-hud-fault-open-status"
           >
-            <Text style={styles.faultActionText}>查看详情</Text>
+            <Text numberOfLines={1} style={styles.faultActionText}>查看详情</Text>
           </Pressable>
         ) : null}
         {!stopDisabled ? (
@@ -303,7 +339,7 @@ export function FaultListPanel({
             style={({ pressed }) => [styles.faultActionBtn, styles.faultStopBtn, pressed && styles.pressed]}
             testID="control-hud-fault-stop"
           >
-            <Text style={styles.faultStopText}>软件急停</Text>
+            <Text numberOfLines={1} style={styles.faultStopText}>软件急停</Text>
           </Pressable>
         ) : null}
         <Pressable
@@ -313,13 +349,18 @@ export function FaultListPanel({
           style={({ pressed }) => [styles.faultActionBtn, pressed && styles.pressed]}
           testID="control-hud-fault-ack"
         >
-          <Text style={styles.faultActionText}>收起</Text>
+          <Text numberOfLines={1} style={styles.faultActionText}>收起</Text>
         </Pressable>
       </View>
     </View>
   );
 }
 
+/**
+ * 2-Column Borderless Frosted Charcoal-Graphite Action Studio:
+ * Left = Blender R44 GIF Preview + Action Title + Safe Primary "执行「xxx」" CTA
+ * Right = Category Filter Pills + Clean Single-Line Action Grid (NO duration seconds, NO 摔倒恢复)
+ */
 export function GestureDeckPanel({
   gestures,
   category,
@@ -331,10 +372,12 @@ export function GestureDeckPanel({
   gestureDisabled,
   gestureHint,
   onPlayGesture,
+  onClose,
   variant = 'hud',
   surfaceTone = 'dark',
+  accentTone = 'graphite',
   deckWidth,
-  maxListHeight = 168,
+  maxListHeight = 236,
 }: {
   gestures: readonly HudGestureInput[];
   category: HudGestureCategoryId;
@@ -346,19 +389,22 @@ export function GestureDeckPanel({
   gestureDisabled?: boolean;
   gestureHint?: string;
   onPlayGesture?: (name: string) => void;
+  onClose?: () => void;
   variant?: 'hud' | 'settings';
   surfaceTone?: 'dark' | 'light';
+  accentTone?: ControlAccentTone;
   deckWidth?: number;
   maxListHeight?: number;
 }) {
   const projected = projectHudGestures(gestures, category, selectedGestureName);
   const selected = projected.selectedItem;
   const prefix = variant === 'hud' ? 'control-hud-gesture' : 'control-settings-gesture';
-  const previewSource = selected && showGifPreview ? gesturePreviews[selected.previewKey] : undefined;
+  const previewSource = selected && showGifPreview ? getGesturePreviewAsset(selected.previewKey) : undefined;
   const executeDisabled = Boolean(gestureDisabled || !selected || !onPlayGesture);
   const isSettings = variant === 'settings';
   const isLight = isSettings && surfaceTone === 'light';
-  const compactHud = !isSettings && maxListHeight <= 164;
+  const accent = resolveAccent(accentTone);
+  const compactHud = !isSettings && maxListHeight <= 176;
 
   const inspectorNode = selected ? (
     <View
@@ -384,27 +430,30 @@ export function GestureDeckPanel({
             <Image
               accessibilityLabel={`${selected.label} 动作预览`}
               resizeMode="cover"
-              source={previewSource as number}
+              source={previewSource}
               style={styles.gesturePreviewImage}
               testID={`${prefix}-preview-image`}
             />
           ) : (
             <View style={styles.gesturePreviewPlaceholder}>
-              <Ionicons color={isLight ? '#64748B' : MUTED} name="sparkles-outline" size={18} />
-              <Text style={[styles.gesturePreviewPlaceholderText, isLight && styles.gestureTextMutedLight]}>无内置预览</Text>
+              <Ionicons color={isLight ? '#6B6B6B' : MUTED} name="sparkles-outline" size={20} />
+              <Text style={[styles.gesturePreviewPlaceholderText, isLight && styles.gestureTextMutedLight]}>暂无预览</Text>
             </View>
           )}
-          <View style={styles.gesturePreviewCornerBadge}>
-            <Text style={styles.gesturePreviewCornerText}>{selected.durationText}</Text>
-          </View>
         </View>
       ) : null}
 
-      <View style={[styles.gestureInspectorRightCol, compactHud && styles.gestureInspectorRightColCompact, isSettings && styles.gestureInspectorBannerRight]}>
+      <View style={[styles.gestureInspectorMetaCol, isSettings && styles.gestureInspectorBannerRight]}>
         <View style={styles.gestureInspectorMeta}>
-          <Text numberOfLines={1} style={[styles.gestureSelectedTitle, compactHud && styles.gestureSelectedTitleCompact, isLight && styles.gestureSelectedTitleLight]}>
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.gestureSelectedTitle,
+              compactHud && styles.gestureSelectedTitleCompact,
+              isLight && styles.gestureSelectedTitleLight,
+            ]}
+          >
             {selected.label}
-            {!showGifPreview ? ` · ${selected.durationText}` : ''}
           </Text>
           <Text
             numberOfLines={2}
@@ -421,7 +470,7 @@ export function GestureDeckPanel({
 
         <Pressable
           accessibilityHint={executeDisabled ? gestureHint : selected.endPoseNote}
-          accessibilityLabel={`执行动作 ${selected.label}`}
+          accessibilityLabel={`执行「${selected.label}」`}
           accessibilityRole="button"
           accessibilityState={{ disabled: executeDisabled }}
           disabled={executeDisabled}
@@ -430,21 +479,105 @@ export function GestureDeckPanel({
           }}
           style={({ pressed }) => [
             styles.gestureExecuteBtn,
-            compactHud && styles.gestureExecuteBtnCompactHud,
+            { backgroundColor: executeDisabled ? (isLight ? '#E5E5E5' : 'rgba(255,255,255,0.08)') : accent.ctaBg },
             isSettings && styles.gestureExecuteBtnCompact,
             executeDisabled && (isLight ? styles.gestureExecuteBtnDisabledLight : styles.gestureExecuteBtnDisabled),
             pressed && !executeDisabled && styles.pressed,
           ]}
           testID={`${prefix}-execute`}
         >
-          <Ionicons color={isLight && executeDisabled ? '#475569' : '#FFFFFF'} name="play" size={12} />
-          <Text numberOfLines={1} style={[styles.gestureExecuteText, isLight && executeDisabled && styles.gestureExecuteTextDisabledLight]}>
-            执行动作
+          <Ionicons
+            color={executeDisabled ? (isLight ? '#525252' : MUTED) : accent.ctaInk}
+            name="play"
+            size={12}
+          />
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.gestureExecuteText,
+              { color: executeDisabled ? (isLight ? '#525252' : MUTED) : accent.ctaInk },
+            ]}
+          >
+            {`执行「${selected.label}」`}
           </Text>
         </Pressable>
       </View>
     </View>
   ) : null;
+
+  const categoryBar = (
+    <View style={styles.gestureTopBar}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.gestureCatScroll}
+        style={styles.gestureCatTrack}
+      >
+        {HUD_GESTURE_CATEGORIES.map(cat => {
+          const count = projected.categoryCounts[cat.id];
+          if (cat.id !== 'all' && count === 0) return null;
+          const active = category === cat.id || (projected.categoryCounts[category] === 0 && cat.id === 'all');
+          return (
+            <Pressable
+              key={cat.id}
+              accessibilityLabel={`${cat.label} (${count})`}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: active }}
+              onPress={() => onSelectCategory(cat.id)}
+              style={({ pressed }) => [
+                styles.gestureCatPill,
+                isLight && !active && styles.gestureCatPillLight,
+                active && { backgroundColor: accent.pillBg, borderColor: accent.pillBorder },
+                pressed && styles.pressed,
+              ]}
+              testID={`${prefix}-cat-${cat.id}`}
+            >
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.gestureCatText,
+                  isLight && !active && styles.gestureCatTextLight,
+                  active && { color: accent.pillInk, fontWeight: '600' },
+                ]}
+              >
+                {cat.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      <Pressable
+        accessibilityLabel={showGifPreview ? '关闭动作动图预览' : '开启动作动图预览'}
+        accessibilityRole="switch"
+        accessibilityState={{ checked: showGifPreview }}
+        onPress={onToggleGifPreview}
+        style={({ pressed }) => [
+          styles.gestureGifToggle,
+          isLight && styles.gestureGifToggleLight,
+          showGifPreview && { backgroundColor: accent.softBg, borderColor: accent.pillBorder },
+          pressed && styles.pressed,
+        ]}
+        testID={`${prefix}-gif-toggle`}
+      >
+        <Ionicons
+          color={showGifPreview ? (isLight ? '#1F1F1F' : accent.highlightText) : (isLight ? '#525252' : MUTED)}
+          name={showGifPreview ? 'play-circle' : 'play-circle-outline'}
+          size={13}
+        />
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.gestureGifToggleText,
+            isLight && styles.gestureCatTextLight,
+            showGifPreview && { color: isLight ? '#1F1F1F' : accent.highlightText },
+          ]}
+        >
+          动图
+        </Text>
+      </Pressable>
+    </View>
+  );
 
   return (
     <View
@@ -455,72 +588,27 @@ export function GestureDeckPanel({
       ]}
       testID={variant === 'hud' ? 'control-hud-gesture-deck' : 'control-settings-gesture-list'}
     >
-      <View style={styles.gestureTopBar}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.gestureCatScroll}
-          style={styles.gestureCatTrack}
-        >
-          {HUD_GESTURE_CATEGORIES.map(cat => {
-            const count = projected.categoryCounts[cat.id];
-            if (cat.id !== 'all' && count === 0) return null;
-            const active = category === cat.id || (projected.categoryCounts[category] === 0 && cat.id === 'all');
-            return (
-              <Pressable
-                key={cat.id}
-                accessibilityLabel={`${cat.label} (${count})`}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: active }}
-                onPress={() => onSelectCategory(cat.id)}
-                style={({ pressed }) => [
-                  styles.gestureCatPill,
-                  isLight && !active && styles.gestureCatPillLight,
-                  active && styles.gestureCatPillActive,
-                  pressed && styles.pressed,
-                ]}
-                testID={`${prefix}-cat-${cat.id}`}
-              >
-                <Text numberOfLines={1} style={[styles.gestureCatText, isLight && !active && styles.gestureCatTextLight, active && styles.gestureCatTextActive]}>
-                  {`${cat.label} ${count}`}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-
-        <Pressable
-          accessibilityLabel={showGifPreview ? '关闭动作动图预览' : '开启动作动图预览'}
-          accessibilityRole="switch"
-          accessibilityState={{ checked: showGifPreview }}
-          onPress={onToggleGifPreview}
-          style={({ pressed }) => [
-            styles.gestureGifToggle,
-            isLight && styles.gestureGifToggleLight,
-            showGifPreview && (isLight ? styles.gestureGifToggleActiveLight : styles.gestureGifToggleActive),
-            pressed && styles.pressed,
-          ]}
-          testID={`${prefix}-gif-toggle`}
-        >
-          <Ionicons
-            color={showGifPreview ? (isLight ? '#1D4ED8' : '#93C5FD') : (isLight ? '#475569' : MUTED)}
-            name={showGifPreview ? 'play-circle' : 'play-circle-outline'}
-            size={13}
-          />
-          <Text
-            style={[
-              styles.gestureGifToggleText,
-              isLight && styles.gestureCatTextLight,
-              showGifPreview && (isLight ? styles.gestureGifToggleTextActiveLight : styles.gestureGifToggleTextActive),
-            ]}
+      {!isSettings && onClose ? (
+        <View style={styles.gestureModalHeader}>
+          <View style={styles.gestureModalTitleRow}>
+            <Text style={styles.gestureModalTitle}>动作库</Text>
+            <Text style={styles.gestureModalCount}>{`${projected.allItems.length} 项`}</Text>
+          </View>
+          <Pressable
+            accessibilityLabel="关闭动作库"
+            accessibilityRole="button"
+            onPress={onClose}
+            style={({ pressed }) => [styles.closeBtn, pressed && styles.pressed]}
+            testID="control-hud-gesture-close"
           >
-            动图
-          </Text>
-        </Pressable>
-      </View>
+            <Ionicons color={MUTED} name="close" size={16} />
+          </Pressable>
+        </View>
+      ) : null}
 
       {isSettings ? (
         <View style={styles.gestureSettingsStack}>
+          {categoryBar}
           {inspectorNode}
           <View style={styles.gestureGridSettings}>
             {projected.filteredItems.map(item => {
@@ -529,7 +617,7 @@ export function GestureDeckPanel({
                 <Pressable
                   key={item.name}
                   accessibilityHint={gestureDisabled ? gestureHint : item.endPoseNote}
-                  accessibilityLabel={`${item.label} ${item.durationText}`}
+                  accessibilityLabel={item.label}
                   accessibilityRole="button"
                   accessibilityState={{ selected: isSelected }}
                   onPress={() => onSelectGesture(item.name)}
@@ -537,7 +625,7 @@ export function GestureDeckPanel({
                     styles.gestureRowBtn,
                     styles.gestureGridCellSettings,
                     isLight && styles.gestureRowBtnLight,
-                    isSelected && (isLight ? styles.gestureRowBtnSelectedLight : styles.gestureRowBtnSelected),
+                    isSelected && (isLight ? styles.gestureRowBtnSelectedLight : { backgroundColor: accent.pillBg, borderColor: accent.pillBorder }),
                     pressed && styles.pressed,
                   ]}
                   testID={`${prefix}-${item.name}`}
@@ -547,65 +635,67 @@ export function GestureDeckPanel({
                     style={[
                       styles.gestureRowLabel,
                       isLight && styles.gestureRowLabelLight,
-                      isSelected && (isLight ? styles.gestureRowLabelSelectedLight : styles.gestureRowLabelSelected),
+                      isSelected && (isLight ? styles.gestureRowLabelSelectedLight : { color: accent.pillInk, fontWeight: '600' }),
                     ]}
                   >
                     {item.label}
                   </Text>
-                  <View style={styles.gestureRowMeta}>
-                    {item.cautionTag ? (
-                      <View style={[styles.gestureCautionBadge, isLight && styles.gestureCautionBadgeLight]}>
-                        <Text style={[styles.gestureCautionText, isLight && styles.gestureCautionTextLight]}>{item.cautionTag}</Text>
-                      </View>
-                    ) : null}
-                    <Text style={[styles.gestureDurationText, isLight && styles.gestureTextMutedLight]}>{item.durationText}</Text>
-                  </View>
+                  {item.cautionTag ? (
+                    <View style={[styles.gestureCautionBadge, isLight && styles.gestureCautionBadgeLight]}>
+                      <Text numberOfLines={1} style={[styles.gestureCautionText, isLight && styles.gestureCautionTextLight]}>{item.cautionTag}</Text>
+                    </View>
+                  ) : null}
                 </Pressable>
               );
             })}
           </View>
         </View>
       ) : (
-        <View style={[styles.gestureSplitBody, { maxHeight: maxListHeight }]}>
-          <ScrollView
-            showsVerticalScrollIndicator
-            nestedScrollEnabled
-            style={[styles.gestureListScroll, { maxHeight: maxListHeight }]}
-            contentContainerStyle={styles.gestureListContent}
-          >
-            {projected.filteredItems.map(item => {
-              const isSelected = selected?.name === item.name;
-              return (
-                <Pressable
-                  key={item.name}
-                  accessibilityHint={gestureDisabled ? gestureHint : item.endPoseNote}
-                  accessibilityLabel={`${item.label} ${item.durationText}`}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: isSelected }}
-                  onPress={() => onSelectGesture(item.name)}
-                  style={({ pressed }) => [
-                    styles.gestureRowBtn,
-                    isSelected && styles.gestureRowBtnSelected,
-                    pressed && styles.pressed,
-                  ]}
-                  testID={`${prefix}-${item.name}`}
-                >
-                  <Text numberOfLines={1} style={[styles.gestureRowLabel, isSelected && styles.gestureRowLabelSelected]}>
-                    {item.label}
-                  </Text>
-                  <View style={styles.gestureRowMeta}>
-                    {item.cautionTag ? (
-                      <View style={styles.gestureCautionBadge}>
-                        <Text style={styles.gestureCautionText}>{item.cautionTag}</Text>
-                      </View>
-                    ) : null}
-                    <Text style={styles.gestureDurationText}>{item.durationText}</Text>
-                  </View>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+        <View style={[styles.gestureTwoColStudio, { maxHeight: Math.max(196, maxListHeight + 36) }]}>
+          {/* Left Column: GIF Studio Preview + Selected Title + Safe Primary CTA */}
           {inspectorNode}
+
+          {/* Right Column: Category Filter Pills + Clean Single-Line Action Grid */}
+          <View style={styles.gestureRightStudioCol}>
+            {categoryBar}
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              nestedScrollEnabled
+              style={[styles.gestureListScroll, { maxHeight: maxListHeight }]}
+              contentContainerStyle={styles.gestureGridContent}
+            >
+              {projected.filteredItems.map(item => {
+                const isSelected = selected?.name === item.name;
+                return (
+                  <Pressable
+                    key={item.name}
+                    accessibilityHint={gestureDisabled ? gestureHint : item.endPoseNote}
+                    accessibilityLabel={item.label}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
+                    onPress={() => onSelectGesture(item.name)}
+                    style={({ pressed }) => [
+                      styles.gestureRowBtn,
+                      styles.gestureGridCellHud,
+                      isSelected && { backgroundColor: accent.pillBg, borderColor: accent.pillBorder },
+                      pressed && styles.pressed,
+                    ]}
+                    testID={`${prefix}-${item.name}`}
+                  >
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.gestureRowLabel,
+                        isSelected && { color: accent.pillInk, fontWeight: '600' },
+                      ]}
+                    >
+                      {item.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
         </View>
       )}
     </View>
@@ -626,6 +716,7 @@ export function BodyHeightPanel({
   onPreviewHeight,
   onCommitHeight,
   onClose,
+  accentTone = 'graphite',
 }: {
   bodyHeight?: HudBodyHeightState | null;
   draftHeightM?: number | null;
@@ -640,6 +731,7 @@ export function BodyHeightPanel({
   onPreviewHeight?: (heightM: number) => void;
   onCommitHeight?: (heightM: number) => void;
   onClose: () => void;
+  accentTone?: ControlAccentTone;
 }) {
   const projected = projectBodyHeightUi({
     state: bodyHeight,
@@ -654,6 +746,7 @@ export function BodyHeightPanel({
     hasSetCallback: typeof onCommitHeight === 'function',
   });
   const { state, bounds } = projected;
+  const accent = resolveAccent(accentTone);
   const stepHeight = (deltaM: number) => {
     if (projected.adjustDisabled || !onCommitHeight) return;
     const nextM = clampBodyHeightM(projected.effectiveTargetM + deltaM, state);
@@ -667,7 +760,7 @@ export function BodyHeightPanel({
         <View style={styles.heightHeaderLeft}>
           <Text style={styles.panelTitle}>机身高度</Text>
           <View style={styles.heightRangeBadge} testID="control-hud-height-range">
-            <Text style={styles.heightRangeText}>{bounds.rangeText}</Text>
+            <Text numberOfLines={1} style={styles.heightRangeText}>{bounds.rangeText}</Text>
           </View>
         </View>
         <View style={styles.heightHeaderRight}>
@@ -681,14 +774,14 @@ export function BodyHeightPanel({
             }}
             style={({ pressed }) => [
               styles.heightModeBtn,
-              state.active && styles.heightModeBtnActive,
+              state.active && { backgroundColor: accent.pillBg, borderColor: accent.pillBorder },
               projected.modeToggleDisabled && styles.heightControlDisabled,
               pressed && !projected.modeToggleDisabled && styles.pressed,
             ]}
             testID="control-hud-height-mode-toggle"
           >
             <View style={[styles.heightModeDot, state.active && styles.heightModeDotActive]} />
-            <Text style={[styles.heightModeBtnText, state.active && styles.heightModeBtnTextActive]}>高度模式</Text>
+            <Text numberOfLines={1} style={[styles.heightModeBtnText, state.active && { color: accent.pillInk }]}>高度模式</Text>
           </Pressable>
           <Pressable
             accessibilityLabel="关闭机身高度面板"
@@ -710,7 +803,7 @@ export function BodyHeightPanel({
         <View style={styles.heightReadoutCell}>
           <Text style={styles.heightReadoutLabel}>目标</Text>
           <Text
-            style={[styles.heightReadoutValue, state.active && styles.heightReadoutValueActive]}
+            style={[styles.heightReadoutValue, state.active && { color: accent.highlightText }]}
             testID="control-hud-height-target"
           >
             {projected.targetText}
@@ -787,14 +880,14 @@ export function BodyHeightPanel({
               }}
               style={({ pressed }) => [
                 styles.heightPresetBtn,
-                selected && styles.heightPresetBtnActive,
+                selected && { backgroundColor: accent.pillBg, borderColor: accent.pillBorder },
                 projected.adjustDisabled && styles.heightControlDisabled,
                 pressed && !projected.adjustDisabled && styles.pressed,
               ]}
               testID={`control-hud-height-preset-${preset.id}`}
             >
-              <Text style={[styles.heightPresetLabel, selected && styles.heightPresetTextActive]}>{preset.label}</Text>
-              <Text style={[styles.heightPresetValue, selected && styles.heightPresetTextActive]}>{preset.valueText}</Text>
+              <Text numberOfLines={1} style={[styles.heightPresetLabel, selected && { color: accent.pillInk, fontWeight: '600' }]}>{preset.label}</Text>
+              <Text numberOfLines={1} style={[styles.heightPresetValue, selected && { color: accent.pillInk }]}>{preset.valueText}</Text>
             </Pressable>
           );
         })}
@@ -817,7 +910,7 @@ const styles = StyleSheet.create({
   panelCard: {
     backgroundColor: PANEL_BG,
     borderColor: PANEL_BORDER,
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
     gap: 10,
     paddingHorizontal: 16,
@@ -845,13 +938,14 @@ const styles = StyleSheet.create({
   },
   closeBtn: {
     alignItems: 'center',
-    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: 13,
     height: 26,
     justifyContent: 'center',
     width: 26,
   },
   tabRow: {
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: TRACK_BG,
     borderRadius: 10,
     flexDirection: 'row',
     gap: 4,
@@ -866,18 +960,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
-  tabPillActive: {
-    backgroundColor: ACTIVE_BLUE,
-  },
   tabText: {
     color: MUTED,
-    fontSize: 13,
+    fontSize: 12.5,
     fontWeight: '500',
-    lineHeight: 18,
-  },
-  tabTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '600',
+    lineHeight: 17,
   },
   paramGrid: {
     flexDirection: 'row',
@@ -886,8 +973,8 @@ const styles = StyleSheet.create({
   },
   paramCell: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 8,
+    backgroundColor: WELL_BG,
+    borderRadius: 10,
     flexDirection: 'row',
     flexBasis: '48%',
     flexGrow: 1,
@@ -897,28 +984,28 @@ const styles = StyleSheet.create({
   },
   paramLabel: {
     color: MUTED,
-    fontSize: 12.5,
-    lineHeight: 17,
+    fontSize: 12,
+    lineHeight: 16,
   },
   paramValue: {
     color: INK,
     flexShrink: 1,
-    fontSize: 13.5,
+    fontSize: 13,
     fontVariant: ['tabular-nums'],
     fontWeight: '600',
     lineHeight: 18,
   },
   statusBadge: {
-    borderRadius: 4,
+    borderRadius: 5,
     borderWidth: 1,
     marginLeft: 'auto',
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
   statusBadgeText: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '600',
-    lineHeight: 15,
+    lineHeight: 14,
   },
   tempControlsRow: {
     alignItems: 'center',
@@ -927,7 +1014,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   moduleSwitchGroup: {
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: TRACK_BG,
     borderRadius: 9,
     flexDirection: 'row',
     gap: 3,
@@ -973,8 +1060,8 @@ const styles = StyleSheet.create({
   },
   chassisCoreBox: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderColor: 'rgba(255, 255, 255, 0.16)',
+    backgroundColor: WELL_BG,
+    borderColor: PANEL_BORDER,
     borderRadius: 12,
     borderWidth: 1,
     gap: 4,
@@ -1006,17 +1093,20 @@ const styles = StyleSheet.create({
   legTempNodes: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 4,
+    gap: 5,
+    justifyContent: 'space-between',
   },
   tempNodeBadge: {
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.35)',
-    borderRadius: 6,
+    backgroundColor: TRACK_BG,
+    borderRadius: 7,
     borderWidth: 1,
+    flexBasis: '47%',
     flexDirection: 'row',
-    gap: 4,
+    flexGrow: 1,
+    justifyContent: 'space-between',
     paddingHorizontal: 7,
-    paddingVertical: 3,
+    paddingVertical: 4,
   },
   tempNodeName: {
     color: MUTED,
@@ -1074,7 +1164,7 @@ const styles = StyleSheet.create({
   },
   faultActionBtn: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: WELL_BG,
     borderRadius: 8,
     minHeight: 32,
     justifyContent: 'center',
@@ -1096,16 +1186,50 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 17,
   },
+
+  /* 2-Column Borderless Frosted Charcoal Action Studio */
   gestureDeckRoot: {
-    gap: 6,
-    minWidth: 280,
-    width: 428,
+    gap: 10,
+    minWidth: 320,
+    width: 600,
     maxWidth: '100%',
   },
   gestureDeckSettings: {
     minWidth: 0,
     width: '100%',
     paddingVertical: 4,
+  },
+  gestureModalHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingBottom: 2,
+  },
+  gestureModalTitleRow: {
+    alignItems: 'baseline',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  gestureModalTitle: {
+    color: INK,
+    fontSize: 15,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
+  gestureModalCount: {
+    color: MUTED,
+    fontSize: 11.5,
+    fontVariant: ['tabular-nums'],
+    lineHeight: 15,
+  },
+  gestureTwoColStudio: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  gestureRightStudioCol: {
+    flex: 1,
+    gap: 8,
+    minWidth: 0,
   },
   gestureSettingsStack: {
     gap: 8,
@@ -1128,45 +1252,33 @@ const styles = StyleSheet.create({
   },
   gestureCatPill: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    borderRadius: 999,
+    backgroundColor: TRACK_BG,
+    borderColor: SUBTLE_BORDER,
+    borderRadius: 8,
     borderWidth: 1,
     justifyContent: 'center',
-    minHeight: 25,
+    minHeight: 26,
     paddingHorizontal: 9,
     paddingVertical: 3,
   },
-  gestureCatPillActive: {
-    backgroundColor: ACTIVE_BLUE,
-    borderColor: '#93C5FD',
-  },
   gestureCatText: {
     color: MUTED,
-    fontSize: 11,
-    fontVariant: ['tabular-nums'],
-    fontWeight: '600',
-    lineHeight: 14,
-  },
-  gestureCatTextActive: {
-    color: '#FFFFFF',
+    fontSize: 11.5,
+    fontWeight: '500',
+    lineHeight: 15,
   },
   gestureGifToggle: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderColor: 'rgba(255, 255, 255, 0.14)',
-    borderRadius: 999,
+    backgroundColor: TRACK_BG,
+    borderColor: SUBTLE_BORDER,
+    borderRadius: 8,
     borderWidth: 1,
     flexDirection: 'row',
     flexShrink: 0,
     gap: 4,
-    minHeight: 25,
+    minHeight: 26,
     paddingHorizontal: 8,
     paddingVertical: 3,
-  },
-  gestureGifToggleActive: {
-    backgroundColor: 'rgba(59, 110, 246, 0.22)',
-    borderColor: 'rgba(147, 197, 253, 0.62)',
   },
   gestureGifToggleText: {
     color: MUTED,
@@ -1174,69 +1286,54 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 14,
   },
-  gestureGifToggleTextActive: {
-    color: '#DBEAFE',
-  },
-  gestureSplitBody: {
-    flexDirection: 'row',
-    gap: 8,
-    maxHeight: 168,
-  },
   gestureListScroll: {
     flex: 1,
-    maxHeight: 168,
   },
-  gestureListContent: {
-    gap: 4,
-    paddingRight: 2,
+  gestureGridContent: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    paddingBottom: 4,
+    paddingRight: 0,
   },
   gestureGridSettings: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
   },
-  gestureGridCellSettings: {
-    flexBasis: '48%',
+  gestureGridCellHud: {
+    flexBasis: '47%',
     flexGrow: 1,
-    minWidth: 148,
+    minWidth: 108,
+  },
+  gestureGridCellSettings: {
+    flexBasis: '31%',
+    flexGrow: 1,
+    minWidth: 112,
   },
   gestureRowBtn: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderColor: 'rgba(255, 255, 255, 0.09)',
-    borderRadius: 9,
+    backgroundColor: WELL_BG,
+    borderColor: SUBTLE_BORDER,
+    borderRadius: 10,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 5,
+    height: 34,
     justifyContent: 'space-between',
-    minHeight: 30,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-  },
-  gestureRowBtnSelected: {
-    backgroundColor: 'rgba(59, 110, 246, 0.28)',
-    borderColor: '#93C5FD',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   gestureRowLabel: {
     color: INK,
     flex: 1,
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: '500',
-    lineHeight: 16,
-  },
-  gestureRowLabelSelected: {
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  gestureRowMeta: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    flexShrink: 0,
-    gap: 4,
+    lineHeight: 17,
   },
   gestureCautionBadge: {
-    backgroundColor: 'rgba(245, 158, 11, 0.20)',
-    borderColor: 'rgba(251, 191, 36, 0.50)',
+    backgroundColor: 'rgba(245, 158, 11, 0.18)',
+    borderColor: 'rgba(251, 191, 36, 0.40)',
     borderRadius: 5,
     borderWidth: 1,
     paddingHorizontal: 4,
@@ -1248,73 +1345,63 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 12,
   },
-  gestureDurationText: {
-    color: MUTED,
-    fontSize: 10.5,
-    fontVariant: ['tabular-nums'],
-    fontWeight: '500',
-    lineHeight: 13,
-  },
   gestureInspector: {
-    backgroundColor: 'rgba(8, 12, 16, 0.72)',
-    borderColor: 'rgba(255, 255, 255, 0.14)',
-    borderRadius: 11,
+    backgroundColor: WELL_BG,
+    borderColor: SUBTLE_BORDER,
+    borderRadius: 14,
     borderWidth: 1,
     flexShrink: 0,
-    gap: 5,
+    gap: 8,
     justifyContent: 'space-between',
     overflow: 'hidden',
-    padding: 7,
-    width: 162,
+    padding: 10,
+    width: 212,
   },
   gestureInspectorCompact: {
-    gap: 4,
-    padding: 5,
-    width: 156,
+    gap: 6,
+    padding: 8,
+    width: 186,
   },
   gestureInspectorBanner: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 10,
-    width: '100%',
     padding: 8,
+    width: '100%',
   },
   gestureInspectorLight: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#CBD5E1',
+    borderColor: '#D4D4D4',
   },
-  gestureInspectorRightCol: {
-    gap: 5,
+  gestureInspectorMetaCol: {
+    gap: 8,
     justifyContent: 'space-between',
-  },
-  gestureInspectorRightColCompact: {
-    gap: 4,
   },
   gestureInspectorBannerRight: {
     flex: 1,
-    minWidth: 0,
     gap: 6,
+    minWidth: 0,
   },
   gesturePreviewFrame: {
-    backgroundColor: '#101418',
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-    borderRadius: 8,
+    backgroundColor: '#161616',
+    borderColor: SUBTLE_BORDER,
+    borderRadius: 10,
     borderWidth: 1,
-    height: 76,
+    height: 118,
     overflow: 'hidden',
     width: '100%',
   },
   gesturePreviewFrameCompact: {
-    height: 58,
+    height: 92,
   },
   gesturePreviewFrameBanner: {
-    height: 68,
-    width: 120,
     flexShrink: 0,
+    height: 68,
+    width: 118,
   },
   gesturePreviewFrameLight: {
-    backgroundColor: '#0F172A',
-    borderColor: '#CBD5E1',
+    backgroundColor: '#171717',
+    borderColor: '#D4D4D4',
   },
   gesturePreviewImage: {
     height: '100%',
@@ -1323,129 +1410,95 @@ const styles = StyleSheet.create({
   gesturePreviewPlaceholder: {
     alignItems: 'center',
     flex: 1,
-    gap: 3,
+    gap: 4,
     justifyContent: 'center',
   },
   gesturePreviewPlaceholderText: {
     color: MUTED,
-    fontSize: 10,
-    lineHeight: 13,
-  },
-  gesturePreviewCornerBadge: {
-    backgroundColor: 'rgba(10, 14, 18, 0.78)',
-    borderRadius: 5,
-    bottom: 3,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    position: 'absolute',
-    right: 3,
-  },
-  gesturePreviewCornerText: {
-    color: '#E2E8F0',
-    fontSize: 9,
-    fontVariant: ['tabular-nums'],
-    fontWeight: '600',
-    lineHeight: 11,
+    fontSize: 10.5,
+    lineHeight: 14,
   },
   gestureInspectorMeta: {
     gap: 2,
   },
   gestureSelectedTitle: {
-    color: '#FFFFFF',
-    fontSize: 12.5,
+    color: INK,
+    fontSize: 14,
     fontWeight: '600',
-    lineHeight: 16,
+    lineHeight: 19,
   },
   gestureSelectedTitleCompact: {
-    fontSize: 12,
-    lineHeight: 15,
+    fontSize: 13,
+    lineHeight: 17,
   },
   gestureSelectedTitleLight: {
-    color: '#0F172A',
+    color: '#171717',
   },
   gestureSelectedNote: {
     color: MUTED,
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  gestureSelectedNoteCompact: {
     fontSize: 10.5,
     lineHeight: 14,
   },
-  gestureSelectedNoteCompact: {
-    fontSize: 10,
-    lineHeight: 13,
-  },
   gestureBlockedNote: {
-    color: '#FBBF24',
+    color: MUTED,
   },
   gestureBlockedNoteLight: {
-    color: '#B45309',
+    color: '#525252',
   },
   gestureExecuteBtn: {
     alignItems: 'center',
-    backgroundColor: ACTIVE_BLUE,
-    borderRadius: 8,
+    borderRadius: 10,
     flexDirection: 'row',
-    gap: 4,
+    gap: 5,
     justifyContent: 'center',
-    minHeight: 28,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  gestureExecuteBtnCompactHud: {
-    minHeight: 26,
-    paddingVertical: 3,
+    minHeight: 34,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   gestureExecuteBtnCompact: {
     alignSelf: 'flex-start',
     paddingHorizontal: 14,
   },
   gestureExecuteBtnDisabled: {
-    backgroundColor: 'rgba(255, 255, 255, 0.10)',
     opacity: 0.62,
   },
   gestureExecuteBtnDisabledLight: {
-    backgroundColor: '#E2E8F0',
-    borderColor: '#CBD5E1',
+    borderColor: '#D4D4D4',
     borderWidth: 1,
   },
   gestureExecuteText: {
-    color: '#FFFFFF',
-    fontSize: 11.5,
+    fontSize: 12.5,
     fontWeight: '600',
-    lineHeight: 15,
-  },
-  gestureExecuteTextDisabledLight: {
-    color: '#475569',
+    lineHeight: 17,
   },
   gestureCatPillLight: {
-    backgroundColor: '#E8EEF5',
-    borderColor: '#CBD5E1',
+    backgroundColor: '#EBEBEB',
+    borderColor: '#D4D4D4',
   },
   gestureCatTextLight: {
-    color: '#475569',
+    color: '#525252',
   },
   gestureGifToggleLight: {
-    backgroundColor: '#E8EEF5',
-    borderColor: '#CBD5E1',
-  },
-  gestureGifToggleActiveLight: {
-    backgroundColor: '#DBEAFE',
-    borderColor: '#60A5FA',
-  },
-  gestureGifToggleTextActiveLight: {
-    color: '#1D4ED8',
+    backgroundColor: '#EBEBEB',
+    borderColor: '#D4D4D4',
   },
   gestureRowBtnLight: {
     backgroundColor: '#FFFFFF',
-    borderColor: '#D6DEE8',
+    borderColor: '#D9D9D9',
   },
   gestureRowBtnSelectedLight: {
-    backgroundColor: '#EFF6FF',
-    borderColor: ACTIVE_BLUE,
+    backgroundColor: '#EFEFEF',
+    borderColor: '#323232',
   },
   gestureRowLabelLight: {
-    color: '#1E293B',
+    color: '#1F1F1F',
   },
   gestureRowLabelSelectedLight: {
-    color: '#1D4ED8',
+    color: '#141414',
     fontWeight: '600',
   },
   gestureCautionBadgeLight: {
@@ -1456,8 +1509,10 @@ const styles = StyleSheet.create({
     color: '#92400E',
   },
   gestureTextMutedLight: {
-    color: '#475569',
+    color: '#525252',
   },
+
+  /* Body Height Popover */
   heightPanelCard: {
     gap: 8,
     paddingHorizontal: 14,
@@ -1474,8 +1529,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   heightRangeBadge: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderColor: 'rgba(255, 255, 255, 0.14)',
+    backgroundColor: TRACK_BG,
+    borderColor: SUBTLE_BORDER,
     borderRadius: 6,
     borderWidth: 1,
     paddingHorizontal: 6,
@@ -1490,8 +1545,8 @@ const styles = StyleSheet.create({
   },
   heightModeBtn: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderColor: 'rgba(255, 255, 255, 0.16)',
+    backgroundColor: WELL_BG,
+    borderColor: PANEL_BORDER,
     borderRadius: 999,
     borderWidth: 1,
     flexDirection: 'row',
@@ -1500,12 +1555,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 3,
   },
-  heightModeBtnActive: {
-    backgroundColor: ACTIVE_BLUE,
-    borderColor: '#93C5FD',
-  },
   heightModeDot: {
-    backgroundColor: '#737B80',
+    backgroundColor: '#6B6B6B',
     borderRadius: 3.5,
     height: 7,
     width: 7,
@@ -1519,17 +1570,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     lineHeight: 16,
   },
-  heightModeBtnTextActive: {
-    color: '#FFFFFF',
-  },
   heightReadoutRow: {
     flexDirection: 'row',
     gap: 8,
   },
   heightReadoutCell: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: WELL_BG,
+    borderColor: SUBTLE_BORDER,
     borderRadius: 10,
     borderWidth: 1,
     flex: 1,
@@ -1551,9 +1599,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 19,
   },
-  heightReadoutValueActive: {
-    color: '#93C5FD',
-  },
   heightSliderRow: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -1565,8 +1610,8 @@ const styles = StyleSheet.create({
   },
   heightStepBtn: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
-    borderColor: 'rgba(255, 255, 255, 0.16)',
+    backgroundColor: WELL_BG,
+    borderColor: PANEL_BORDER,
     borderRadius: 16,
     borderWidth: 1,
     height: 32,
@@ -1579,8 +1624,8 @@ const styles = StyleSheet.create({
   },
   heightPresetBtn: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    backgroundColor: WELL_BG,
+    borderColor: SUBTLE_BORDER,
     borderRadius: 9,
     borderWidth: 1,
     flex: 1,
@@ -1591,25 +1636,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
-  heightPresetBtnActive: {
-    backgroundColor: ACTIVE_BLUE,
-    borderColor: '#93C5FD',
-  },
   heightPresetLabel: {
     color: INK,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '500',
     lineHeight: 16,
   },
   heightPresetValue: {
     color: MUTED,
     fontSize: 11,
     fontVariant: ['tabular-nums'],
-    fontWeight: '500',
     lineHeight: 15,
-  },
-  heightPresetTextActive: {
-    color: '#FFFFFF',
   },
   heightControlDisabled: {
     opacity: 0.42,
@@ -1623,5 +1660,7 @@ const styles = StyleSheet.create({
   heightErrorText: {
     color: '#FCA5A5',
   },
-  pressed: { opacity: 0.7 },
+  pressed: {
+    opacity: 0.72,
+  },
 });

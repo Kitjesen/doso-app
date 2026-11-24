@@ -66,6 +66,7 @@ function openWorkspace(context = {}) {
     BackHandler: { exitApp: () => assert.fail('navigation requested an unexpected exit') },
     AppState: { currentState: 'active' },
     setProfileDeviceOpen() {},
+    setOpenSettingsSignal() {},
     ...context,
   });
 }
@@ -445,16 +446,23 @@ test('the status page is available before a device connects, and only one destin
   assert.deepEqual(calls, ['joint-status']);
   calls.length = 0;
   let confirmStop;
+  let settingsSignals = 0;
+  let resumed = 0;
   const open = openWorkspace({
     brainstemControl: { state: { connected: true }, operationCallbacks: { stop: () => new Promise(resolve => { confirmStop = resolve; }) } },
+    prepareControlExit: { current: () => () => { resumed++; } },
     setStage: value => calls.push(value),
+    setOpenSettingsSignal: update => { settingsSignals = typeof update === 'function' ? update(settingsSignals) : update; },
   });
   const fromNav = attribute('RobotMainNav', 'onChange', { openRobotPage: open });
   const waiting = fromNav('settings');
   await fromNav('status');
   assert.deepEqual(calls, []);
+  assert.equal(settingsSignals, 0);
   confirmStop(); await waiting;
-  assert.deepEqual(calls, ['main']);
+  assert.deepEqual(calls, ['control']);
+  assert.equal(settingsSignals, 1);
+  assert.equal(resumed, 1, 'opening unified settings in place on control resumes control after STOP confirms');
 });
 
 test('leaving the control workspace on Android waits for STOP before the native exit', async () => {
@@ -539,16 +547,20 @@ test('a background then foreground cycle retires a delayed diagnostics continuat
   }).outputText, { controlExitRevision: revision, useEffect: effect => effect(),
     AppState: { addEventListener: (_event, callback) => { onState = callback; return { remove() {} }; } } });
   const calls = [];
+  let settingsSignals = 0;
   const open = openWorkspace({
     diagnosticNavigationOwner: owner, diagnosticNavigation: navigation, AppState: appState, controlExitRevision: revision,
     brainstemControl: { state: { connected: true }, operationCallbacks: { stop: () => new Promise(resolve => { resolveStop = resolve; }) } },
     setStage: value => calls.push(value),
+    setOpenSettingsSignal: update => { settingsSignals = typeof update === 'function' ? update(settingsSignals) : update; },
   });
   const pending = open('status');
   appState.currentState = 'background'; onState('background');
   appState.currentState = 'active'; onState('active'); resolveStop(); await pending;
   assert.deepEqual(calls, []);
+  assert.equal(settingsSignals, 0);
   const subsequent = open('settings');
   resolveStop(); await subsequent;
-  assert.deepEqual(calls, ['main'], 'a fresh request works after the app returns to the foreground');
+  assert.deepEqual(calls, ['control'], 'a fresh request works after the app returns to the foreground');
+  assert.equal(settingsSignals, 1);
 });

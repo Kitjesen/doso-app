@@ -6,8 +6,12 @@ import vm from 'node:vm';
 import ts from 'typescript';
 
 const source = readFileSync(new URL('../src/screens/JointStatusScreen.tsx', import.meta.url), 'utf8');
+const bentoSource = readFileSync(new URL('../src/components/StatusBentoCard.tsx', import.meta.url), 'utf8');
 const require = createRequire(import.meta.url);
 const compiled = ts.transpileModule(source, {
+  compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+const bentoCompiled = ts.transpileModule(bentoSource, {
   compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 
@@ -34,18 +38,25 @@ function mount(joints, props = {}, options = {}) {
     } },
     'react/jsx-runtime': require('react/jsx-runtime'),
     '@expo/vector-icons': { Ionicons: 'Ionicons' },
-    'react-native': { Image: 'Image', Modal: 'Modal', Pressable: 'Pressable', ScrollView: 'ScrollView', View: 'View', StyleSheet: { create: value => value },
+    'react-native': { Image: 'Image', Modal: 'Modal', Pressable: 'Pressable', ScrollView: 'ScrollView', View: 'View', StyleSheet: { create: value => value, absoluteFill: { position: 'absolute' }, hairlineWidth: 1 },
       useWindowDimensions: () => viewport,
       AppState: { currentState: options.appState ?? 'active', addEventListener: (_event, callback) => {
         appStateListeners.add(callback); return { remove: () => appStateListeners.delete(callback) };
       } } },
     'react-native-safe-area-context': { SafeAreaView: 'SafeAreaView' },
     '../components/AppText': { Text: 'Text' },
+    './AppText': { Text: 'Text' },
     '../appearance': { getProductAppearance: () => palette },
     '../theme': { useAppTheme: () => ({ isDark: false }) },
     '../services/brainstemGrpc': { setControlNavigationHidden: value => { navigationCalls.push(value); return Promise.resolve(0); } },
     '../typography': { typography: { compactTitle: {}, caption: {}, label: {}, supporting: {} } },
   };
+  const bentoModule = { exports: {} };
+  vm.runInNewContext(bentoCompiled, { module: bentoModule, exports: bentoModule.exports, require: name => {
+    if (name in allowed) return allowed[name];
+    throw new Error(`Unexpected StatusBentoCard dependency: ${name}`);
+  } });
+  allowed['../components/StatusBentoCard'] = bentoModule.exports;
   const module = { exports: {} };
   vm.runInNewContext(compiled, { module, exports: module.exports, require: name => {
     if (name in allowed) return allowed[name];
@@ -58,6 +69,15 @@ function mount(joints, props = {}, options = {}) {
     if (typeof node !== 'object') return String(node);
     return copy(node.props?.children);
   };
+  function expand(node) {
+    if (!node || typeof node !== 'object') return node;
+    if (Array.isArray(node)) return node.map(expand);
+    if (typeof node.type === 'function') return expand(node.type(node.props ?? {}));
+    if (node.props && 'children' in node.props) {
+      return { ...node, props: { ...node.props, children: expand(node.props.children) } };
+    }
+    return node;
+  }
   function walk(node) {
     if (!node || typeof node !== 'object') return;
     if (Array.isArray(node)) return node.forEach(walk);
@@ -69,7 +89,7 @@ function mount(joints, props = {}, options = {}) {
     stateIndex = 0;
     effectIndex = 0;
     nodes.length = 0;
-    tree = module.exports.JointStatusScreen({ deviceName: 'THUNDER', joints, onBack() {}, ...props });
+    tree = expand(module.exports.JointStatusScreen({ deviceName: 'THUNDER', joints, onBack() {}, ...props }));
     walk(tree);
   }
   render();
@@ -302,6 +322,34 @@ test('landscape navigation hides only while active and restores on rotation or e
   screen.changeAppState('active');
   assert.equal(screen.navigationCalls.length, count);
   assert.deepEqual(mount([], {}, { appState: 'background' }).navigationCalls, [false]);
+});
+
+test('studio spatial chassis stage floats transparent top view without redundant leg labels, consolidates header status, and renders artificial horizon', () => {
+  const studioDiagram = { uri: 'fixture://thunder-r44-top-transparent' };
+  const screen = mount([], {
+    isWorkspace: true,
+    connectionLabel: '未连接',
+    deviceName: '机器狗 Wi-Fi',
+    studioDiagram,
+    body: { posture: 'unknown', motorState: 'unknown', controlAuthority: 'unknown', faultStatus: 'unknown', controlOwner: 'none', voltageV: null, leaseActive: false },
+    showImu: true,
+    imu: null,
+  }, { viewport: { width: 960, height: 540 } });
+
+  const hero = screen.node('joint-status-model-diagram');
+  assert.ok(hero);
+  assert.equal(hero.props.source, studioDiagram);
+  assert.equal(hero.props.resizeMode, 'contain');
+  assert.equal(screen.node('joint-status-diagram-left'), undefined);
+  assert.equal(screen.node('joint-status-diagram-right'), undefined);
+  assert.ok(screen.node('joint-status-pod-front-left'));
+  assert.ok(screen.node('joint-status-pod-front-right'));
+  assert.ok(screen.node('joint-status-pod-rear-left'));
+  assert.ok(screen.node('joint-status-pod-rear-right'));
+  assert.ok(screen.node('joint-status-horizon'));
+  assert.equal(screen.nodeCopy('joint-status-source'), '未连接');
+  assert.doesNotMatch(screen.copy, /未连接\s+未同步/);
+  screen.unmount();
 });
 
 console.log('Joint status screen contract PASS — read-only, validated records, unknown telemetry remains unknown');

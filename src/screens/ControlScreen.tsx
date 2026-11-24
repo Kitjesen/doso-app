@@ -3,15 +3,19 @@ import { useControlRobotVideo } from '../features/control/useControlRobotVideo';
 import { type ControlMediaCaptureAdapter } from '../features/video/controlMediaModel';
 import { useControlMediaCapture } from '../features/video/useControlMediaCapture';
 import { beginRobotRecovery, presentRobotRecovery, type RobotRecoveryCommand, type RobotRecoveryOperatorAction, type RobotRecoveryStatus } from '../features/control/robotRecovery';
-import { controlLandscapeHud } from '../components/controlLandscapeHud';
+import { useKeepScreenAwake } from '../features/control/useKeepScreenAwake';
+import { controlLandscapeHud, deriveHudAlertBanner } from '../components/controlLandscapeHud';
 import { GestureDeckPanel } from '../components/ControlHudPanels';
+import { StatusBentoCard } from '../components/StatusBentoCard';
 import { ControlVoiceChatPanel } from '../components/ControlVoiceChatPanel';
 import { useRobotVoiceChat } from '../features/control/useRobotVoiceChat';
-import { clampBodyHeightM, clampSpeedLimitPercent, DEFAULT_THUNDER_GESTURES, projectHudGestures, scaleControlVector, type HudBodyHeightState, type HudCameraPosition, type HudForwardDirection, type HudGestureCategoryId, type HudGestureInput, type HudHeadlightMode, type HudJointModuleKind, type HudLeftCategory, type HudLegId } from '../components/controlHudModel';
+import { clampBodyHeightM, clampSpeedLimitPercent, collectHudFaults, DEFAULT_THUNDER_GESTURES, projectHudGestures, scaleControlVector, type HudBodyHeightState, type HudCameraPosition, type HudForwardDirection, type HudGestureCategoryId, type HudGestureInput, type HudHeadlightMode, type HudJointModuleKind, type HudLeftCategory, type HudLegId } from '../components/controlHudModel';
+import { triggerControlHaptic } from '../utils/haptics';
 import { RobotRecoveryControls } from '../components/RobotRecoveryControls';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { DosoWordmark, PostureGlyph, renderControlSettings, controlHudColors, controlSettingsColors, type ControlSettingsCategory, type ControlSettingsSnapshot, type ControlSettingsSubview } from '../components/ControlReferenceUi';
+import { DosoWordmark, PostureGlyph, normalizeSettingsCategory, renderControlSettings, controlHudColors, controlSettingsColors, type ControlSettingsCategory, type ControlSettingsSnapshot, type ControlSettingsSubview } from '../components/ControlReferenceUi';
+import { checkAndroidApkUpdate } from '../features/app-update/androidApkUpdater';
 import {
   applyForwardDirection,
   applyJoystickSensitivity,
@@ -24,13 +28,15 @@ import {
   playControlFeedbackCue,
   saveControlPreferences,
   startLocalMicrophoneCapture,
+  type ControlAccentTone,
   type ControlUserPreferences,
   type LocalMicrophoneSession,
+  type StandbySceneId,
   type VideoQualityPreset,
 } from '../features/control/controlPreferences';
 import { type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, type ImageSourcePropType, type LayoutChangeEvent, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ControlJoystickPair, type JoystickVector } from '../components/ControlJoystick';
 import { ControlVideoSurface, type ControlVideoPresentation } from '../components/ControlVideoSurface';
@@ -102,6 +108,8 @@ type Props = {
   onOpenTasks?: () => void;
   onOpenRoutes?: () => void;
   onOpenJointStatus?: () => void;
+  onStatusCardOpenChange?: (open: boolean) => void;
+  openSettingsSignal?: number;
   onOpenWorkspaceSettings?: () => void;
   mapContent?: ReactNode;
   video?: ControlVideoPresentation;
@@ -207,6 +215,7 @@ function useRecoveryOperator(recovery: RecoveryProp, runtimeState: ControlRuntim
   const dismiss = () => { if (!pending) setConfirming(false); };
   const confirm = () => {
     if (!recovery || pending || !view.actions.begin.enabled || blockedReason) return;
+    triggerControlHaptic('confirm');
     setPending(true);
     setError(null);
     void beginRobotRecovery(command => recovery.onCommand(command)).then(() => {
@@ -219,6 +228,7 @@ function useRecoveryOperator(recovery: RecoveryProp, runtimeState: ControlRuntim
   const followUp = (action: Extract<RobotRecoveryOperatorAction, 'cancel' | 'exit'>) => {
     // Stable stand uses RobotRecovery.Exit. Terrain changes stay on SwitchProfile.
     if (!recovery || pending || !view.actions[action].enabled) return;
+    triggerControlHaptic('confirm');
     setPending(true);
     setError(null);
     setConfirming(false);
@@ -235,7 +245,7 @@ export function ControlScreen({
   batteryPercent, connected, directConnection, robotName, robotType, canUseManualControl,
   canUseRouteMode, canUseTaskMode, manualControlBlockedReason,
   routeModeBlockedReason, taskModeBlockedReason, mapContent, video, videoSurface, videoStream, videoRotation, rearVideo, rearVideoSurface, rearVideoStream, rearVideoRotation, mediaCaptureAdapter, onRearCameraActiveChange, defaultDualCameraEnabled = false, settingsSnapshot, safetyLock, videoProbeHost, landscapeDocksExpanded, previewSafeInsets, previewSafeAreaGuides, recovery,
-  onOpenMap, onOpenTasks, onOpenRoutes, onOpenJointStatus, onOpenWorkspaceSettings, onOpenConnection, onOpenConnectionDiagnostics,
+  onOpenMap, onOpenTasks, onOpenRoutes, onOpenJointStatus, onStatusCardOpenChange, openSettingsSignal, onOpenWorkspaceSettings, onOpenConnection, onOpenConnectionDiagnostics,
   canRecall, recallBlockedReason, onRecall,
   runtimeState, operationReadiness, operationCallbacks, onListGestures, operationStates, operationTargetKey, brainstemIntegration,
   inputSource, physicalInputAvailable = false, g20Controller, onInputSourceChange, onNotifications,
@@ -249,7 +259,6 @@ export function ControlScreen({
   const { height: windowHeight, width: windowWidth, fontScale } = useWindowDimensions();
   const height = stageDimensions?.height ?? windowHeight;
   const width = stageDimensions?.width ?? windowWidth;
-  const systemInsets = useSafeAreaInsets();
   const [navigationBottomInset, setNavigationBottomInset] = useState(0);
   const isLandscape = width > height;
   const showLandscapeJoystickVisuals = !isLandscape || g20Controller?.state.available !== true;
@@ -258,6 +267,7 @@ export function ControlScreen({
   const viewportRef = useRef(viewport);
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
   const [leaving, setLeaving] = useState(false);
+  useKeepScreenAwake(appActive && !leaving);
   const useProbeFallback = video == null || video.phase === 'unconfigured' || video.phase === 'error';
   const robotVideo = useControlRobotVideo({
     host: videoProbeHost ?? null,
@@ -267,6 +277,8 @@ export function ControlScreen({
   const videoFrame = useProbeFallback ? robotVideo.surface ?? videoSurface : videoSurface;
   const [docksExpanded, setDocksExpanded] = useState(landscapeDocksExpanded === true);
   const [leftCategory, setLeftCategory] = useState<HudLeftCategory>('policy');
+  const leftCategoryRef = useRef<HudLeftCategory>(leftCategory);
+  leftCategoryRef.current = leftCategory;
   const [speedLimitPercent, setSpeedLimitPercent] = useState(100);
   const speedLimitRef = useRef(100);
   speedLimitRef.current = speedLimitPercent;
@@ -279,6 +291,12 @@ export function ControlScreen({
   showVirtualDiscControlsRef.current = showVirtualDiscControls;
   const [lowLatencyMode, setLowLatencyMode] = useState(true);
   const [videoQuality, setVideoQuality] = useState<VideoQualityPreset>('高清');
+  const [standbyScene, setStandbyScene] = useState<StandbySceneId>('charcoal');
+  const [accentTone, setAccentTone] = useState<ControlAccentTone>('graphite');
+  const [hotspotScanPulse, setHotspotScanPulse] = useState(0);
+  const [connectionTipsOpen, setConnectionTipsOpen] = useState(false);
+  const [appUpdateBusy, setAppUpdateBusy] = useState(false);
+  const [appUpdateStatusLabel, setAppUpdateStatusLabel] = useState<string | null>(null);
   const [autoRecord, setAutoRecord] = useState(false);
   const [soundVolumePercent, setSoundVolumePercent] = useState(80);
   const [voiceBroadcastEnabled, setVoiceBroadcastEnabled] = useState(true);
@@ -296,6 +314,10 @@ export function ControlScreen({
   const [jointTempOpen, setJointTempOpen] = useState(false);
   const [tempModuleKind, setTempModuleKind] = useState<HudJointModuleKind>('motor');
   const [faultPanelOpen, setFaultPanelOpen] = useState(false);
+  const [statusCardOpen, setStatusCardOpen] = useState(false);
+  const statusCardOpenRef = useRef(false);
+  statusCardOpenRef.current = statusCardOpen;
+  const voiceChatOpenRef = useRef(false);
   const [bodyHeightPanelOpen, setBodyHeightPanelOpen] = useState(false);
   const [bodyHeightDraftM, setBodyHeightDraftM] = useState<number | null>(null);
   const [bodyHeightBusy, setBodyHeightBusy] = useState(false);
@@ -417,11 +439,18 @@ export function ControlScreen({
   useEffect(() => {
     setSpeedLimitExpanded(false);
     setFaultPanelOpen(false);
+    setStatusCardOpen(false);
     setBodyHeightPanelOpen(false);
     setBodyHeightDraftM(null);
     setBodyHeightError(null);
     if (!appActive) clearHudNotice();
   }, [operationTargetKey, connected, appActive, isLandscape, clearHudNotice]);
+  useEffect(() => {
+    onStatusCardOpenChange?.(statusCardOpen);
+  }, [onStatusCardOpenChange, statusCardOpen]);
+  useEffect(() => () => {
+    onStatusCardOpenChange?.(false);
+  }, [onStatusCardOpenChange]);
   useEffect(() => {
     if (!bodyHeightPanelOpen || !bodyHeight?.active || !bodyHeight?.supported) {
       setBodyHeightDraftM(null);
@@ -564,8 +593,7 @@ export function ControlScreen({
   const visibleConfirmation = confirmation?.generation === renderGeneration ? confirmation : null;
   const selectingPolicy = policySelection === renderGeneration;
   const anyJoystickActive = driveActive || turnActive;
-  // SafeAreaView already excludes systemInsets (top/bottom/left/right in production, left/right in dev);
-  // only apply previewSafeInsets / dynamic navigationBottomInset here to avoid double-inset shifts.
+  // SafeAreaView already measures the usable area after system-bar visibility changes.
   const landscapeSafeInsets = {
     top: previewSafeInsets?.top ?? 0,
     right: previewSafeInsets?.right ?? 0,
@@ -615,6 +643,7 @@ export function ControlScreen({
   }, [retireOperationResults]);
   const revokeOperationIntent = useCallback(() => {
     closeSettingsMenu();
+    setStatusCardOpen(false);
     cancelPendingOperations();
   }, [cancelPendingOperations, closeSettingsMenu]);
   revokeOperationIntentRef.current = revokeOperationIntent;
@@ -725,20 +754,21 @@ export function ControlScreen({
     if (viewportRef.current.height === next.height && viewportRef.current.width === next.width) return;
     // Even without rotation, Android system bars or multi-window can move the
     // touch baseline. Cancel the current local session before changing geometry.
+    // Height-only changes (e.g. Android soft keyboard) preserve open overlays.
     if (viewportRef.current.width > 0 && viewportRef.current.height > 0) {
-      // Keep the settings modal open when only height changes (e.g. soft keyboard opening on IP input).
       const widthChanged = Math.abs(viewportRef.current.width - next.width) > 2;
-      if (settingsMenuRef.current && !widthChanged) {
-        cancelPendingOperations();
-      } else {
-        revokeOperationIntent();
-      }
+      const overlayOpen = settingsMenuRef.current
+        || statusCardOpenRef.current
+        || voiceChatOpenRef.current
+        || leftCategoryRef.current === 'action';
+      if (widthChanged || !overlayOpen) revokeOperationIntent();
+      else cancelPendingOperations();
       interruptInput();
       resetControls();
     }
     viewportRef.current = next;
     setViewport(next);
-  }, [cancelPendingOperations, resetControls, revokeOperationIntent]);
+  }, [cancelPendingOperations, interruptInput, resetControls, revokeOperationIntent]);
 
   const prepareWorkspaceLeave = useCallback(() => {
     recallRef.current.leaving = true;
@@ -766,12 +796,12 @@ export function ControlScreen({
 
   const previewControlsEnabled = __DEV__ && allowInteractionPreview && appActive && !leaving;
   const offlinePreview = !connected && runtimeState?.controlLink !== 'connected' && !(__DEV__ && developmentInput?.ready && !productionInput);
-  const controlsEnabled = !offlinePreview && !settingsMenuOpen && !postureMenuOpen && !joystickSettingsOpen && !inputSettingsOpen && !gestureLibraryOpen && !operationInFlight && !visibleConfirmation && !selectingPolicy && (productionInput
+  const controlsEnabled = !offlinePreview && !settingsMenuOpen && !statusCardOpen && !postureMenuOpen && !joystickSettingsOpen && !inputSettingsOpen && !gestureLibraryOpen && !operationInFlight && !visibleConfirmation && !selectingPolicy && (productionInput
     ? connected && runtimeState?.controlLink !== 'disconnected' && (productionInput.touchReady ?? (canUseManualControl && productionInput.ready)) && appActive && !leaving
     : developmentInput
       ? __DEV__ && developmentInput.ready && appActive && !leaving
       : previewControlsEnabled);
-  const previewAvailable = offlinePreview && appActive && !leaving && !settingsMenuOpen && !joystickSettingsOpen
+  const previewAvailable = offlinePreview && appActive && !leaving && !settingsMenuOpen && !statusCardOpen && !joystickSettingsOpen
     && !inputSettingsOpen && !gestureLibraryOpen && !postureMenuOpen && !operationInFlight && !visibleConfirmation && !selectingPolicy;
   const joystickDisabled = !showVirtualDiscControls || (offlinePreview ? !previewAvailable : !controlsEnabled || selectedInputSource !== 'touch');
   const nextTouchSnapshot = [selectedInputSource, showVirtualDiscControls, controlsEnabled, offlinePreview, appActive, leaving, inputSettingsOpen, joystickSettingsOpen,
@@ -828,6 +858,22 @@ export function ControlScreen({
     interruptInput();
     resetControls();
   }, [resetControls, revokeOperationIntent]);
+  const handleRootTouchCancel = useCallback(() => {
+    // On Android, ScrollView intercepts vertical scroll gestures by dispatching
+    // ACTION_CANCEL up to ancestor views. Keep open overlays mounted while still
+    // interrupting any active stick/motion input for safety.
+    if (
+      settingsMenuRef.current
+      || statusCardOpenRef.current
+      || voiceChatOpenRef.current
+      || leftCategoryRef.current === 'action'
+    ) {
+      interruptInput();
+      resetControls();
+      return;
+    }
+    handleCancel();
+  }, [handleCancel, interruptInput, resetControls]);
 
   const controlPrefsRevisionRef = useRef(0);
   const updateControlPrefs = useCallback((patch: Partial<ControlUserPreferences>) => {
@@ -838,6 +884,8 @@ export function ControlScreen({
   }, []);
 
   const prevVirtualDiscControlsRef = useRef(true);
+  const autoHiddenDiscsForPhysicalRef = useRef(false);
+  const prevInputSourceForDiscsRef = useRef<ControlInputSource>(selectedInputSource);
   const cancelTouchForHiddenDiscs = useCallback(() => {
     const hadTouch = heldTouchSides.current.drive || heldTouchSides.current.turn;
     heldTouchSides.current = { drive: false, turn: false };
@@ -847,6 +895,7 @@ export function ControlScreen({
     }
   }, [interruptInput, resetControls]);
   const toggleVirtualDiscControls = useCallback(() => {
+    autoHiddenDiscsForPhysicalRef.current = false;
     const next = !showVirtualDiscControlsRef.current;
     showVirtualDiscControlsRef.current = next;
     prevVirtualDiscControlsRef.current = next;
@@ -861,6 +910,28 @@ export function ControlScreen({
       cancelTouchForHiddenDiscs();
     }
   }, [showVirtualDiscControls, cancelTouchForHiddenDiscs]);
+  useEffect(() => {
+    const prevSource = prevInputSourceForDiscsRef.current;
+    prevInputSourceForDiscsRef.current = selectedInputSource;
+    if (prevSource === 'touch' && selectedInputSource === 'physical') {
+      if (isLandscape && showVirtualDiscControlsRef.current) {
+        autoHiddenDiscsForPhysicalRef.current = true;
+        showVirtualDiscControlsRef.current = false;
+        prevVirtualDiscControlsRef.current = false;
+        cancelTouchForHiddenDiscs();
+        setShowVirtualDiscControls(false);
+      } else {
+        autoHiddenDiscsForPhysicalRef.current = false;
+      }
+    } else if (prevSource === 'physical' && selectedInputSource === 'touch') {
+      if (autoHiddenDiscsForPhysicalRef.current) {
+        autoHiddenDiscsForPhysicalRef.current = false;
+        showVirtualDiscControlsRef.current = true;
+        prevVirtualDiscControlsRef.current = true;
+        setShowVirtualDiscControls(true);
+      }
+    }
+  }, [isLandscape, selectedInputSource, cancelTouchForHiddenDiscs]);
 
   useEffect(() => {
     let active = true;
@@ -876,6 +947,8 @@ export function ControlScreen({
       setSpeedLimitPercent(saved.speedLimitPercent);
       setShowTelemetry(saved.showOverlay);
       setVideoQuality(saved.videoQuality);
+      setStandbyScene(saved.standbyScene);
+      setAccentTone(saved.accentTone);
       setAutoRecord(saved.autoRecord);
       setSoundVolumePercent(saved.soundVolumePercent);
       setVoiceBroadcastEnabled(saved.voiceBroadcastEnabled);
@@ -911,7 +984,7 @@ export function ControlScreen({
   }, [autoRecord, activeCaptureReceiving, activeCaptureStream, appActive, leaving, mediaCapture]);
 
   useEffect(() => {
-    if (!settingsMenuOpen || settingsCategory !== '视频') return;
+    if (!settingsMenuOpen || normalizeSettingsCategory(settingsCategory) !== '图传与音频') return;
     let active = true;
     void estimateClientStorageGb().then(est => {
       if (active && est) setStorageEstimate(est);
@@ -1120,6 +1193,17 @@ export function ControlScreen({
     }
     const expectedCallback = current.operationCallbacks?.[action];
     if (action === 'switchPolicy') submittedPolicyRef.current = policyId ?? null;
+    if (action === 'stop') {
+      triggerControlHaptic('estop');
+    } else if (
+      action === 'stand'
+      || action === 'sit'
+      || action === 'enableMotor'
+      || action === 'disableMotor'
+      || action === 'playGesture'
+    ) {
+      triggerControlHaptic('confirm');
+    }
     startOperation(action, () => {
       const latest = operationContextRef.current;
       const recheck = getControlOperationReadiness({
@@ -1136,7 +1220,7 @@ export function ControlScreen({
   const observingPhysical = selectedInputSource === 'physical' && physicalAvailable && !inputSettingsOpen && !joystickSettingsOpen && !gestureLibraryOpen && appActive && !leaving;
   physicalContext.current = {
     observing: observingPhysical,
-    allowed: observingPhysical && !settingsMenuOpen && !postureMenuOpen && !operationInFlight && !visibleConfirmation && !selectingPolicy,
+    allowed: observingPhysical && !settingsMenuOpen && !statusCardOpen && !postureMenuOpen && !operationInFlight && !visibleConfirmation && !selectingPolicy,
     motion: controlsEnabled, generation: renderGeneration, runOperation, productionInput
   };
   g20Gate.current.setEnabled(observingPhysical, g20Controller?.captureFence);
@@ -1159,6 +1243,7 @@ export function ControlScreen({
       if (!fresh) { interruptInput(); return; }
       if (intent.action === 'stop') {
         // Software revocation remains available during another action or confirmation.
+        triggerControlHaptic('estop');
         g20MotionGate.current.reset(); revokeOperationIntent(); resetControls(); interruptInput(); return;
       }
       if (!context.allowed) return;
@@ -1243,9 +1328,9 @@ export function ControlScreen({
   const manualStatus = offlinePreview ? '本地试用' : productionInput ? (controlsEnabled ? '触屏控制已就绪' : '触屏控制未就绪') : __DEV__ && developmentInput
     ? (controlsEnabled ? '本地模拟就绪' : '本地模拟未就绪')
     : previewControlsEnabled ? '本地操作演示' : '手动控制未开放';
-  const manualReason = offlinePreview ? '仅用于试用圆盘，不会控制机器狗。' : controlsEnabled
-    ? '松手归零；离开页面或切到后台会中断操作。'
-    : manualControlBlockedReason || (canUseManualControl ? '实时运动控制尚未开放。' : '连接设备并通过控制权限检查后方可操作。');
+  const manualReason = offlinePreview ? '仅本地演示' : controlsEnabled
+    ? '松手即停'
+    : manualControlBlockedReason || (canUseManualControl ? '控制未就绪' : '未连接设备');
   const browseEntries = [
     { id: 'map', label: '地图', icon: 'map-outline' as const, callback: onOpenMap },
     { id: 'tasks', label: '任务', icon: 'checkbox-outline' as const, callback: onOpenTasks },
@@ -1360,8 +1445,8 @@ export function ControlScreen({
   const mediaStatusTop = Math.max(70, immersiveCanvasHeight * .327);
   const mediaStatusColor = controlHudColors.muted;
   const immersiveTopInset = Math.max(70, immersiveCanvasHeight * .22);
-  const hudStickTop = Math.max(70, Math.round(immersiveCanvasHeight * 0.56));
-  const hudStickBottom = Math.max(8, Math.round(immersiveCanvasHeight * 0.015));
+  const hudStickTop = Math.max(120, Math.round(immersiveCanvasHeight * 0.42));
+  const hudStickBottom = Math.max(64, Math.round(immersiveCanvasHeight * 0.12));
   const hudUseColumns = layout.useColumns && Boolean(videoProbeHost || videoPresentation && videoPresentation.phase !== 'unconfigured' || recovery || landscapeDocksExpanded !== undefined);
   const configuredWidth = layout.useColumns ? stickArea.width || Math.max(0, effectiveViewportWidth * .91) : Math.max(0, layout.manualPanelWidth - 24);
   const configuredHeight = layout.useColumns
@@ -1393,8 +1478,8 @@ export function ControlScreen({
     callbacks: operationCallbacks, runtimeState, foreground: appActive, leaving, inFlight: operationInFlight !== null
   });
   const recoveryLabel = runtimeState?.recoveryMode?.selected ? '当前模式'
-    : runtimeState?.recoveryMode?.status === 'available' ? '设备已配置'
-      : runtimeState?.recoveryMode?.status === 'unavailable' ? '暂不可用' : '未同步';
+    : runtimeState?.recoveryMode?.status === 'available' ? '已配置'
+      : runtimeState?.recoveryMode?.status === 'unavailable' ? '未就绪' : '未同步';
   const openRecovery = () => {
     physicalContext.current.allowed = false;
     handleCancel(); revokeOperationIntent(); setGestureLibraryOpen(true);
@@ -1424,8 +1509,8 @@ export function ControlScreen({
     style={[styles.immersiveIntent, { top: Math.max(76, Math.round((immersiveCanvasHeight || height) * 0.24)), maxHeight: Math.max(180, (immersiveCanvasHeight || height) - 96) }]}
     testID="control-high-speed-confirm-dialog"
   >
-    <Text style={styles.immersiveIntentTitle}>确认切换高速档位（最高 2.5 m/s）</Text>
-    <Text style={styles.immersiveIntentSubtitle}>高速档位将机身最大线速度上限提升至 2.5 m/s，请确认处于开阔平坦场地且急停可用。</Text>
+    <Text style={styles.immersiveIntentTitle}>切换高速档位</Text>
+    <Text style={styles.immersiveIntentSubtitle}>最高速度 2.5 m/s，请确认场地开阔且急停可用。</Text>
     <View style={styles.immersiveIntentActions}>
       <Pressable accessibilityRole="button" onPress={() => setConfirmingHighSpeed(false)} style={({ pressed }) => [styles.immersiveIntentBtn, styles.immersiveIntentCancelBtn, pressed && styles.pressed]}>
         <Text style={styles.immersiveIntentCancelText}>取消</Text>
@@ -1441,8 +1526,8 @@ export function ControlScreen({
           setConfirmingHighSpeed(false);
           setSpeedModePending(true);
           void onChangeSpeedMode('high')
-            .then(() => { showHudNotice('已切换至高速档位（最高 2.5 m/s）'); })
-            .catch(caught => { showHudNotice(caught instanceof Error && caught.message ? caught.message : '高速档位切换失败'); })
+            .then(() => { showHudNotice('已切高速档'); })
+            .catch(caught => { showHudNotice(caught instanceof Error && caught.message ? caught.message : '切换失败'); })
             .finally(() => { if (mountedRef.current) setSpeedModePending(false); });
         }}
       >
@@ -1537,8 +1622,8 @@ export function ControlScreen({
     return <View style={styles.referenceAuthority} testID="control-authority">
       <View style={[styles.referenceAuthorityChip, local && styles.referenceAuthorityChipActive]}>
         {glass.backdrop()}
-        <Ionicons name="person" size={17} color={local ? '#80C4FF' : hudHeaderMuted} />
-        <Text style={[styles.referenceAuthorityText, { color: local ? '#80C4FF' : hudHeaderMuted }]}>控制权：{local ? '本机' : '未持有'}</Text>
+        <Ionicons name="person" size={17} color={local ? '#EAEAEA' : hudHeaderMuted} />
+        <Text style={[styles.referenceAuthorityText, { color: local ? '#EAEAEA' : hudHeaderMuted }]}>控制权：{local ? '本机' : '未持有'}</Text>
       </View>
       <View style={styles.referenceAuthorityChip}>
         {glass.backdrop()}
@@ -1558,7 +1643,7 @@ export function ControlScreen({
       {glass.backdrop()}
       <Text numberOfLines={1} testID="control-device-title-text" style={[styles.referenceName, { color: hudHeaderInk, fontSize: Math.max(12, Math.min(27, width * .018)) }]}>{immersiveRobotName}</Text>
       <View style={[styles.immersiveConnectionDot, { width: Math.max(5, width * .007), height: Math.max(5, width * .007), backgroundColor: immersiveConnectionReady ? controlHudColors.green : hudHeaderMuted }]} />
-      <Text numberOfLines={1} testID="control-owner" accessibilityLabel={controlOwnerLabel} style={[styles.referenceStatus, { fontSize: Math.max(11, Math.min(25, width * .016)), color: immersiveConnectionReady ? settingsMenuOpen ? controlSettingsColors.green : '#6BD8A4' : hudHeaderMuted }]}>{immersiveConnectionReady ? '已连接' : immersiveConnectionLabel}</Text>
+      <Text numberOfLines={1} testID="control-owner" accessibilityLabel={controlOwnerLabel} style={[styles.referenceStatus, { fontSize: Math.max(11, Math.min(25, width * .016)), color: immersiveConnectionReady ? settingsMenuOpen ? controlSettingsColors.green : '#34D399' : hudHeaderMuted }]}>{immersiveConnectionReady ? '已连接' : immersiveConnectionLabel}</Text>
       <Ionicons name="chevron-forward" size={Math.max(14, Math.min(24, width * .015))} color={hudHeaderMuted} />
     </Pressable>
     <View style={styles.referenceRightStatus} testID="control-header-actions">
@@ -1590,10 +1675,12 @@ export function ControlScreen({
       return next;
     }),
   });
+  voiceChatOpenRef.current = voiceChat.open;
   useEffect(() => {
     if (!dismissWorkspaceOverlayRef) return;
     dismissWorkspaceOverlayRef.current = () => {
-      if (voiceChat.open) voiceChat.setOpen(false);
+      if (statusCardOpen) setStatusCardOpen(false);
+      else if (voiceChat.open) voiceChat.setOpen(false);
       else if (bodyHeightPanelOpen) setBodyHeightPanelOpen(false);
       else if (faultPanelOpen) setFaultPanelOpen(false);
       else if (jointParamsOpen) setJointParamsOpen(false);
@@ -1688,15 +1775,16 @@ export function ControlScreen({
     && gestureReadiness.ready,
   );
   const effectiveGestureHint = runtimeState?.controlLink !== 'connected'
-    ? '请先连接机器狗'
+    ? '未连接'
     : !gestureCatalogSynced
-      ? '固件动作服务未启用'
+      ? '动作服务未启用'
       : resolvedSelectedGestureName && !syncedGestureNames.has(resolvedSelectedGestureName)
-        ? '固件未收录该动作'
+        ? '未收录该动作'
         : gestureReadiness.blockedReason;
   const handleLeftCategoryChange = (next: HudLeftCategory) => {
     setLeftCategory(next);
     if (next !== 'policy') {
+      setStatusCardOpen(false);
       setSpeedLimitExpanded(false);
       setJointParamsOpen(false);
       setJointTempOpen(false);
@@ -1718,6 +1806,7 @@ export function ControlScreen({
     setBodyHeightPanelOpen(prev => {
       const next = !prev;
       if (next) {
+        setStatusCardOpen(false);
         setLeftCategory('policy');
         setSpeedLimitExpanded(false);
         setJointParamsOpen(false);
@@ -1737,6 +1826,7 @@ export function ControlScreen({
   };
   const handleSetBodyHeightMode = (enabled: boolean) => {
     if (!onSetBodyHeightMode || bodyHeightBusyRef.current || !appActive || leaving) return;
+    triggerControlHaptic('confirm');
     resetControls();
     interruptInput();
     bodyHeightBusyRef.current = true;
@@ -1761,6 +1851,7 @@ export function ControlScreen({
   };
   const handleCommitBodyHeight = (heightM: number) => {
     if (!onSetBodyHeight || bodyHeightBusyRef.current || !appActive || leaving) return;
+    triggerControlHaptic('step');
     const clamped = clampBodyHeightM(heightM, bodyHeight);
     setBodyHeightDraftM(clamped);
     setBodyHeightError(null);
@@ -1788,11 +1879,10 @@ export function ControlScreen({
     closeSettingsMenu();
     runOperation(action, renderGeneration, argument);
   };
-  const landscapePostures = (['stand', 'sit', 'prone', 'recover'] as const).map(id => {
-    const label = id === 'stand' ? '站立' : id === 'sit' ? '坐下' : id === 'prone' ? '趴下' : '恢复';
+  const landscapePostures = (['stand', 'sit', 'prone', ...(recovery ? ['recover' as const] : [])] as const).map(id => {
+    const label = id === 'stand' ? '站立' : id === 'sit' ? '坐下' : id === 'prone' ? '趴下' : '摔倒恢复';
     const action = id === 'stand' ? 'stand' as const : id === 'sit' ? 'sit' as const : null;
     if (id === 'recover') {
-      if (!recovery) return { id, label, disabled: true, selected: false, hint: '恢复指令尚未接通。', onPress: () => {} };
       const followUp = recoveryOperator.view.actions.exit.enabled ? 'exit' as const : recoveryOperator.view.actions.cancel.enabled ? 'cancel' as const : null;
       if (followUp) return {
         id, label: recoveryOperator.view.actions[followUp].label, disabled: recoveryOperator.pending, selected: false,
@@ -1804,8 +1894,35 @@ export function ControlScreen({
         onPress: recoveryOperator.requestBegin,
       };
     }
+    if (id === 'prone') {
+      const lieDownSynced = gestureLinkReady && gestureCatalogSynced && syncedGestureNames.has('lie_down');
+      const lieDownReady = Boolean(
+        lieDownSynced
+        && runtimeState?.controlLink === 'connected'
+        && runtimeState.posture === 'standing'
+        && runtimeState.motorState === 'enabled'
+        && gestureReadiness.ready,
+      );
+      const lieDownHint = runtimeState?.controlLink !== 'connected'
+        ? '未连接'
+        : !lieDownSynced
+          ? '趴下未同步'
+          : runtimeState.posture !== 'standing'
+            ? '请先站立'
+            : gestureReadiness.blockedReason;
+      return {
+        id,
+        label,
+        disabled: !lieDownReady,
+        selected: false,
+        hint: lieDownHint,
+        onPress: () => {
+          if (lieDownReady) runOperation('playGesture', renderGeneration, 'lie_down');
+        },
+      };
+    }
     if (!action) {
-      return { id, label, disabled: true, selected: false, hint: '趴下指令尚未接通。', onPress: () => {} };
+      return { id, label, disabled: true, selected: false, hint: '未就绪', onPress: () => {} };
     }
     const readiness = visibleConfirmation || selectingPolicy
       ? { ready: false, blockedReason: '请先确认或取消当前操作。' }
@@ -1830,10 +1947,10 @@ export function ControlScreen({
     error: recoveryOperator.error,
     showActions: !cameraHud,
     variant: cameraHud ? 'landscape' : 'portrait',
-    ink: cameraHud ? '#FFFFFF' : appearance.ink,
-    muted: cameraHud ? 'rgba(255,255,255,0.78)' : appearance.secondary,
-    surface: cameraHud ? 'rgba(18, 22, 30, 0.88)' : appearance.surface,
-    line: cameraHud ? 'rgba(245,248,255,0.22)' : 'transparent',
+    ink: cameraHud ? '#F2F2F2' : appearance.ink,
+    muted: cameraHud ? 'rgba(242, 242, 242, 0.78)' : appearance.secondary,
+    surface: cameraHud ? 'rgba(22, 22, 22, 0.92)' : appearance.surface,
+    line: cameraHud ? 'rgba(255, 255, 255, 0.16)' : 'transparent',
     onRequestBegin: recoveryOperator.requestBegin,
     onConfirm: recoveryOperator.confirm,
     onDismiss: recoveryOperator.dismiss,
@@ -1887,23 +2004,79 @@ export function ControlScreen({
         }
       });
   };
-  const layoutEditorBody = (
+  const renderLayoutEditor = (embedded: boolean) => (
     <View style={[styles.layoutEditor, isLandscape && styles.layoutEditorWide]}>
-      <View style={[styles.layoutCanvas, !isLandscape && styles.layoutCanvasPortrait]} testID="joystick-layout-canvas" onLayout={event => {
-        const { width: cw, height: ch } = event.nativeEvent.layout;
-        if (Number.isFinite(cw) && Number.isFinite(ch)) setLayoutCanvas({ width: Math.max(0, cw), height: Math.max(0, ch) });
-      }}>
-        {(['left', 'right'] as const).map(side => {
-          const disc = layoutCanvasDiscs[side];
-          const stickName = (mirroredSticks ? side === 'right' : side === 'left') ? '移动' : '转向';
-          return <View key={side} pointerEvents="none" testID={`joystick-layout-disc-${side}`} style={[styles.layoutDisc, { left: disc.left, top: disc.top, width: disc.size, height: disc.size, borderRadius: disc.size / 2, borderColor: controlSetupAppearance.border, backgroundColor: controlSetupAppearance.surface }]}>
-            <Text style={[styles.caption, { color: controlSetupAppearance.ink }]}>{stickName}</Text>
-          </View>;
-        })}
+      <View style={[styles.layoutCanvasStage, !isLandscape && styles.layoutCanvasStagePortrait]}>
+        {isLandscape ? (
+          <View style={styles.layoutStageMeta}>
+            <Text style={styles.layoutStageCaption}>横屏 16:9</Text>
+          </View>
+        ) : null}
+        <View
+          style={[
+            styles.layoutCanvas,
+            isLandscape ? styles.layoutCanvasLandscape : styles.layoutCanvasPortrait,
+          ]}
+          testID="joystick-layout-canvas"
+          onLayout={event => {
+            const { width: cw, height: ch } = event.nativeEvent.layout;
+            if (Number.isFinite(cw) && Number.isFinite(ch)) setLayoutCanvas({ width: Math.max(0, cw), height: Math.max(0, ch) });
+          }}
+        >
+          <View pointerEvents="none" style={styles.layoutSafeZoneGuide} />
+          <View pointerEvents="none" style={styles.layoutCrosshairH} />
+          <View pointerEvents="none" style={styles.layoutCrosshairV} />
+          {(['left', 'right'] as const).map(side => {
+            const disc = layoutCanvasDiscs[side];
+            const stickName = (mirroredSticks ? side === 'right' : side === 'left') ? '移动' : '转向';
+            return (
+              <View
+                key={side}
+                pointerEvents="none"
+                testID={`joystick-layout-disc-${side}`}
+                style={[
+                  styles.layoutDisc,
+                  {
+                    left: disc.left,
+                    top: disc.top,
+                    width: disc.size,
+                    height: disc.size,
+                    borderRadius: disc.size / 2,
+                    borderColor: 'rgba(255, 255, 255, 0.28)',
+                    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                  },
+                ]}
+              >
+                <View
+                  pointerEvents="none"
+                  style={[
+                    styles.layoutDiscInner,
+                    {
+                      width: disc.size * 0.56,
+                      height: disc.size * 0.56,
+                      borderRadius: disc.size * 0.28,
+                    },
+                  ]}
+                />
+                <Text style={[styles.layoutDiscLabel, { color: controlSetupAppearance.ink }]}>{stickName}</Text>
+              </View>
+            );
+          })}
+        </View>
       </View>
       <View style={styles.layoutSettingsColumn}>
         {controlSession?.error ? <Text accessibilityLiveRegion="assertive" style={[styles.caption, { color: colors.dangerText }]}>{controlSession.error}</Text> : null}
-        <JoystickLayoutSettings key={`${orientation}-${layoutEditorGeneration}`} orientation={orientation} layout={joystickPreferences[orientation]} onPreview={previewJoystickLayout} onChange={changeJoystickLayout} onReset={restoreJoystickLayout} onClose={closeJoystickSettings} storageError={layoutStorageError} />
+        <JoystickLayoutSettings
+          embedded={embedded}
+          key={`${orientation}-${layoutEditorGeneration}`}
+          orientation={orientation}
+          layout={joystickPreferences[orientation]}
+          onPreview={previewJoystickLayout}
+          onChange={changeJoystickLayout}
+          onReset={restoreJoystickLayout}
+          onClose={closeJoystickSettings}
+          storageError={layoutStorageError}
+        />
         {layoutStorageError ? <Pressable accessibilityRole="button" onPress={() => persistJoystickLayout(joystickPreferencesRef.current)} style={styles.layoutRetry} testID="joystick-layout-retry"><Text style={[styles.caption, { color: controlSetupAppearance.blueInk }]}>重试保存</Text></Pressable> : null}
       </View>
     </View>
@@ -1913,6 +2086,57 @@ export function ControlScreen({
   const hudSettingsVisible = settingsMenuOpen || joystickSettingsOpen || Boolean(inputSettingsOpen && g20Controller);
   const activeHudSubview: ControlSettingsSubview = joystickSettingsOpen ? 'layout' : inputSettingsOpen && g20Controller ? 'input' : settingsSubview;
   const showLandscapeRecovery = Boolean(cameraHud && recovery && (recoveryOperator.confirming || recoveryOperator.error || recoveryOperator.view.sessionActive));
+  const lastOpenSettingsSignalRef = useRef(0);
+  useEffect(() => {
+    const next = openSettingsSignal ?? 0;
+    if (next <= 0 || next === lastOpenSettingsSignalRef.current) return;
+    lastOpenSettingsSignalRef.current = next;
+    setStatusCardOpen(false);
+    setFaultPanelOpen(false);
+    setSpeedLimitExpanded(false);
+    setBodyHeightPanelOpen(false);
+    setJointTempOpen(false);
+    setJointParamsOpen(false);
+    setLeftCategory('policy');
+    voiceChat.setOpen(false);
+    handleCancel();
+    settingsMenuRef.current = true;
+    setSettingsSubview('tabs');
+    setSettingsCategory('操控');
+    setSettingsMenuOpen(true);
+  }, [openSettingsSignal, handleCancel]);
+
+  const activeHudAlert = useMemo(() => deriveHudAlertBanner({
+    faults: collectHudFaults({ runtimeState, sessionError: controlSession?.error, recoveryError: recoveryOperator.error }),
+    joints: runtimeState?.joints,
+    voltageV: runtimeState?.battery?.voltageV ?? null,
+    batteryPercent: resolvedBatteryPercent,
+  }), [runtimeState, controlSession?.error, recoveryOperator.error, resolvedBatteryPercent]);
+  const prevHudAlertKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    const nextKey = activeHudAlert?.key ?? null;
+    if (nextKey && nextKey !== prevHudAlertKeyRef.current) {
+      triggerControlHaptic('alert');
+    }
+    prevHudAlertKeyRef.current = nextKey;
+  }, [activeHudAlert?.key]);
+
+  const toggleStatusCard = () => {
+    setStatusCardOpen(prev => {
+      const next = !prev;
+      if (next) {
+        closeAllHudSettings();
+        setLeftCategory('policy');
+        setSpeedLimitExpanded(false);
+        setJointTempOpen(false);
+        setJointParamsOpen(false);
+        setFaultPanelOpen(false);
+        setBodyHeightPanelOpen(false);
+        voiceChat.setOpen(false);
+      }
+      return next;
+    });
+  };
   const renderCameraHud = () => <View style={[styles.immersiveSurface, { backgroundColor: 'transparent', height: immersiveCanvasHeight }]} testID="control-immersive-surface">
     {controlLandscapeHud({
       robotName: immersiveRobotName,
@@ -1921,17 +2145,47 @@ export function ControlScreen({
       onBack: handleBack,
       onOpenConnection: workspaceSettings?.connection
         ? () => {
+          setStatusCardOpen(false);
           setFaultPanelOpen(false);
           setSpeedLimitExpanded(false);
           setBodyHeightPanelOpen(false);
           closeAllHudSettings();
           settingsMenuRef.current = true;
           setSettingsSubview('tabs');
-          setSettingsCategory('网络');
+          setSettingsCategory('连接与设备');
+          setHotspotScanPulse(count => count + 1);
           setSettingsMenuOpen(true);
         }
         : (onOpenConnection || onOpenConnectionDiagnostics ? () => openView(onOpenConnection || onOpenConnectionDiagnostics) : undefined),
       onOpenJointStatus: onOpenJointStatus ? () => openView(onOpenJointStatus) : undefined,
+      statusCardOpen,
+      onToggleStatusCard: toggleStatusCard,
+      inputSource: selectedInputSource,
+      clearFaultReady: clearFaultReadiness.ready,
+      onClearFault: clearFaultReadiness.ready ? () => runOperation('clearMotorFault', renderGeneration) : undefined,
+      statusCardOverlay: statusCardOpen ? (
+        <StatusBentoCard
+          floating
+          connectionLabel={immersiveConnectionLabel}
+          deviceName={immersiveRobotName === 'DOSO 机器狗' ? '机器狗 Wi-Fi' : immersiveRobotName}
+          joints={runtimeState?.joints}
+          showImu
+          imu={runtimeState?.imu ?? null}
+          body={{
+            posture: runtimeState?.posture,
+            motorState: runtimeState?.motorState,
+            controlAuthority: runtimeState?.controlAuthority,
+            faultStatus: runtimeState?.faultStatus,
+            controlOwner: runtimeState?.controlOwner,
+            voltageV: runtimeState?.battery?.voltageV ?? null,
+            leaseActive: controlSession?.leaseActive ?? (runtimeState?.controlAuthority === 'held' ? true : null),
+          }}
+          onRefresh={onReconnect}
+          onClose={() => setStatusCardOpen(false)}
+          maxWidth={Math.min(656, Math.max(360, (effectiveViewportWidth || width) - 32))}
+          maxHeight={Math.max(260, (immersiveCanvasHeight || height) - 96)}
+        />
+      ) : null,
       onOpenWorkspaceSettings: undefined,
       showLocalControl: runtimeState?.controlAuthority === 'held',
       showUnlocked: safetyLock === false,
@@ -1963,15 +2217,15 @@ export function ControlScreen({
           runOperation('playGesture', renderGeneration, name);
         }
       },
-      onSelectBasicAction: (id, supported, label) => {
-        if (supported) { setSelectedBasicAction(id); return; }
-        showHudNotice(`${label} 暂未接入`);
+      onSelectBasicAction: (id, supported) => {
+        if (supported) setSelectedBasicAction(id);
       },
       speedLimitPercent,
       speedLimitExpanded,
       onToggleSpeedLimitExpanded: () => setSpeedLimitExpanded(value => {
         const next = !value;
         if (next) {
+          setStatusCardOpen(false);
           setLeftCategory('policy');
           setBodyHeightPanelOpen(false);
         }
@@ -1979,6 +2233,7 @@ export function ControlScreen({
       }),
       onChangeSpeedLimit: next => {
         const clamped = clampSpeedLimitPercent(next);
+        if (clamped !== speedLimitRef.current) triggerControlHaptic('step');
         setSpeedLimitPercent(clamped);
         updateControlPrefs({ speedLimitPercent: clamped });
       },
@@ -1993,8 +2248,8 @@ export function ControlScreen({
         }
         setSpeedModePending(true);
         void onChangeSpeedMode('normal')
-          .then(() => { showHudNotice('已切换为标准速度（1.0 m/s）'); })
-          .catch(caught => { showHudNotice(caught instanceof Error && caught.message ? caught.message : '速度档位切换失败'); })
+          .then(() => { showHudNotice('已切标准档'); })
+          .catch(caught => { showHudNotice(caught instanceof Error && caught.message ? caught.message : '切换失败'); })
           .finally(() => { if (mountedRef.current) setSpeedModePending(false); });
       } : undefined,
       onReconnect,
@@ -2002,11 +2257,12 @@ export function ControlScreen({
       batteryPercent: resolvedBatteryPercent,
       voltageV: runtimeState?.battery?.voltageV ?? null,
       remainingRangeKm: runtimeState?.remainingRangeKm ?? null,
-      onStop: () => { dismissHudSettingsForAction(); voiceChat.setOpen(false); setFaultPanelOpen(false); setSpeedLimitExpanded(false); setBodyHeightPanelOpen(false); runOperation('stop', renderGeneration); },
+      onStop: () => { dismissHudSettingsForAction(); setStatusCardOpen(false); voiceChat.setOpen(false); setFaultPanelOpen(false); setSpeedLimitExpanded(false); setBodyHeightPanelOpen(false); runOperation('stop', renderGeneration); },
       stopDisabled: !stopReadiness.ready || ['submitted', 'accepted', 'executing'].includes(stopState.status),
       stopHint: stopState.detail ?? stopReadiness.blockedReason,
       docksExpanded,
       onToggleDocks: () => {
+        setStatusCardOpen(false);
         setSpeedLimitExpanded(false);
         setDocksExpanded(value => {
           const next = !value;
@@ -2019,6 +2275,7 @@ export function ControlScreen({
           closeAllHudSettings();
           return;
         }
+        setStatusCardOpen(false);
         voiceChat.setOpen(false);
         setFaultPanelOpen(false);
         setSpeedLimitExpanded(false);
@@ -2039,16 +2296,16 @@ export function ControlScreen({
         onCategory: next => {
           setSettingsSubview('tabs');
           setSettingsCategory(next);
-          if (next === '机器人' && gestureLinkReady && robotGestures.length === 0 && !gestureListUnimplemented) {
+          if (normalizeSettingsCategory(next) === '机器狗维护' && gestureLinkReady && robotGestures.length === 0 && !gestureListUnimplemented) {
             refreshGestureCatalog();
           }
         },
         subview: activeHudSubview,
-        subviewTitle: activeHudSubview === 'layout' ? '圆盘布局' : activeHudSubview === 'input' ? '遥控器输入' : activeHudSubview === 'privacy' ? '数据与隐私' : '设置',
+        subviewTitle: activeHudSubview === 'layout' ? '摇杆布局' : activeHudSubview === 'input' ? '手柄校准' : activeHudSubview === 'privacy' ? '数据与隐私' : '设置',
         onBackSubview: activeHudSubview === 'layout' ? closeJoystickSettings : activeHudSubview === 'input' ? closeInputSettings : () => setSettingsSubview('tabs'),
         onOpenPrivacySubview: () => setSettingsSubview('privacy'),
         subviewContent: activeHudSubview === 'layout'
-          ? layoutEditorBody
+          ? renderLayoutEditor(true)
           : activeHudSubview === 'input' && g20Controller
             ? <G20InputPanel
               embedded
@@ -2136,6 +2393,7 @@ export function ControlScreen({
         speedLimitPercent,
         onChangeSpeedLimit: next => {
           const clamped = clampSpeedLimitPercent(next);
+          if (clamped !== speedLimitRef.current) triggerControlHaptic('step');
           setSpeedLimitPercent(clamped);
           updateControlPrefs({ speedLimitPercent: clamped });
         },
@@ -2150,8 +2408,8 @@ export function ControlScreen({
           }
           setSpeedModePending(true);
           void onChangeSpeedMode('normal')
-            .then(() => { showHudNotice('已切换为标准速度（1.0 m/s）'); })
-            .catch(caught => { showHudNotice(caught instanceof Error && caught.message ? caught.message : '速度档位切换失败'); })
+            .then(() => { showHudNotice('已切标准档'); })
+            .catch(caught => { showHudNotice(caught instanceof Error && caught.message ? caught.message : '切换失败'); })
             .finally(() => { if (mountedRef.current) setSpeedModePending(false); });
         } : undefined,
         physicalInputReady: physicalAvailable,
@@ -2167,6 +2425,44 @@ export function ControlScreen({
           setVideoQuality(next);
           updateControlPrefs({ videoQuality: next });
         },
+        standbyScene,
+        onSelectStandbyScene: next => {
+          setStandbyScene(next);
+          updateControlPrefs({ standbyScene: next });
+        },
+        accentTone,
+        onChangeAccentTone: next => {
+          setAccentTone(next);
+          updateControlPrefs({ accentTone: next });
+        },
+        hotspotScanPulse,
+        appUpdateBusy,
+        appUpdateStatusLabel,
+        onCheckAppUpdate: () => {
+          if (appUpdateBusy) return;
+          const baseUrl = typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_OTA_BASE_URL
+            ? process.env.EXPO_PUBLIC_OTA_BASE_URL
+            : 'https://api-test.dosorobotics.com/ota';
+          setAppUpdateBusy(true);
+          setAppUpdateStatusLabel(null);
+          void checkAndroidApkUpdate({ baseUrl, currentVersionCode: 1 })
+            .then(info => {
+              if (!mountedRef.current) return;
+              if (info?.updateAvailable) {
+                setAppUpdateStatusLabel(`新版本 v${info.versionName}`);
+              } else {
+                setAppUpdateStatusLabel('已是最新版本');
+              }
+            })
+            .catch(() => {
+              if (mountedRef.current) setAppUpdateStatusLabel('检查失败');
+            })
+            .finally(() => {
+              if (mountedRef.current) setAppUpdateBusy(false);
+            });
+        },
+        connectionTipsOpen,
+        onToggleConnectionTips: () => setConnectionTipsOpen(prev => !prev),
         autoRecord,
         onToggleAutoRecord: () => setAutoRecord(prev => {
           const next = !prev;
@@ -2325,11 +2621,12 @@ export function ControlScreen({
       ) : null,
       forwardDirection,
       onReverseDirection: toggleForwardDirection,
-      onChargePress: () => showHudNotice('需配合自动充电桩使用'),
+      onChargePress: () => showHudNotice('需自动充电桩'),
       jointTempOpen,
       onToggleJointTemp: () => setJointTempOpen(prev => {
         const next = !prev;
         if (next) {
+          setStatusCardOpen(false);
           setLeftCategory('policy');
           setBodyHeightPanelOpen(false);
           voiceChat.setOpen(false);
@@ -2342,6 +2639,7 @@ export function ControlScreen({
       onToggleJointParams: () => setJointParamsOpen(prev => {
         const next = !prev;
         if (next) {
+          setStatusCardOpen(false);
           setLeftCategory('policy');
           setBodyHeightPanelOpen(false);
           voiceChat.setOpen(false);
@@ -2354,6 +2652,7 @@ export function ControlScreen({
       onToggleFaultPanel: () => setFaultPanelOpen(prev => {
         const next = !prev;
         if (next) {
+          setStatusCardOpen(false);
           setLeftCategory('policy');
           setBodyHeightPanelOpen(false);
           voiceChat.setOpen(false);
@@ -2371,6 +2670,7 @@ export function ControlScreen({
       onToggleVoiceChat: () => {
         const next = !voiceChat.open;
         if (next) {
+          setStatusCardOpen(false);
           setLeftCategory('policy');
           setJointTempOpen(false);
           setJointParamsOpen(false);
@@ -2424,12 +2724,14 @@ export function ControlScreen({
       stageHeight: immersiveCanvasHeight || height,
       safeInsets: landscapeSafeInsets,
       previewSafeAreaGuides,
+      standbyScene,
+      accentTone,
       onStickFrameLayout: handleStickArea,
       video: videoPresentation || videoFrame ? <ControlVideoSurface presentation={videoPresentation} surface={videoFrame} active={appActive && !leaving} onInterrupted={handleCancel}
-        backgroundColor="transparent" statusColor="#CED3CF" /> : null,
+        backgroundColor="transparent" statusColor="#CFCFCF" /> : null,
       videoReceiving: videoPresentation?.phase === 'receiving',
       rearVideo: effectiveRearVideo || effectiveRearSurface ? <ControlVideoSurface presentation={effectiveRearVideo} surface={effectiveRearSurface} active={appActive && !leaving} onInterrupted={() => {}}
-        backgroundColor="transparent" statusColor="#CED3CF" /> : null,
+        backgroundColor="transparent" statusColor="#CFCFCF" /> : null,
       rearVideoReceiving: effectiveRearVideo?.phase === 'receiving',
       feedback: operationFeedback,
       confirmation: renderImmersiveIntent(),
@@ -2443,7 +2745,7 @@ export function ControlScreen({
         <ControlVideoSurface presentation={video} surface={videoSurface} active={(allowInteractionPreview || appActive) && !leaving} onInterrupted={handleCancel} statusTop={mediaStatusTop} statusColor={mediaStatusColor} />
       </View>
     </ControlGlassTarget>
-    <LinearGradient pointerEvents="none" colors={['rgba(5,12,20,0.38)', 'transparent', 'rgba(5,12,20,0.52)']} locations={[0, .4, 1]} style={StyleSheet.absoluteFill} />
+    <LinearGradient pointerEvents="none" colors={['rgba(12,12,12,0.38)', 'transparent', 'rgba(12,12,12,0.52)']} locations={[0, .4, 1]} style={StyleSheet.absoluteFill} />
     {settingsMenuOpen ? <View pointerEvents="none" testID="control-settings-background" style={[StyleSheet.absoluteFill, { backgroundColor: controlSettingsColors.canvas }]} /> : null}
     {renderControlHeader()}
     {postureMenuOpen ? <>
@@ -2465,10 +2767,6 @@ export function ControlScreen({
             <Text style={[styles.label, { color: selected ? appearance.actionInk : disabled ? hudHeaderMuted : hudHeaderInk }]}>{controlOperationLabels[action]}</Text>
           </Pressable>;
         })}
-        <Pressable testID="control-posture-recovery" accessibilityRole="button" accessibilityLabel="摔倒恢复"
-          accessibilityHint="当前版本暂不支持恢复操作" accessibilityState={{ disabled: true }} disabled style={styles.modeMenuOption}>
-          <Text style={[styles.label, { color: hudHeaderMuted }]}>摔倒恢复</Text>
-        </Pressable>
         {renderMotorToggle()}
       </ControlPanelMotion>
     </> : null}
@@ -2476,10 +2774,20 @@ export function ControlScreen({
       width: viewport.width || width, height: immersiveCanvasHeight || height, category: settingsCategory,
       onCategory: next => {
         setSettingsCategory(next);
-        if (next === '机器人' && gestureLinkReady && robotGestures.length === 0 && !gestureListUnimplemented) {
+        if (normalizeSettingsCategory(next) === '机器狗维护' && gestureLinkReady && robotGestures.length === 0 && !gestureListUnimplemented) {
           refreshGestureCatalog();
         }
       }, snapshot: settingsSnapshot, overlay: showTelemetry,
+      standbyScene,
+      onSelectStandbyScene: next => {
+        setStandbyScene(next);
+        updateControlPrefs({ standbyScene: next });
+      },
+      accentTone,
+      onChangeAccentTone: next => {
+        setAccentTone(next);
+        updateControlPrefs({ accentTone: next });
+      },
       showVirtualDiscControls,
       onToggleVirtualDiscControls: toggleVirtualDiscControls,
       onOverlay: () => setShowTelemetry(value => !value), onClose: handleCancel,
@@ -2542,10 +2850,6 @@ export function ControlScreen({
         {glass.backdrop()}
         {renderMinimalAction('stand')}
         {renderMinimalAction('sit')}
-        {(['prone', 'recovery'] as const).map(action => <Pressable key={action} disabled accessibilityRole="button" accessibilityLabel={action === 'prone' ? '趴下' : '恢复'} accessibilityState={{ disabled: true }} accessibilityHint="当前设备未提供此动作" testID={'control-action-' + action} style={[styles.referencePostureButton, { width: Math.max(54, viewport.width * .095), minHeight: Math.max(44, immersiveCanvasHeight * .11) }]}>
-          {action === 'prone' ? <PostureGlyph posture="prone" color={hudHeaderMuted} /> : <Ionicons name="reload-outline" size={23} color={hudHeaderMuted} />}
-          <Text style={[styles.referencePostureLabel, { fontSize: Math.max(12, Math.min(22, viewport.width * .018)), lineHeight: Math.max(16, Math.min(28, viewport.width * .023)) }]}>{action === 'prone' ? '趴下' : '恢复'}</Text>
-        </Pressable>)}
       </View>
       {showPlanning ? <Pressable testID="control-open-map" accessibilityRole="button" accessibilityLabel="地图" disabled={!onOpenMap} onPress={() => openView(onOpenMap)} style={[styles.referenceMap, styles.referenceCornerAction]}><Ionicons name="map-outline" size={24} color={hudHeaderInk} /><Text style={[styles.referenceCornerLabel, { color: hudHeaderInk }]}>地图</Text></Pressable> : null}
       <Pressable testID="control-open-more" accessibilityLabel="更多设置" accessibilityRole="button" accessibilityState={{ expanded: settingsMenuOpen }} onPress={() => {
@@ -2568,17 +2872,12 @@ export function ControlScreen({
       <Text accessibilityRole="header" style={[styles.title, { color: appearance.ink }]}>摔倒恢复</Text>
     </View>
     <View style={styles.gestureEmpty}>
-      <Pressable testID="control-recovery-action" accessibilityRole="button" accessibilityLabel="摔倒起立"
-        accessibilityHint="当前版本暂不支持恢复操作" accessibilityState={{ disabled: true }} disabled
-        style={[styles.operationButton, { backgroundColor: appearance.raised }]}>
-        <Text style={[styles.label, { color: appearance.ink }]}>开始恢复</Text>
-        <Text style={[styles.caption, { color: appearance.secondary }]}>{recoveryLabel}</Text>
-      </Pressable>
+      <Text style={[styles.caption, { color: appearance.secondary }]}>{recoveryLabel}</Text>
     </View>
   </SafeAreaView>;
   if (joystickSettingsOpen && !cameraHud) return <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={[styles.safe, { backgroundColor: controlSetupAppearance.canvas }]}>
     <ControlSetupPage title="摇杆布局" onBack={closeJoystickSettings} header={isLandscape ? renderControlHeader(closeJoystickSettings) : undefined} media={{ presentation: video, surface: videoSurface, active: appActive && !leaving, onInterrupted: handleCancel }}>
-      {layoutEditorBody}
+      {renderLayoutEditor(false)}
     </ControlSetupPage>
   </SafeAreaView>;
   if (inputSettingsOpen && g20Controller && !cameraHud) return <G20InputPanel
@@ -2595,14 +2894,7 @@ export function ControlScreen({
   />;
   return (
     <SafeAreaView edges={__DEV__ && developmentInput ? ['left', 'right'] : ['top', 'left', 'right', 'bottom']} style={[styles.safe, { backgroundColor: isLandscape ? 'transparent' : appearance.canvas }]}>
-      <View onLayout={handleLayout} onTouchCancel={() => {
-        if (settingsMenuRef.current) {
-          interruptInput();
-          resetControls();
-          return;
-        }
-        handleCancel();
-      }} style={styles.viewport} testID="control-surface">
+      <View onLayout={handleLayout} onTouchCancel={handleRootTouchCancel} style={styles.viewport} testID="control-surface">
         {layout.useColumns ? cameraHud && !postureMenuOpen ? renderCameraHud() : renderImmersiveSurface() : <ScrollView
           contentContainerStyle={[styles.content, { paddingHorizontal: layout.horizontalPadding }]}
           contentInsetAdjustmentBehavior="automatic"
@@ -2640,14 +2932,14 @@ export function ControlScreen({
                     {
                       backgroundColor:
                         voiceChat.phase === 'listening'
-                          ? '#22C55E'
+                          ? '#34D399'
                           : voiceChat.phase === 'speaking'
-                            ? '#38BDF8'
+                            ? '#34D399'
                             : voiceChat.phase === 'thinking'
-                              ? '#60A5FA'
+                              ? '#F59E0B'
                               : voiceChat.quietMode
                                 ? '#F59E0B'
-                                : '#22C55E',
+                                : '#34D399',
                     },
                   ]}
                   testID="control-portrait-voice-dot"
@@ -2710,8 +3002,8 @@ export function ControlScreen({
                 surface={videoFrame}
                 active={appActive && !leaving}
                 onInterrupted={handleCancel}
-                backgroundColor="#090C0B"
-                statusColor="#CED3CF"
+                backgroundColor="#121212"
+                statusColor="#CFCFCF"
               />
             </View>
           ) : null}
@@ -2780,7 +3072,7 @@ export function ControlScreen({
                   </View>)}
                   {!layout.useColumns && displayedGestures.length > 0 ? (
                     <View style={[styles.operationGroup, { width: layout.operationGroupWidth, backgroundColor: appearance.surface }]} testID="control-portrait-gesture-group">
-                      <Text accessibilityRole="header" style={[styles.label, { color: colors.ink }]}>{`预设动作 (${displayedGestures.length})`}</Text>
+                      <Text accessibilityRole="header" style={[styles.label, { color: colors.ink }]}>{`预设动作 ${displayedGestures.length}`}</Text>
                       {GestureDeckPanel({
                         gestures: displayedGestures,
                         category: gestureCategory,
@@ -2803,7 +3095,7 @@ export function ControlScreen({
                   ) : null}
                 </View>
                 {layout.useColumns ? <Pressable accessibilityRole="button" accessibilityLabel={secondaryActionsExpanded ? '收起附加动作' : '展开附加动作'} onPress={() => setSecondaryActionsExpanded(value => !value)} style={[styles.secondaryActionsToggle, { backgroundColor: appearance.surface }]} testID="control-secondary-actions-toggle">
-                  <Text style={[styles.caption, { color: appearance.blueInk }]}>{secondaryActionsExpanded ? '收起附加动作' : '更多动作（电机与策略）'}</Text>
+                  <Text style={[styles.caption, { color: appearance.blueInk }]}>{secondaryActionsExpanded ? '收起附加动作' : '更多动作'}</Text>
                   <Ionicons color={appearance.blueInk} name={secondaryActionsExpanded ? 'chevron-up' : 'chevron-down'} size={16} />
                 </Pressable> : null}
               </> : null}
@@ -2813,7 +3105,7 @@ export function ControlScreen({
                   accessibilityState={{ selected: option.id === runtimeState?.currentPolicy?.id }}
                   onPress={() => runOperation('switchPolicy', renderGeneration, option.id)} testID={`control-policy-option-${option.id}`}
                   style={[styles.operationButton, { backgroundColor: colors.background }]}>
-                  <Text style={[styles.label, { color: colors.ink }]}>{option.label}{option.id === runtimeState?.currentPolicy?.id ? '（当前）' : ''}</Text>
+                  <Text style={[styles.label, { color: colors.ink }]}>{option.label}{option.id === runtimeState?.currentPolicy?.id ? ' · 当前' : ''}</Text>
                 </Pressable>)}
                 <Pressable accessibilityLabel="取消策略选择" accessibilityRole="button" onPress={handleCancel} testID="control-cancel-policy"
                   style={[styles.operationButton, { backgroundColor: colors.background }]}><Text style={[styles.label, { color: colors.ink }]}>取消</Text></Pressable>
@@ -2901,7 +3193,7 @@ export function ControlScreen({
                   <View style={styles.panelHeading}>
                     <Text style={[styles.caption, { color: colors.muted }]} testID="control-manual-status">{manualStatus}</Text>
                   </View>
-                  <Text accessibilityLiveRegion="polite" style={[styles.caption, styles.manualReason, layout.useColumns && styles.manualReasonCompact, { color: colors.muted }]} testID="control-manual-reason">{layout.useColumns ? (controlsEnabled ? '松手归零；切后台会中断。' : '控制权限未满足；摇杆不会发送指令。') : manualReason}</Text>
+                  <Text accessibilityLiveRegion="polite" style={[styles.caption, styles.manualReason, layout.useColumns && styles.manualReasonCompact, { color: colors.muted }]} testID="control-manual-reason">{layout.useColumns ? (controlsEnabled ? '松手即停' : '控制未就绪') : manualReason}</Text>
                   <View style={[styles.terrainModeCard, { backgroundColor: colors.background }]} testID="control-terrain-mode">
                     <View style={styles.speedHeading}>
                       <Text style={[styles.label, { color: colors.ink }]}>运动模式</Text>
@@ -2972,11 +3264,11 @@ export function ControlScreen({
                       touchAreaWidth={configuredWidth}
                       touchAreaHeight={configuredHeight}
                       showVisuals
-                    /> : <Text style={[styles.caption, { color: colors.muted }]}>当前窗口过小，暂不可操作摇杆</Text>) : null}
+                    /> : <Text style={[styles.caption, { color: colors.muted }]}>窗口过小</Text>) : null}
                   </View>
                   <Pressable
                     accessibilityLabel="召回机器人" accessibilityRole="button"
-                    accessibilityHint={!recallEnabled ? recallBlockedReason || '召回暂不可用' : undefined}
+                    accessibilityHint={!recallEnabled ? recallBlockedReason || '召回未就绪' : undefined}
                     accessibilityState={{ disabled: !recallEnabled }} disabled={!recallEnabled}
                     onPress={handleRecall}
                     style={({ pressed }) => [styles.recall, { backgroundColor: recallEnabled ? appearance.action : appearance.surface }, pressed && recallEnabled && styles.pressed]}
@@ -2985,7 +3277,7 @@ export function ControlScreen({
                     <Ionicons color={recallEnabled ? appearance.actionInk : colors.muted} name="return-down-back-outline" size={18} />
                     <Text style={[styles.label, { color: recallEnabled ? appearance.actionInk : colors.muted }]}>召回</Text>
                   </Pressable>
-                  {!recallEnabled ? <Text accessibilityLiveRegion="polite" style={[styles.caption, { color: colors.muted }]} testID="control-recall-reason">{recallBlockedReason || '召回能力尚未就绪'}</Text> : null}
+                  {!recallEnabled ? <Text accessibilityLiveRegion="polite" style={[styles.caption, { color: colors.muted }]} testID="control-recall-reason">{recallBlockedReason || '召回未就绪'}</Text> : null}
                 </View>)}
             </View>
           </View>
@@ -3002,20 +3294,30 @@ const styles = StyleSheet.create({
   viewport: { flex: 1 },
   layoutEditor: { flex: 1, gap: 12, alignItems: 'center' },
   layoutEditorWide: { flexDirection: 'row', alignItems: 'stretch' },
-  layoutCanvas: { flex: 1, width: '100%', position: 'relative', overflow: 'hidden', backgroundColor: controlSetupAppearance.surface, borderColor: controlSetupAppearance.border, borderWidth: .5, borderRadius: 20 },
-  layoutCanvasPortrait: { flex: 0, height: 170 },
-  layoutDisc: { position: 'absolute', alignItems: 'center', justifyContent: 'center', borderWidth: 0.5 },
-  layoutSettingsColumn: { flex: 1, width: '100%', maxWidth: 380, minHeight: 0 },
+  layoutCanvasStage: { flex: 1.05, width: '100%', minWidth: 0, alignItems: 'center', justifyContent: 'center', gap: 6 },
+  layoutCanvasStagePortrait: { flex: 0, width: '100%' },
+  layoutStageMeta: { width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 2 },
+  layoutStageCaption: { color: '#7A7A7A', fontSize: 11, lineHeight: 15, fontWeight: '500', fontVariant: ['tabular-nums'] },
+  layoutCanvas: { width: '100%', position: 'relative', overflow: 'hidden', backgroundColor: '#181818', borderColor: 'rgba(255, 255, 255, 0.10)', borderWidth: 1, borderRadius: 14 },
+  layoutCanvasLandscape: { aspectRatio: 16 / 9, maxHeight: '100%' },
+  layoutCanvasPortrait: { height: 170 },
+  layoutSafeZoneGuide: { position: 'absolute', top: 10, right: 12, bottom: 10, left: 12, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.05)' },
+  layoutCrosshairH: { position: 'absolute', left: 12, right: 12, top: '50%', height: 1, backgroundColor: 'rgba(255, 255, 255, 0.06)' },
+  layoutCrosshairV: { position: 'absolute', top: 10, bottom: 10, left: '50%', width: 1, backgroundColor: 'rgba(255, 255, 255, 0.06)' },
+  layoutDisc: { position: 'absolute', alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
+  layoutDiscInner: { position: 'absolute', borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.14)' },
+  layoutDiscLabel: { fontSize: 11, lineHeight: 14, fontWeight: '600' },
+  layoutSettingsColumn: { flex: 1, width: '100%', maxWidth: 360, minHeight: 0 },
   layoutRetry: { alignItems: 'center', minHeight: 44, justifyContent: 'center' },
-  immersiveIntent: { position: 'absolute', top: 80, left: '50%', width: 356, transform: [{ translateX: -178 }], padding: 18, gap: 10, borderRadius: 18, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.16)', backgroundColor: 'rgba(18, 22, 26, 0.94)', zIndex: 9 },
-  immersiveIntentTitle: { fontSize: 16, lineHeight: 22, fontWeight: '600', color: '#F4F7FA' },
-  immersiveIntentSubtitle: { fontSize: 13, lineHeight: 19, fontWeight: '400', color: '#9CA6B2' },
+  immersiveIntent: { position: 'absolute', top: 80, left: '50%', width: 356, transform: [{ translateX: -178 }], padding: 18, gap: 10, borderRadius: 18, borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.14)', backgroundColor: 'rgba(22, 22, 22, 0.95)', zIndex: 9 },
+  immersiveIntentTitle: { fontSize: 16, lineHeight: 22, fontWeight: '600', color: '#F2F2F2' },
+  immersiveIntentSubtitle: { fontSize: 13, lineHeight: 19, fontWeight: '400', color: '#9A9A9A' },
   immersiveIntentActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
   immersiveIntentBtn: { flex: 1, minHeight: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 8 },
   immersiveIntentCancelBtn: { backgroundColor: 'rgba(255, 255, 255, 0.08)', borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.14)' },
-  immersiveIntentConfirmBtn: { backgroundColor: '#3B6EF6' },
-  immersiveIntentCancelText: { fontSize: 14, lineHeight: 19, fontWeight: '500', color: '#E2E8F0' },
-  immersiveIntentConfirmText: { fontSize: 14, lineHeight: 19, fontWeight: '600', color: '#FFFFFF' },
+  immersiveIntentConfirmBtn: { backgroundColor: '#EAEAEA' },
+  immersiveIntentCancelText: { fontSize: 14, lineHeight: 19, fontWeight: '500', color: '#E0E0E0' },
+  immersiveIntentConfirmText: { fontSize: 14, lineHeight: 19, fontWeight: '600', color: '#141414' },
   modeMenuDismiss: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 8 },
   modeMenu: { position: 'absolute', right: 16, flexDirection: 'row', padding: 4, gap: 4, borderRadius: 20, borderWidth: 0.5, overflow: 'hidden', zIndex: 9 },
   modeMenuOption: { minWidth: 88, minHeight: 48, paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center', justifyContent: 'center', borderRadius: 16 },
@@ -3086,7 +3388,7 @@ const styles = StyleSheet.create({
   terrainModeOption: { alignItems: 'center', borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, flex: 1, justifyContent: 'center', minHeight: 40, paddingHorizontal: 6 },
   sticks: { alignItems: 'center', justifyContent: 'center', paddingVertical: 4 },
   recall: { alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6, minHeight: 48, borderRadius: 18, padding: 8 },
-  portraitVideoStage: { aspectRatio: 16 / 9, borderRadius: 18, overflow: 'hidden', backgroundColor: '#090C0B', marginBottom: 12, width: '100%' },
+  portraitVideoStage: { aspectRatio: 16 / 9, borderRadius: 18, overflow: 'hidden', backgroundColor: '#121212', marginBottom: 12, width: '100%' },
   integrationCard: { borderRadius: 24, padding: 12, gap: 8, marginBottom: 12 },
   integrationCardCompact: { borderRadius: 18, gap: 5, marginBottom: 8, paddingVertical: 8 },
   integrationHeading: { alignItems: 'center', flexDirection: 'row', gap: 8 },
@@ -3116,28 +3418,28 @@ const styles = StyleSheet.create({
   immersiveFeedback: { alignItems: 'center', borderRadius: 14, borderWidth: 0.5, justifyContent: 'center', left: '50%', minHeight: 36, paddingHorizontal: 14, paddingVertical: 6, position: 'absolute', zIndex: 5 },
   pressed: { opacity: 0.55 },
   referenceAuthority: { position: 'absolute', top: '16.5%', left: '50%', transform: [{ translateX: -120 }], flexDirection: 'row', alignItems: 'center', gap: 10, zIndex: 10 },
-  referenceAuthorityChip: { alignItems: 'center', flexDirection: 'row', gap: 7, minHeight: 36, borderRadius: 20, paddingHorizontal: 14, backgroundColor: 'rgba(11,24,40,0.40)', borderWidth: 1, borderColor: 'rgba(218,233,251,0.16)', overflow: 'hidden', position: 'relative' },
-  referenceAuthorityChipActive: { backgroundColor: 'rgba(34,84,131,0.58)', borderColor: 'rgba(112,185,255,0.30)' },
+  referenceAuthorityChip: { alignItems: 'center', flexDirection: 'row', gap: 7, minHeight: 36, borderRadius: 20, paddingHorizontal: 14, backgroundColor: 'rgba(20,20,20,0.68)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.14)', overflow: 'hidden', position: 'relative' },
+  referenceAuthorityChipActive: { backgroundColor: 'rgba(46,46,46,0.88)', borderColor: 'rgba(255,255,255,0.30)' },
   referenceAuthorityText: { fontSize: 14, lineHeight: 20, fontWeight: '600' },
   referenceTopBar: { position: 'absolute', left: '4%', right: '2.5%', top: '1.8%', zIndex: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   referenceBrand: { position: 'absolute', left: 0, minHeight: 44, justifyContent: 'center' },
-  referenceIdentity: { flexDirection: 'row', alignItems: 'center', gap: 7, borderRadius: 99, backgroundColor: 'rgba(16,29,42,0.38)', borderWidth: .5, borderColor: 'rgba(255,255,255,0.23)', maxWidth: '45%', overflow: 'hidden', position: 'relative' },
-  referenceName: { color: '#FCFCFD', fontWeight: '500', flexShrink: 1 },
+  referenceIdentity: { flexDirection: 'row', alignItems: 'center', gap: 7, borderRadius: 99, backgroundColor: 'rgba(22,22,22,0.72)', borderWidth: .5, borderColor: 'rgba(255,255,255,0.18)', maxWidth: '45%', overflow: 'hidden', position: 'relative' },
+  referenceName: { color: '#F2F2F2', fontWeight: '500', flexShrink: 1 },
   referenceStatus: { fontWeight: '400' },
   referenceRightStatus: { position: 'absolute', right: 0, alignItems: 'center', flexDirection: 'row', gap: 16 },
   referenceTelemetry: { flexDirection: 'row', alignItems: 'center', gap: 20 },
   referenceSignal: { alignItems: 'center', flexDirection: 'row', gap: 6 },
   referenceSignalText: { fontSize: 14, lineHeight: 20, fontWeight: '500', fontVariant: ['tabular-nums'] },
-  referenceUnknown: { position: 'absolute', right: -7, top: 14, fontSize: 10, color: '#FCFCFD' },
+  referenceUnknown: { position: 'absolute', right: -7, top: 14, fontSize: 10, color: '#F2F2F2' },
   referenceBattery: { flexDirection: 'row', gap: 5, alignItems: 'center' },
-  referenceBatteryText: { color: '#FCFCFD', fontWeight: '500', fontVariant: ['tabular-nums'] },
+  referenceBatteryText: { color: '#F2F2F2', fontWeight: '500', fontVariant: ['tabular-nums'] },
   referenceStopTarget: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   referenceCenterTelemetry: { position: 'absolute', left: '50%', top: '28%', transform: [{ translateX: -112 }], zIndex: 4 },
-  referenceActionDock: { position: 'absolute', left: '23%', right: '23%', bottom: '4.4%', minHeight: 68, borderRadius: 34, paddingHorizontal: 8, paddingVertical: 6, backgroundColor: 'rgba(10,23,39,0.42)', borderWidth: 1, borderColor: 'rgba(197,220,247,0.24)', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 4, overflow: 'hidden', zIndex: 4 },
+  referenceActionDock: { position: 'absolute', left: '23%', right: '23%', bottom: '4.4%', minHeight: 68, borderRadius: 34, paddingHorizontal: 8, paddingVertical: 6, backgroundColor: 'rgba(22,22,22,0.78)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 4, overflow: 'hidden', zIndex: 4 },
   referencePostureButton: { width: 70, minHeight: 52, alignItems: 'center', justifyContent: 'center', gap: 1, borderRadius: 10, borderWidth: 1, borderColor: 'transparent' },
-  referencePostureSelected: { backgroundColor: 'rgba(91,161,232,0.55)', borderColor: 'rgba(188,222,255,0.85)' },
-  referencePostureLabel: { color: '#FCFCFD', fontSize: 12, lineHeight: 16, fontWeight: '500' },
-  referenceCornerAction: { minWidth: 74, height: 44, paddingHorizontal: 14, borderRadius: 22, flexDirection: 'row', gap: 7, backgroundColor: 'rgba(10,23,39,0.38)', borderWidth: 1, borderColor: 'rgba(197,220,247,0.28)', overflow: 'hidden' },
+  referencePostureSelected: { backgroundColor: 'rgba(54,54,54,0.88)', borderColor: 'rgba(255,255,255,0.34)' },
+  referencePostureLabel: { color: '#F2F2F2', fontSize: 12, lineHeight: 16, fontWeight: '500' },
+  referenceCornerAction: { minWidth: 74, height: 44, paddingHorizontal: 14, borderRadius: 22, flexDirection: 'row', gap: 7, backgroundColor: 'rgba(22,22,22,0.74)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', overflow: 'hidden' },
   referenceCornerLabel: { fontSize: 13, lineHeight: 18, fontWeight: '600' },
   referenceMap: { position: 'absolute', left: '4.5%', bottom: '4.5%', justifyContent: 'center', alignItems: 'center', zIndex: 4 },
   referenceSettings: { position: 'absolute', right: '4.5%', bottom: '4.5%', justifyContent: 'center', alignItems: 'center', zIndex: 4 },
