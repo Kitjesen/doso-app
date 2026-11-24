@@ -130,6 +130,10 @@ type SettingsProps = {
   onCapturePhoto?: () => void;
   soundVolumePercent?: number;
   onChangeSoundVolume?: (next: number) => void;
+  dogVolumePercent?: number | null;
+  onChangeDogVolume?: (next: number) => void;
+  dogQuietMode?: boolean;
+  onToggleDogQuietMode?: () => void;
   voiceBroadcastEnabled?: boolean;
   onToggleVoiceBroadcast?: () => void;
   onTestAudioCue?: () => void;
@@ -675,6 +679,22 @@ export function renderControlSettings(p: SettingsProps) {
       case '音频':
         content = columns(<>
           {panel('提示音与播报', 'volume-high-outline', <>
+            {typeof p.dogVolumePercent === 'number' && p.onChangeDogVolume
+              ? stepperControl({
+                id: 'control-setting-dog-volume',
+                title: '机器狗音量',
+                value: p.dogVolumePercent,
+                min: 0,
+                max: 100,
+                step: 10,
+                presets: [0, 25, 65, 90],
+                presetLabels: { 0: '静音', 25: '轻声', 65: '标准', 90: '大声' },
+                onChange: p.onChangeDogVolume,
+              })
+              : null}
+            {p.onToggleDogQuietMode
+              ? row('轻声模式', toggle('control-setting-quiet-mode', Boolean(p.dogQuietMode), p.onToggleDogQuietMode))
+              : null}
             {typeof activeVolume === 'number' && p.onChangeSoundVolume
               ? stepperControl({
                 id: 'control-setting-volume',
