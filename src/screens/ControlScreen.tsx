@@ -564,12 +564,13 @@ export function ControlScreen({
   const visibleConfirmation = confirmation?.generation === renderGeneration ? confirmation : null;
   const selectingPolicy = policySelection === renderGeneration;
   const anyJoystickActive = driveActive || turnActive;
-  // SafeAreaView already measures the usable area after system-bar visibility changes.
+  // SafeAreaView already excludes systemInsets (top/bottom/left/right in production, left/right in dev);
+  // only apply previewSafeInsets / dynamic navigationBottomInset here to avoid double-inset shifts.
   const landscapeSafeInsets = {
-    top: Math.max(systemInsets.top, previewSafeInsets?.top ?? 0),
-    right: Math.max(systemInsets.right, previewSafeInsets?.right ?? 0),
-    bottom: Math.max(systemInsets.bottom, navigationBottomInset, previewSafeInsets?.bottom ?? 0),
-    left: Math.max(systemInsets.left, previewSafeInsets?.left ?? 0),
+    top: previewSafeInsets?.top ?? 0,
+    right: previewSafeInsets?.right ?? 0,
+    bottom: Math.max(navigationBottomInset, previewSafeInsets?.bottom ?? 0),
+    left: previewSafeInsets?.left ?? 0,
   };
   const immersiveCanvasHeight = stageDimensions?.height ?? viewport.height;
   const effectiveViewportWidth = stageDimensions?.width ?? viewport.width;
