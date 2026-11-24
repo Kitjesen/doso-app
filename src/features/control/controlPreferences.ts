@@ -1,4 +1,6 @@
 export type VideoQualityPreset = '流畅' | '标清' | '高清' | '超清';
+export type StandbySceneId = 'charcoal' | 'gallery' | 'hangar';
+export type ControlAccentTone = 'graphite' | 'fsdBlue';
 
 export type ControlUserPreferences = Readonly<{
   version: 1;
@@ -14,11 +16,15 @@ export type ControlUserPreferences = Readonly<{
   autoRecord: boolean;
   soundVolumePercent: number;
   voiceBroadcastEnabled: boolean;
+  standbyScene: StandbySceneId;
+  accentTone: ControlAccentTone;
 }>;
 
 export const CONTROL_USER_PREFERENCES_KEY = 'doso.control.preferences.v1';
 
 const VALID_QUALITIES: readonly VideoQualityPreset[] = ['流畅', '标清', '高清', '超清'];
+const VALID_STANDBY_SCENES: readonly StandbySceneId[] = ['charcoal', 'gallery', 'hangar'];
+const VALID_ACCENT_TONES: readonly ControlAccentTone[] = ['graphite', 'fsdBlue'];
 
 export function clampSensitivityPercent(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 100;
@@ -50,6 +56,8 @@ export function createDefaultControlPreferences(): ControlUserPreferences {
     autoRecord: false,
     soundVolumePercent: 80,
     voiceBroadcastEnabled: true,
+    standbyScene: 'charcoal',
+    accentTone: 'graphite',
   };
 }
 
@@ -60,6 +68,12 @@ export function normalizeControlPreferences(raw: unknown): ControlUserPreference
   const quality = VALID_QUALITIES.includes(src.videoQuality as VideoQualityPreset)
     ? (src.videoQuality as VideoQualityPreset)
     : defaults.videoQuality;
+  const standbyScene = VALID_STANDBY_SCENES.includes(src.standbyScene as StandbySceneId)
+    ? (src.standbyScene as StandbySceneId)
+    : defaults.standbyScene;
+  const accentTone = VALID_ACCENT_TONES.includes(src.accentTone as ControlAccentTone)
+    ? (src.accentTone as ControlAccentTone)
+    : defaults.accentTone;
   return {
     version: 1,
     sensitivityPercent: clampSensitivityPercent(src.sensitivityPercent),
@@ -74,6 +88,8 @@ export function normalizeControlPreferences(raw: unknown): ControlUserPreference
     autoRecord: typeof src.autoRecord === 'boolean' ? src.autoRecord : defaults.autoRecord,
     soundVolumePercent: clampVolumePercent(src.soundVolumePercent),
     voiceBroadcastEnabled: typeof src.voiceBroadcastEnabled === 'boolean' ? src.voiceBroadcastEnabled : defaults.voiceBroadcastEnabled,
+    standbyScene,
+    accentTone,
   };
 }
 

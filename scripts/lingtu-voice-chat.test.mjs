@@ -109,12 +109,25 @@ test('HUD and Portrait ControlScreen expose live voice presence, 4-tab workspace
   assert.equal(voiceService.formatVoiceToolLabel('move_robot'), '运动控制');
 });
 
-test('Zero-jargon, zero-lecturing, zero-parenthetical, and zero-fake-wall sweep across voice modules', () => {
-  const forbiddenVoiceCopy = /暂未接入|仅作预览|暂不可用|清空上下文|MemPalace|AskMe|记忆宫殿|8770|8780|当前版本暂不支持|点击麦克风说话|对话服务未就绪|语音输入不可用/;
-  assert.doesNotMatch(panelSource, forbiddenVoiceCopy, 'forbidden copy found in ControlVoiceChatPanel.tsx');
+test('Zero-jargon, zero-lecturing, zero-parenthetical, and zero-fake-wall sweep across all touched UI files', () => {
+  const uiFiles = [
+    ['ControlVoiceChatPanel.tsx', panelSource],
+    ['ControlScreen.tsx', controlSource],
+    ['controlLandscapeHud.tsx', hudSource],
+    ['ControlReferenceUi.tsx', referenceUiSource],
+  ];
+  const forbiddenCopy = /暂未接入|仅作预览|暂不可用|清空上下文|MemPalace|AskMe|记忆宫殿|8770|8780|当前版本暂不支持|点击麦克风说话|对话服务未就绪|语音输入不可用|（最高 2\.5 m\/s）|（1\.0 m\/s）|（电机与策略）|（当前）/;
+  for (const [name, src] of uiFiles) {
+    assert.doesNotMatch(src, forbiddenCopy, `forbidden copy found in ${name}`);
+  }
   assert.doesNotMatch(panelSource, /5050|LingTu|SSE|SpeechRecognition|TTS|ASR|EOT|RPC|HTTP|ONNX|Opus|Qwen|sherpa/);
   assert.doesNotMatch(serviceSource, /AskMe|当前浏览器不支持语音输入|暂未接入|仅作预览|暂不可用|清空上下文/);
   assert.doesNotMatch(hookSource, /语音输入不可用|清空上下文|暂未接入|仅作预览/);
+
+  // Permanently disabled fake placeholder buttons must stay removed.
+  assert.doesNotMatch(controlSource, /control-action-prone|control-action-recovery|control-posture-recovery|control-recovery-action/);
+  assert.doesNotMatch(referenceUiSource, /control-setting-stop-confirm/);
+  assert.doesNotMatch(hudSource, /待接入/);
 });
 
 test('LingTu & Xiaosuan voice service wires every pinned :8770 and :5050 endpoint (Wave 1 + Wave 2)', () => {

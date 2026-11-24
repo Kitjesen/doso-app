@@ -27,6 +27,7 @@ import android.os.Build
 import android.util.Base64
 import android.view.WindowInsets
 import android.view.WindowInsetsController
+import android.view.WindowManager
 import org.json.JSONObject
 
 private const val HOST = "robot.example.test"
@@ -239,6 +240,64 @@ private fun controlNavigationStableInsetsAndLifecycle() {
     }
   } finally {
     Build.VERSION.SDK_INT = sdkBefore
+    if (!destroyed) definition.destroy()
+  }
+}
+
+@Suppress("UNCHECKED_CAST")
+private fun keepScreenOnFlagsAndLifecycle() {
+  val module = BrainstemGrpcModule()
+  val definition = module.definition()
+  val activity = module.appContext.currentActivity!!
+  val window = activity.window
+  val flag = WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+  val methodsBefore = ModuleTestTransport.methods.toList()
+  val channelsBefore = ModuleTestTransport.channels.toList()
+  var destroyed = false
+  fun setKeep(enabled: Boolean) = (definition.functions.getValue("setKeepScreenOn") as (Boolean) -> Unit)(enabled)
+  fun isKeepOn() = (window.flags and flag) != 0
+  try {
+    check(!isKeepOn()) { "keepScreenOn flag must start cleared" }
+    setKeep(true)
+    check(isKeepOn()) { "setKeepScreenOn(true) must add FLAG_KEEP_SCREEN_ON" }
+    setKeep(false)
+    check(!isKeepOn()) { "setKeepScreenOn(false) must clear FLAG_KEEP_SCREEN_ON" }
+
+    setKeep(true)
+    check(isKeepOn())
+    definition.background()
+    check(!isKeepOn()) { "backgrounding must clear FLAG_KEEP_SCREEN_ON" }
+    setKeep(true)
+    check(!isKeepOn()) { "setKeepScreenOn(true) while paused must not add FLAG_KEEP_SCREEN_ON" }
+    definition.foreground()
+    check(isKeepOn()) { "foregrounding must restore FLAG_KEEP_SCREEN_ON when enabled" }
+
+    setKeep(false)
+    check(!isKeepOn())
+    definition.background()
+    definition.foreground()
+    check(!isKeepOn()) { "foregrounding must keep FLAG_KEEP_SCREEN_ON cleared when disabled" }
+
+    setKeep(true)
+    check(isKeepOn())
+    module.appContext.currentActivity = null
+    setKeep(true)
+    setKeep(false)
+    module.appContext.currentActivity = activity
+    setKeep(true)
+    check(isKeepOn())
+
+    definition.destroy()
+    destroyed = true
+    check(!isKeepOn()) { "destroy must clear FLAG_KEEP_SCREEN_ON" }
+    setKeep(true)
+    check(!isKeepOn()) { "destroyed module must not re-add FLAG_KEEP_SCREEN_ON" }
+    check(window.flagChanges.all { it.second == flag }) { "keepScreenOn must only toggle FLAG_KEEP_SCREEN_ON" }
+    check(ModuleTestTransport.methods.toList() == methodsBefore && ModuleTestTransport.channels.toList() == channelsBefore) {
+      "keepScreenOn changes must not open a control channel or send an RPC"
+    }
+  } finally {
+    module.appContext.currentActivity = activity
     if (!destroyed) definition.destroy()
   }
 }
@@ -569,6 +628,7 @@ fun main(args: Array<String>) {
   val local = KeyStore.getInstance("PKCS12").apply { FileInputStream(args[1]).use { load(it, "fixture-password".toCharArray()) } }
   localMaterial = LocalIdentityKey(local.getKey("fixture", "fixture-password".toCharArray()) as java.security.PrivateKey, local.getCertificate("fixture").publicKey, "software")
   val cases = listOf("control-navigation-stable-inset-and-lifecycle-only" to ::controlNavigationStableInsetsAndLifecycle,
+    "keep-screen-on-flags-and-lifecycle" to ::keepScreenOnFlagsAndLifecycle,
     "wifi-signal-active-network-permission-and-sentinel" to ::wifiSignalOnlyFromActiveWifi,
     "foreground-control-wifi-lock-releases-on-background" to ::controlWifiLockLifecycle,
     "same-peer-four-reads-and-rejections" to ::samePeerReads,

@@ -256,7 +256,7 @@ function JoystickVisual({
             width: size,
             height: size,
             borderRadius: radius,
-            backgroundColor: !showVisuals ? 'transparent' : glass ? (active ? 'rgba(28,34,38,0.34)' : 'rgba(18,22,24,0.18)') : dial ? isDark ? 'rgba(215,228,240,0.16)' : 'rgba(225,236,246,0.52)' : variant === 'cross' ? 'transparent' : trackColor,
+            backgroundColor: !showVisuals ? 'transparent' : glass ? (active ? 'rgba(32,32,32,0.34)' : 'rgba(20,20,20,0.18)') : dial ? isDark ? 'rgba(220,220,220,0.16)' : 'rgba(230,230,230,0.52)' : variant === 'cross' ? 'transparent' : trackColor,
             borderColor: !showVisuals ? 'transparent' : glass ? 'rgba(255,255,255,0.38)' : dial || variant === 'cross' ? 'transparent' : trackBorderColor,
             borderWidth: !showVisuals ? 0 : glass ? glassStroke : dial || variant === 'cross' ? 0 : StyleSheet.hairlineWidth,
             opacity: disabled ? 0.8 : 1,
@@ -315,7 +315,7 @@ function JoystickVisual({
               width: knobSize,
               height: knobSize,
               borderRadius: knobSize / 2,
-              backgroundColor: glass ? (active ? 'rgba(240,246,252,0.36)' : 'rgba(240,246,252,0.12)') : dial ? active ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.76)' : knobColor,
+              backgroundColor: glass ? (active ? 'rgba(242,242,242,0.36)' : 'rgba(242,242,242,0.12)') : dial ? active ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.76)' : knobColor,
               borderColor: glass ? 'rgba(255,255,255,0.56)' : dial ? 'rgba(255,255,255,0.7)' : active ? appearance.blueInk : appearance.border,
               borderWidth: glass ? 1 : dial ? 0.5 : StyleSheet.hairlineWidth,
               transform: [

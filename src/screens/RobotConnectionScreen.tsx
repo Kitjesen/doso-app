@@ -1,13 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { randomUUID } from 'expo-crypto';
 import { useEffect, useRef, useState } from 'react';
-import { AppState, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { AppState, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text, TextInput } from '../components/AppText';
 import { type ControlSetupMedia } from '../components/ControlSetupSurface';
 import { OfficialSheet } from '../components/OfficialSheet';
-import { officialDark, officialLabHost } from '../officialPalette';
-import { cardLayout, getProductAppearance } from '../appearance';
+import { officialLabHost } from '../officialPalette';
+import { getProductAppearance } from '../appearance';
 import { controlTypography as typography } from '../typography';
 import { useAppTheme } from '../theme';
 import { directVideoOrigin } from '../features/video/videoBinding';
@@ -23,6 +23,30 @@ import { isBrainstemControlAvailable } from '../services/brainstemControl';
 import { getBrainstemIntegrationReadiness } from '../services/brainstemIntegrationReadiness';
 import { WifiDiscoveryPanel } from './WifiDiscoveryPanel';
 import { LingtuStatusScreen } from './LingtuStatusScreen';
+
+const FSD_MATTE = {
+  canvas: '#141414',
+  sheet: '#1C1C1C',
+  card: '#222222',
+  input: '#161616',
+  activePill: '#303030',
+  divider: 'rgba(255, 255, 255, 0.08)',
+  ink: '#F2F2F2',
+  muted: '#9A9A9A',
+  emerald: '#34D399',
+  emeraldInk: '#34D399',
+  amber: '#F59E0B',
+  danger: '#EF4444',
+  ctaBg: '#F2F2F2',
+  ctaInk: '#141414',
+  ctaDisabledBg: '#222222',
+  ctaDisabledInk: '#6B6B6B',
+} as const;
+
+const QUICK_HOST_PRESETS = [
+  { id: 'hotspot', label: '机器狗热点', host: '192.168.50.1' },
+  { id: 'lan', label: '局域网', host: officialLabHost },
+] as const;
 
 type Props = {
   readOnlyPreview?: boolean;
@@ -43,9 +67,11 @@ type Transport = 'ip' | 'ble' | 'navigation';
 // A local observation does not grant cloud ownership or a control lease.
 export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, onBack, onOpenBleDiscovery, initialEndpoint, onUseConnection, onUseNavigation, onViewVideo, navigationUseLabel, allowViewerToken, onOpenControl }: Props) {
   void _media;
+  const { width } = useWindowDimensions();
+  const isWide = width >= 700;
   const theme = useAppTheme();
-  const colors = { ...theme.colors, background: officialDark.canvas, surface: officialDark.surface, ink: officialDark.ink, muted: officialDark.muted, line: officialDark.line, authPrimary: officialDark.cta, authPrimaryInk: officialDark.ctaInk };
-  const p = { ...getProductAppearance(true), canvas: officialDark.canvas, surface: officialDark.surface, ink: officialDark.ink, secondary: officialDark.muted, border: officialDark.line, action: officialDark.cta, actionInk: officialDark.ctaInk, blue: officialDark.cta };
+  const colors = { ...theme.colors, background: FSD_MATTE.canvas, surface: FSD_MATTE.sheet, ink: FSD_MATTE.ink, muted: FSD_MATTE.muted, line: FSD_MATTE.divider, authPrimary: FSD_MATTE.ctaBg, authPrimaryInk: FSD_MATTE.ctaInk, dangerText: FSD_MATTE.danger };
+  const p = { ...getProductAppearance(true), canvas: FSD_MATTE.canvas, surface: FSD_MATTE.sheet, ink: FSD_MATTE.ink, secondary: FSD_MATTE.muted, border: FSD_MATTE.divider, action: FSD_MATTE.ctaBg, actionInk: FSD_MATTE.ctaInk, blue: FSD_MATTE.ink };
   const defaultHost = initialEndpoint?.host
     ?? (typeof __DEV__ !== 'undefined' && __DEV__ && isBrainstemLanAvailable()
       && typeof globalThis !== 'undefined'
@@ -112,7 +138,7 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
         clearExpiry(); setIdentityAlias(null); setObservation(null); setIdentityReadsVerified(false); return;
       }
       interrupt(); setIdentityAlias(null); setLocalIdentity(null); setObservation(null); setIdentityReadsVerified(false); setBusy(null);
-      setMessage('连接检查已暂停。');
+      setMessage('连接检查已暂停');
     });
     return () => { mounted.current = false; interrupt(); sub.remove(); };
   }, []);
@@ -120,8 +146,8 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
   const report = (error: unknown) => error instanceof BrainstemGrpcError && error.code !== 'unavailable'
     ? error.message
     : wireTransport === 'lan-dev'
-      ? '局域网连接检查失败，请核对私有 IPv4、服务端口与来源许可。'
-      : error instanceof BrainstemGrpcError ? error.message : '连接检查失败，请核对机器狗服务地址和证书配置。';
+      ? '局域网连接检查失败，请核对地址与端口'
+      : error instanceof BrainstemGrpcError ? error.message : '连接检查失败，请核对地址与证书';
   const endpointForConnection = (): BrainstemGrpcEndpoint => ({
     ...validateBrainstemEndpoint(host, port, wireTransport, wireTransport === 'tls' ? identityAlias ?? undefined : undefined),
     ...(wireTransport === 'lan-dev' ? { transport: 'lan-dev' as const } : identityAlias ? { clientIdentityAlias: identityAlias } : {}),
@@ -135,7 +161,7 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
     try { endpoint = endpointForConnection(); }
     catch (error) { setMessage(report(error)); return; }
     const origin = directVideoOrigin(endpoint);
-    if (!origin || !onViewVideo(origin, undefined, endpoint)) setMessage('暂时无法打开画面，请核对地址和当前连接状态。');
+    if (!origin || !onViewVideo(origin, undefined, endpoint)) setMessage('暂时无法打开画面，请核对地址与连接');
   };
   const changeEndpoint = (kind: 'host' | 'port', value: string) => {
     if (busyRef.current) return;
@@ -153,7 +179,7 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
     let endpoint;
     try {
       endpoint = validateBrainstemEndpoint(host, port);
-      if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(canonicalRobotId)) { setMessage('请输入有效的机器人编号。'); return; }
+      if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(canonicalRobotId)) { setMessage('请输入有效的机器人编号'); return; }
       if (complete && localIdentity?.status !== 'pending') return;
     } catch (error) { setMessage(report(error)); return; }
     const id = ++operation.current, controller = new AbortController(); request.current = controller;
@@ -171,7 +197,7 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
       setLocalIdentity(identity);
       if (identity.status === 'ready') { setIdentityAlias(identity.identityAlias); setPrincipal(identity.principal); }
       else setIdentityAlias(null);
-      setMessage(identity.status === 'ready' ? '本机身份已就绪。' : '连接申请已生成，等待授权。');
+      setMessage(identity.status === 'ready' ? '本机身份已就绪' : '申请已生成，等待授权');
     } catch (error) { if (current(id)) setMessage(report(error)); }
     finally {
       if (current(id)) { request.current = null; busyRef.current = false; setBusy(null); }
@@ -186,7 +212,7 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
     busyRef.current = true; identityPending.current = true; setBusy('identity'); setMessage(null); setObservation(null); setIdentityReadsVerified(false); clearExpiry();
     try {
       const alias = await chooseBrainstemClientIdentity(endpoint.host, endpoint.port);
-      if (current(id)) { setIdentityAlias(alias); setMessage(alias ? '已选择客户端证书。' : '未选择客户端证书。'); }
+      if (current(id)) { setIdentityAlias(alias); setMessage(alias ? '已选择配对证书' : '未选择配对证书'); }
     } catch (error) { if (current(id)) setMessage(report(error)); }
     finally {
       // A rejected native chooser may settle while paused. Releasing our own
@@ -244,10 +270,10 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
       const remaining = Date.parse(checked.observation.observedAt) + 15_000 - Date.now();
       setDiagnosticIssues(issues);
       setIdentityReadsVerified(verifiedReads === 4);
-      setObservation(checked.observation); setMessage('状态已读取，未获取控制权。');
+      setObservation(checked.observation); setMessage('状态已读取，未获取控制权');
       expiry.current = setTimeout(() => {
         if (!current(id)) return;
-        setObservation(null); setIdentityReadsVerified(false); setMessage('机器人状态已过期，请重新检查。'); expiry.current = null;
+        setObservation(null); setIdentityReadsVerified(false); setMessage('状态已过期，请重新检查'); expiry.current = null;
       }, remaining);
     } catch (error) { if (current(id)) setMessage(report(error)); }
     finally { if (current(id)) { request.current = null; busyRef.current = false; setBusy(null); } }
@@ -259,7 +285,7 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
       if (onUseConnection(checked)) return;
     } catch { /* Display only a fixed reason; never expose native or account details. */ }
     clearExpiry(); setObservation(null);
-    setMessage('本次状态或会话上下文已变化，请重新读取后继续。');
+    setMessage('状态或会话上下文已变化，请重新检查');
   };
   const openControl = async () => {
     if (!onOpenControl || wireTransport === 'tls' && !identityAlias || busyRef.current || !active.current) return;
@@ -272,8 +298,8 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
       const opened = await onOpenControl(endpoint, wireTransport === 'lan-dev' ? '' : principal.trim(), controller.signal);
       // The session now lives in App; do not abort it when this screen unmounts.
       if (opened) request.current = null;
-      if (current(id)) setMessage(opened ? '连接已建立。' : wireTransport === 'lan-dev' ? '局域网连接未建立，请核对私有 IP、来源许可和服务配置。' : '控制连接未建立，请核对机器狗的配对证书和服务配置。');
-    } catch { if (current(id)) setMessage(wireTransport === 'lan-dev' ? '局域网连接未建立，请核对私有 IP、来源许可和服务配置。' : '控制连接未建立，请核对地址、控制身份和配对证书。'); }
+      if (current(id)) setMessage(opened ? '连接已建立' : wireTransport === 'lan-dev' ? '局域网连接未建立，请核对地址与网络' : '控制连接未建立，请核对证书与配置');
+    } catch { if (current(id)) setMessage(wireTransport === 'lan-dev' ? '局域网连接未建立，请核对地址与网络' : '控制连接未建立，请核对证书与配置'); }
     finally { if (current(id)) { request.current = null; busyRef.current = false; setBusy(null); } }
   };
   const connect = async () => {
@@ -284,7 +310,7 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
     if (!onOpenControl) { await readStatus(); return; }
     if (wireTransport === 'tls' && !identityAlias) {
       setDetailsExpanded(true); setTransport('ip');
-      setMessage('首次连接，请在高级设置中选择配对证书。');
+      setMessage('首次连接，请在高级设置中选择配对证书');
       return;
     }
     await openControl();
@@ -295,14 +321,34 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
     operation.current++; clearExpiry(); cancelLocalIdentity(); setObservation(null); setMessage(null); setIdentityAlias(null); setLocalIdentity(null); setIdentityReadsVerified(false);
     setHost(nextHost); setPort(String(nextPort));
   };
-  const cancel = () => { interrupt(); setBusy(null); setObservation(null); setIdentityReadsVerified(false); setMessage('本次连接检查已取消。'); };
-  const button = (label: string, id: string, press: () => void | Promise<void>, disabled = false, primary = false) => (
-    <Pressable accessibilityRole="button" accessibilityState={{ disabled: disabled || readOnlyPreview }} disabled={disabled || readOnlyPreview} onPress={() => { if (!readOnlyPreview) return press(); }}
-      style={({ pressed }) => [styles.button, { backgroundColor: primary ? officialDark.cta : officialDark.surface, borderWidth: primary ? 0 : 1, borderColor: officialDark.line }, pressed && styles.pressed, disabled && styles.disabled]}
-      testID={id}><Text style={[typography.label, { color: primary ? officialDark.ctaInk : officialDark.ink, fontWeight: '600' }]}>{label}</Text></Pressable>
-  );
+  const cancel = () => { interrupt(); setBusy(null); setObservation(null); setIdentityReadsVerified(false); setMessage('本次连接检查已取消'); };
+  const button = (label: string, id: string, press: () => void | Promise<void>, disabled = false, primary = false, flexRow = false) => {
+    const isDisabled = disabled || readOnlyPreview;
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ disabled: isDisabled }}
+        disabled={isDisabled}
+        onPress={() => { if (!readOnlyPreview) return press(); }}
+        style={({ pressed }) => [
+          styles.button,
+          flexRow && styles.buttonFlex,
+          primary
+            ? { backgroundColor: isDisabled ? FSD_MATTE.ctaDisabledBg : FSD_MATTE.ctaBg }
+            : { backgroundColor: FSD_MATTE.card },
+          pressed && !isDisabled && styles.pressed,
+          isDisabled && !primary && styles.disabled,
+        ]}
+        testID={id}
+      >
+        <Text numberOfLines={1} style={[typography.label, styles.buttonLabel, { color: primary ? (isDisabled ? FSD_MATTE.ctaDisabledInk : FSD_MATTE.ctaInk) : FSD_MATTE.ink }]}>
+          {label}
+        </Text>
+      </Pressable>
+    );
+  };
   const fsm = { zero: '初始化', grounded: '落地', standing: '站立', walking: '行走', transitioning: '姿态切换中' };
-  const owner = { none: '无控制者', grpc: 'gRPC 控制者', yunzhuo: '云卓遥控器' };
+  const owner = { none: '无', grpc: '控制端', yunzhuo: '遥控器' };
   const tab = (id: Transport, label: string) => (
     <Pressable
       accessibilityRole="tab"
@@ -317,7 +363,7 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
       style={[styles.transportTab, transport === id && styles.transportTabActive]}
       testID={`connection-transport-${id}`}
     >
-      <Text style={[styles.transportTabLabel, transport === id && styles.transportTabLabelActive]}>{label}</Text>
+      <Text numberOfLines={1} style={[styles.transportTabLabel, transport === id && styles.transportTabLabelActive]}>{label}</Text>
     </Pressable>
   );
   if (transport === 'navigation') return <LingtuStatusScreen allowLocalHttp={isBrainstemLanAvailable()}
@@ -326,101 +372,214 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
     useNavigationLabel={navigationUseLabel}
     allowViewerToken={allowViewerToken}
     onBack={() => { if (mounted.current && active.current) { setTransport('ip'); setMessage(null); } }} />;
-  return <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
+
+  const statusDotColor = busy
+    ? FSD_MATTE.ink
+    : observation
+      ? FSD_MATTE.emerald
+      : 'rgba(154, 154, 154, 0.55)';
+  const statusCopy = readOnlyPreview
+    ? '预览模式'
+    : message ?? (!available || (onOpenControl && !controlAvailable) ? '请更新应用版本' : '未连接');
+
+  return <SafeAreaView style={[styles.safe, { backgroundColor: FSD_MATTE.canvas }]}>
     <OfficialSheet title="连接机器狗" onBack={() => leave(onBack)} backTestID="robot-connection-back">
-      <ScrollView keyboardShouldPersistTaps="handled" contentInsetAdjustmentBehavior="automatic" showsVerticalScrollIndicator={false} style={styles.scroll} contentContainerStyle={styles.pageContent} testID="robot-connection-scroll">
-        <View style={styles.content}>
-          <View style={styles.primaryPanel} testID="connection-primary-panel">
-            <Text style={[typography.supporting, { color: officialDark.muted, fontWeight: '500' }]}>机器狗地址</Text>
-            <Text style={[typography.supporting, { color: officialDark.muted, marginBottom: 6 }]} testID={wireTransport === 'lan-dev' ? 'robot-lan-mode' : 'robot-tls-mode'}>局域网连接</Text>
-            <TextInput accessibilityLabel="机器狗地址" autoCapitalize="none" autoCorrect={false} editable={!busy} keyboardType="url" onChangeText={value => changeEndpoint('host', value)} placeholder="输入 IP 或主机名" placeholderTextColor={p.secondary} style={[styles.input, { backgroundColor: officialDark.field, color: p.ink }]} testID="robot-grpc-host" value={host} />
-            {button(busy ? '取消连接' : '连接机器狗', busy ? 'robot-grpc-cancel' : 'robot-connect', busy ? cancel : connect, !busy && (!available || (!!onOpenControl && !controlAvailable)), true)}
-            {lanVideoAvailable ? button('仅看画面', 'robot-lan-view-video', openLanVideo, busy !== null) : null}
-            <Text accessibilityLiveRegion="polite" style={[typography.supporting, { color: p.secondary }]} testID="robot-grpc-result">{readOnlyPreview ? '预览模式，不连接设备' : message ?? (!available || (onOpenControl && !controlAvailable) ? '请升级安装包以连接机器狗。' : '未连接')}</Text>
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        contentInsetAdjustmentBehavior="automatic"
+        showsVerticalScrollIndicator={false}
+        style={styles.scroll}
+        contentContainerStyle={[styles.pageContent, isWide && styles.pageContentWide]}
+        testID="robot-connection-scroll"
+      >
+        <View style={[styles.cockpitGrid, isWide && styles.cockpitGridWide]}>
+          {/* Left Column: Direct-Connect Matte Charcoal Card */}
+          <View style={[styles.leftCol, isWide && styles.leftColWide]}>
+            <View style={styles.primaryPanel} testID="connection-primary-panel">
+              <View style={styles.cardHeaderRow}>
+                <View style={styles.cardTitleGroup}>
+                  <View style={[styles.statusOrb, { backgroundColor: statusDotColor }]} />
+                  <Text numberOfLines={1} style={styles.cardTitle}>直连地址</Text>
+                </View>
+                <View style={[styles.modePill, wireTransport === 'lan-dev' && styles.modePillActive]}>
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.modePillText, wireTransport === 'lan-dev' && styles.modePillTextActive]}
+                    testID={wireTransport === 'lan-dev' ? 'robot-lan-mode' : 'robot-tls-mode'}
+                  >
+                    {wireTransport === 'lan-dev' ? '局域网直连' : '证书直连'}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>机器狗地址</Text>
+                <TextInput
+                  accessibilityLabel="机器狗地址"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  editable={!busy}
+                  keyboardType="url"
+                  onChangeText={value => changeEndpoint('host', value)}
+                  placeholder="输入 IP 或主机名"
+                  placeholderTextColor={FSD_MATTE.muted}
+                  style={[styles.input, { color: FSD_MATTE.ink }]}
+                  testID="robot-grpc-host"
+                  value={host}
+                />
+                <View style={styles.presetRow}>
+                  {QUICK_HOST_PRESETS.map(preset => {
+                    const activePreset = host.trim() === preset.host;
+                    return (
+                      <Pressable
+                        key={preset.id}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: activePreset, disabled: Boolean(busy || readOnlyPreview) }}
+                        disabled={Boolean(busy || readOnlyPreview)}
+                        onPress={() => changeEndpoint('host', preset.host)}
+                        style={({ pressed }) => [
+                          styles.presetChip,
+                          activePreset && styles.presetChipActive,
+                          pressed && styles.pressed,
+                        ]}
+                        testID={`robot-preset-${preset.id}`}
+                      >
+                        <Text numberOfLines={1} style={[styles.presetLabel, activePreset && styles.presetLabelActive]}>{preset.label}</Text>
+                        <Text numberOfLines={1} style={[styles.presetAddr, activePreset && styles.presetAddrActive]}>{preset.host}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              <View style={styles.ctaRow}>
+                {button(
+                  busy ? '取消连接' : '连接机器狗',
+                  busy ? 'robot-grpc-cancel' : 'robot-connect',
+                  busy ? cancel : connect,
+                  !busy && (!available || (!!onOpenControl && !controlAvailable)),
+                  true,
+                  true,
+                )}
+                {lanVideoAvailable ? button('仅看画面', 'robot-lan-view-video', openLanVideo, busy !== null, false, false) : null}
+              </View>
+
+              <View style={styles.resultStrip}>
+                <View style={[styles.resultDot, { backgroundColor: statusDotColor }]} />
+                <Text accessibilityLiveRegion="polite" style={styles.resultText} testID="robot-grpc-result">
+                  {statusCopy}
+                </Text>
+              </View>
+            </View>
           </View>
 
-          <WifiDiscoveryPanel currentHost={host} currentPort={port} disabled={busy !== null} onApplyAddress={applyDiscoveredAddress} releaseRef={releaseWifi} testID="connection-wifi-discovery" />
+          {/* Right Column: Live Hotspot Radar + Collapsible Advanced Card */}
+          <View style={[styles.rightCol, isWide && styles.rightColWide]}>
+            <WifiDiscoveryPanel
+              currentHost={host}
+              currentPort={port}
+              disabled={busy !== null}
+              onApplyAddress={applyDiscoveredAddress}
+              releaseRef={releaseWifi}
+              surfaceTone="dark"
+              testID="connection-wifi-discovery"
+            />
 
-          <View style={[styles.panel, detailsExpanded ? { backgroundColor: p.surface } : styles.collapsedPanel]}>
-            <Pressable accessibilityRole="button" accessibilityState={{ expanded: detailsExpanded }} accessibilityLabel={detailsExpanded ? '收起高级设置' : '展开高级设置'} onPress={() => setDetailsExpanded(value => !value)} style={styles.integrationHeader} testID="connection-details-toggle">
-              <Text style={[typography.label, { color: p.ink, flex: 1 }]}>高级设置</Text>
-              <Ionicons color={p.secondary} name={detailsExpanded ? 'chevron-up' : 'chevron-down'} size={20} />
-            </Pressable>
-            {detailsExpanded ? <View style={styles.advancedContent} testID="connection-advanced-settings">
-              <View accessibilityRole="tablist" style={styles.transportTabs} testID="connection-transport-tabs">
-                {tab('ip', '连接设置')}
-                {tab('ble', '蓝牙')}
-                {tab('navigation', '视频与诊断')}
-              </View>
-              {transport === 'ip' ? <View style={styles.advancedContent}>
-                {button(wireTransport === 'lan-dev' ? '切换到证书连接' : '切换到局域网连接', 'robot-wire-transport', () => {
-                  if (busyRef.current) return;
-                  interrupt(); setWireTransport(wireTransport === 'lan-dev' ? 'tls' : 'lan-dev'); setIdentityAlias(null); setLocalIdentity(null); setObservation(null); setIdentityReadsVerified(false); setMessage(null);
-                }, busy !== null || wireTransport === 'tls' && !isBrainstemLanAvailable())}
-                <Text style={[typography.label, { color: p.ink }]}>端口</Text>
-                <TextInput accessibilityLabel="gRPC端口" editable={!busy} keyboardType="number-pad" onChangeText={value => changeEndpoint('port', value)} style={[styles.input, { backgroundColor: colors.background, color: p.ink }]} testID="robot-grpc-port" value={port} />
-                {wireTransport === 'tls' ? <><Text style={[typography.label, { color: p.ink }]}>机器人编号</Text>
-                  <TextInput accessibilityLabel="机器人编号" autoCapitalize="none" autoCorrect={false} editable={!busy} onChangeText={changeRobotId} placeholder="输入机器人编号" placeholderTextColor={p.secondary} style={[styles.input, { backgroundColor: colors.background, color: p.ink }]} testID="robot-local-identity-robot-id" value={robotId} />
-                  <Text style={[typography.supporting, { color: p.secondary }]} testID="robot-local-identity-status">本机身份：{localIdentity?.status === 'ready' ? '可用' : localIdentity ? '等待授权' : '未准备'}</Text>
-                  {button(busy === 'local-identity' ? '正在读取…' : localIdentity?.status === 'ready' ? '读取本机身份' : '生成连接申请', 'robot-local-identity-prepare', () => useLocalIdentity(false), busy !== null || !localIdentityAvailable)}
-                  {localIdentity?.status === 'pending' ? button('读取授权结果', 'robot-local-identity-complete', () => useLocalIdentity(true), busy !== null || !localIdentityAvailable) : null}
-                  {!localIdentityAvailable ? <Text style={[typography.supporting, { color: p.secondary }]} testID="robot-local-identity-unavailable">此版本不支持本机身份，请升级安装包。</Text> : null}
-                  <Text style={[typography.supporting, { color: p.secondary }]}>{identityAlias ? '配对证书：已选择' : '配对证书：未选择'}</Text>
-                  {button(busy === 'identity' ? '正在选择配对证书…' : '选择配对证书', 'robot-grpc-certificate', selectIdentity, busy !== null || !available)}
-                  {onOpenControl ? <>
-                    <Text style={[typography.label, { color: p.ink }]}>配对身份</Text>
-                    <TextInput accessibilityLabel="配对控制身份" autoCapitalize="none" autoCorrect={false} editable={!busy && !(localIdentity?.status === 'ready' && identityAlias === localIdentity.identityAlias)} value={principal} onChangeText={value => { if (!(localIdentity?.status === 'ready' && identityAlias === localIdentity.identityAlias)) setPrincipal(value); }} style={[styles.input, { backgroundColor: colors.background, color: p.ink }]} testID="robot-control-principal" />
-                  </> : null}</> : null}
-                {button(busy === 'read' ? '正在检查…' : '检查连接状态', 'robot-grpc-read', readStatus, busy !== null || !available)}
-                {!available ? <Text style={[typography.supporting, { color: p.secondary }]} testID="robot-grpc-unavailable">此版本不支持直连，请升级 Android 安装包。</Text> : null}
-              </View> : null}
-              {transport === 'ble' ? <View style={styles.advancedContent} testID="connection-ble-panel">
-                <Text style={[typography.label, { color: p.ink }]}>附近 BLE 设备</Text>
-                <Text style={[typography.supporting, { color: p.secondary }]}>身份验证和配网尚未接入</Text>
-                {onOpenBleDiscovery ? button('查找蓝牙设备', 'connection-open-ble', () => leave(onOpenBleDiscovery), busy !== null) : null}
-              </View> : null}
+            <View style={styles.advancedCard}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ expanded: detailsExpanded }}
+                accessibilityLabel={detailsExpanded ? '收起高级设置' : '展开高级设置'}
+                onPress={() => setDetailsExpanded(value => !value)}
+                style={styles.integrationHeader}
+                testID="connection-details-toggle"
+              >
+                <View style={styles.advancedTitleRow}>
+                  <Ionicons color={FSD_MATTE.muted} name="options-outline" size={16} />
+                  <Text numberOfLines={1} style={styles.advancedTitle}>高级设置</Text>
+                </View>
+                <View style={styles.advancedRightMeta}>
+                  <Text numberOfLines={1} style={styles.advancedHint}>端口 · 蓝牙 · 诊断</Text>
+                  <Ionicons color={FSD_MATTE.muted} name={detailsExpanded ? 'chevron-up' : 'chevron-down'} size={17} />
+                </View>
+              </Pressable>
 
-              {observation ? <View style={styles.status} testID="robot-grpc-observation">
-                <Text style={[typography.label, { color: p.ink }]}>连接诊断</Text>
-                {wireTransport === 'tls' ? <Text style={[typography.supporting, { color: p.ink }]} testID="robot-grpc-mtls-proof">身份握手：{identityReadsVerified ? '已验证' : '未验证'}</Text> : null}
-                <Text style={[typography.supporting, { color: p.ink }]}>机器人状态：{fsm[observation.status.fsmKind]}</Text>
-                <Text style={[typography.supporting, { color: p.ink }]}>控制来源：{owner[observation.status.owner]}</Text>
-                <Text style={[typography.supporting, { color: p.ink }]}>电机输出：{observation.status.motorOutputEnabled ? '已使能' : '未使能'}</Text>
-                <Text style={[typography.supporting, { color: p.ink }]}>严重故障：{observation.status.criticalMotorFault ? '有' : '无'}</Text>
-                <Text style={[typography.supporting, { color: p.ink }]}>当前策略：{observation.profile?.currentDescription || observation.profile?.current || '未同步'}</Text>
-                {(() => {
-                  const values = observation.voltage?.values.filter(value => value > 0) ?? [];
-                  const live = values.length > 0;
-                  const voltageText = live ? `${Math.min(...values).toFixed(1)}–${Math.max(...values).toFixed(1)} V` : '未同步';
-                  return <Text style={[typography.supporting, { color: live ? '#30D158' : p.ink }]}>电机总线电压：{voltageText}</Text>;
-                })()}
-                <Text style={[typography.supporting, { color: p.ink }]}>电机在线：{observation.motors?.length ? `${observation.motors.filter(motor => motor.online).length}/${observation.motors.length}` : '未同步'}</Text>
-                {observation.motors?.some(motor => motor.errors.length > 0) ? <Text style={[typography.supporting, { color: colors.dangerText }]}>存在电机故障</Text> : null}
-                {onUseConnection ? button('使用此设备', 'robot-use-connection', useConnection, busy !== null) : null}
-                <View testID="connection-diagnostic-issues">
-                  {(['profile', 'voltage', 'motors'] as const).filter(kind => diagnosticIssues[kind]).map(kind => <Text key={kind} style={[typography.supporting, { color: p.secondary }]}>
-                    {{ profile: '策略', voltage: '电压', motors: '电机状态' }[kind]}：{diagnosticIssues[kind]}
-                  </Text>)}
+              {detailsExpanded ? <View style={styles.advancedContent} testID="connection-advanced-settings">
+                <View accessibilityRole="tablist" style={styles.transportTabs} testID="connection-transport-tabs">
+                  {tab('ip', '连接设置')}
+                  {tab('ble', '蓝牙')}
+                  {tab('navigation', '视频与诊断')}
+                </View>
+                {transport === 'ip' ? <View style={styles.advancedContent}>
+                  {button(wireTransport === 'lan-dev' ? '切换到证书连接' : '切换到局域网连接', 'robot-wire-transport', () => {
+                    if (busyRef.current) return;
+                    interrupt(); setWireTransport(wireTransport === 'lan-dev' ? 'tls' : 'lan-dev'); setIdentityAlias(null); setLocalIdentity(null); setObservation(null); setIdentityReadsVerified(false); setMessage(null);
+                  }, busy !== null || wireTransport === 'tls' && !isBrainstemLanAvailable())}
+                  <Text style={styles.fieldLabel}>端口</Text>
+                  <TextInput accessibilityLabel="服务端口" editable={!busy} keyboardType="number-pad" onChangeText={value => changeEndpoint('port', value)} style={[styles.input, { color: FSD_MATTE.ink }]} testID="robot-grpc-port" value={port} />
+                  {wireTransport === 'tls' ? <><Text style={styles.fieldLabel}>机器人编号</Text>
+                    <TextInput accessibilityLabel="机器人编号" autoCapitalize="none" autoCorrect={false} editable={!busy} onChangeText={changeRobotId} placeholder="输入机器人编号" placeholderTextColor={FSD_MATTE.muted} style={[styles.input, { color: FSD_MATTE.ink }]} testID="robot-local-identity-robot-id" value={robotId} />
+                    <Text style={[typography.supporting, { color: p.secondary }]} testID="robot-local-identity-status">本机身份：{localIdentity?.status === 'ready' ? '可用' : localIdentity ? '等待授权' : '未准备'}</Text>
+                    {button(busy === 'local-identity' ? '正在读取…' : localIdentity?.status === 'ready' ? '读取本机身份' : '生成连接申请', 'robot-local-identity-prepare', () => useLocalIdentity(false), busy !== null || !localIdentityAvailable)}
+                    {localIdentity?.status === 'pending' ? button('读取授权结果', 'robot-local-identity-complete', () => useLocalIdentity(true), busy !== null || !localIdentityAvailable) : null}
+                    {!localIdentityAvailable ? <Text style={[typography.supporting, { color: p.secondary }]} testID="robot-local-identity-unavailable">请更新应用版本</Text> : null}
+                    <Text style={[typography.supporting, { color: p.secondary }]}>{identityAlias ? '配对证书：已选择' : '配对证书：未选择'}</Text>
+                    {button(busy === 'identity' ? '正在选择配对证书…' : '选择配对证书', 'robot-grpc-certificate', selectIdentity, busy !== null || !available)}
+                    {onOpenControl ? <>
+                      <Text style={styles.fieldLabel}>配对身份</Text>
+                      <TextInput accessibilityLabel="配对控制身份" autoCapitalize="none" autoCorrect={false} editable={!busy && !(localIdentity?.status === 'ready' && identityAlias === localIdentity.identityAlias)} value={principal} onChangeText={value => { if (!(localIdentity?.status === 'ready' && identityAlias === localIdentity.identityAlias)) setPrincipal(value); }} style={[styles.input, { color: FSD_MATTE.ink }]} testID="robot-control-principal" />
+                    </> : null}</> : null}
+                  {button(busy === 'read' ? '正在检查…' : '检查连接状态', 'robot-grpc-read', readStatus, busy !== null || !available)}
+                  {!available ? <Text style={[typography.supporting, { color: p.secondary }]} testID="robot-grpc-unavailable">请更新应用版本</Text> : null}
+                </View> : null}
+                {transport === 'ble' ? <View style={styles.advancedContent} testID="connection-ble-panel">
+                  <Text style={[typography.label, { color: p.ink }]}>附近蓝牙设备</Text>
+                  <Text style={[typography.supporting, { color: p.secondary }]}>仅支持蓝牙发现</Text>
+                  {onOpenBleDiscovery ? button('查找蓝牙设备', 'connection-open-ble', () => leave(onOpenBleDiscovery), busy !== null) : null}
+                </View> : null}
+
+                {observation ? <View style={styles.status} testID="robot-grpc-observation">
+                  <Text style={[typography.label, { color: p.ink }]}>连接诊断</Text>
+                  {wireTransport === 'tls' ? <Text style={[typography.supporting, { color: p.ink }]} testID="robot-grpc-mtls-proof">身份握手：{identityReadsVerified ? '已验证' : '未验证'}</Text> : null}
+                  <Text style={[typography.supporting, { color: p.ink }]}>机器人状态：{fsm[observation.status.fsmKind]}</Text>
+                  <Text style={[typography.supporting, { color: p.ink }]}>控制来源：{owner[observation.status.owner]}</Text>
+                  <Text style={[typography.supporting, { color: p.ink }]}>电机输出：{observation.status.motorOutputEnabled ? '已使能' : '未使能'}</Text>
+                  <Text style={[typography.supporting, { color: p.ink }]}>严重故障：{observation.status.criticalMotorFault ? '有' : '无'}</Text>
+                  <Text style={[typography.supporting, { color: p.ink }]}>当前策略：{observation.profile?.currentDescription || observation.profile?.current || '未同步'}</Text>
+                  {(() => {
+                    const values = observation.voltage?.values.filter(value => value > 0) ?? [];
+                    const live = values.length > 0;
+                    const voltageText = live ? `${Math.min(...values).toFixed(1)}–${Math.max(...values).toFixed(1)} V` : '未同步';
+                    return <Text style={[typography.supporting, { color: live ? FSD_MATTE.emeraldInk : p.ink }]}>电机总线电压：{voltageText}</Text>;
+                  })()}
+                  <Text style={[typography.supporting, { color: p.ink }]}>电机在线：{observation.motors?.length ? `${observation.motors.filter(motor => motor.online).length}/${observation.motors.length}` : '未同步'}</Text>
+                  {observation.motors?.some(motor => motor.errors.length > 0) ? <Text style={[typography.supporting, { color: colors.dangerText }]}>存在电机故障</Text> : null}
+                  {onUseConnection ? button('使用此设备', 'robot-use-connection', useConnection, busy !== null) : null}
+                  <View testID="connection-diagnostic-issues">
+                    {(['profile', 'voltage', 'motors'] as const).filter(kind => diagnosticIssues[kind]).map(kind => <Text key={kind} style={[typography.supporting, { color: p.secondary }]}>
+                      {{ profile: '策略', voltage: '电压', motors: '电机状态' }[kind]}：{diagnosticIssues[kind]}
+                    </Text>)}
+                  </View>
+                </View> : null}
+                <View style={styles.integrationRows} testID="brainstem-integration-readiness">
+                  <Text style={[typography.supporting, { color: p.secondary }]}>{integration.controlBlockedReason}</Text>
+                  {integration.gates.map(currentGate => {
+                    const color = currentGate.state === 'ready' ? FSD_MATTE.emerald : currentGate.state === 'pending' ? FSD_MATTE.amber : FSD_MATTE.muted;
+                    const label = currentGate.state === 'ready' ? '已满足' : currentGate.state === 'pending' ? '待完成' : '未就绪';
+                    return <View key={currentGate.id} style={styles.integrationRow}>
+                      <View style={[styles.integrationDot, { backgroundColor: color }]} />
+                      <View style={styles.integrationRowCopy}>
+                        <View style={styles.integrationRowHeading}>
+                          <Text style={[typography.supporting, { color: p.ink, flex: 1 }]}>{currentGate.label}</Text>
+                          <Text style={[typography.supporting, { color }]}>{label}</Text>
+                        </View>
+                        <Text style={[typography.supporting, { color: p.secondary }]}>{currentGate.detail}</Text>
+                      </View>
+                    </View>;
+                  })}
                 </View>
               </View> : null}
-              <View style={styles.integrationRows} testID="brainstem-integration-readiness">
-                <Text style={[typography.supporting, { color: p.secondary }]}>{integration.controlBlockedReason}</Text>
-                {integration.gates.map(currentGate => {
-                  const color = currentGate.state === 'ready' ? '#2A8A64' : currentGate.state === 'pending' ? '#A06E18' : '#77808B';
-                  const label = currentGate.state === 'ready' ? '已满足' : currentGate.state === 'pending' ? '待完成' : '未就绪';
-                  return <View key={currentGate.id} style={styles.integrationRow}>
-                    <View style={[styles.integrationDot, { backgroundColor: color }]} />
-                    <View style={styles.integrationRowCopy}>
-                      <View style={styles.integrationRowHeading}>
-                        <Text style={[typography.supporting, { color: p.ink, flex: 1 }]}>{currentGate.label}</Text>
-                        <Text style={[typography.supporting, { color }]}>{label}</Text>
-                      </View>
-                      <Text style={[typography.supporting, { color: p.secondary }]}>{currentGate.detail}</Text>
-                    </View>
-                  </View>;
-                })}
-              </View>
-            </View> : null}
+            </View>
           </View>
         </View>
       </ScrollView>
@@ -429,27 +588,119 @@ export function RobotConnectionScreen({ readOnlyPreview = false, media: _media, 
 }
 
 const createStyles = () => StyleSheet.create({
-  safe: { flex: 1 }, heading: { alignItems: 'center', flexDirection: 'row', gap: 8, minHeight: 64, paddingHorizontal: 20 },
-  scroll: { flex: 1 }, pageContent: { paddingBottom: 24, gap: 12 },
-  transportTabs: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingTop: 10 },
-  transportTab: { backgroundColor: officialDark.surface, borderRadius: 14, flex: 1, minHeight: 44, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 8 },
-  transportTabActive: { backgroundColor: officialDark.cta },
-  transportTabLabel: { color: officialDark.muted, fontSize: 13, fontWeight: '600', lineHeight: 18 },
-  transportTabLabelActive: { color: officialDark.ctaInk },
-  integrationHeader: { alignItems: 'center', flexDirection: 'row', gap: 10, minHeight: 44 },
+  safe: { flex: 1 },
+  scroll: { flex: 1 },
+  pageContent: { paddingBottom: 24, paddingTop: 2 },
+  pageContentWide: { paddingBottom: 16 },
+  cockpitGrid: { alignSelf: 'center', gap: 14, maxWidth: 960, width: '100%' },
+  cockpitGridWide: { alignItems: 'flex-start', flexDirection: 'row', gap: 14 },
+  leftCol: { width: '100%' },
+  leftColWide: { flex: 0.92, minWidth: 0 },
+  rightCol: { gap: 12, width: '100%' },
+  rightColWide: { flex: 1.08, minWidth: 0 },
+
+  primaryPanel: {
+    backgroundColor: FSD_MATTE.sheet,
+    borderColor: FSD_MATTE.divider,
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 14,
+    padding: 16,
+  },
+  cardHeaderRow: { alignItems: 'center', flexDirection: 'row', gap: 8, justifyContent: 'space-between' },
+  cardTitleGroup: { alignItems: 'center', flexDirection: 'row', gap: 8 },
+  statusOrb: { borderRadius: 4.5, height: 9, width: 9 },
+  cardTitle: { color: FSD_MATTE.ink, fontSize: 15, fontWeight: '700', lineHeight: 20 },
+  modePill: {
+    backgroundColor: FSD_MATTE.card,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  modePillActive: { backgroundColor: FSD_MATTE.activePill },
+  modePillText: { color: FSD_MATTE.muted, fontSize: 11.5, fontWeight: '600', lineHeight: 15 },
+  modePillTextActive: { color: FSD_MATTE.ink },
+
+  fieldGroup: { gap: 8 },
+  fieldLabel: { color: FSD_MATTE.muted, fontSize: 12, fontWeight: '600', lineHeight: 16 },
+  input: {
+    backgroundColor: FSD_MATTE.input,
+    borderColor: FSD_MATTE.divider,
+    borderRadius: 10,
+    borderWidth: 1,
+    fontSize: 15,
+    fontVariant: ['tabular-nums'],
+    fontWeight: '600',
+    minHeight: 44,
+    paddingHorizontal: 14,
+  },
+  presetRow: { flexDirection: 'row', gap: 8 },
+  presetChip: {
+    backgroundColor: FSD_MATTE.card,
+    borderRadius: 10,
+    flex: 1,
+    gap: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  presetChipActive: { backgroundColor: FSD_MATTE.activePill },
+  presetLabel: { color: FSD_MATTE.muted, fontSize: 11, fontWeight: '600', lineHeight: 14 },
+  presetLabelActive: { color: FSD_MATTE.ink },
+  presetAddr: { color: FSD_MATTE.ink, fontSize: 12.5, fontVariant: ['tabular-nums'], fontWeight: '600', lineHeight: 16 },
+  presetAddrActive: { color: '#FFFFFF' },
+
+  ctaRow: { flexDirection: 'row', gap: 10 },
+  button: {
+    alignItems: 'center',
+    borderRadius: 10,
+    justifyContent: 'center',
+    minHeight: 44,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  buttonFlex: { flex: 1 },
+  buttonLabel: { fontSize: 14, fontWeight: '700', lineHeight: 19 },
+
+  resultStrip: {
+    alignItems: 'center',
+    backgroundColor: FSD_MATTE.input,
+    borderRadius: 10,
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  resultDot: { borderRadius: 3, height: 6, width: 6 },
+  resultText: { color: FSD_MATTE.muted, flex: 1, fontSize: 12.5, lineHeight: 17 },
+
+  advancedCard: {
+    backgroundColor: FSD_MATTE.sheet,
+    borderColor: FSD_MATTE.divider,
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  integrationHeader: { alignItems: 'center', flexDirection: 'row', gap: 10, justifyContent: 'space-between', minHeight: 36 },
+  advancedTitleRow: { alignItems: 'center', flexDirection: 'row', gap: 7 },
+  advancedTitle: { color: FSD_MATTE.ink, fontSize: 14.5, fontWeight: '600', lineHeight: 19 },
+  advancedRightMeta: { alignItems: 'center', flexDirection: 'row', gap: 6 },
+  advancedHint: { color: FSD_MATTE.muted, fontSize: 11.5, lineHeight: 15 },
+  advancedContent: { gap: 10 },
+  transportTabs: { backgroundColor: FSD_MATTE.input, borderRadius: 10, flexDirection: 'row', gap: 4, padding: 3 },
+  transportTab: { alignItems: 'center', borderRadius: 8, flex: 1, justifyContent: 'center', minHeight: 36, paddingHorizontal: 8, paddingVertical: 6 },
+  transportTabActive: { backgroundColor: FSD_MATTE.activePill },
+  transportTabLabel: { color: FSD_MATTE.muted, fontSize: 12.5, fontWeight: '600', lineHeight: 17 },
+  transportTabLabelActive: { color: FSD_MATTE.ink },
   integrationRows: { gap: 8 },
   integrationRow: { alignItems: 'flex-start', flexDirection: 'row', gap: 8 },
   integrationDot: { borderRadius: 4, height: 8, marginTop: 5, width: 8 },
-  integrationRowCopy: { flex: 1, minWidth: 0, gap: 2 },
+  integrationRowCopy: { flex: 1, gap: 2, minWidth: 0 },
   integrationRowHeading: { alignItems: 'center', flexDirection: 'row', gap: 8 },
-  content: { alignSelf: 'center', width: '100%', maxWidth: 860, padding: 16, gap: 16, paddingBottom: 28 },
-  primaryPanel: { gap: 12, padding: 20, backgroundColor: 'rgba(255,255,255,0.04)', borderColor: officialDark.line, borderWidth: 0, borderRadius: 24 },
-  panel: { flexGrow: 1, minWidth: 0, flexShrink: 1, width: '100%', borderRadius: cardLayout.radius, padding: 16, gap: 12 },
-  collapsedPanel: { paddingVertical: 0, paddingHorizontal: 16 },
-  input: { minHeight: 54, paddingHorizontal: 16, borderWidth: .5, borderColor: officialDark.line, borderRadius: 14, backgroundColor: officialDark.field, ...typography.body, fontVariant: ['tabular-nums'] },
-  button: { minHeight: 48, borderRadius: 24, paddingHorizontal: 12, paddingVertical: 10, alignItems: 'center', justifyContent: 'center' },
-  advancedContent: { gap: 12 },
-  status: { gap: 8 }, pressed: { opacity: 0.65 }, disabled: { opacity: 0.5 },
+  status: { backgroundColor: FSD_MATTE.card, borderRadius: 12, gap: 6, padding: 12 },
+  pressed: { opacity: 0.68 },
+  disabled: { opacity: 0.44 },
 });
 
 const styles = createStyles();

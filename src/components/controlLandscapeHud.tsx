@@ -1,15 +1,16 @@
-import { type ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, View, type LayoutChangeEvent, type ViewStyle } from 'react-native';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { Animated, Image, Pressable, ScrollView, StyleSheet, View, type LayoutChangeEvent, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Text } from './AppText';
 import type {
   ControlJointState,
-  ControlOperation,
   ControlRuntimeState,
 } from '../features/control/controlOperations';
+import type { ControlAccentTone, StandbySceneId } from '../features/control/controlPreferences';
 import { ControlHudDashboard } from './ControlHudDashboard';
 import { BodyHeightPanel, FaultListPanel, GestureDeckPanel, JointParametersPanel, JointTemperaturePanel } from './ControlHudPanels';
+import { getStandbySceneAsset, normalizeStandbyScene } from './standbyScenes';
 import {
   collectHudFaults,
   HUD_BASIC_ACTIONS,
@@ -17,6 +18,7 @@ import {
   projectTopSignalBadges,
   type HudBodyHeightState,
   type HudCameraPosition,
+  type HudFaultItem,
   type HudForwardDirection,
   type HudGestureCategoryId,
   type HudGestureInput,
@@ -25,20 +27,26 @@ import {
   type HudLeftCategory,
   type HudLegId,
 } from './controlHudModel';
-import { officialDark } from '../officialPalette';
 
-const ACTIVE_BLUE = '#3B6EF6';
-const ISLAND_BG = 'rgba(16, 20, 23, 0.78)';
-const DOCK_BG = 'rgba(16, 20, 23, 0.86)';
-const ISLAND_BORDER = 'rgba(255, 255, 255, 0.14)';
-const PILL_WHITE = '#F4F6F8';
-const PILL_DARK_INK = '#111416';
-const EMERALD_DOT = '#22C55E';
-const EMERALD_INK = '#4ADE80';
-const CRIMSON_STOP = '#E53935';
-const CRIMSON_DISABLED = 'rgba(138, 52, 48, 0.68)';
-const INK = officialDark.ink;
-const MUTED = officialDark.muted;
+const FSD_BLUE = '#3E6AE1';
+const FSD_BLUE_BG = 'rgba(62, 106, 225, 0.28)';
+const FSD_BLUE_BORDER = 'rgba(147, 197, 253, 0.56)';
+const GRAPHITE_ACTIVE_BG = 'rgba(255, 255, 255, 0.14)';
+const GRAPHITE_ACTIVE_BORDER = 'rgba(255, 255, 255, 0.30)';
+const DOCK_BG = 'rgba(22, 22, 22, 0.90)';
+const DOCK_BORDER = 'rgba(255, 255, 255, 0.08)';
+const MODAL_BG = 'rgba(22, 22, 22, 0.95)';
+const EMERALD_DOT = '#34D399';
+const EMERALD_INK = '#34D399';
+const RED_ESTOP = '#EF4444';
+const RED_ESTOP_DISABLED = 'rgba(239, 68, 68, 0.62)';
+const INK = '#F2F2F2';
+const MUTED = '#9A9A9A';
+const TEXT_SHADOW = {
+  textShadowColor: 'rgba(0, 0, 0, 0.82)',
+  textShadowOffset: { width: 0, height: 1 },
+  textShadowRadius: 5,
+} as const;
 
 /** Typical G20 landscape system-bar gutters used by the web preview (status + right nav + gesture). */
 export const G20_LANDSCAPE_PREVIEW_INSETS = { top: 28, right: 48, bottom: 24, left: 24 } as const;
@@ -69,7 +77,13 @@ export type ControlLandscapeHudProps = Readonly<{
   onBack: () => void;
   onOpenConnection?: () => void;
   onOpenJointStatus?: () => void;
+  statusCardOpen?: boolean;
+  onToggleStatusCard?: () => void;
+  statusCardOverlay?: ReactNode;
   onOpenWorkspaceSettings?: () => void;
+  inputSource?: 'touch' | 'physical';
+  onClearFault?: () => void;
+  clearFaultReady?: boolean;
   showLocalControl: boolean;
   showUnlocked: boolean;
   runtimeState?: ControlRuntimeState;
@@ -186,10 +200,57 @@ export type ControlLandscapeHudProps = Readonly<{
   recovery?: ReactNode;
   safeInsets?: LandscapeSafeInsets;
   previewSafeAreaGuides?: boolean;
+  standbyScene?: StandbySceneId;
+  accentTone?: ControlAccentTone;
 }>;
 
-function Chip({ children, testID, sp, compact = false }: { children: ReactNode; testID?: string; sp: (value: number) => number; compact?: boolean }) {
-  return <View style={[styles.chip, { borderRadius: sp(6), gap: compact ? 2 : sp(3), paddingHorizontal: compact ? 4 : sp(6), paddingVertical: compact ? 1 : sp(2) }]} testID={testID}>{children}</View>;
+function StandbySceneBackdrop({ scene }: { scene: StandbySceneId }) {
+  const normalized = normalizeStandbyScene(scene);
+  const [prevScene, setPrevScene] = useState<StandbySceneId | null>(null);
+  const activeRef = useRef<StandbySceneId>(normalized);
+  const fade = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (normalized === activeRef.current) return;
+    const outgoing = activeRef.current;
+    activeRef.current = normalized;
+    setPrevScene(outgoing);
+    fade.setValue(0);
+    if (typeof Animated.timing === 'function') {
+      Animated.timing(fade, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(({ finished }) => {
+        if (finished) setPrevScene(null);
+      });
+    } else {
+      fade.setValue(1);
+      setPrevScene(null);
+    }
+  }, [fade, normalized]);
+
+  return (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      {prevScene ? (
+        <Image
+          accessibilityIgnoresInvertColors
+          resizeMode="cover"
+          source={getStandbySceneAsset(prevScene)}
+          style={[StyleSheet.absoluteFill, styles.standbySceneImg]}
+        />
+      ) : null}
+      <Animated.View style={[StyleSheet.absoluteFill, styles.standbySceneImg, { opacity: fade }]}>
+        <Image
+          accessibilityIgnoresInvertColors
+          resizeMode="cover"
+          source={getStandbySceneAsset(normalized)}
+          style={[StyleSheet.absoluteFill, styles.standbySceneImg]}
+        />
+      </Animated.View>
+      <View pointerEvents="none" style={styles.standbySceneTint} />
+    </View>
+  );
 }
 
 function SafeAreaGuides({ insets }: { insets: LandscapeSafeInsets }) {
@@ -203,11 +264,126 @@ function SafeAreaGuides({ insets }: { insets: LandscapeSafeInsets }) {
   );
 }
 
-const LEFT_CATEGORIES: readonly Readonly<{ id: HudLeftCategory; label: string }>[] = [
-  { id: 'policy', label: '常规' },
-  { id: 'posture', label: '姿态' },
-  { id: 'action', label: '动作' },
-];
+const POSTURE_RAIL_ITEMS = [
+  { id: 'P', label: '停' },
+  { id: 'S', label: '坐' },
+  { id: 'N', label: '站' },
+  { id: 'D', label: '行' },
+] as const;
+
+const JOINT_SHORT_LABELS: Readonly<Record<string, string>> = {
+  '0': '右前髋', '1': '右前大', '2': '右前小', '12': '右前轮',
+  '3': '左前髋', '4': '左前大', '5': '左前小', '13': '左前轮',
+  '6': '右后髋', '7': '右后大', '8': '右后小', '14': '右后轮',
+  '9': '左后髋', '10': '左后大', '11': '左后小', '15': '左后轮',
+};
+
+export type HudAlertBanner = Readonly<{
+  key: string;
+  kind: 'fault' | 'overheat' | 'low-battery';
+  severity: 'critical' | 'warning';
+  text: string;
+  canClearFault: boolean;
+}>;
+
+export function deriveHudAlertBanner({
+  faults,
+  joints,
+  voltageV,
+  batteryPercent,
+}: {
+  faults: readonly HudFaultItem[];
+  joints?: readonly ControlJointState[];
+  voltageV?: number | null;
+  batteryPercent?: number | null;
+}): HudAlertBanner | null {
+  const nonTempFaults = faults.filter(item => !item.id.startsWith('joint-temp-'));
+  if (nonTempFaults.length > 0) {
+    const primary = nonTempFaults[0];
+    const hasCritical = nonTempFaults.some(item => item.severity === 'critical');
+    const shortText = nonTempFaults.length === 1 && primary.title.length <= 10 ? primary.title : '检测到故障';
+    return {
+      key: `fault:${primary.id}:${nonTempFaults.length}`,
+      kind: 'fault',
+      severity: hasCritical ? 'critical' : 'warning',
+      text: shortText,
+      canClearFault: true,
+    };
+  }
+
+  let hottest: { id: string; label: string; tempC: number } | null = null;
+  for (const joint of joints ?? []) {
+    if (joint?.source !== 'device' || joint.online !== true) continue;
+    const tempC = joint.temperatureC;
+    if (typeof tempC !== 'number' || !Number.isFinite(tempC) || tempC < 65) continue;
+    if (!hottest || tempC > hottest.tempC) {
+      hottest = { id: joint.id, label: JOINT_SHORT_LABELS[joint.id] ?? joint.label, tempC };
+    }
+  }
+  if (hottest) {
+    const severity = hottest.tempC >= 75 ? 'critical' : 'warning';
+    return {
+      key: `overheat:${hottest.id}:${severity}`,
+      kind: 'overheat',
+      severity,
+      text: `${hottest.label} ${Math.round(hottest.tempC)}°C`,
+      canClearFault: false,
+    };
+  }
+
+  const pctLive = typeof batteryPercent === 'number' && Number.isFinite(batteryPercent) && batteryPercent >= 0 && batteryPercent <= 100;
+  if (pctLive && batteryPercent <= 20) {
+    const severity = batteryPercent <= 10 ? 'critical' : 'warning';
+    return {
+      key: `low-battery:pct:${severity}`,
+      kind: 'low-battery',
+      severity,
+      text: `电量偏低 ${Math.round(batteryPercent)}%`,
+      canClearFault: false,
+    };
+  }
+
+  const voltLive = typeof voltageV === 'number' && Number.isFinite(voltageV) && voltageV > 0;
+  if (voltLive && voltageV < 44) {
+    const severity = voltageV < 42.5 ? 'critical' : 'warning';
+    return {
+      key: `low-battery:volt:${severity}`,
+      kind: 'low-battery',
+      severity,
+      text: `电量偏低 ${voltageV.toFixed(1)}V`,
+      canClearFault: false,
+    };
+  }
+
+  return null;
+}
+
+function resolveBatterySummary(batteryPercent?: number | null, voltageV?: number | null) {
+  if (typeof batteryPercent === 'number' && Number.isFinite(batteryPercent) && batteryPercent >= 0 && batteryPercent <= 100) {
+    const pct = Math.round(batteryPercent);
+    return {
+      text: `${pct}%`,
+      fillRatio: pct / 100,
+      live: true,
+      fillColor: pct <= 20 ? '#EF4444' : pct <= 40 ? '#F59E0B' : '#FFFFFF',
+    };
+  }
+  if (typeof voltageV === 'number' && Number.isFinite(voltageV) && voltageV > 0) {
+    const ratio = Math.min(1, Math.max(0.14, (voltageV - 42) / 12.6));
+    return {
+      text: `${voltageV.toFixed(1)}V`,
+      fillRatio: ratio,
+      live: true,
+      fillColor: voltageV < 44 ? '#F59E0B' : '#34D399',
+    };
+  }
+  return {
+    text: '--',
+    fillRatio: 0,
+    live: false,
+    fillColor: 'rgba(255, 255, 255, 0.25)',
+  };
+}
 
 export function controlLandscapeHud({
   robotName,
@@ -216,7 +392,12 @@ export function controlLandscapeHud({
   onBack,
   onOpenConnection,
   onOpenJointStatus,
-  onOpenWorkspaceSettings,
+  statusCardOpen = false,
+  onToggleStatusCard,
+  statusCardOverlay,
+  inputSource = 'touch',
+  onClearFault,
+  clearFaultReady = false,
   showLocalControl,
   showUnlocked,
   runtimeState,
@@ -263,10 +444,9 @@ export function controlLandscapeHud({
   onOpenSettings,
   settingsOpen = false,
   onCloseSettings,
-  settingsLabel = '操控设置',
+  settingsLabel = '设置',
   settingsMenu,
   headlightMode,
-  onToggleHeadlight,
   dualCameraEnabled,
   onToggleDualCamera,
   primaryCamera,
@@ -332,12 +512,15 @@ export function controlLandscapeHud({
   recovery,
   safeInsets,
   previewSafeAreaGuides,
+  standbyScene = 'charcoal',
+  accentTone = 'graphite',
 }: ControlLandscapeHudProps) {
   const connection = connectionState ?? (connectionLabel === '已连接' ? 'connected' : connectionLabel.includes('只读') ? 'readonly' : 'disconnected');
   const hasFrontVideo = video != null && video !== false;
   const hasRearVideo = rearVideo != null && rearVideo !== false;
   const showMainFront = primaryCamera === 'front';
   const activeMainFeed = showMainFront ? (hasFrontVideo ? video : null) : (hasRearVideo ? rearVideo : null);
+  const activeMainFeedReceiving = showMainFront ? videoReceiving : rearVideoReceiving;
   const secondaryPipFeed = showMainFront ? (hasRearVideo ? rearVideo : null) : (hasFrontVideo ? video : null);
   const insets = {
     top: Math.max(0, safeInsets?.top ?? 0),
@@ -353,58 +536,47 @@ export function controlLandscapeHud({
     ? Math.min(effectiveStageW / 960, effectiveStageH / 540)
     : 1;
   const hudScale = rawRatio < 1
-    ? Math.max(0.90, rawRatio)
-    : Math.min(1.22, 1 + (rawRatio - 1) * 0.22);
+    ? Math.max(0.88, rawRatio)
+    : Math.min(1.20, 1 + (rawRatio - 1) * 0.20);
   const sp = (value: number) => Math.round(value * hudScale);
-  const fTitle = sp(14);
-  const fTitleLine = sp(19);
-  const fBody = sp(13);
-  const fBodyLine = sp(18);
-  const fMeta = Math.max(11, sp(11.5));
-  const fMetaLine = sp(16);
-  const ultraCompactTop = effectiveStageW < 900;
-  const compactTopBar = effectiveStageW < 1080;
-  const ultraShortStage = effectiveStageH < 460;
-  const compactRightRail = effectiveStageH < 560;
-  const topBarMinHeight = ultraShortStage ? 34 : compactTopBar ? 36 : sp(38);
-  const topBtnHeight = ultraShortStage ? 26 : compactTopBar ? 28 : sp(30);
-  const topFont = compactTopBar ? 11.5 : fBody;
-  const topFontLine = compactTopBar ? 15 : fBodyLine;
-  const pipW = ultraShortStage
+  const fBody = sp(12.5);
+  const fBodyLine = sp(17);
+  const fMeta = Math.max(10.5, sp(11));
+  const fMetaLine = sp(15);
+  const compactStage = effectiveStageW < 900 || effectiveStageH < 460;
+  const edgeX = compactStage ? 10 : sp(16);
+  const edgeTop = compactStage ? 8 : sp(12);
+  const edgeBottom = compactStage ? 8 : sp(12);
+
+  const isBlueAccent = accentTone === 'fsdBlue';
+  const activeItemBg = isBlueAccent ? FSD_BLUE_BG : GRAPHITE_ACTIVE_BG;
+  const activeSolidBg = isBlueAccent ? FSD_BLUE : '#323232';
+  const activeIconTint = isBlueAccent ? '#93C5FD' : '#F2F2F2';
+  const activeBadgeBorder = isBlueAccent ? FSD_BLUE_BORDER : GRAPHITE_ACTIVE_BORDER;
+
+  const pipW = compactStage
     ? sp(148)
     : stageWidth && stageWidth > 0
-      ? Math.max(168, Math.min(compactRightRail ? 172 : 236, Math.round(effectiveStageW * (compactRightRail ? 0.176 : 0.18))))
-      : sp(168);
+      ? Math.max(168, Math.min(210, Math.round(effectiveStageW * 0.18)))
+      : sp(176);
   const pipH = Math.round((pipW * 9) / 16);
-  const pipTop = ultraShortStage ? 46 : compactRightRail ? 54 : sp(60);
-  const pipRight = ultraShortStage ? 12 : compactTopBar ? 14 : sp(18);
-  const rightRailBesidePip = ultraShortStage && dualCameraEnabled;
-  const rightRailTop = rightRailBesidePip || !dualCameraEnabled
-    ? pipTop
-    : pipTop + pipH + sp(compactRightRail ? 6 : 10);
-  const rightRailRight = rightRailBesidePip ? pipRight + pipW + 6 : pipRight;
-  const rightRailWidth = ultraShortStage ? 144 : pipW;
-  const circleSize = sp(ultraShortStage ? 30 : compactRightRail ? 32 : 38);
-  const circleRadius = Math.round(circleSize / 2);
-  const circleIconSize = sp(ultraShortStage ? 15 : compactRightRail ? 16 : 18);
-  const railMetaLine = ultraShortStage ? 13 : compactRightRail ? 14 : fMetaLine;
-  const overlayW = Math.min(440, Math.max(350, Math.round(effectiveStageW * 0.44)));
+  const pipTop = edgeTop + sp(38);
+  const overlayW = Math.min(436, Math.max(344, Math.round(effectiveStageW * 0.44)));
   const centerStackInset = Math.round((joystickSize || 220) + sp(24));
-  const stickCorridorEachSide = Math.round((joystickSize || 156) + sp(36));
-  const centerFreeWidth = Math.max(308, effectiveStageW - stickCorridorEachSide * 2);
-  const gestureDeckWidth = Math.min(sp(476), centerFreeWidth - sp(24));
-  const leftRailWidthEst = circleSize * 3 + sp(ultraShortStage ? 6 : 8) * 2;
-  const leftRailRightEdge = pipRight + leftRailWidthEst + sp(12);
-  const rightRailEdgeOffset = (rightRailBesidePip ? rightRailRight + rightRailWidth : pipRight + pipW) + sp(12);
-  const centerToastSafeW = Math.max(168, effectiveStageW - Math.max(leftRailRightEdge, rightRailEdgeOffset) * 2);
-  const feedbackMaxW = Math.min(320, Math.round(effectiveStageW * 0.34), centerToastSafeW);
-  const topToastTop = (ultraShortStage ? 6 : compactTopBar ? 8 : sp(12)) + topBarMinHeight + sp(8) + (speedLimitExpanded ? sp(46) : 0);
-  const gestureMaxListHeight = effectiveStageH >= 620 ? 248 : effectiveStageH >= 500 ? 198 : 156;
+  const actionModalWidth = Math.min(sp(640), Math.max(360, effectiveStageW - edgeX * 2 - sp(24)));
+  const feedbackMaxW = Math.min(320, Math.round(effectiveStageW * 0.36));
+  const topToastTop = edgeTop + sp(42) + (speedLimitExpanded ? sp(44) : 0);
+  // Exact row-height multiples (34px row + 6px gap) so bottom rows never slice into a 3px sliver.
+  const gestureMaxListHeight = effectiveStageH >= 620 ? 234 : effectiveStageH >= 500 ? 194 : 154;
+
   const faults = collectHudFaults({ runtimeState, sessionError, recoveryError });
+  const alertBanner = deriveHudAlertBanner({ faults, joints, voltageV, batteryPercent });
   const signals = projectTopSignalBadges({ connection, runtimeState });
   const tempSummary = projectJointTemperatures('motor', joints);
   const standOption = postures.find(item => item.id === 'stand');
   const sitOption = postures.find(item => item.id === 'sit');
+  const recoverOption = postures.find(item => item.id === 'recover');
+  const drawerPostures = postures.filter(item => item.id === 'prone');
   const recoveryModeSelected = runtimeState?.recoveryMode?.selected === true;
   const speedLimitClamped = Math.min(100, Math.max(10, Math.round(speedLimitPercent)));
   const visiblePolicies = policies.length > 0
@@ -416,315 +588,559 @@ export function controlLandscapeHud({
     ];
   const hasVoiceOverlay = Boolean(voiceChatOpen && voiceChatPanel);
   const anyFloatingPanel = (faultPanelOpen && faults.length > 0) || jointParamsOpen || jointTempOpen || bodyHeightPanelOpen || Boolean(recovery) || hasVoiceOverlay;
+  const suppressEmptyVideo = anyFloatingPanel || leftCategory !== 'policy' || Boolean(settingsMenu) || statusCardOpen;
+
   const activeHeightBadgeText = bodyHeight?.active && bodyHeight.supported
     && typeof bodyHeight.currentHeightM === 'number' && Number.isFinite(bodyHeight.currentHeightM) && bodyHeight.currentHeightM > 0
     ? `${bodyHeight.currentHeightM.toFixed(2)}m`
     : null;
   const remoteControlled = runtimeState?.controlOwner === 'remote' || runtimeState?.controlOwner === 'robot-remote';
-  const inlineVoltageText = typeof voltageV === 'number' && Number.isFinite(voltageV) && voltageV > 0 ? `${voltageV.toFixed(1)}V` : null;
-  const inlineBatteryText = typeof batteryPercent === 'number' && Number.isFinite(batteryPercent) ? `${Math.round(batteryPercent)}%` : null;
+  const battery = resolveBatterySummary(batteryPercent, voltageV);
   const inlineTempText = tempSummary.maxTempC !== null ? `${Math.round(tempSummary.maxTempC)}°C` : null;
+  const voltageDisplayText = typeof voltageV === 'number' && Number.isFinite(voltageV) && voltageV > 0
+    ? `${voltageV.toFixed(1)}V`
+    : battery.live
+      ? battery.text
+      : null;
+  const statusMetricText = voltageDisplayText && inlineTempText
+    ? `${voltageDisplayText} · ${inlineTempText}`
+    : voltageDisplayText ?? inlineTempText ?? '状态';
+
+  const linearMps = typeof runtimeState?.speed?.linearMps === 'number' && Number.isFinite(runtimeState.speed.linearMps) ? runtimeState.speed.linearMps : 0;
+  const lateralMps = typeof runtimeState?.speed?.lateralMps === 'number' && Number.isFinite(runtimeState.speed.lateralMps) ? runtimeState.speed.lateralMps : 0;
+  const speedMag = Math.hypot(linearMps, lateralMps);
+  const heroSpeedText = speedMag.toFixed(1);
+  const activePostureSlot: 'P' | 'S' | 'N' | 'D' = connection !== 'connected' || motorEnabled === false
+    ? 'P'
+    : runtimeState?.posture === 'sitting'
+      ? 'S'
+      : runtimeState?.posture === 'standing'
+        ? (speedMag > 0.04 ? 'D' : 'N')
+        : 'P';
+
+  const speedSignValue = speedMode === 'high'
+    ? (speedLimitClamped < 100 ? `${speedLimitClamped}%` : '2.5')
+    : (speedLimitClamped < 100 ? `${speedLimitClamped}%` : '1.0');
+  const activeModeLabel = bodyHeight?.active
+    ? `高度${activeHeightBadgeText ? ` ${activeHeightBadgeText}` : ''}`
+    : recoveryModeSelected
+      ? '恢复'
+      : '常规';
 
   const cycleLeftCategory = () => {
-    const order: readonly HudLeftCategory[] = ['policy', 'posture', 'action'];
+    const order: readonly HudLeftCategory[] = ['policy', 'action'];
     const next = order[(order.indexOf(leftCategory) + 1) % order.length];
     onLeftCategoryChange(next);
   };
 
+  const showHighSpeedOption = Boolean(onSelectSpeedMode && (speedMode === 'normal' || speedMode === 'high'));
+  const wifiHeaderLabel = connection === 'connected' && robotName && robotName !== 'DOSO 机器狗'
+    ? robotName
+    : '机器狗 Wi-Fi';
+
   return (
     <View style={styles.root} testID="control-landscape-hud" pointerEvents="box-none">
       <View pointerEvents="none" style={styles.backdrop} testID="control-video-backdrop" />
-      {activeMainFeed ? (
-        <View pointerEvents="none" style={styles.media} testID="control-media-stage">{activeMainFeed}</View>
+      {!activeMainFeedReceiving ? (
+        <View pointerEvents="none" style={styles.standbySceneLayer} testID={`control-hud-standby-scene-${normalizeStandbyScene(standbyScene)}`}>
+          <StandbySceneBackdrop scene={standbyScene} />
+        </View>
       ) : null}
-      <View pointerEvents="none" style={[styles.topScrim, { height: sp(62) }]} />
+      {activeMainFeed ? (
+        <View pointerEvents="none" style={[styles.media, !activeMainFeedReceiving && styles.mediaBuffering]} testID="control-media-stage">
+          {activeMainFeed}
+        </View>
+      ) : null}
+
+      {/* Soft borderless edge scrims for crisp readability without heavy bars */}
+      <View pointerEvents="none" style={[styles.topScrimSoft, { height: sp(74) }]} />
+      <View pointerEvents="none" style={[styles.topScrimEdge, { height: sp(34) }]} />
+      <View pointerEvents="none" style={[styles.bottomScrimSoft, { height: sp(72) }]} />
       {previewSafeAreaGuides ? <SafeAreaGuides insets={insets} /> : null}
+
       <View
         pointerEvents="box-none"
         style={[styles.safeChrome, { top: insets.top, right: insets.right, bottom: insets.bottom, left: insets.left }]}
         testID="control-landscape-safe"
       >
-        {!activeMainFeed ? (
-          <View pointerEvents="none" style={styles.emptyVideo} testID={showMainFront ? 'control-hud-video-empty' : 'control-hud-rear-video-empty'} accessibilityLiveRegion="polite">
-            <View style={[styles.emptyIcon, { borderRadius: sp(12), height: sp(44), width: sp(44) }]}><Ionicons name="videocam-off-outline" color={MUTED} size={sp(24)} /></View>
-            <Text style={[styles.emptyTitle, { fontSize: fTitle, lineHeight: fTitleLine }]}>{showMainFront ? (connection === 'disconnected' ? '未连接' : '等待画面') : '后广角未接入'}</Text>
+        {/* Subtle non-blocking video status badge (never covers the 3D standby robot silhouette) */}
+        {!activeMainFeedReceiving ? (
+          <View
+            pointerEvents="none"
+            style={[
+              styles.emptyVideo,
+              { top: edgeTop + sp(6) },
+              suppressEmptyVideo && styles.emptyVideoHidden,
+            ]}
+            testID={showMainFront ? 'control-hud-video-empty' : 'control-hud-rear-video-empty'}
+            accessibilityLiveRegion="polite"
+          >
+            <View style={[styles.emptyChip, { borderRadius: sp(8), paddingHorizontal: sp(10), paddingVertical: sp(4) }]}>
+              <Text numberOfLines={1} style={[styles.emptyTitle, { fontSize: fMeta, lineHeight: fMetaLine }]}>
+                {showMainFront
+                  ? activeMainFeed
+                    ? '连接画面中'
+                    : (connection === 'disconnected' ? '未连接' : '等待画面')
+                  : activeMainFeed
+                    ? '连接画面中'
+                    : '无后视画面'}
+              </Text>
+            </View>
           </View>
         ) : null}
 
-        {/* Concept A-1 Top Floating Three-Island Bar */}
-        <View style={[styles.header, { left: compactTopBar ? 8 : sp(18), right: compactTopBar ? 8 : sp(18), top: ultraShortStage ? 6 : compactTopBar ? 8 : sp(12) }]} pointerEvents="box-none">
-          <View style={[styles.topBarRow, { gap: ultraCompactTop ? 4 : compactTopBar ? 5 : sp(10), minHeight: topBarMinHeight }]} pointerEvents="box-none" testID="control-hud-status-bar">
-            {/* Island 1 (Top-Left): Identity + Connection + Auth + Status + Control Settings + Workspace Settings */}
-            <View style={[styles.islandLeft, { gap: ultraCompactTop ? 4 : compactTopBar ? 5 : sp(7), minHeight: topBarMinHeight, paddingHorizontal: ultraCompactTop ? 6 : compactTopBar ? 8 : sp(13), paddingVertical: compactTopBar ? 2 : sp(3) }]} pointerEvents="box-none">
+        {/* Proactive Non-Blocking Top-Center Alert Pill (Fault > Overheat > Low Battery) */}
+        {alertBanner && !settingsMenu && !statusCardOpen && leftCategory === 'policy' && !anyFloatingPanel ? (
+          <View
+            pointerEvents="box-none"
+            style={[
+              styles.alertBannerLane,
+              { top: !activeMainFeedReceiving && !suppressEmptyVideo ? edgeTop + sp(32) : edgeTop + sp(6) },
+            ]}
+          >
+            <View
+              style={[
+                styles.alertBannerPill,
+                alertBanner.severity === 'critical' ? styles.alertBannerCritical : styles.alertBannerWarning,
+                { borderRadius: sp(10), gap: sp(6), paddingHorizontal: sp(10), paddingVertical: sp(4) },
+              ]}
+              testID="control-hud-alert-banner"
+            >
               <Pressable
-                accessibilityLabel={'设备连接' + connectionLabel}
+                accessibilityLabel={`${alertBanner.text}，查看设备状态`}
                 accessibilityRole="button"
-                accessibilityState={{ disabled: !onOpenConnection }}
-                disabled={!onOpenConnection}
-                onPress={onOpenConnection}
-                style={({ pressed }) => [styles.identityTrigger, { gap: compactTopBar ? 4 : sp(7) }, pressed && styles.pressed]}
-                testID="control-open-connection"
+                onPress={onToggleStatusCard ?? onOpenJointStatus}
+                style={({ pressed }) => [styles.alertBannerMain, { gap: sp(5) }, pressed && styles.pressed]}
+                testID="control-hud-alert-open-status"
               >
-                <View style={[styles.connectionDot, { borderRadius: sp(4), height: compactTopBar ? 7 : sp(8), width: compactTopBar ? 7 : sp(8) }, connection === 'connected' ? styles.connectedDot : connection === 'readonly' ? styles.readonlyDot : null]} testID="control-hud-connection-dot" />
-                <Text numberOfLines={1} style={[styles.identityText, { fontSize: compactTopBar ? 12 : fTitle, lineHeight: compactTopBar ? 16 : fTitleLine }, compactTopBar ? { maxWidth: ultraCompactTop ? 72 : 102 } : null]}>{robotName}</Text>
-                <View style={[styles.connPillBadge, { borderRadius: sp(6), paddingHorizontal: compactTopBar ? 5 : sp(7), paddingVertical: compactTopBar ? 1 : sp(2) }]}>
-                  <Text numberOfLines={1} style={[styles.connPillText, { fontSize: compactTopBar ? 11 : fMeta, lineHeight: compactTopBar ? 14 : fMetaLine }]}>{connectionLabel}</Text>
-                </View>
-              </Pressable>
-
-              {connection === 'disconnected' && onReconnect ? (
-                <Pressable
-                  accessibilityLabel="立即重连机器狗与图传"
-                  accessibilityRole="button"
-                  onPress={onReconnect}
-                  style={({ pressed }) => [styles.reconnectPillBtn, { borderRadius: sp(999), gap: 3, minHeight: compactTopBar ? 24 : sp(26), paddingHorizontal: compactTopBar ? 7 : sp(9), paddingVertical: compactTopBar ? 1 : sp(2) }, pressed && styles.pressed]}
-                  testID="control-hud-reconnect"
+                <View
+                  style={[
+                    styles.alertBannerDot,
+                    { backgroundColor: alertBanner.severity === 'critical' ? RED_ESTOP : '#F59E0B' },
+                  ]}
+                />
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.alertBannerText,
+                    {
+                      color: alertBanner.severity === 'critical' ? '#FCA5A5' : '#F59E0B',
+                      fontSize: fMeta,
+                      lineHeight: fMetaLine,
+                    },
+                  ]}
                 >
-                  <Ionicons color="#FFFFFF" name="refresh-outline" size={sp(12)} />
-                  <Text numberOfLines={1} style={[styles.reconnectPillText, { fontSize: compactTopBar ? 11 : fMeta, lineHeight: compactTopBar ? 14 : fMetaLine }]}>重连</Text>
-                </Pressable>
-              ) : null}
-
-              {showLocalControl ? (
-                <Chip compact={compactTopBar} sp={sp} testID="control-hud-local-control">
-                  <Text numberOfLines={1} style={[styles.chipText, { fontSize: compactTopBar ? 10.5 : fMeta, lineHeight: compactTopBar ? 14 : fMetaLine }]}>本设备控制</Text>
-                </Chip>
-              ) : null}
-              {showUnlocked ? (
-                <Chip compact={compactTopBar} sp={sp} testID="control-hud-unlocked">
-                  <Ionicons color={EMERALD_INK} name="lock-open-outline" size={compactTopBar ? 10 : sp(12)} />
-                  <Text numberOfLines={1} style={[styles.chipText, { fontSize: compactTopBar ? 10.5 : fMeta, lineHeight: compactTopBar ? 14 : fMetaLine }]}>设备已解锁</Text>
-                </Chip>
-              ) : null}
-
-              <View style={[styles.islandDivider, { height: sp(16) }]} />
-
-              <Pressable
-                accessibilityLabel="状态"
-                accessibilityRole="button"
-                onPress={onOpenJointStatus ?? onBack}
-                style={({ pressed }) => [styles.islandNavBtn, { gap: compactTopBar ? 3 : sp(5), minHeight: topBtnHeight, paddingHorizontal: ultraCompactTop ? 5 : compactTopBar ? 6 : sp(9) }, pressed && styles.pressed]}
-                testID="control-hud-open-status"
-              >
-                {!(ultraCompactTop && (showLocalControl || showUnlocked)) ? <Ionicons color={INK} name="pulse-outline" size={compactTopBar ? 12 : sp(14)} /> : null}
-                <Text numberOfLines={1} style={[styles.islandNavText, { fontSize: topFont, lineHeight: topFontLine }]}>状态</Text>
-              </Pressable>
-
-              <Pressable
-                accessibilityLabel={settingsLabel}
-                accessibilityRole="button"
-                accessibilityState={{ expanded: settingsOpen }}
-                onPress={onOpenSettings}
-                style={({ pressed }) => [styles.islandNavBtn, { gap: compactTopBar ? 3 : sp(5), minHeight: topBtnHeight, paddingHorizontal: ultraCompactTop ? 6 : compactTopBar ? 7 : sp(10) }, settingsOpen && styles.islandNavBtnActive, pressed && styles.pressed]}
-                testID="control-hud-settings"
-              >
-                {!(ultraCompactTop && (showLocalControl || showUnlocked)) ? <Ionicons color={settingsOpen ? '#93C5FD' : INK} name="settings-outline" size={compactTopBar ? 12 : sp(14)} /> : null}
-                <Text numberOfLines={1} style={[styles.islandNavText, { fontSize: topFont, lineHeight: topFontLine }, settingsOpen && styles.islandNavTextActive]}>设置</Text>
-              </Pressable>
-            </View>
-
-            {/* Island 2 (Top-Center): Mode + Segmented Terrain Capsules + Speed Chip */}
-            <View style={[styles.islandCenter, { gap: compactTopBar ? 3 : sp(6), minHeight: topBarMinHeight, paddingHorizontal: compactTopBar ? 4 : sp(7), paddingVertical: compactTopBar ? 2 : sp(3) }]} pointerEvents="box-none">
-              <Pressable
-                accessibilityLabel={recoveryModeSelected ? '恢复模式' : '常规模式，切换左侧控制组'}
-                accessibilityRole="button"
-                onPress={cycleLeftCategory}
-                style={({ pressed }) => [styles.modeMiniBtn, { paddingHorizontal: compactTopBar ? 5 : sp(8), paddingVertical: compactTopBar ? 3 : sp(4) }, pressed && styles.pressed]}
-                testID="control-hud-mode-header"
-              >
-                <Ionicons color="#C5CED4" name={recoveryModeSelected ? 'medkit-outline' : 'apps-outline'} size={compactTopBar ? 13 : sp(14)} />
-              </Pressable>
-
-              <View style={[styles.terrainTrack, { gap: 2, padding: ultraShortStage ? 1 : 2 }]}>
-                {visiblePolicies.map(option => (
-                  <Pressable
-                    key={option.id}
-                    accessibilityHint={option.hint}
-                    accessibilityLabel={`运动模式${option.label}`}
-                    accessibilityRole="button"
-                    accessibilityState={{ disabled: option.disabled || option.selected, selected: option.selected }}
-                    disabled={option.disabled || option.selected}
-                    onPress={() => {
-                      if (!option.disabled && !option.selected) onSelectPolicy(option.id);
-                    }}
-                    style={({ pressed }) => [
-                      styles.terrainSegBtn,
-                      { minHeight: topBtnHeight, paddingHorizontal: ultraCompactTop ? 7 : compactTopBar ? 8 : sp(14) },
-                      option.selected && styles.terrainSegBtnSelected,
-                      option.disabled && !option.selected && styles.disabled,
-                      pressed && styles.pressed,
-                    ]}
-                    testID={`control-hud-terrain-capsule-${option.id}`}
-                  >
-                    <Text numberOfLines={1} style={[styles.terrainSegText, { fontSize: compactTopBar ? 12 : fBody, lineHeight: topFontLine }, option.selected && styles.terrainSegTextSelected]}>
-                      {option.label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-
-              <View style={[styles.islandDivider, { height: sp(16) }]} />
-
-              <Pressable
-                accessibilityLabel={`调节速度限制，当前 ${speedMode === 'high' ? '高速 ' : ''}${speedLimitClamped}%`}
-                accessibilityRole="button"
-                accessibilityState={{ expanded: speedLimitExpanded }}
-                onPress={onToggleSpeedLimitExpanded}
-                style={({ pressed }) => [
-                  styles.speedPillBtn,
-                  { minHeight: topBtnHeight, paddingHorizontal: compactTopBar ? 7 : sp(12) },
-                  (speedLimitExpanded || speedLimitClamped < 100 || speedMode === 'high') && styles.speedPillBtnActive,
-                  pressed && styles.pressed,
-                ]}
-                testID="control-hud-speed-limit-toggle"
-              >
-                <Text numberOfLines={1} style={[styles.speedPillText, { fontSize: topFont, lineHeight: topFontLine }]}>
-                  {speedMode === 'high'
-                    ? (speedLimitClamped < 100 ? `高速 ${speedLimitClamped}%` : '2.5 m/s')
-                    : (speedLimitClamped < 100 ? `${speedLimitClamped}%` : '1.0 m/s')}
+                  {alertBanner.text}
                 </Text>
               </Pressable>
-            </View>
-
-            {/* Island 3 (Top-Right): Signal / Voltage / Thermal Telemetry + Guarded Crimson E-Stop */}
-            <View style={[styles.islandRight, { flexShrink: 1, gap: ultraCompactTop ? 5 : compactTopBar ? 6 : sp(7), minHeight: topBarMinHeight, paddingLeft: compactTopBar ? 8 : sp(13), paddingRight: compactTopBar ? 4 : sp(5), paddingVertical: compactTopBar ? 2 : sp(3) }]} pointerEvents="box-none" testID="control-telemetry">
-              <View style={[styles.telemetryCluster, { gap: ultraCompactTop ? 5 : compactTopBar ? 6 : sp(7) }]} pointerEvents="box-none">
-                {faults.length > 0 ? (
-                  <Pressable
-                    accessibilityLabel={`异常列表，共 ${faults.length} 项`}
-                    accessibilityRole="button"
-                    accessibilityState={{ expanded: faultPanelOpen }}
-                    onPress={onToggleFaultPanel}
-                    style={({ pressed }) => [styles.faultBadgeBtn, { borderRadius: sp(12), height: compactTopBar ? 22 : sp(24), minWidth: compactTopBar ? 22 : sp(24), paddingHorizontal: compactTopBar ? 5 : sp(6) }, faultPanelOpen && styles.faultBadgeBtnActive, pressed && styles.pressed]}
-                    testID="control-hud-fault-badge"
-                  >
-                    <Text numberOfLines={1} style={[styles.faultBadgeText, { fontSize: compactTopBar ? 11 : fMeta, lineHeight: compactTopBar ? 14 : fMetaLine }]}>{faults.length > 1 ? String(faults.length) : '!'}</Text>
-                  </Pressable>
-                ) : null}
-
-                {signals.cellularVisible ? (
-                  <View accessible accessibilityLabel={`移动数据 ${signals.cellularText}`} style={[styles.telemetryItem, { gap: compactTopBar ? 2 : sp(4) }]} testID="control-hud-cellular">
-                    <Ionicons color={INK} name="cellular" size={compactTopBar ? 12 : sp(14)} />
-                    <Text numberOfLines={1} style={[styles.telemetryText, { fontSize: topFont, lineHeight: topFontLine }]}>{signals.cellularText}</Text>
-                  </View>
-                ) : null}
-
-                {signals.robotVisible ? (
-                  <View accessible accessibilityLabel={`机器人信号 ${signals.robotText}`} style={[styles.telemetryItem, { gap: compactTopBar ? 2 : sp(4) }]} testID="control-hud-robot-signal">
-                    <Ionicons color="#7DD3FC" name="hardware-chip-outline" size={compactTopBar ? 12 : sp(14)} />
-                    <Text numberOfLines={1} style={[styles.telemetryText, { fontSize: topFont, lineHeight: topFontLine }]}>{signals.robotText}</Text>
-                  </View>
-                ) : null}
-
-                {signals.wifiVisible ? (
-                  <View accessible accessibilityLabel={`WiFi ${signals.wifiText}`} style={[styles.telemetryItem, { gap: compactTopBar ? 2 : sp(4) }]} testID="control-hud-wifi-signal">
-                    <Ionicons color={EMERALD_INK} name="wifi" size={compactTopBar ? 12 : sp(14)} />
-                    <Text numberOfLines={1} style={[styles.telemetryText, { fontSize: topFont, lineHeight: topFontLine }]}>{compactTopBar ? signals.wifiCompactText : signals.wifiText}</Text>
-                  </View>
-                ) : null}
-
-                {inlineVoltageText || inlineBatteryText ? (
-                  <Text numberOfLines={1} style={[styles.telemetryText, { fontSize: topFont, lineHeight: topFontLine }]}>
-                    {[inlineVoltageText, inlineBatteryText].filter(Boolean).join(compactTopBar ? '·' : ' · ')}
+              {alertBanner.canClearFault && clearFaultReady && onClearFault ? (
+                <Pressable
+                  accessibilityLabel="清除故障"
+                  accessibilityRole="button"
+                  onPress={onClearFault}
+                  style={({ pressed }) => [
+                    styles.alertClearBtn,
+                    { borderRadius: sp(6), paddingHorizontal: sp(7), paddingVertical: sp(1.5) },
+                    pressed && styles.pressed,
+                  ]}
+                  testID="control-hud-alert-clear"
+                >
+                  <Text numberOfLines={1} style={[styles.alertClearText, { fontSize: Math.max(10, sp(10.5)), lineHeight: sp(14) }]}>
+                    清除
                   </Text>
-                ) : null}
-
-                {inlineTempText ? (
-                  <Text numberOfLines={1} style={[styles.telemetryText, { fontSize: topFont, lineHeight: topFontLine }]}>{inlineTempText}</Text>
-                ) : null}
-
-                {recordingActive ? (
-                  <View accessible accessibilityLabel={`正在录制视频 ${recordingDurationLabel ?? ''}`} style={[styles.recordingBadge, { gap: compactTopBar ? 3 : sp(4), paddingHorizontal: compactTopBar ? 6 : sp(8), paddingVertical: compactTopBar ? 2 : sp(3) }]} testID="control-hud-recording-badge">
-                    <View style={[styles.recordingDot, { borderRadius: sp(3.5), height: sp(7), width: sp(7) }]} />
-                    <Text numberOfLines={1} style={[styles.recordingBadgeText, { fontSize: compactTopBar ? 11 : fMeta, lineHeight: compactTopBar ? 14 : fMetaLine }]}>{recordingDurationLabel ? `REC ${recordingDurationLabel}` : 'REC'}</Text>
-                  </View>
-                ) : null}
-              </View>
-
-              <Pressable
-                accessibilityHint={stopHint}
-                accessibilityLabel="软件急停"
-                accessibilityRole="button"
-                accessibilityState={{ disabled: stopDisabled }}
-                disabled={stopDisabled}
-                onPress={onStop}
-                style={({ pressed }) => [styles.stop, { gap: compactTopBar ? 4 : sp(6), minHeight: topBtnHeight, minWidth: compactTopBar ? 60 : sp(74), paddingHorizontal: compactTopBar ? 10 : sp(14) }, stopDisabled && styles.stopDisabled, pressed && !stopDisabled && styles.pressed]}
-                testID="control-hud-stop"
-              >
-                <View style={[styles.stopRing, { borderRadius: compactTopBar ? 6 : sp(7), height: compactTopBar ? 12 : sp(14), width: compactTopBar ? 12 : sp(14) }]}>
-                  <View style={[styles.stopCore, { borderRadius: 2, height: 4, width: 4 }]} />
-                </View>
-                <Text numberOfLines={1} style={[styles.stopText, { fontSize: compactTopBar ? 12.5 : fTitle, lineHeight: compactTopBar ? 16 : fTitleLine }]}>急停</Text>
-              </Pressable>
+                </Pressable>
+              ) : null}
             </View>
           </View>
+        ) : null}
 
-          {speedLimitExpanded ? (
-            <View style={[styles.speedBarFloating, { gap: sp(8), height: sp(38), marginTop: sp(8), paddingHorizontal: sp(15) }]} testID="control-hud-speed-limit-bar">
-              {onSelectSpeedMode ? (
-                <View style={[styles.speedModeSegment, { borderRadius: sp(999), gap: sp(2), padding: 2 }]} testID="control-hud-speed-mode-group">
+        {/* Top Spatial Overlay: Top-Left Telemetry Column + Unobstructed Top-Right Bare Floating HUD & Red E-Stop */}
+        <View pointerEvents="box-none" style={styles.topStatusBarLayer} testID="control-hud-status-bar">
+          {/* Top-Left Vertical Spatial Telemetry Column */}
+          {!settingsMenu && !statusCardOpen && leftCategory !== 'action' ? (
+            <View pointerEvents="box-none" style={[styles.leftTelemetryCol, { left: edgeX, top: edgeTop, gap: sp(4) }]}>
+              {/* Row 1: Posture Gear Rail (停 坐 站 行) + Inline Compact Battery Bar */}
+              <View style={[styles.gearBatteryRow, { gap: sp(10) }]}>
+                <View style={[styles.gearRail, { gap: sp(7) }]} testID="control-hud-posture-rail">
+                  {POSTURE_RAIL_ITEMS.map(item => {
+                    const active = item.id === activePostureSlot;
+                    return (
+                      <Text
+                        key={item.id}
+                        style={[
+                          styles.gearChar,
+                          { fontSize: sp(13), lineHeight: sp(17) },
+                          active && styles.gearCharActive,
+                        ]}
+                      >
+                        {item.label}
+                      </Text>
+                    );
+                  })}
+                </View>
+
+                <View style={[styles.batteryInline, { gap: sp(5) }]} testID="control-hud-battery-bar">
+                  <View style={styles.batteryShellWrap}>
+                    <View style={[styles.batteryShell, { height: sp(11), width: sp(22) }]}>
+                      <View
+                        style={[
+                          styles.batteryFill,
+                          {
+                            width: `${Math.round(battery.fillRatio * 100)}%`,
+                            backgroundColor: battery.fillColor,
+                          },
+                        ]}
+                      />
+                    </View>
+                    <View style={[styles.batteryCap, { height: sp(5) }]} />
+                  </View>
+                  <Text numberOfLines={1} style={[styles.batteryInlineText, { fontSize: fMeta, lineHeight: fMetaLine }, !battery.live && styles.batteryMutedText]}>
+                    {battery.text}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Row 2: Hero Tabular Speed Readout */}
+              <View pointerEvents="none" style={styles.heroSpeedBlock} testID="control-hud-hero-speed">
+                <Text style={[styles.heroSpeedNum, { fontSize: compactStage ? 32 : sp(38), lineHeight: compactStage ? 36 : sp(42) }]}>
+                  {heroSpeedText}
+                </Text>
+                <Text style={[styles.heroSpeedUnit, { fontSize: Math.max(10.5, sp(11.5)), lineHeight: sp(15) }]}>m/s</Text>
+              </View>
+
+              {/* Row 3: FSD-Style Active Mode Pill + Borderless Terrain Switcher */}
+              <View style={[styles.modeTerrainRow, { gap: sp(6) }]}>
+                <Pressable
+                  accessibilityLabel={recoveryModeSelected ? '恢复模式' : `当前模式 ${activeModeLabel}`}
+                  accessibilityRole="button"
+                  onPress={cycleLeftCategory}
+                  style={({ pressed }) => [
+                    styles.fsdModeBadge,
+                    { paddingHorizontal: sp(7), paddingVertical: sp(2) },
+                    (connection === 'connected' || bodyHeight?.active || recoveryModeSelected) && {
+                      backgroundColor: activeItemBg,
+                      borderColor: activeBadgeBorder,
+                    },
+                    pressed && styles.pressed,
+                  ]}
+                  testID="control-hud-mode-header"
+                >
+                  <Text numberOfLines={1} style={[styles.fsdModeText, { fontSize: Math.max(10.5, sp(11)), lineHeight: sp(15) }]}>
+                    {activeModeLabel}
+                  </Text>
+                </Pressable>
+
+                <View style={[styles.terrainInlineRow, { gap: sp(2) }]}>
+                  {visiblePolicies.map(option => (
+                    <Pressable
+                      key={option.id}
+                      accessibilityHint={option.hint}
+                      accessibilityLabel={`运动模式${option.label}`}
+                      accessibilityRole="button"
+                      accessibilityState={{ disabled: option.disabled || option.selected, selected: option.selected }}
+                      disabled={option.disabled || option.selected}
+                      onPress={() => {
+                        if (!option.disabled && !option.selected) onSelectPolicy(option.id);
+                      }}
+                      style={({ pressed }) => [
+                        styles.terrainGhostBtn,
+                        { paddingHorizontal: sp(6), paddingVertical: sp(2) },
+                        option.selected && styles.terrainGhostBtnSelected,
+                        option.disabled && !option.selected && styles.disabled,
+                        pressed && styles.pressed,
+                      ]}
+                      testID={`control-hud-terrain-capsule-${option.id}`}
+                    >
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.terrainGhostText,
+                          { fontSize: fMeta, lineHeight: fMetaLine },
+                          option.selected && styles.terrainGhostTextSelected,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+
+              {/* Row 4: Iconic White-Framed Speed Limit Sign + Minimal Status Glyphs */}
+              <View style={[styles.speedSignRow, { gap: sp(8), marginTop: sp(2) }]}>
+                <Pressable
+                  accessibilityLabel={`调节速度限制，当前 ${speedMode === 'high' ? '高速 ' : ''}${speedLimitClamped}%`}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: speedLimitExpanded }}
+                  onPress={onToggleSpeedLimitExpanded}
+                  style={({ pressed }) => [
+                    styles.speedSignOuter,
+                    { minWidth: sp(42), paddingHorizontal: sp(5), paddingVertical: sp(3) },
+                    speedMode === 'high' && styles.speedSignHigh,
+                    speedLimitExpanded && { borderColor: isBlueAccent ? FSD_BLUE : '#F2F2F2' },
+                    pressed && styles.pressed,
+                  ]}
+                  testID="control-hud-speed-limit-toggle"
+                >
+                  <Text numberOfLines={1} style={[styles.speedSignTop, { fontSize: Math.max(8, sp(8.5)), lineHeight: sp(10) }]}>
+                    {speedMode === 'high' ? '高速' : '限速'}
+                  </Text>
+                  <Text numberOfLines={1} style={[styles.speedSignNum, { fontSize: sp(13.5), lineHeight: sp(16) }]}>
+                    {speedSignValue}
+                  </Text>
+                </Pressable>
+
+                <View style={[styles.microStatusCol, { gap: sp(2) }]}>
+                  <View style={[styles.microStatusRow, { gap: sp(5) }]}>
+                    <View style={[styles.microDot, motorEnabled ? styles.microDotArmed : styles.microDotOff]} />
+                    <Text numberOfLines={1} style={[styles.microStatusText, { fontSize: fMeta, lineHeight: fMetaLine }]}>
+                      {motorEnabled === true ? '电机已使能' : motorEnabled === false ? '电机未使能' : '待连接'}
+                    </Text>
+                  </View>
+                  {showLocalControl || showUnlocked || inputSource === 'physical' ? (
+                    <View style={[styles.microStatusRow, { gap: sp(6) }]}>
+                      {showLocalControl ? (
+                        <View style={styles.microTag} testID="control-hud-local-control">
+                          <Text numberOfLines={1} style={[styles.microTagText, { fontSize: Math.max(10, sp(10.5)), lineHeight: sp(13) }]}>本设备控制</Text>
+                        </View>
+                      ) : null}
+                      {showUnlocked ? (
+                        <View style={styles.microTag} testID="control-hud-unlocked">
+                          <Ionicons color={EMERALD_INK} name="lock-open-outline" size={sp(10)} />
+                          <Text numberOfLines={1} style={[styles.microTagText, { fontSize: Math.max(10, sp(10.5)), lineHeight: sp(13) }]}>设备已解锁</Text>
+                        </View>
+                      ) : null}
+                      {inputSource === 'physical' ? (
+                        <View style={styles.microTag} testID="control-hud-physical-mode">
+                          <Ionicons color={INK} name="game-controller-outline" size={sp(10)} />
+                          <Text numberOfLines={1} style={[styles.microTagText, { fontSize: Math.max(10, sp(10.5)), lineHeight: sp(13) }]}>实体摇杆</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            </View>
+          ) : null}
+
+          {/* Top-Right Bare Floating HUD (ZERO dark/red pill boxes; E-Stop ALWAYS unobstructed at zIndex 22!) */}
+          <View pointerEvents="box-none" style={[styles.topRightCluster, { gap: compactStage ? 8 : sp(12), right: edgeX, top: edgeTop }]} testID="control-telemetry">
+            <Pressable
+              accessibilityLabel={`机器狗 Wi-Fi ${connectionLabel}`}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !onOpenConnection }}
+              disabled={!onOpenConnection}
+              onPress={onOpenConnection}
+              style={({ pressed }) => [styles.bareTopItem, { gap: sp(5) }, pressed && styles.pressed]}
+              testID="control-open-connection"
+            >
+              <View
+                style={[
+                  styles.connectionDot,
+                  { borderRadius: sp(4), height: sp(7), width: sp(7) },
+                  connection === 'connected' ? styles.connectedDot : connection === 'readonly' ? styles.readonlyDot : null,
+                ]}
+                testID="control-hud-connection-dot"
+              />
+              <Ionicons color={connection === 'connected' ? EMERALD_INK : INK} name="wifi-outline" size={sp(13)} />
+              <Text numberOfLines={1} style={[styles.bareTextStrong, { fontSize: fBody, lineHeight: fBodyLine, maxWidth: compactStage ? 92 : 124 }]}>
+                {wifiHeaderLabel}
+              </Text>
+              {connection !== 'disconnected' ? (
+                <Text numberOfLines={1} style={[styles.bareTextMuted, { fontSize: fMeta, lineHeight: fMetaLine }]}>
+                  {connectionLabel}
+                </Text>
+              ) : null}
+            </Pressable>
+
+            {connection === 'disconnected' && onReconnect ? (
+              <Pressable
+                accessibilityLabel="立即重连"
+                accessibilityRole="button"
+                onPress={onReconnect}
+                style={({ pressed }) => [styles.bareTopItem, { gap: sp(3) }, pressed && styles.pressed]}
+                testID="control-hud-reconnect"
+              >
+                <Ionicons color={activeIconTint} name="refresh-outline" size={sp(13)} />
+                <Text numberOfLines={1} style={[styles.bareTextStrong, { color: activeIconTint, fontSize: fMeta, lineHeight: fMetaLine }]}>重连</Text>
+              </Pressable>
+            ) : null}
+
+            {faults.length > 0 ? (
+              <Pressable
+                accessibilityLabel={`异常列表，共 ${faults.length} 项`}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: faultPanelOpen }}
+                onPress={onToggleFaultPanel}
+                style={({ pressed }) => [styles.bareTopItem, { gap: sp(3) }, pressed && styles.pressed]}
+                testID="control-hud-fault-badge"
+              >
+                <Ionicons color={RED_ESTOP} name="alert-circle" size={sp(14)} />
+                <Text numberOfLines={1} style={[styles.bareFaultText, { fontSize: fMeta, lineHeight: fMetaLine }]}>
+                  {faults.length > 1 ? `${faults.length}` : '!'}
+                </Text>
+              </Pressable>
+            ) : null}
+
+            {signals.cellularVisible ? (
+              <View accessible accessibilityLabel={`移动数据 ${signals.cellularText}`} style={[styles.telemetryItem, { gap: sp(3) }]} testID="control-hud-cellular">
+                <Ionicons color={INK} name="cellular" size={sp(13)} />
+                <Text numberOfLines={1} style={[styles.bareText, { fontSize: fMeta, lineHeight: fMetaLine }]}>{signals.cellularText}</Text>
+              </View>
+            ) : null}
+
+            {signals.robotVisible ? (
+              <View accessible accessibilityLabel={`机器人信号 ${signals.robotText}`} style={[styles.telemetryItem, { gap: sp(3) }]} testID="control-hud-robot-signal">
+                <Ionicons color={INK} name="hardware-chip-outline" size={sp(13)} />
+                <Text numberOfLines={1} style={[styles.bareText, { fontSize: fMeta, lineHeight: fMetaLine }]}>{signals.robotText}</Text>
+              </View>
+            ) : null}
+
+            {signals.wifiVisible ? (
+              <View accessible accessibilityLabel={`WiFi ${signals.wifiText}`} style={[styles.telemetryItem, { gap: sp(3) }]} testID="control-hud-wifi-signal">
+                <Ionicons color={EMERALD_INK} name="wifi" size={sp(13)} />
+                <Text numberOfLines={1} style={[styles.bareText, { fontSize: fMeta, lineHeight: fMetaLine }]}>
+                  {compactStage ? signals.wifiCompactText : signals.wifiText}
+                </Text>
+              </View>
+            ) : null}
+
+            {recordingActive ? (
+              <View accessible accessibilityLabel={`正在录制视频 ${recordingDurationLabel ?? ''}`} style={[styles.bareTopItem, { gap: sp(4) }]} testID="control-hud-recording-badge">
+                <View style={[styles.recordingDot, { borderRadius: sp(3), height: sp(6), width: sp(6) }]} />
+                <Text numberOfLines={1} style={[styles.bareFaultText, { fontSize: fMeta, lineHeight: fMetaLine }]}>{recordingDurationLabel ? `REC ${recordingDurationLabel}` : 'REC'}</Text>
+              </View>
+            ) : null}
+
+            {/* Bare Floating Live Power & Thermal Telemetry (e.g. 55.4V · 36°C) — toggles floating Status Bento Card */}
+            <Pressable
+              accessibilityLabel={`机器人状态 ${statusMetricText}`}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: statusCardOpen }}
+              onPress={onToggleStatusCard ?? onOpenJointStatus ?? onBack}
+              style={({ pressed }) => [styles.bareTopItem, { gap: sp(4), minHeight: sp(28) }, pressed && styles.pressed]}
+              testID="control-hud-open-status"
+            >
+              <Ionicons color={statusCardOpen ? activeIconTint : INK} name="pulse-outline" size={sp(13)} />
+              <Text numberOfLines={1} style={[styles.bareText, { fontSize: fBody, lineHeight: fBodyLine }, statusCardOpen && { color: activeIconTint, fontWeight: '600' }]}>
+                {statusMetricText}
+              </Text>
+            </Pressable>
+
+            {/* Bare Floating Settings Trigger */}
+            <Pressable
+              accessibilityLabel={settingsLabel}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: settingsOpen }}
+              onPress={onOpenSettings}
+              style={({ pressed }) => [styles.bareTopItem, { gap: sp(4), minHeight: sp(28) }, pressed && styles.pressed]}
+              testID="control-hud-settings"
+            >
+              <Ionicons color={settingsOpen ? activeIconTint : INK} name="settings-outline" size={sp(14)} />
+              <Text numberOfLines={1} style={[styles.bareText, { fontSize: fBody, lineHeight: fBodyLine }, settingsOpen && { color: activeIconTint, fontWeight: '600' }]}>
+                设置
+              </Text>
+            </Pressable>
+
+            {/* Bare Floating High-Contrast Unobstructed Red E-Stop (NEVER occluded!) */}
+            <Pressable
+              accessibilityHint={stopHint}
+              accessibilityLabel="软件急停"
+              accessibilityRole="button"
+              accessibilityState={{ disabled: stopDisabled }}
+              disabled={stopDisabled}
+              hitSlop={10}
+              onPress={onStop}
+              style={({ pressed }) => [
+                styles.bareEstopBtn,
+                { gap: sp(5), minHeight: sp(28), paddingLeft: sp(2) },
+                stopDisabled && styles.bareEstopDisabled,
+                pressed && !stopDisabled && styles.pressed,
+              ]}
+              testID="control-hud-stop"
+            >
+              <View style={[styles.stopRing, { borderColor: stopDisabled ? RED_ESTOP_DISABLED : RED_ESTOP, borderRadius: sp(7), height: sp(14), width: sp(14) }]}>
+                <View style={[styles.stopCore, { backgroundColor: stopDisabled ? RED_ESTOP_DISABLED : RED_ESTOP }]} />
+              </View>
+              <Text numberOfLines={1} style={[styles.bareEstopText, { color: stopDisabled ? RED_ESTOP_DISABLED : RED_ESTOP, fontSize: sp(13.5), lineHeight: sp(18) }]}>
+                急停
+              </Text>
+            </Pressable>
+          </View>
+
+          {/* Floating Speed Limit Adjuster Popover */}
+          {speedLimitExpanded && !settingsMenu && !statusCardOpen ? (
+            <View
+              style={[
+                styles.speedBarFloating,
+                { gap: sp(8), height: sp(36), left: edgeX, paddingHorizontal: sp(12), top: edgeTop + sp(150) },
+              ]}
+              testID="control-hud-speed-limit-bar"
+            >
+              {showHighSpeedOption ? (
+                <View style={[styles.speedModeSegment, { borderRadius: sp(8), gap: sp(2), padding: 2 }]} testID="control-hud-speed-mode-group">
                   <Pressable
                     accessibilityLabel="标准速度档位 1.0 m/s"
                     accessibilityRole="button"
-                    accessibilityState={{ disabled: connection !== 'connected' || speedMode === 'unsupported', selected: speedMode !== 'high' }}
-                    disabled={connection !== 'connected' || speedMode === 'unsupported'}
-                    onPress={() => { if (speedMode === 'high') onSelectSpeedMode('normal'); }}
+                    accessibilityState={{ disabled: connection !== 'connected', selected: speedMode !== 'high' }}
+                    disabled={connection !== 'connected'}
+                    onPress={() => { if (speedMode === 'high') onSelectSpeedMode?.('normal'); }}
                     style={({ pressed }) => [
                       styles.speedModeChip,
-                      { borderRadius: sp(999), paddingHorizontal: sp(9), paddingVertical: sp(3) },
+                      { borderRadius: sp(6), paddingHorizontal: sp(8), paddingVertical: sp(3) },
                       speedMode !== 'high' && styles.speedModeChipActive,
-                      (connection !== 'connected' || speedMode === 'unsupported') && styles.disabled,
+                      connection !== 'connected' && styles.disabled,
                       pressed && styles.pressed,
                     ]}
                     testID="control-hud-speed-mode-normal"
                   >
-                    <Text style={[styles.speedModeChipText, { fontSize: fMeta, lineHeight: fMetaLine }, speedMode !== 'high' && styles.speedModeChipTextActive]}>标准 1.0</Text>
+                    <Text numberOfLines={1} style={[styles.speedModeChipText, { fontSize: fMeta, lineHeight: fMetaLine }, speedMode !== 'high' && styles.speedModeChipTextActive]}>标准 1.0</Text>
                   </Pressable>
                   <Pressable
-                    accessibilityHint={speedMode === 'unsupported' ? '当前固件未开放高速模式' : '开阔平地最高 2.5 m/s'}
+                    accessibilityHint="最高 2.5 m/s"
                     accessibilityLabel="高速速度档位 2.5 m/s"
                     accessibilityRole="button"
-                    accessibilityState={{ disabled: connection !== 'connected' || speedMode === 'unsupported', selected: speedMode === 'high' }}
-                    disabled={connection !== 'connected' || speedMode === 'unsupported'}
-                    onPress={() => { if (speedMode !== 'high') onSelectSpeedMode('high'); }}
+                    accessibilityState={{ disabled: connection !== 'connected', selected: speedMode === 'high' }}
+                    disabled={connection !== 'connected'}
+                    onPress={() => { if (speedMode !== 'high') onSelectSpeedMode?.('high'); }}
                     style={({ pressed }) => [
                       styles.speedModeChip,
-                      { borderRadius: sp(999), paddingHorizontal: sp(9), paddingVertical: sp(3) },
+                      { borderRadius: sp(6), paddingHorizontal: sp(8), paddingVertical: sp(3) },
                       speedMode === 'high' && styles.speedModeChipHighActive,
-                      (connection !== 'connected' || speedMode === 'unsupported') && styles.disabled,
+                      connection !== 'connected' && styles.disabled,
                       pressed && styles.pressed,
                     ]}
                     testID="control-hud-speed-mode-high"
                   >
-                    <Text style={[styles.speedModeChipText, { fontSize: fMeta, lineHeight: fMetaLine }, speedMode === 'high' && styles.speedModeChipTextHigh]}>高速 2.5</Text>
+                    <Text numberOfLines={1} style={[styles.speedModeChipText, { fontSize: fMeta, lineHeight: fMetaLine }, speedMode === 'high' && styles.speedModeChipTextHigh]}>高速 2.5</Text>
                   </Pressable>
                 </View>
               ) : null}
-              <Text style={[styles.speedBarLabel, { fontSize: fMeta, lineHeight: fMetaLine }]}>限速比例</Text>
+              <Text numberOfLines={1} style={[styles.speedBarLabel, { fontSize: fMeta, lineHeight: fMetaLine }]}>限速</Text>
               <Pressable
                 accessibilityLabel="降低速度限制"
                 accessibilityRole="button"
                 disabled={speedLimitClamped <= 10}
                 onPress={() => onChangeSpeedLimit(speedLimitClamped - 10)}
-                style={({ pressed }) => [styles.speedStepBtn, { borderRadius: sp(12), height: sp(24), width: sp(24) }, speedLimitClamped <= 10 && styles.disabled, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.speedStepBtn, { borderRadius: sp(11), height: sp(22), width: sp(22) }, speedLimitClamped <= 10 && styles.disabled, pressed && styles.pressed]}
                 testID="control-hud-speed-limit-dec"
               >
-                <Ionicons color={INK} name="remove" size={sp(15)} />
+                <Ionicons color={INK} name="remove" size={sp(14)} />
               </Pressable>
-              <View style={[styles.speedTrack, { borderRadius: sp(3), height: sp(6), width: sp(88) }]}>
-                <View style={[styles.speedFill, { width: `${speedLimitClamped}%` }]} />
+              <View style={[styles.speedTrack, { borderRadius: sp(3), height: sp(5), width: sp(78) }]}>
+                <View style={[styles.speedFill, { backgroundColor: isBlueAccent ? FSD_BLUE : '#EAEAEA', width: `${speedLimitClamped}%` }]} />
               </View>
               <Pressable
                 accessibilityLabel="提高速度限制"
                 accessibilityRole="button"
                 disabled={speedLimitClamped >= 100}
                 onPress={() => onChangeSpeedLimit(speedLimitClamped + 10)}
-                style={({ pressed }) => [styles.speedStepBtn, { borderRadius: sp(12), height: sp(24), width: sp(24) }, speedLimitClamped >= 100 && styles.disabled, pressed && styles.pressed]}
+                style={({ pressed }) => [styles.speedStepBtn, { borderRadius: sp(11), height: sp(22), width: sp(22) }, speedLimitClamped >= 100 && styles.disabled, pressed && styles.pressed]}
                 testID="control-hud-speed-limit-inc"
               >
-                <Ionicons color={INK} name="add" size={sp(15)} />
+                <Ionicons color={INK} name="add" size={sp(14)} />
               </Pressable>
-              <Text style={[styles.speedBarValue, { fontSize: fBody, lineHeight: fBodyLine, minWidth: sp(40) }]} testID="control-hud-speed-limit-value">{`${speedLimitClamped}%`}</Text>
+              <Text numberOfLines={1} style={[styles.speedBarValue, { fontSize: fBody, lineHeight: fBodyLine, minWidth: sp(36) }]} testID="control-hud-speed-limit-value">{`${speedLimitClamped}%`}</Text>
             </View>
           ) : null}
         </View>
@@ -732,13 +1148,13 @@ export function controlLandscapeHud({
         {/* Joystick Touch Layer (sibling of control-hud-center-stack) */}
         <View
           onLayout={onStickFrameLayout}
-          pointerEvents={settingsMenu || !joystick ? 'none' : 'box-none'}
-          style={[styles.stickFrame, stickFrameStyle, (settingsMenu || !joystick) ? styles.hiddenStickFrame : null]}
+          pointerEvents={settingsMenu || statusCardOpen || leftCategory === 'action' || !joystick ? 'none' : 'box-none'}
+          style={[styles.stickFrame, stickFrameStyle, (settingsMenu || statusCardOpen || leftCategory === 'action' || !joystick) ? styles.hiddenStickFrame : null]}
           testID="control-immersive-sticks"
         >
           {joystick}
         </View>
-        {pointCloud && !settingsMenu ? (
+        {pointCloud && !settingsMenu && !statusCardOpen ? (
           <View
             pointerEvents="box-none"
             style={[styles.centerStack, { left: centerStackInset, right: centerStackInset, bottom: stickFrameStyle?.bottom ?? 72 }]}
@@ -748,152 +1164,13 @@ export function controlLandscapeHud({
           </View>
         ) : null}
 
-        {/* Upper-Left Quick Tool Rail: Voice / Virtual Discs / Body Height */}
-        {!settingsMenu && (onToggleVoiceChat || onToggleVirtualDiscControls || onToggleBodyHeightPanel) ? (
-          <View pointerEvents="box-none" style={[styles.leftVoiceRail, { gap: sp(ultraShortStage ? 6 : 8), left: pipRight, top: pipTop }]}>
-            {onToggleVoiceChat ? (() => {
-              const voiceBusyState = voiceChatLiveState === 'listening' || voiceChatLiveState === 'thinking' || voiceChatLiveState === 'speaking' || voiceChatActive;
-              const voiceDotColor =
-                voiceChatLiveState === 'listening'
-                  ? '#22C55E'
-                  : voiceChatLiveState === 'speaking'
-                    ? '#38BDF8'
-                    : voiceChatLiveState === 'thinking'
-                      ? '#60A5FA'
-                      : voiceChatQuietMode
-                        ? '#F59E0B'
-                        : voiceChatConnected
-                          ? '#22C55E'
-                          : '#94A3B8';
-              const voiceHaloColor =
-                voiceChatLiveState === 'listening'
-                  ? 'rgba(34, 197, 94, 0.34)'
-                  : voiceChatLiveState === 'speaking'
-                    ? 'rgba(56, 189, 248, 0.34)'
-                    : 'rgba(96, 165, 250, 0.32)';
-              const dockVoiceLabel = voiceBusyState && voiceChatStatusLabel
-                ? voiceChatStatusLabel
-                : voiceChatQuietMode
-                  ? '轻声'
-                  : '对话';
-              return (
-                <Pressable
-                  accessibilityLabel={voiceChatOpen ? '收起语音对话' : '打开语音对话'}
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded: voiceChatOpen, selected: voiceChatOpen || voiceBusyState }}
-                  onPress={onToggleVoiceChat}
-                  style={({ pressed }) => [styles.circleBtnGroup, { gap: sp(2) }, pressed && styles.pressed]}
-                  testID="control-hud-voice-toggle"
-                >
-                  <View
-                    style={[
-                      styles.circleBtn,
-                      styles.circleBtnRelative,
-                      { borderRadius: circleRadius, height: circleSize, width: circleSize },
-                      (voiceChatOpen || voiceBusyState) && styles.circleBtnActive,
-                    ]}
-                  >
-                    <Ionicons
-                      color={INK}
-                      name={voiceBusyState ? 'mic' : voiceChatOpen ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'}
-                      size={circleIconSize}
-                    />
-                    {voiceChatConnected || voiceBusyState ? (
-                      <View
-                        style={[
-                          styles.voiceDotHalo,
-                          voiceBusyState && { backgroundColor: voiceHaloColor },
-                        ]}
-                        testID="control-hud-voice-presence-dot"
-                      >
-                        <View style={[styles.voiceDotCore, { backgroundColor: voiceDotColor }]} />
-                      </View>
-                    ) : null}
-                    {voiceChatPendingReminders > 0 ? (
-                      <View style={styles.voiceReminderBadge} testID="control-hud-voice-reminder-badge">
-                        <Text style={styles.voiceReminderBadgeText}>{String(voiceChatPendingReminders)}</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <Text numberOfLines={1} style={[styles.circleCaption, { fontSize: fMeta, lineHeight: railMetaLine }]}>
-                    {dockVoiceLabel}
-                  </Text>
-                  {voiceChatEmotionLabel ? (
-                    <Text
-                      numberOfLines={1}
-                      style={[styles.voiceEmotionBadge, { fontSize: Math.max(9, sp(9.5)), lineHeight: sp(12) }]}
-                      testID="control-hud-voice-emotion"
-                    >
-                      {voiceChatEmotionLabel}
-                    </Text>
-                  ) : null}
-                </Pressable>
-              );
-            })() : null}
-            {onToggleVirtualDiscControls ? (
-              <Pressable
-                accessibilityLabel={showVirtualDiscControls ? '隐藏圆盘控制' : '显示圆盘控制'}
-                accessibilityRole="switch"
-                accessibilityState={{ checked: showVirtualDiscControls }}
-                onPress={onToggleVirtualDiscControls}
-                style={({ pressed }) => [styles.circleBtnGroup, { gap: sp(2) }, pressed && styles.pressed]}
-                testID="control-hud-virtual-disc-toggle"
-              >
-                <View
-                  style={[
-                    styles.circleBtn,
-                    { borderRadius: circleRadius, height: circleSize, width: circleSize },
-                    showVirtualDiscControls && styles.circleBtnActive,
-                  ]}
-                >
-                  <Ionicons
-                    color={INK}
-                    name={showVirtualDiscControls ? 'disc' : 'disc-outline'}
-                    size={circleIconSize}
-                  />
-                </View>
-                <Text numberOfLines={1} style={[styles.circleCaption, { fontSize: fMeta, lineHeight: railMetaLine }]}>
-                  圆盘
-                </Text>
-              </Pressable>
-            ) : null}
-            {onToggleBodyHeightPanel ? (
-              <Pressable
-                accessibilityLabel={bodyHeightPanelOpen ? '收起机身高度' : '调节机身高度'}
-                accessibilityRole="button"
-                accessibilityState={{ expanded: bodyHeightPanelOpen, selected: bodyHeightPanelOpen || Boolean(bodyHeight?.active) }}
-                onPress={onToggleBodyHeightPanel}
-                style={({ pressed }) => [styles.circleBtnGroup, { gap: sp(2) }, pressed && styles.pressed]}
-                testID="control-hud-height-toggle"
-              >
-                <View
-                  style={[
-                    styles.circleBtn,
-                    { borderRadius: circleRadius, height: circleSize, width: circleSize },
-                    (bodyHeightPanelOpen || bodyHeight?.active) && styles.circleBtnActive,
-                  ]}
-                >
-                  <Ionicons
-                    color={INK}
-                    name={bodyHeightPanelOpen || bodyHeight?.active ? 'swap-vertical' : 'swap-vertical-outline'}
-                    size={circleIconSize}
-                  />
-                </View>
-                <Text numberOfLines={1} style={[styles.circleCaption, { fontSize: fMeta, lineHeight: railMetaLine }]}>
-                  {activeHeightBadgeText ?? '高度'}
-                </Text>
-              </Pressable>
-            ) : null}
-          </View>
-        ) : null}
-
-        {/* Upper-Right Dual Camera / Depth PiP Window */}
-        {dualCameraEnabled && !settingsMenu ? (
+        {/* Optional Upper-Right Dual Camera / Depth PiP Window */}
+        {dualCameraEnabled && !settingsMenu && !statusCardOpen ? (
           <Pressable
-            accessibilityLabel={`第二相机视角（${depthActive ? '深度图' : showMainFront ? '后视角' : '前视角'}），点击互换主画面`}
+            accessibilityLabel={`切换${depthActive ? '深度图' : showMainFront ? '后视角' : '前视角'}画面`}
             accessibilityRole="button"
             onPress={onSwapCamera}
-            style={({ pressed }) => [styles.pipWindow, { borderRadius: sp(ultraShortStage ? 10 : 12), height: pipH, right: pipRight, top: pipTop, width: pipW }, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.pipWindow, { borderRadius: sp(10), height: pipH, right: edgeX, top: pipTop, width: pipW }, pressed && styles.pressed]}
             testID="control-hud-pip-window"
           >
             {depthActive && depthPreview ? (
@@ -902,12 +1179,12 @@ export function controlLandscapeHud({
               <View pointerEvents="none" style={StyleSheet.absoluteFill}>{secondaryPipFeed}</View>
             ) : (
               <View pointerEvents="none" style={[styles.pipPlaceholder, { gap: sp(4) }]} testID="control-hud-pip-placeholder">
-                <Ionicons color={MUTED} name="videocam-off-outline" size={sp(ultraShortStage ? 17 : 20)} />
+                <Ionicons color={MUTED} name="videocam-off-outline" size={sp(18)} />
               </View>
             )}
-            <View pointerEvents="none" style={[styles.pipHeaderRow, { left: sp(ultraShortStage ? 6 : 8), top: sp(ultraShortStage ? 6 : 8) }]}>
-              <View style={[styles.pipBadge, { borderRadius: sp(6), paddingHorizontal: sp(ultraShortStage ? 6 : 8), paddingVertical: sp(ultraShortStage ? 2 : 3) }]}>
-                <Text style={[styles.pipBadgeText, { fontSize: fMeta, lineHeight: railMetaLine }]}>
+            <View pointerEvents="none" style={[styles.pipHeaderRow, { left: sp(8), top: sp(8) }]}>
+              <View style={[styles.pipBadge, { borderRadius: sp(6), paddingHorizontal: sp(7), paddingVertical: sp(2) }]}>
+                <Text numberOfLines={1} style={[styles.pipBadgeText, { fontSize: fMeta, lineHeight: fMetaLine }]}>
                   {depthActive ? '深度图 ⇄' : showMainFront ? (hasDedicatedRearCamera === false ? '副视窗 ⇄' : '后广角 ⇄') : '前视角 ⇄'}
                 </Text>
               </View>
@@ -915,93 +1192,9 @@ export function controlLandscapeHud({
           </Pressable>
         ) : null}
 
-        {/* Concept A-1 Circular Glass Tool Buttons Directly Below (or Beside on ultra-short stage) PiP */}
-        {!settingsMenu ? <View pointerEvents="box-none" style={[styles.rightRail, { alignItems: 'center' as const, gap: sp(ultraShortStage ? 4 : compactRightRail ? 5 : 9), right: rightRailRight, top: rightRailTop, width: rightRailWidth }]} testID="control-hud-camera-rail">
-          <View style={[styles.circleToolRow, { justifyContent: 'space-around' as const, width: '100%' }]}>
-            <Pressable
-              accessibilityLabel={dualCameraEnabled ? '关闭双广角，切为单广角' : '开启双广角'}
-              accessibilityRole="button"
-              accessibilityState={{ selected: dualCameraEnabled }}
-              onPress={onToggleDualCamera}
-              style={({ pressed }) => [styles.circleBtnGroup, { gap: sp(2) }, pressed && styles.pressed]}
-              testID="control-hud-camera-count-toggle"
-            >
-              <View style={[styles.circleBtn, { borderRadius: circleRadius, height: circleSize, width: circleSize }, dualCameraEnabled && styles.circleBtnActive]}>
-                <Ionicons color={INK} name={dualCameraEnabled ? 'albums-outline' : 'square-outline'} size={circleIconSize} />
-              </View>
-              <Text style={[styles.circleCaption, { fontSize: fMeta, lineHeight: railMetaLine }]}>双摄</Text>
-            </Pressable>
-
-            <Pressable
-              accessibilityLabel={depthActive ? '关闭深度图叠层' : '开启深度图预览'}
-              accessibilityRole="button"
-              accessibilityState={{ selected: depthActive }}
-              onPress={onToggleDepth}
-              style={({ pressed }) => [styles.circleBtnGroup, { gap: sp(2) }, pressed && styles.pressed]}
-              testID="control-hud-depth-toggle"
-            >
-              <View style={[styles.circleBtn, { borderRadius: circleRadius, height: circleSize, width: circleSize }, depthActive && styles.circleBtnActive]}>
-                <Ionicons color={INK} name="radio-button-on-outline" size={circleIconSize} />
-              </View>
-              <Text style={[styles.circleCaption, { fontSize: fMeta, lineHeight: railMetaLine }]}>深度</Text>
-            </Pressable>
-
-            <Pressable
-              accessibilityLabel="拍照保存画面"
-              accessibilityRole="button"
-              onPress={onCapturePhoto}
-              style={({ pressed }) => [styles.circleBtnGroup, { gap: sp(2) }, pressed && styles.pressed]}
-              testID="control-hud-photo-capture"
-            >
-              <View style={[styles.circleBtn, { borderRadius: circleRadius, height: circleSize, width: circleSize }]}>
-                <Ionicons color={INK} name="camera-outline" size={circleIconSize} />
-              </View>
-              <Text style={[styles.circleCaption, { fontSize: fMeta, lineHeight: railMetaLine }]}>抓拍</Text>
-            </Pressable>
-          </View>
-
-          <View style={[styles.secondaryUtilityStrip, { gap: 2, justifyContent: 'space-between' as const, paddingHorizontal: ultraShortStage ? 3 : 4, paddingVertical: 2, width: '100%' }]}>
-            <Pressable
-              accessibilityLabel={`切换相机视角，当前${showMainFront ? '前视角' : '后视角'}`}
-              accessibilityRole="button"
-              accessibilityState={{ selected: !showMainFront }}
-              onPress={onSwapCamera}
-              style={({ pressed }) => [styles.utilityMiniPill, { flex: 1, gap: 2, justifyContent: 'center' as const, paddingHorizontal: ultraShortStage ? 3 : 4, paddingVertical: ultraShortStage ? 2 : compactRightRail ? 3 : 4 }, !showMainFront && styles.utilityMiniPillActive, pressed && styles.pressed]}
-              testID="control-hud-camera-swap"
-            >
-              <Ionicons color={INK} name="camera-reverse-outline" size={ultraShortStage ? 10 : compactRightRail ? 11 : sp(13)} />
-              <Text numberOfLines={1} style={[styles.utilityMiniText, { fontSize: compactRightRail ? 10.5 : fMeta, lineHeight: railMetaLine }]}>{showMainFront ? '前视' : '后视'}</Text>
-            </Pressable>
-
-            <Pressable
-              accessibilityLabel={headlightMode === 'off' ? '前照明灯：关闭' : headlightMode === 'front' ? '前照明灯：前灯开启' : '前照明灯：前后开启'}
-              accessibilityRole="button"
-              accessibilityState={{ selected: headlightMode !== 'off' }}
-              onPress={onToggleHeadlight}
-              style={({ pressed }) => [styles.utilityMiniPill, { flex: 1, gap: 2, justifyContent: 'center' as const, paddingHorizontal: ultraShortStage ? 3 : 4, paddingVertical: ultraShortStage ? 2 : compactRightRail ? 3 : 4 }, headlightMode !== 'off' && styles.utilityMiniPillActive, pressed && styles.pressed]}
-              testID="control-hud-light-toggle"
-            >
-              <Ionicons color={headlightMode !== 'off' ? EMERALD_INK : INK} name="flashlight-outline" size={ultraShortStage ? 10 : compactRightRail ? 11 : sp(13)} />
-              <Text numberOfLines={1} style={[styles.utilityMiniText, { fontSize: compactRightRail ? 10.5 : fMeta, lineHeight: railMetaLine }]}>{headlightMode === 'off' ? '车灯' : headlightMode === 'front' ? '前灯' : '双灯'}</Text>
-            </Pressable>
-
-            <Pressable
-              accessibilityLabel={recordingActive ? '结束录屏' : '开始录屏'}
-              accessibilityRole="button"
-              accessibilityState={{ selected: recordingActive }}
-              onPress={onToggleRecord}
-              style={({ pressed }) => [styles.utilityMiniPill, { flex: 1, gap: 2, justifyContent: 'center' as const, paddingHorizontal: ultraShortStage ? 3 : 4, paddingVertical: ultraShortStage ? 2 : compactRightRail ? 3 : 4 }, recordingActive && styles.utilityMiniPillDanger, pressed && styles.pressed]}
-              testID="control-hud-record-toggle"
-            >
-              <Ionicons color={INK} name={recordingActive ? 'stop-circle-outline' : 'videocam-outline'} size={ultraShortStage ? 10 : compactRightRail ? 11 : sp(13)} />
-              <Text numberOfLines={1} style={[styles.utilityMiniText, { fontSize: compactRightRail ? 10.5 : fMeta, lineHeight: railMetaLine }]}>录屏</Text>
-            </Pressable>
-          </View>
-        </View> : null}
-
-        {/* Floating Joint Params / Joint Temp / Faults / Recovery */}
-        {anyFloatingPanel && !settingsMenu ? (
-          <View pointerEvents="box-none" style={[styles.floatingPanelsOverlay, { bottom: sp(116), top: sp(64) + (speedLimitExpanded ? sp(46) : 0) + (feedback ? sp(46) : 0) + (hudNotice ? sp(46) : 0), transform: [{ translateX: -Math.round(overlayW / 2) }], width: overlayW }]} testID="control-hud-overlay-stack">
+        {/* Floating Joint Params / Joint Temp / Body Height / Voice / Faults / Recovery */}
+        {anyFloatingPanel && !settingsMenu && !statusCardOpen ? (
+          <View pointerEvents="box-none" style={[styles.floatingPanelsOverlay, { bottom: sp(74), top: sp(50) + (feedback ? sp(44) : 0) + (hudNotice ? sp(44) : 0), transform: [{ translateX: -Math.round(overlayW / 2) }], width: overlayW }]} testID="control-hud-overlay-stack">
             <ScrollView
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.floatingPanelsContent}
@@ -1021,12 +1214,14 @@ export function controlLandscapeHud({
                 onSelectLeg: onSelectLegId,
                 joints,
                 onClose: onToggleJointParams,
+                accentTone,
               }) : null}
               {jointTempOpen ? JointTemperaturePanel({
                 moduleKind: tempModuleKind,
                 onSelectModule: onTempModuleKindChange,
                 joints,
                 onClose: onToggleJointTemp,
+                accentTone,
               }) : null}
               {bodyHeightPanelOpen && onToggleBodyHeightPanel ? BodyHeightPanel({
                 bodyHeight,
@@ -1042,13 +1237,14 @@ export function controlLandscapeHud({
                 onPreviewHeight: onPreviewBodyHeight,
                 onCommitHeight: onCommitBodyHeight,
                 onClose: onToggleBodyHeightPanel,
+                accentTone,
               }) : null}
             </ScrollView>
           </View>
         ) : null}
 
-        {/* Expanded Dashboard Floats Above Concept A-1 Obsidian Bottom Dock (yields center stage when popovers/panels are open) */}
-        {docksExpanded && !settingsMenu ? (
+        {/* Expanded 1-Row Diagnostics Bar Floating Cleanly Above Bottom 3-Card Dock */}
+        {docksExpanded && !settingsMenu && !statusCardOpen ? (
           <View
             pointerEvents={leftCategory !== 'policy' || anyFloatingPanel ? 'none' : 'box-none'}
             style={[styles.dashboardOverlay, (leftCategory !== 'policy' || anyFloatingPanel) ? styles.hiddenBehindPopover : null]}
@@ -1056,8 +1252,8 @@ export function controlLandscapeHud({
             {ControlHudDashboard({
               expanded: true,
               scale: hudScale,
-              maxWidth: centerFreeWidth,
-              bottomOffset: sp(64),
+              maxWidth: Math.max(360, effectiveStageW - edgeX * 2),
+              bottomOffset: edgeBottom + sp(50),
               onToggleExpanded: onToggleDocks,
               headlightMode,
               frontVideoReceiving: videoReceiving,
@@ -1080,270 +1276,520 @@ export function controlLandscapeHud({
           </View>
         ) : null}
 
-        {/* Concept A-1 Bottom-Center Floating Obsidian Pill Dock + Popover */}
-        {!settingsMenu ? <View pointerEvents="box-none" style={[styles.bottomDockContainer, { bottom: sp(12) }]} testID="control-hud-left-controls">
-          {leftCategory !== 'policy' ? (
-            <View style={[styles.drawerPopover, { borderRadius: sp(16), marginBottom: sp(8), maxWidth: leftCategory === 'action' && gestures.length > 0 ? gestureDeckWidth + sp(24) : sp(440), paddingHorizontal: sp(11), paddingVertical: sp(8) }]}>
-              {leftCategory === 'posture' ? (
-                <View style={[styles.drawerWrap, { gap: sp(6) }]} testID="control-hud-posture-dock">
-                  {postures.map(option => (
-                    <Pressable
-                      key={option.id}
-                      accessibilityHint={option.hint}
-                      accessibilityLabel={option.label}
-                      accessibilityRole="button"
-                      accessibilityState={{ disabled: option.disabled || option.selected, selected: option.selected }}
-                      disabled={option.disabled || option.selected}
-                      onPress={() => {
-                        if (!option.disabled && !option.selected) option.onPress();
-                      }}
-                      style={({ pressed }) => [
-                        styles.drawerPillBtn,
-                        { gap: sp(4), minHeight: sp(32), paddingHorizontal: sp(13), paddingVertical: sp(4) },
-                        option.selected && styles.drawerPillBtnActive,
-                        option.disabled && !option.selected && styles.disabled,
-                        pressed && styles.pressed,
-                      ]}
-                      testID={(option.selected ? 'control-hud-posture-selected-' : 'control-hud-posture-') + option.id}
-                    >
-                      <Text numberOfLines={1} style={[styles.drawerPillText, { fontSize: fBody, lineHeight: fBodyLine }, option.selected && styles.drawerPillTextActive]}>
-                        {option.label}
-                      </Text>
-                    </Pressable>
-                  ))}
-                  {onToggleBodyHeightPanel ? (
-                    <Pressable
-                      accessibilityLabel="机身高度"
-                      accessibilityRole="button"
-                      accessibilityState={{ expanded: bodyHeightPanelOpen, selected: bodyHeightPanelOpen || Boolean(bodyHeight?.active) }}
-                      onPress={onToggleBodyHeightPanel}
-                      style={({ pressed }) => [
-                        styles.drawerPillBtn,
-                        { gap: sp(4), minHeight: sp(32), paddingHorizontal: sp(13), paddingVertical: sp(4) },
-                        (bodyHeightPanelOpen || bodyHeight?.active) && styles.drawerPillBtnActive,
-                        pressed && styles.pressed,
-                      ]}
-                      testID="control-hud-posture-height"
-                    >
-                      <Text numberOfLines={1} style={[styles.drawerPillText, { fontSize: fBody, lineHeight: fBodyLine }, (bodyHeightPanelOpen || bodyHeight?.active) && styles.drawerPillTextActive]}>
-                        机身高度
-                      </Text>
-                    </Pressable>
-                  ) : null}
+        {/* Centered Borderless Frosted Charcoal 2-Column Action Studio Modal (and fallback posture popover) */}
+        {!settingsMenu && !statusCardOpen && leftCategory === 'posture' ? (
+          <View pointerEvents="box-none" style={[styles.popoverOverlay, { bottom: edgeBottom + sp(50) }]}>
+            <View style={[styles.drawerPopover, { borderRadius: sp(12), maxWidth: sp(420), paddingHorizontal: sp(10), paddingVertical: sp(8) }]}>
+              <View style={[styles.drawerWrap, { gap: sp(6) }]} testID="control-hud-posture-dock">
+                {drawerPostures.map(option => (
                   <Pressable
-                    accessibilityHint={motorHint}
-                    accessibilityLabel={motorEnabled ? '失能电机' : '使能电机'}
+                    key={option.id}
+                    accessibilityHint={option.hint}
+                    accessibilityLabel={option.label}
                     accessibilityRole="button"
-                    accessibilityState={{ disabled: motorDisabled || motorBusy, selected: motorEnabled === true }}
-                    disabled={motorDisabled || motorBusy}
-                    onPress={onToggleMotor}
+                    accessibilityState={{ disabled: option.disabled || option.selected, selected: option.selected }}
+                    disabled={option.disabled || option.selected}
+                    onPress={() => {
+                      if (!option.disabled && !option.selected) option.onPress();
+                    }}
                     style={({ pressed }) => [
                       styles.drawerPillBtn,
                       { gap: sp(4), minHeight: sp(32), paddingHorizontal: sp(13), paddingVertical: sp(4) },
-                      motorEnabled && styles.drawerPillBtnActive,
-                      (motorDisabled || motorBusy) && styles.disabled,
+                      option.selected && { backgroundColor: activeSolidBg, borderColor: activeBadgeBorder },
+                      option.disabled && !option.selected && styles.disabled,
                       pressed && styles.pressed,
                     ]}
-                    testID="control-hud-posture-motor"
+                    testID={(option.selected ? 'control-hud-posture-selected-' : 'control-hud-posture-') + option.id}
                   >
-                    <Text numberOfLines={1} style={[styles.drawerPillText, { fontSize: fBody, lineHeight: fBodyLine }, motorEnabled && styles.drawerPillTextActive]}>
-                      {motorEnabled ? '失能电机' : '使能电机'}
+                    <Text numberOfLines={1} style={[styles.drawerPillText, { fontSize: fBody, lineHeight: fBodyLine }, option.selected && styles.drawerPillTextActive]}>
+                      {option.label}
                     </Text>
                   </Pressable>
-                </View>
-              ) : null}
-
-              {leftCategory === 'action' ? (
-                <View style={[styles.drawerWrap, { gap: sp(6) }]} testID="control-hud-action-dock">
-                  {gestures.length > 0 ? GestureDeckPanel({
-                    gestures,
-                    category: gestureCategory,
-                    onSelectCategory: next => onGestureCategoryChange?.(next),
-                    selectedGestureName,
-                    onSelectGesture: name => onSelectGesture?.(name),
-                    showGifPreview: gestureGifPreview,
-                    onToggleGifPreview: () => onToggleGestureGifPreview?.(),
-                    gestureDisabled,
-                    gestureHint,
-                    onPlayGesture,
-                    variant: 'hud',
-                    deckWidth: gestureDeckWidth,
-                    maxListHeight: gestureMaxListHeight,
-                  }) : HUD_BASIC_ACTIONS.map(item => {
-                    const selected = selectedBasicAction === item.id;
-                    return (
-                      <Pressable
-                        key={item.id}
-                        accessibilityLabel={item.label}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected }}
-                        onPress={() => onSelectBasicAction(item.id, item.supported, item.label)}
-                        style={({ pressed }) => [
-                          styles.drawerPillBtn,
-                          { gap: sp(5), minHeight: sp(32), paddingHorizontal: sp(13), paddingVertical: sp(4) },
-                          selected && styles.drawerPillBtnActive,
-                          !item.supported && styles.drawerPillPending,
-                          pressed && styles.pressed,
-                        ]}
-                        testID={`control-hud-basic-action-${item.id}`}
-                      >
-                        <Text numberOfLines={1} style={[styles.drawerPillText, { fontSize: fBody, lineHeight: fBodyLine }, selected && styles.drawerPillTextActive]}>
-                          {item.label}
-                        </Text>
-                        {!item.supported ? <Text style={[styles.pendingTag, { fontSize: fMeta, lineHeight: fMetaLine }]}>待接入</Text> : null}
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              ) : null}
+                ))}
+                {onToggleBodyHeightPanel ? (
+                  <Pressable
+                    accessibilityLabel="机身高度"
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: bodyHeightPanelOpen, selected: bodyHeightPanelOpen || Boolean(bodyHeight?.active) }}
+                    onPress={onToggleBodyHeightPanel}
+                    style={({ pressed }) => [
+                      styles.drawerPillBtn,
+                      { gap: sp(4), minHeight: sp(32), paddingHorizontal: sp(13), paddingVertical: sp(4) },
+                      (bodyHeightPanelOpen || bodyHeight?.active) && { backgroundColor: activeSolidBg, borderColor: activeBadgeBorder },
+                      pressed && styles.pressed,
+                    ]}
+                    testID="control-hud-posture-height"
+                  >
+                    <Text numberOfLines={1} style={[styles.drawerPillText, { fontSize: fBody, lineHeight: fBodyLine }, (bodyHeightPanelOpen || bodyHeight?.active) && styles.drawerPillTextActive]}>
+                      机身高度
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
             </View>
-          ) : null}
+          </View>
+        ) : null}
 
-          <View
-            style={[
-              styles.bottomDockBar,
-              {
-                gap: !docksExpanded && compactTopBar ? (ultraCompactTop ? 4 : 5) : sp(8),
-                maxWidth: !docksExpanded && compactTopBar ? centerFreeWidth : undefined,
-                minHeight: !docksExpanded && compactTopBar ? (ultraShortStage ? 38 : 40) : sp(44),
-                paddingHorizontal: !docksExpanded && compactTopBar ? (ultraCompactTop ? 8 : 10) : sp(14),
-                paddingVertical: !docksExpanded && compactTopBar ? 3 : sp(5),
-              },
-            ]}
-          >
+        {!settingsMenu && !statusCardOpen && leftCategory === 'action' ? (
+          <>
             <Pressable
-              accessibilityHint={motorHint}
-              accessibilityLabel={motorEnabled ? '失能电机' : '使能电机'}
-              accessibilityRole="switch"
-              accessibilityState={{ checked: motorEnabled === true, disabled: motorDisabled || motorBusy, busy: motorBusy }}
-              disabled={motorDisabled || motorBusy}
-              onPress={onToggleMotor}
-              style={({ pressed }) => [
-                styles.dockMotorBtn,
-                { gap: !docksExpanded && compactTopBar ? 4 : sp(6), minHeight: !docksExpanded && compactTopBar ? 26 : sp(32), paddingHorizontal: !docksExpanded && compactTopBar ? 2 : sp(4) },
-                (motorDisabled || motorBusy) && styles.disabled,
-                pressed && styles.pressed,
-              ]}
-              testID="control-hud-motor-power"
+              accessibilityLabel="关闭动作库"
+              accessibilityRole="button"
+              onPress={event => {
+                if (!event || event.target === event.currentTarget) onLeftCategoryChange('policy');
+              }}
+              style={styles.actionModalBackdrop}
+              testID="control-hud-action-backdrop"
+            />
+            <View
+              pointerEvents="box-none"
+              style={[styles.actionModalCenter, { bottom: edgeBottom + sp(54), top: edgeTop + sp(46) }]}
             >
-              <View style={[styles.motorDot, { borderRadius: sp(4), height: !docksExpanded && compactTopBar ? 7 : sp(8), width: !docksExpanded && compactTopBar ? 7 : sp(8) }, motorEnabled ? styles.motorDotArmed : styles.motorDotOff]} />
-              <Text numberOfLines={1} style={[styles.dockMotorText, { fontSize: !docksExpanded && compactTopBar ? 12 : fBody, lineHeight: !docksExpanded && compactTopBar ? 16 : fBodyLine }, motorEnabled && styles.dockMotorTextArmed]}>
-                {motorEnabled ? '失能电机' : '使能电机'}
-              </Text>
-            </Pressable>
-
-            <View style={[styles.dockDivider, { height: sp(16) }]} />
-
-            <View style={[styles.dockPostureGroup, { gap: !docksExpanded && compactTopBar ? 2 : sp(4) }]} testID="control-hud-quick-posture">
-              <Pressable
-                accessibilityHint={standOption?.hint}
-                accessibilityLabel="起立"
-                accessibilityRole="button"
-                accessibilityState={{ disabled: standOption?.disabled ?? true, selected: standOption?.selected ?? false }}
-                disabled={standOption?.disabled ?? true}
-                onPress={() => standOption?.onPress()}
-                style={({ pressed }) => [
-                  styles.dockItemBtn,
-                  { minHeight: !docksExpanded && compactTopBar ? 26 : sp(30), paddingHorizontal: !docksExpanded && compactTopBar ? (ultraCompactTop ? 7 : 8) : sp(10) },
-                  standOption?.selected && styles.dockItemBtnActive,
-                  (standOption?.disabled ?? true) && styles.disabled,
-                  pressed && styles.pressed,
+              <View
+                style={[
+                  styles.actionStudioCard,
+                  { width: gestures.length > 0 ? actionModalWidth : sp(280), paddingHorizontal: sp(14), paddingVertical: sp(12) },
                 ]}
-                testID="control-hud-quick-stand"
+                testID="control-hud-action-dock"
               >
-                <Text numberOfLines={1} style={[styles.dockItemText, { fontSize: !docksExpanded && compactTopBar ? 12 : fBody, lineHeight: !docksExpanded && compactTopBar ? 16 : fBodyLine }, standOption?.selected && styles.dockItemTextActive]}>站立</Text>
-              </Pressable>
-
-              <Pressable
-                accessibilityHint={sitOption?.hint}
-                accessibilityLabel="趴下"
-                accessibilityRole="button"
-                accessibilityState={{ disabled: sitOption?.disabled ?? true, selected: sitOption?.selected ?? false }}
-                disabled={sitOption?.disabled ?? true}
-                onPress={() => sitOption?.onPress()}
-                style={({ pressed }) => [
-                  styles.dockItemBtn,
-                  { minHeight: !docksExpanded && compactTopBar ? 26 : sp(30), paddingHorizontal: !docksExpanded && compactTopBar ? (ultraCompactTop ? 7 : 8) : sp(10) },
-                  sitOption?.selected && styles.dockItemBtnActive,
-                  (sitOption?.disabled ?? true) && styles.disabled,
-                  pressed && styles.pressed,
-                ]}
-                testID="control-hud-quick-sit"
-              >
-                <Text numberOfLines={1} style={[styles.dockItemText, { fontSize: !docksExpanded && compactTopBar ? 12 : fBody, lineHeight: !docksExpanded && compactTopBar ? 16 : fBodyLine }, sitOption?.selected && styles.dockItemTextActive]}>坐下</Text>
-              </Pressable>
+                {gestures.length > 0 ? GestureDeckPanel({
+                  gestures,
+                  category: gestureCategory,
+                  onSelectCategory: next => onGestureCategoryChange?.(next),
+                  selectedGestureName,
+                  onSelectGesture: name => onSelectGesture?.(name),
+                  showGifPreview: gestureGifPreview,
+                  onToggleGifPreview: () => onToggleGestureGifPreview?.(),
+                  gestureDisabled,
+                  gestureHint,
+                  onPlayGesture,
+                  onClose: () => onLeftCategoryChange('policy'),
+                  variant: 'hud',
+                  accentTone,
+                  deckWidth: actionModalWidth - sp(28),
+                  maxListHeight: gestureMaxListHeight,
+                }) : (
+                  <View style={[styles.drawerWrap, { gap: sp(6) }]}>
+                    {HUD_BASIC_ACTIONS.filter(item => item.supported).map(item => {
+                      const selected = selectedBasicAction === item.id;
+                      return (
+                        <Pressable
+                          key={item.id}
+                          accessibilityLabel={item.label}
+                          accessibilityRole="button"
+                          accessibilityState={{ selected }}
+                          onPress={() => onSelectBasicAction(item.id, item.supported, item.label)}
+                          style={({ pressed }) => [
+                            styles.drawerPillBtn,
+                            { gap: sp(5), minHeight: sp(32), paddingHorizontal: sp(13), paddingVertical: sp(4) },
+                            selected && { backgroundColor: activeSolidBg, borderColor: activeBadgeBorder },
+                            pressed && styles.pressed,
+                          ]}
+                          testID={`control-hud-basic-action-${item.id}`}
+                        >
+                          <Text numberOfLines={1} style={[styles.drawerPillText, { fontSize: fBody, lineHeight: fBodyLine }, selected && styles.drawerPillTextActive]}>
+                            {item.label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
             </View>
+          </>
+        ) : null}
 
-            <View style={[styles.dockDivider, { height: sp(16) }]} />
-
-            <View style={[styles.dockCategories, { gap: 2 }]} testID="control-hud-left-category-tabs">
-              {LEFT_CATEGORIES.filter(tab => tab.id !== 'policy').map(tab => {
-                const selected = leftCategory === tab.id;
-                const toggleNext = tab.id === 'policy' ? 'policy' : selected ? 'policy' : tab.id;
+        {/* Bottom 3 Docks (borderRadius: 10, Matte Charcoal) */}
+        {!settingsMenu ? (
+          <View
+            pointerEvents="box-none"
+            style={[styles.bottomThreeCardRow, { bottom: edgeBottom, gap: sp(8), left: edgeX, right: edgeX }]}
+            testID="control-hud-left-controls"
+          >
+            {/* Left Dock: 对话 | 圆盘 | 高度 */}
+            <View style={[styles.dockCard, { gap: sp(2), minHeight: sp(38), paddingHorizontal: sp(5), paddingVertical: sp(3) }]} testID="control-hud-utility-card">
+              {onToggleVoiceChat ? (() => {
+                const voiceBusyState = voiceChatLiveState === 'listening' || voiceChatLiveState === 'thinking' || voiceChatLiveState === 'speaking' || voiceChatActive;
+                const voiceDotColor =
+                  voiceChatLiveState === 'listening'
+                    ? '#34D399'
+                    : voiceChatLiveState === 'speaking'
+                      ? '#34D399'
+                      : voiceChatLiveState === 'thinking'
+                        ? '#F59E0B'
+                        : voiceChatQuietMode
+                          ? '#F59E0B'
+                          : voiceChatConnected
+                            ? '#34D399'
+                            : '#9A9A9A';
+                const voiceHaloColor =
+                  voiceChatLiveState === 'listening' || voiceChatLiveState === 'speaking'
+                    ? 'rgba(52, 211, 153, 0.28)'
+                    : 'rgba(245, 158, 11, 0.28)';
+                const dockVoiceLabel = voiceBusyState && voiceChatStatusLabel
+                  ? voiceChatStatusLabel
+                  : voiceChatQuietMode
+                    ? '轻声'
+                    : '对话';
                 return (
                   <Pressable
-                    key={tab.id}
-                    accessibilityLabel={tab.label}
-                    accessibilityRole="tab"
-                    accessibilityState={{ selected }}
-                    onPress={() => onLeftCategoryChange(toggleNext)}
+                    accessibilityLabel={voiceChatOpen ? '收起语音对话' : '打开语音对话'}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: voiceChatOpen, selected: voiceChatOpen || voiceBusyState }}
+                    onPress={onToggleVoiceChat}
                     style={({ pressed }) => [
-                      styles.dockCatBtn,
-                      { minHeight: !docksExpanded && compactTopBar ? 26 : sp(30), paddingHorizontal: !docksExpanded && compactTopBar ? (ultraCompactTop ? 7 : 8) : sp(10) },
-                      selected && tab.id !== 'policy' && styles.dockCatBtnActive,
+                      styles.cardItemBtn,
+                      { gap: sp(4), minHeight: sp(30), paddingHorizontal: compactStage ? 6 : sp(8) },
+                      (voiceChatOpen || voiceBusyState) && { backgroundColor: activeItemBg },
                       pressed && styles.pressed,
                     ]}
-                    testID={`control-hud-category-${tab.id}`}
+                    testID="control-hud-voice-toggle"
                   >
-                    <Text numberOfLines={1} style={[styles.dockItemText, { fontSize: !docksExpanded && compactTopBar ? 12 : fBody, lineHeight: !docksExpanded && compactTopBar ? 16 : fBodyLine }, selected && tab.id !== 'policy' && styles.dockItemTextActive]}>
-                      {tab.id === 'action' ? '动作 ▾' : tab.label}
+                    {voiceChatConnected || voiceBusyState ? (
+                      <View
+                        style={[
+                          styles.voiceDotHalo,
+                          voiceBusyState && { backgroundColor: voiceHaloColor },
+                        ]}
+                        testID="control-hud-voice-presence-dot"
+                      >
+                        <View style={[styles.voiceDotCore, { backgroundColor: voiceDotColor }]} />
+                      </View>
+                    ) : (
+                      <Ionicons
+                        color={voiceChatOpen ? activeIconTint : INK}
+                        name={voiceChatOpen ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'}
+                        size={sp(14)}
+                      />
+                    )}
+                    <Text numberOfLines={1} style={[styles.cardItemText, { fontSize: fBody, lineHeight: fBodyLine }, (voiceChatOpen || voiceBusyState) && styles.cardItemTextActive]}>
+                      {dockVoiceLabel}
                     </Text>
+                    {voiceChatEmotionLabel ? (
+                      <Text
+                        numberOfLines={1}
+                        style={[styles.voiceEmotionBadge, { fontSize: Math.max(9.5, sp(10)), lineHeight: sp(13) }]}
+                        testID="control-hud-voice-emotion"
+                      >
+                        {voiceChatEmotionLabel}
+                      </Text>
+                    ) : null}
+                    {voiceChatPendingReminders > 0 ? (
+                      <View style={styles.voiceReminderBadge} testID="control-hud-voice-reminder-badge">
+                        <Text style={styles.voiceReminderBadgeText}>{String(voiceChatPendingReminders)}</Text>
+                      </View>
+                    ) : null}
                   </Pressable>
                 );
-              })}
+              })() : null}
+
+              {onToggleVirtualDiscControls ? (
+                <Pressable
+                  accessibilityLabel={showVirtualDiscControls ? '隐藏圆盘控制' : '显示圆盘控制'}
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: showVirtualDiscControls }}
+                  onPress={onToggleVirtualDiscControls}
+                  style={({ pressed }) => [
+                    styles.cardItemBtn,
+                    { gap: sp(4), minHeight: sp(30), paddingHorizontal: compactStage ? 6 : sp(8) },
+                    showVirtualDiscControls && { backgroundColor: activeItemBg },
+                    pressed && styles.pressed,
+                  ]}
+                  testID="control-hud-virtual-disc-toggle"
+                >
+                  <Ionicons
+                    color={showVirtualDiscControls ? activeIconTint : MUTED}
+                    name={showVirtualDiscControls ? 'disc' : 'disc-outline'}
+                    size={sp(14)}
+                  />
+                  <Text numberOfLines={1} style={[styles.cardItemText, { fontSize: fBody, lineHeight: fBodyLine }, showVirtualDiscControls && styles.cardItemTextActive]}>
+                    圆盘
+                  </Text>
+                </Pressable>
+              ) : null}
+
+              {onToggleBodyHeightPanel ? (
+                <Pressable
+                  accessibilityLabel={bodyHeightPanelOpen ? '收起机身高度' : '调节机身高度'}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: bodyHeightPanelOpen, selected: bodyHeightPanelOpen || Boolean(bodyHeight?.active) }}
+                  onPress={onToggleBodyHeightPanel}
+                  style={({ pressed }) => [
+                    styles.cardItemBtn,
+                    { gap: sp(4), minHeight: sp(30), paddingHorizontal: compactStage ? 6 : sp(8) },
+                    (bodyHeightPanelOpen || bodyHeight?.active) && { backgroundColor: activeItemBg },
+                    pressed && styles.pressed,
+                  ]}
+                  testID="control-hud-height-toggle"
+                >
+                  <Ionicons
+                    color={(bodyHeightPanelOpen || bodyHeight?.active) ? activeIconTint : INK}
+                    name={bodyHeightPanelOpen || bodyHeight?.active ? 'swap-vertical' : 'swap-vertical-outline'}
+                    size={sp(14)}
+                  />
+                  <Text numberOfLines={1} style={[styles.cardItemText, { fontSize: fBody, lineHeight: fBodyLine }, (bodyHeightPanelOpen || bodyHeight?.active) && styles.cardItemTextActive]}>
+                    {activeHeightBadgeText ?? '高度'}
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
 
-            {!docksExpanded ? (
-              <>
-                <View style={[styles.dockDivider, { height: sp(16) }]} />
-                {ControlHudDashboard({
-                  expanded: false,
-                  inlineCollapsed: true,
-                  compactInline: compactTopBar,
-                  scale: hudScale,
-                  onToggleExpanded: onToggleDocks,
-                  headlightMode,
-                  frontVideoReceiving: videoReceiving,
-                  rearVideoReceiving,
-                  remainingRangeKm,
-                  batteryPercent,
-                  voltageV,
-                  minTempC: tempSummary.minTempC,
-                  maxTempC: tempSummary.maxTempC,
-                  minTempSeverity: tempSummary.minSeverity,
-                  maxTempSeverity: tempSummary.maxSeverity,
-                  forwardDirection,
-                  jointTempOpen,
-                  jointParamsOpen,
-                  onToggleJointTemp,
-                  onToggleJointParams,
-                  onChargePress,
-                  onReverseDirection,
-                })}
-              </>
-            ) : null}
+            {/* Center Dock: 使能 | 站立 坐下 摔倒恢复 | 动作 ▾ */}
+            <View style={[styles.dockCard, { gap: compactStage ? 4 : sp(6), minHeight: sp(38), paddingHorizontal: compactStage ? 7 : sp(9), paddingVertical: sp(3) }]} testID="control-hud-primary-card">
+              <Pressable
+                accessibilityHint={motorHint}
+                accessibilityLabel={motorEnabled ? '失能电机' : '使能电机'}
+                accessibilityRole="switch"
+                accessibilityState={{ checked: motorEnabled === true, disabled: motorDisabled || motorBusy, busy: motorBusy }}
+                disabled={motorDisabled || motorBusy}
+                onPress={onToggleMotor}
+                style={({ pressed }) => [
+                  styles.dockMotorBtn,
+                  { gap: sp(5), minHeight: sp(30), paddingHorizontal: sp(4) },
+                  (motorDisabled || motorBusy) && styles.disabled,
+                  pressed && styles.pressed,
+                ]}
+                testID="control-hud-motor-power"
+              >
+                <View style={[styles.motorDot, { borderRadius: sp(4), height: sp(7), width: sp(7) }, motorEnabled ? styles.motorDotArmed : styles.motorDotOff]} />
+                <Text numberOfLines={1} style={[styles.dockMotorText, { fontSize: fBody, lineHeight: fBodyLine }, motorEnabled && styles.dockMotorTextArmed]}>
+                  {motorEnabled ? '失能' : '使能'}
+                </Text>
+              </Pressable>
+
+              <View style={[styles.dockDivider, { height: sp(16) }]} />
+
+              <View style={[styles.dockPostureGroup, { gap: sp(2) }]} testID="control-hud-quick-posture">
+                <Pressable
+                  accessibilityHint={standOption?.hint}
+                  accessibilityLabel="起立"
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: standOption?.disabled ?? true, selected: standOption?.selected ?? false }}
+                  disabled={standOption?.disabled ?? true}
+                  onPress={() => standOption?.onPress()}
+                  style={({ pressed }) => [
+                    styles.cardItemBtn,
+                    { minHeight: sp(30), paddingHorizontal: compactStage ? 7 : sp(10) },
+                    standOption?.selected && styles.dockItemBtnActive,
+                    (standOption?.disabled ?? true) && styles.disabled,
+                    pressed && styles.pressed,
+                  ]}
+                  testID="control-hud-quick-stand"
+                >
+                  <Text numberOfLines={1} style={[styles.cardItemText, { fontSize: fBody, lineHeight: fBodyLine }, standOption?.selected && styles.cardItemTextActive]}>站立</Text>
+                </Pressable>
+
+                <Pressable
+                  accessibilityHint={sitOption?.hint}
+                  accessibilityLabel="坐下"
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: sitOption?.disabled ?? true, selected: sitOption?.selected ?? false }}
+                  disabled={sitOption?.disabled ?? true}
+                  onPress={() => sitOption?.onPress()}
+                  style={({ pressed }) => [
+                    styles.cardItemBtn,
+                    { minHeight: sp(30), paddingHorizontal: compactStage ? 7 : sp(10) },
+                    sitOption?.selected && styles.dockItemBtnActive,
+                    (sitOption?.disabled ?? true) && styles.disabled,
+                    pressed && styles.pressed,
+                  ]}
+                  testID="control-hud-quick-sit"
+                >
+                  <Text numberOfLines={1} style={[styles.cardItemText, { fontSize: fBody, lineHeight: fBodyLine }, sitOption?.selected && styles.cardItemTextActive]}>坐下</Text>
+                </Pressable>
+
+                {recoverOption ? (
+                  <Pressable
+                    accessibilityHint={recoverOption.hint}
+                    accessibilityLabel={recoverOption.label}
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: recoverOption.disabled || recoverOption.selected, selected: recoverOption.selected }}
+                    disabled={recoverOption.disabled || recoverOption.selected}
+                    onPress={() => {
+                      if (!recoverOption.disabled && !recoverOption.selected) recoverOption.onPress();
+                    }}
+                    style={({ pressed }) => [
+                      styles.cardItemBtn,
+                      { minHeight: sp(30), paddingHorizontal: compactStage ? 7 : sp(10) },
+                      (recoverOption.selected || recoveryModeSelected) && { backgroundColor: activeItemBg },
+                      recoverOption.disabled && !recoverOption.selected && styles.disabled,
+                      pressed && styles.pressed,
+                    ]}
+                    testID={(recoverOption.selected ? 'control-hud-posture-selected-' : 'control-hud-posture-') + 'recover'}
+                  >
+                    <Text numberOfLines={1} style={[styles.cardItemText, { fontSize: fBody, lineHeight: fBodyLine }, (recoverOption.selected || recoveryModeSelected) && styles.cardItemTextActive]}>
+                      {recoverOption.label}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+
+              <View style={[styles.dockDivider, { height: sp(16) }]} />
+
+              <View style={[styles.dockCategories, { gap: sp(2) }]} testID="control-hud-left-category-tabs">
+                <Pressable
+                  accessibilityLabel="动作"
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: leftCategory === 'action' }}
+                  onPress={() => onLeftCategoryChange(leftCategory === 'action' ? 'policy' : 'action')}
+                  style={({ pressed }) => [
+                    styles.cardItemBtn,
+                    { minHeight: sp(30), paddingHorizontal: compactStage ? 7 : sp(10) },
+                    leftCategory === 'action' && { backgroundColor: activeSolidBg },
+                    pressed && styles.pressed,
+                  ]}
+                  testID="control-hud-category-action"
+                >
+                  <Text numberOfLines={1} style={[styles.cardItemText, { fontSize: fBody, lineHeight: fBodyLine }, leftCategory === 'action' && styles.cardItemTextActive]}>
+                    动作 ▾
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+
+            {/* Right Dock: 抓拍 | 录屏 | 深度 | 双摄 | 切镜 | ^ */}
+            <View style={[styles.dockCard, { gap: sp(2), minHeight: sp(38), paddingHorizontal: sp(5), paddingVertical: sp(3) }]} testID="control-hud-camera-rail">
+              <Pressable
+                accessibilityLabel="拍照保存画面"
+                accessibilityRole="button"
+                onPress={onCapturePhoto}
+                style={({ pressed }) => [styles.cardItemBtn, { gap: sp(3), minHeight: sp(30), paddingHorizontal: compactStage ? 5 : sp(7) }, pressed && styles.pressed]}
+                testID="control-hud-photo-capture"
+              >
+                <Ionicons color={INK} name="camera-outline" size={sp(14)} />
+                <Text numberOfLines={1} style={[styles.cardItemText, { fontSize: fBody, lineHeight: fBodyLine }]}>抓拍</Text>
+              </Pressable>
+
+              <Pressable
+                accessibilityLabel={recordingActive ? '结束录屏' : '开始录屏'}
+                accessibilityRole="button"
+                accessibilityState={{ selected: recordingActive }}
+                onPress={onToggleRecord}
+                style={({ pressed }) => [
+                  styles.cardItemBtn,
+                  { gap: sp(3), minHeight: sp(30), paddingHorizontal: compactStage ? 5 : sp(7) },
+                  recordingActive && styles.cardItemBtnDanger,
+                  pressed && styles.pressed,
+                ]}
+                testID="control-hud-record-toggle"
+              >
+                <Ionicons color={recordingActive ? '#FCA5A5' : INK} name={recordingActive ? 'stop-circle-outline' : 'videocam-outline'} size={sp(14)} />
+                <Text numberOfLines={1} style={[styles.cardItemText, { fontSize: fBody, lineHeight: fBodyLine }, recordingActive && styles.cardItemTextActive]}>录屏</Text>
+              </Pressable>
+
+              <Pressable
+                accessibilityLabel={depthActive ? '关闭深度图叠层' : '开启深度图预览'}
+                accessibilityRole="button"
+                accessibilityState={{ selected: depthActive }}
+                onPress={onToggleDepth}
+                style={({ pressed }) => [
+                  styles.cardItemBtn,
+                  { gap: sp(3), minHeight: sp(30), paddingHorizontal: compactStage ? 5 : sp(7) },
+                  depthActive && { backgroundColor: activeItemBg },
+                  pressed && styles.pressed,
+                ]}
+                testID="control-hud-depth-toggle"
+              >
+                <Ionicons color={depthActive ? activeIconTint : INK} name="radio-button-on-outline" size={sp(14)} />
+                <Text numberOfLines={1} style={[styles.cardItemText, { fontSize: fBody, lineHeight: fBodyLine }, depthActive && styles.cardItemTextActive]}>深度</Text>
+              </Pressable>
+
+              <Pressable
+                accessibilityLabel={dualCameraEnabled ? '关闭双广角，切为单广角' : '开启双广角'}
+                accessibilityRole="button"
+                accessibilityState={{ selected: dualCameraEnabled }}
+                onPress={onToggleDualCamera}
+                style={({ pressed }) => [
+                  styles.cardItemBtn,
+                  { gap: sp(3), minHeight: sp(30), paddingHorizontal: compactStage ? 5 : sp(7) },
+                  dualCameraEnabled && { backgroundColor: activeItemBg },
+                  pressed && styles.pressed,
+                ]}
+                testID="control-hud-camera-count-toggle"
+              >
+                <Ionicons color={dualCameraEnabled ? activeIconTint : INK} name={dualCameraEnabled ? 'albums-outline' : 'square-outline'} size={sp(14)} />
+                <Text numberOfLines={1} style={[styles.cardItemText, { fontSize: fBody, lineHeight: fBodyLine }, dualCameraEnabled && styles.cardItemTextActive]}>双摄</Text>
+              </Pressable>
+
+              <Pressable
+                accessibilityLabel={`切换相机视角，当前${showMainFront ? '前视角' : '后视角'}`}
+                accessibilityRole="button"
+                accessibilityState={{ selected: !showMainFront }}
+                onPress={onSwapCamera}
+                style={({ pressed }) => [
+                  styles.cardIconOnlyBtn,
+                  { height: sp(28), width: sp(28) },
+                  !showMainFront && { backgroundColor: activeItemBg },
+                  pressed && styles.pressed,
+                ]}
+                testID="control-hud-camera-swap"
+              >
+                <Ionicons color={!showMainFront ? activeIconTint : '#D4D4D4'} name="camera-reverse-outline" size={sp(14)} />
+              </Pressable>
+
+              {!docksExpanded ? (
+                <>
+                  <View style={[styles.dockDivider, { height: sp(16), marginHorizontal: sp(2) }]} />
+                  {ControlHudDashboard({
+                    expanded: false,
+                    inlineCollapsed: true,
+                    compactInline: compactStage,
+                    scale: hudScale,
+                    onToggleExpanded: onToggleDocks,
+                    headlightMode,
+                    frontVideoReceiving: videoReceiving,
+                    rearVideoReceiving,
+                    remainingRangeKm,
+                    batteryPercent,
+                    voltageV,
+                    minTempC: tempSummary.minTempC,
+                    maxTempC: tempSummary.maxTempC,
+                    minTempSeverity: tempSummary.minSeverity,
+                    maxTempSeverity: tempSummary.maxSeverity,
+                    forwardDirection,
+                    jointTempOpen,
+                    jointParamsOpen,
+                    onToggleJointTemp,
+                    onToggleJointParams,
+                    onChargePress,
+                    onReverseDirection,
+                  })}
+                </>
+              ) : null}
+            </View>
           </View>
-        </View> : null}
+        ) : null}
+
+        {/* Centered Floating Ultra-Compact Status Bento B Card (E-Stop at zIndex 24 remains 100% live & unobstructed!) */}
+        {statusCardOpen && statusCardOverlay && !settingsMenu ? (
+          <>
+            <Pressable
+              accessibilityLabel="关闭设备状态背景"
+              accessibilityRole="button"
+              onPress={event => {
+                if (!event || event.target === event.currentTarget) onToggleStatusCard?.();
+              }}
+              style={styles.statusBackdrop}
+              testID="control-status-backdrop"
+            />
+            <View
+              pointerEvents="box-none"
+              style={[styles.statusCardOverlay, { bottom: edgeBottom + sp(46), top: edgeTop + sp(36) }]}
+              testID="control-status-overlay"
+            >
+              {statusCardOverlay}
+            </View>
+          </>
+        ) : null}
 
         {settingsMenu ? (
-          <View style={styles.settingsLayer} pointerEvents="box-none">
+          <View pointerEvents="box-none" style={styles.settingsLayer}>
             <Pressable
               accessibilityLabel="关闭操控设置背景"
               accessibilityRole="button"
               onPress={event => {
-                if (event.target === event.currentTarget) {
-                  onCloseSettings?.();
-                }
+                if (!event || event.target === event.currentTarget) onCloseSettings?.();
               }}
               style={styles.settingsBackdrop}
               testID="control-settings-background"
@@ -1354,12 +1800,12 @@ export function controlLandscapeHud({
         {feedback || hudNotice ? (
           <View pointerEvents="none" style={[styles.toastLane, { gap: sp(6), top: topToastTop }]}>
             {feedback ? (
-              <View pointerEvents="none" style={[styles.feedback, { borderRadius: sp(12), maxWidth: feedbackMaxW, paddingHorizontal: sp(14), paddingVertical: sp(6) }]} testID="control-operation-feedback">
+              <View pointerEvents="none" style={[styles.feedback, { borderRadius: sp(10), maxWidth: feedbackMaxW, paddingHorizontal: sp(14), paddingVertical: sp(6) }]} testID="control-operation-feedback">
                 <Text numberOfLines={2} style={[styles.feedbackText, { fontSize: fBody, lineHeight: fBodyLine }]}>{feedback}</Text>
               </View>
             ) : null}
             {hudNotice ? (
-              <View pointerEvents="none" style={[styles.feedback, { borderRadius: sp(12), maxWidth: feedbackMaxW, paddingHorizontal: sp(14), paddingVertical: sp(6) }]} testID="control-hud-notice">
+              <View pointerEvents="none" style={[styles.feedback, { borderRadius: sp(10), maxWidth: feedbackMaxW, paddingHorizontal: sp(14), paddingVertical: sp(6) }]} testID="control-hud-notice">
                 <Text numberOfLines={2} style={[styles.feedbackText, { fontSize: fBody, lineHeight: fBodyLine }]}>{hudNotice}</Text>
               </View>
             ) : null}
@@ -1374,321 +1820,328 @@ export function controlLandscapeHud({
 const styles = StyleSheet.create({
   root: { backgroundColor: 'transparent', flex: 1, overflow: 'hidden' },
   backdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'transparent' },
+  standbySceneLayer: { ...StyleSheet.absoluteFill, backgroundColor: '#121212', overflow: 'hidden' },
+  standbySceneImg: { height: '100%', width: '100%' },
+  standbySceneTint: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(12, 12, 12, 0.14)' },
   media: { ...StyleSheet.absoluteFill },
-  topScrim: { backgroundColor: 'rgba(8, 10, 11, 0.16)', height: 52, left: 0, position: 'absolute', right: 0, top: 0, zIndex: 1 },
+  mediaBuffering: { opacity: 0 },
+  topScrimSoft: { backgroundColor: 'rgba(12, 12, 12, 0.16)', left: 0, position: 'absolute', right: 0, top: 0, zIndex: 1 },
+  topScrimEdge: { backgroundColor: 'rgba(12, 12, 12, 0.28)', left: 0, position: 'absolute', right: 0, top: 0, zIndex: 1 },
+  bottomScrimSoft: { backgroundColor: 'rgba(12, 12, 12, 0.24)', bottom: 0, left: 0, position: 'absolute', right: 0, zIndex: 1 },
   safeChrome: { position: 'absolute', zIndex: 2 },
-  guideBar: { backgroundColor: 'rgba(0, 0, 0, 0.58)', position: 'absolute', zIndex: 12 },
-  guideTop: { left: 0, right: 0, top: 0, borderBottomWidth: 1, borderBottomColor: ISLAND_BORDER },
-  guideRight: { bottom: 0, right: 0, top: 0, borderLeftWidth: 1, borderLeftColor: ISLAND_BORDER },
-  guideBottom: { bottom: 0, left: 0, right: 0, borderTopWidth: 1, borderTopColor: ISLAND_BORDER },
-  guideLeft: { bottom: 0, left: 0, top: 0, borderRightWidth: 1, borderRightColor: ISLAND_BORDER },
-  header: { left: 10, position: 'absolute', right: 10, top: 8, zIndex: 12 },
-  topBarRow: { alignItems: 'center', flexDirection: 'row', gap: 8, justifyContent: 'space-between', minHeight: 38 },
+  guideBar: { backgroundColor: 'rgba(0, 0, 0, 0.58)', position: 'absolute', zIndex: 25 },
+  guideTop: { left: 0, right: 0, top: 0, borderBottomWidth: 1, borderBottomColor: DOCK_BORDER },
+  guideRight: { bottom: 0, right: 0, top: 0, borderLeftWidth: 1, borderLeftColor: DOCK_BORDER },
+  guideBottom: { bottom: 0, left: 0, right: 0, borderTopWidth: 1, borderTopColor: DOCK_BORDER },
+  guideLeft: { bottom: 0, left: 0, top: 0, borderRightWidth: 1, borderRightColor: DOCK_BORDER },
 
-  islandLeft: {
-    alignItems: 'center',
-    backgroundColor: ISLAND_BG,
-    borderColor: ISLAND_BORDER,
-    borderRadius: 999,
+  /* Top Spatial Bar sits above settings/status backdrop (zIndex 24, elevation 24) so E-Stop is NEVER occluded */
+  topStatusBarLayer: { ...StyleSheet.absoluteFill, elevation: 24, zIndex: 24 },
+
+  /* Top-Left Vertical Spatial Telemetry Column */
+  leftTelemetryCol: { alignItems: 'flex-start', left: 16, position: 'absolute', top: 12, zIndex: 22 },
+  gearBatteryRow: { alignItems: 'center', flexDirection: 'row', gap: 10 },
+  gearRail: { alignItems: 'center', flexDirection: 'row', gap: 7 },
+  gearChar: { color: 'rgba(255, 255, 255, 0.34)', fontWeight: '500', ...TEXT_SHADOW },
+  gearCharActive: { color: '#FFFFFF', fontWeight: '700' },
+  batteryInline: { alignItems: 'center', flexDirection: 'row', gap: 5 },
+  batteryShellWrap: { alignItems: 'center', flexDirection: 'row' },
+  batteryShell: {
+    borderColor: 'rgba(255, 255, 255, 0.58)',
+    borderRadius: 3,
     borderWidth: 1,
-    flexDirection: 'row',
-    flexShrink: 1,
-    gap: 6,
-    minHeight: 34,
-    minWidth: 0,
+    height: 11,
+    justifyContent: 'center',
     overflow: 'hidden',
-    paddingHorizontal: 10,
-    paddingVertical: 3,
+    padding: 1.5,
+    width: 22,
   },
-  identityTrigger: { alignItems: 'center', flexDirection: 'row', flexShrink: 1, gap: 6, minWidth: 0 },
-  connectionDot: { backgroundColor: '#737B80', borderRadius: 4, height: 7, width: 7 },
-  connectedDot: { backgroundColor: EMERALD_DOT },
-  readonlyDot: { backgroundColor: '#F59E0B' },
-  identityText: { color: INK, flexShrink: 1, fontSize: 14, fontWeight: '600', lineHeight: 19 },
-  connPillBadge: { backgroundColor: 'rgba(255, 255, 255, 0.12)', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
-  connPillText: { color: '#D4DBE0', fontSize: 12, fontWeight: '500', lineHeight: 16 },
-  reconnectPillBtn: { alignItems: 'center', backgroundColor: ACTIVE_BLUE, borderColor: 'rgba(147, 197, 253, 0.52)', borderWidth: 1, flexDirection: 'row' },
-  reconnectPillText: { color: '#FFFFFF', fontWeight: '600' },
-  chip: { alignItems: 'center', backgroundColor: 'rgba(255, 255, 255, 0.10)', borderRadius: 6, flexDirection: 'row', gap: 3, paddingHorizontal: 6, paddingVertical: 2 },
-  chipText: { color: '#E2E8EE', fontSize: 12, fontWeight: '500', lineHeight: 16 },
-  islandDivider: { backgroundColor: 'rgba(255, 255, 255, 0.14)', height: 14, width: 1 },
-  islandNavBtn: { alignItems: 'center', borderRadius: 999, flexDirection: 'row', gap: 3, minHeight: 28, paddingHorizontal: 6 },
-  islandNavBtnActive: { backgroundColor: 'rgba(59, 110, 246, 0.34)' },
-  islandNavText: { color: INK, fontSize: 13, fontWeight: '500', lineHeight: 18 },
-  islandNavTextActive: { color: '#FFFFFF', fontWeight: '600' },
-  settingsLayer: { bottom: 0, elevation: 30, left: 0, position: 'absolute', right: 0, top: 0, zIndex: 30 },
-  settingsBackdrop: { backgroundColor: 'rgba(6, 10, 9, 0.46)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0, zIndex: 0 },
-  hiddenStickFrame: { opacity: 0 },
-  dashboardOverlay: { ...StyleSheet.absoluteFill, zIndex: 7 },
-  hiddenBehindPopover: { opacity: 0 },
+  batteryFill: { borderRadius: 1, height: '100%' },
+  batteryCap: { backgroundColor: 'rgba(255, 255, 255, 0.58)', borderBottomRightRadius: 1.5, borderTopRightRadius: 1.5, height: 5, marginLeft: 1, width: 2 },
+  batteryInlineText: { color: '#F2F2F2', fontVariant: ['tabular-nums'], fontWeight: '600', ...TEXT_SHADOW },
+  batteryMutedText: { color: 'rgba(255, 255, 255, 0.58)' },
 
-  islandCenter: {
-    alignItems: 'center',
-    backgroundColor: ISLAND_BG,
-    borderColor: ISLAND_BORDER,
-    borderRadius: 999,
-    borderWidth: 1,
-    flexDirection: 'row',
-    flexShrink: 0,
-    gap: 5,
-    minHeight: 36,
-    paddingHorizontal: 5,
-    paddingVertical: 3,
-  },
-  modeMiniBtn: { borderRadius: 999, paddingHorizontal: 7, paddingVertical: 4 },
-  modeMiniText: { color: '#C5CED4', fontSize: 12, fontWeight: '500', lineHeight: 16 },
-  terrainTrack: { alignItems: 'center', backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: 999, flexDirection: 'row', gap: 2 },
-  terrainSegBtn: { alignItems: 'center', borderRadius: 999, justifyContent: 'center', minHeight: 28, paddingHorizontal: 11 },
-  terrainSegBtnSelected: { backgroundColor: PILL_WHITE },
-  terrainSegText: { color: '#B8C0C4', fontSize: 13, fontWeight: '500', lineHeight: 18 },
-  terrainSegTextSelected: { color: PILL_DARK_INK, fontWeight: '600' },
-  speedPillBtn: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.34)',
-    borderRadius: 999,
-    justifyContent: 'center',
-    minHeight: 28,
-    paddingHorizontal: 10,
-  },
-  speedPillBtnActive: { backgroundColor: ACTIVE_BLUE },
-  speedPillText: { color: INK, fontSize: 13, fontVariant: ['tabular-nums'], fontWeight: '600', lineHeight: 18 },
+  heroSpeedBlock: { alignItems: 'baseline', flexDirection: 'row', gap: 4, marginTop: 1 },
+  heroSpeedNum: { color: '#FFFFFF', fontVariant: ['tabular-nums'], fontWeight: '300', letterSpacing: -1, ...TEXT_SHADOW },
+  heroSpeedUnit: { color: 'rgba(255, 255, 255, 0.66)', fontWeight: '600', letterSpacing: 0.5, ...TEXT_SHADOW },
 
-  islandRight: {
+  modeTerrainRow: { alignItems: 'center', flexDirection: 'row', gap: 6, marginTop: 2 },
+  fsdModeBadge: {
     alignItems: 'center',
-    backgroundColor: ISLAND_BG,
-    borderColor: ISLAND_BORDER,
-    borderRadius: 999,
+    backgroundColor: 'rgba(255, 255, 255, 0.10)',
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+    borderRadius: 6,
     borderWidth: 1,
-    flexDirection: 'row',
-    flexShrink: 1,
-    gap: 8,
-    minHeight: 34,
-    minWidth: 0,
-    overflow: 'hidden',
-    paddingLeft: 10,
-    paddingRight: 4,
-    paddingVertical: 3,
-  },
-  telemetryCluster: { alignItems: 'center', flexDirection: 'row', flexShrink: 1, gap: 6, minWidth: 0, overflow: 'hidden' },
-  telemetryItem: { alignItems: 'center', flexDirection: 'row', flexShrink: 0, gap: 4 },
-  telemetryText: { color: '#DCE3E8', fontSize: 13, fontVariant: ['tabular-nums'], fontWeight: '500', lineHeight: 18 },
-  faultBadgeBtn: {
-    alignItems: 'center',
-    backgroundColor: '#EF4444',
-    borderColor: '#FCA5A5',
-    borderRadius: 12,
-    borderWidth: 1,
-    height: 24,
     justifyContent: 'center',
-    minWidth: 24,
-    paddingHorizontal: 5,
   },
-  faultBadgeBtnActive: { borderColor: '#FFFFFF', borderWidth: 1.5 },
-  faultBadgeText: { color: '#FFFFFF', fontSize: 12, fontVariant: ['tabular-nums'], fontWeight: '600', lineHeight: 16 },
-  recordingBadge: {
+  fsdModeText: { color: '#F2F2F2', fontWeight: '700', ...TEXT_SHADOW },
+  terrainInlineRow: { alignItems: 'center', flexDirection: 'row', gap: 2 },
+  terrainGhostBtn: { alignItems: 'center', borderRadius: 6, justifyContent: 'center' },
+  terrainGhostBtnSelected: { backgroundColor: 'rgba(255, 255, 255, 0.18)' },
+  terrainGhostText: { color: 'rgba(255, 255, 255, 0.64)', fontWeight: '500', ...TEXT_SHADOW },
+  terrainGhostTextSelected: { color: '#FFFFFF', fontWeight: '700' },
+
+  speedSignRow: { alignItems: 'center', flexDirection: 'row', gap: 8 },
+  speedSignOuter: {
     alignItems: 'center',
-    backgroundColor: 'rgba(220, 38, 38, 0.28)',
-    borderColor: 'rgba(248, 113, 113, 0.72)',
-    borderRadius: 999,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  recordingDot: { backgroundColor: '#EF4444', borderRadius: 3.5, height: 7, width: 7 },
-  recordingBadgeText: { color: '#FEE2E2', fontSize: 12, fontVariant: ['tabular-nums'], fontWeight: '600', lineHeight: 16 },
-  stop: {
-    alignItems: 'center',
-    backgroundColor: CRIMSON_STOP,
-    borderRadius: 999,
-    flexDirection: 'row',
-    flexShrink: 0,
-    gap: 5,
-    justifyContent: 'center',
-    minHeight: 30,
-    minWidth: 66,
-    paddingHorizontal: 12,
-  },
-  stopDisabled: { backgroundColor: CRIMSON_DISABLED, opacity: 0.72 },
-  stopRing: {
-    alignItems: 'center',
-    borderColor: '#FFFFFF',
+    backgroundColor: '#F2F2F2',
+    borderColor: '#181818',
     borderRadius: 6,
     borderWidth: 1.5,
-    height: 12,
     justifyContent: 'center',
-    width: 12,
+    minWidth: 42,
+    paddingHorizontal: 5,
+    paddingVertical: 3,
   },
-  stopCore: { backgroundColor: '#FFFFFF', borderRadius: 2, height: 4, width: 4 },
-  stopText: { color: '#FFFFFF', fontSize: 14, fontWeight: '600', lineHeight: 19 },
+  speedSignHigh: { backgroundColor: '#FEF3C7', borderColor: '#B45309' },
+  speedSignTop: { color: '#404040', fontWeight: '700', letterSpacing: 0.4 },
+  speedSignNum: { color: '#0D0D0D', fontVariant: ['tabular-nums'], fontWeight: '800' },
 
-  speedBarFloating: {
+  microStatusCol: { alignItems: 'flex-start', gap: 2 },
+  microStatusRow: { alignItems: 'center', flexDirection: 'row', gap: 5 },
+  microDot: { borderRadius: 3.5, height: 7, width: 7 },
+  microDotArmed: { backgroundColor: EMERALD_DOT },
+  microDotOff: { backgroundColor: 'rgba(255, 255, 255, 0.36)' },
+  microStatusText: { color: 'rgba(255, 255, 255, 0.86)', fontWeight: '500', ...TEXT_SHADOW },
+  microTag: {
     alignItems: 'center',
-    alignSelf: 'center',
-    backgroundColor: DOCK_BG,
-    borderColor: ISLAND_BORDER,
-    borderRadius: 999,
+    backgroundColor: 'rgba(22, 22, 22, 0.60)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderRadius: 5,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: 7,
-    height: 34,
-    marginTop: 6,
+    gap: 3,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  microTagText: { color: '#EAEAEA', fontWeight: '500' },
+
+  /* Top-Right Bare Floating HUD (Zero dark/red pill boxes) */
+  topRightCluster: { alignItems: 'center', elevation: 24, flexDirection: 'row', gap: 12, position: 'absolute', right: 16, top: 12, zIndex: 24 },
+  bareTopItem: { alignItems: 'center', flexDirection: 'row', gap: 5 },
+  bareText: { color: '#F2F2F2', fontVariant: ['tabular-nums'], fontWeight: '500', ...TEXT_SHADOW },
+  bareTextStrong: { color: '#FFFFFF', fontWeight: '600', ...TEXT_SHADOW },
+  bareTextMuted: { color: 'rgba(242, 242, 242, 0.72)', fontWeight: '500', ...TEXT_SHADOW },
+  bareFaultText: { color: '#FCA5A5', fontVariant: ['tabular-nums'], fontWeight: '700', ...TEXT_SHADOW },
+  connectionDot: { backgroundColor: '#6B6B6B', borderRadius: 4, height: 7, width: 7 },
+  connectedDot: { backgroundColor: EMERALD_DOT },
+  readonlyDot: { backgroundColor: '#F59E0B' },
+  telemetryItem: { alignItems: 'center', flexDirection: 'row', flexShrink: 0, gap: 3 },
+  recordingDot: { backgroundColor: RED_ESTOP, borderRadius: 3, height: 6, width: 6 },
+  bareEstopBtn: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 5,
+    justifyContent: 'center',
+    minHeight: 28,
+  },
+  bareEstopDisabled: {
+    opacity: 1,
+  },
+  stopRing: {
+    alignItems: 'center',
+    borderRadius: 7,
+    borderWidth: 1.8,
+    height: 14,
+    justifyContent: 'center',
+    width: 14,
+  },
+  stopCore: { borderRadius: 2, height: 5, width: 5 },
+  bareEstopText: { fontSize: 13.5, fontWeight: '800', letterSpacing: 0.4, lineHeight: 18, ...TEXT_SHADOW },
+
+  /* Speed Limit Floating Adjuster */
+  speedBarFloating: {
+    alignItems: 'center',
+    backgroundColor: DOCK_BG,
+    borderColor: DOCK_BORDER,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    height: 36,
     paddingHorizontal: 12,
+    position: 'absolute',
+    zIndex: 23,
   },
   speedBarLabel: { color: INK, fontSize: 11, fontWeight: '600' },
-  speedModeSegment: { alignItems: 'center', backgroundColor: 'rgba(255, 255, 255, 0.08)', flexDirection: 'row' },
+  speedModeSegment: { alignItems: 'center', backgroundColor: '#181818', flexDirection: 'row' },
   speedModeChip: { alignItems: 'center', justifyContent: 'center' },
-  speedModeChipActive: { backgroundColor: PILL_WHITE },
+  speedModeChipActive: { backgroundColor: '#EAEAEA' },
   speedModeChipHighActive: { backgroundColor: '#F59E0B' },
-  speedModeChipText: { color: '#B8C0C4', fontVariant: ['tabular-nums'], fontWeight: '600' },
-  speedModeChipTextActive: { color: PILL_DARK_INK, fontWeight: '700' },
-  speedModeChipTextHigh: { color: '#111416', fontWeight: '700' },
-  speedStepBtn: { alignItems: 'center', backgroundColor: 'rgba(255, 255, 255, 0.12)', borderRadius: 11, height: 22, justifyContent: 'center', width: 22 },
-  speedTrack: { backgroundColor: 'rgba(255, 255, 255, 0.18)', borderRadius: 3, height: 6, overflow: 'hidden', width: 72 },
-  speedFill: { backgroundColor: ACTIVE_BLUE, borderRadius: 3, height: '100%' },
-  speedBarValue: { color: '#FFFFFF', fontSize: 11, fontVariant: ['tabular-nums'], fontWeight: '600', minWidth: 34, textAlign: 'right' },
+  speedModeChipText: { color: '#9A9A9A', fontVariant: ['tabular-nums'], fontWeight: '600' },
+  speedModeChipTextActive: { color: '#141414', fontWeight: '700' },
+  speedModeChipTextHigh: { color: '#141414', fontWeight: '700' },
+  speedStepBtn: { alignItems: 'center', backgroundColor: 'rgba(255, 255, 255, 0.10)', borderRadius: 11, height: 22, justifyContent: 'center', width: 22 },
+  speedTrack: { backgroundColor: '#181818', borderRadius: 3, height: 5, overflow: 'hidden', width: 78 },
+  speedFill: { borderRadius: 3, height: '100%' },
+  speedBarValue: { color: '#F2F2F2', fontSize: 12, fontVariant: ['tabular-nums'], fontWeight: '600', minWidth: 36, textAlign: 'right' },
 
-  emptyVideo: { alignItems: 'center', backgroundColor: '#0A0C0B', bottom: 0, gap: 5, justifyContent: 'center', left: 0, position: 'absolute', right: 0, top: 0 },
-  emptyIcon: { alignItems: 'center', backgroundColor: '#1C201E', borderRadius: 12, height: 42, justifyContent: 'center', marginBottom: 4, width: 42 },
-  emptyTitle: { color: INK, fontSize: 16, fontWeight: '600', textAlign: 'center' },
-  emptyDetail: { color: '#BDBFB8', fontSize: 12, textAlign: 'center' },
-  stickFrame: { left: 16, position: 'absolute', right: 16, zIndex: 3 },
-  centerStack: { position: 'absolute', top: 82, zIndex: 4 },
-
-  pipWindow: {
-    backgroundColor: '#0A0D0C',
-    borderColor: 'rgba(255, 255, 255, 0.24)',
-    borderRadius: 12,
+  /* Non-blocking Video Status Chip & Proactive Alert Pill */
+  emptyVideo: { alignItems: 'center', left: 0, position: 'absolute', right: 0, zIndex: 4 },
+  emptyVideoHidden: { opacity: 0 },
+  emptyChip: {
+    backgroundColor: 'rgba(22, 22, 22, 0.56)',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1,
-    height: 104,
+  },
+  emptyTitle: { color: 'rgba(242, 242, 242, 0.78)', fontWeight: '500', textAlign: 'center' },
+  alertBannerLane: { alignItems: 'center', left: 0, position: 'absolute', right: 0, zIndex: 8 },
+  alertBannerPill: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(22, 22, 22, 0.92)',
+    borderWidth: 1,
+    flexDirection: 'row',
+    maxWidth: 268,
+  },
+  alertBannerCritical: { borderColor: 'rgba(239, 68, 68, 0.45)' },
+  alertBannerWarning: { borderColor: 'rgba(245, 158, 11, 0.45)' },
+  alertBannerMain: { alignItems: 'center', flexDirection: 'row', flexShrink: 1 },
+  alertBannerDot: { borderRadius: 3, height: 6, width: 6 },
+  alertBannerText: { flexShrink: 1, fontVariant: ['tabular-nums'], fontWeight: '600' },
+  alertClearBtn: { backgroundColor: 'rgba(255, 255, 255, 0.12)', borderColor: 'rgba(255, 255, 255, 0.16)', borderWidth: 1 },
+  alertClearText: { color: '#F2F2F2', fontWeight: '600' },
+
+  stickFrame: { left: 16, position: 'absolute', right: 16, zIndex: 3 },
+  hiddenStickFrame: { opacity: 0 },
+  centerStack: { position: 'absolute', top: 82, zIndex: 4 },
+  dashboardOverlay: { ...StyleSheet.absoluteFill, zIndex: 7 },
+  hiddenBehindPopover: { opacity: 0 },
+  statusBackdrop: { backgroundColor: 'rgba(12, 12, 12, 0.44)', bottom: 0, elevation: 10, left: 0, position: 'absolute', right: 0, top: 0, zIndex: 10 },
+  statusCardOverlay: { alignItems: 'center', elevation: 11, justifyContent: 'center', left: 0, paddingHorizontal: 12, position: 'absolute', right: 0, zIndex: 11 },
+  settingsLayer: { ...StyleSheet.absoluteFill, elevation: 15, zIndex: 15 },
+  settingsBackdrop: { backgroundColor: 'rgba(12, 12, 12, 0.44)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0, zIndex: 1 },
+
+  /* Optional PiP Window */
+  pipWindow: {
+    backgroundColor: '#161616',
+    borderColor: 'rgba(255, 255, 255, 0.16)',
+    borderRadius: 10,
+    borderWidth: 1,
+    height: 100,
     overflow: 'hidden',
     position: 'absolute',
-    right: 10,
-    top: 52,
-    width: 184,
+    right: 16,
+    top: 50,
+    width: 176,
     zIndex: 6,
   },
   pipPlaceholder: { alignItems: 'center', flex: 1, gap: 4, justifyContent: 'center' },
-  pipPlaceholderText: { color: MUTED, fontSize: 10, fontWeight: '600' },
-  pipHeaderRow: { left: 6, position: 'absolute', top: 6 },
-  pipBadge: { backgroundColor: 'rgba(14, 18, 20, 0.68)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
-  pipBadgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '600' },
+  pipHeaderRow: { left: 8, position: 'absolute', top: 8 },
+  pipBadge: { backgroundColor: 'rgba(18, 18, 18, 0.78)', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
+  pipBadgeText: { color: '#F2F2F2', fontSize: 10.5, fontWeight: '600' },
 
-  rightRail: { alignItems: 'flex-end', gap: 6, position: 'absolute', right: 10, top: 52, zIndex: 6 },
-  leftVoiceRail: { alignItems: 'flex-start', flexDirection: 'row', gap: 8, position: 'absolute', left: 10, top: 52, zIndex: 6 },
-  rightRailWithPip: { top: 162 },
-  circleToolRow: { alignItems: 'center', flexDirection: 'row', gap: 10 },
-  circleBtnGroup: { alignItems: 'center', gap: 3 },
-  circleBtn: {
-    alignItems: 'center',
-    backgroundColor: ISLAND_BG,
-    borderColor: ISLAND_BORDER,
+  /* Action Studio Modal & Posture Popover */
+  actionModalBackdrop: { backgroundColor: 'rgba(12, 12, 12, 0.36)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0, zIndex: 8 },
+  actionModalCenter: { alignItems: 'center', justifyContent: 'center', left: 0, position: 'absolute', right: 0, zIndex: 9 },
+  actionStudioCard: {
+    backgroundColor: MODAL_BG,
+    borderColor: DOCK_BORDER,
     borderRadius: 20,
     borderWidth: 1,
-    height: 40,
-    justifyContent: 'center',
-    width: 40,
+    maxHeight: '100%',
   },
-  circleBtnActive: { backgroundColor: 'rgba(59, 110, 246, 0.68)', borderColor: '#93C5FD' },
-  circleBtnRelative: { position: 'relative' },
-  voiceDotHalo: { alignItems: 'center', borderRadius: 6, height: 11, justifyContent: 'center', position: 'absolute', right: 2, top: 2, width: 11 },
-  voiceDotCore: { borderRadius: 3.5, height: 6.5, width: 6.5 },
-  voiceEmotionBadge: { color: '#93C5FD', fontWeight: '600' },
-  voiceReminderBadge: { alignItems: 'center', backgroundColor: '#2563EB', borderRadius: 7, height: 14, justifyContent: 'center', left: -2, minWidth: 14, paddingHorizontal: 3, position: 'absolute', top: -2 },
-  voiceReminderBadgeText: { color: '#FFFFFF', fontSize: 9.5, fontWeight: '700', lineHeight: 12 },
-  circleCaption: { color: '#E2E8EE', fontSize: 10, fontWeight: '600', lineHeight: 13 },
-  secondaryUtilityStrip: {
-    alignItems: 'center',
-    backgroundColor: ISLAND_BG,
-    borderColor: ISLAND_BORDER,
-    borderRadius: 999,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 2,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-  },
-  utilityMiniPill: { alignItems: 'center', borderRadius: 999, flexDirection: 'row', gap: 3, paddingHorizontal: 7, paddingVertical: 3 },
-  utilityMiniPillActive: { backgroundColor: 'rgba(59, 110, 246, 0.45)' },
-  utilityMiniPillDanger: { backgroundColor: 'rgba(220, 38, 38, 0.65)' },
-  utilityMiniText: { color: '#DCE3E8', fontSize: 10, fontWeight: '600', lineHeight: 13 },
-
-  bottomDockContainer: { alignItems: 'center', bottom: 8, left: 0, position: 'absolute', right: 0, zIndex: 6 },
+  popoverOverlay: { alignItems: 'center', bottom: 62, left: 0, position: 'absolute', right: 0, zIndex: 7 },
   drawerPopover: {
-    backgroundColor: DOCK_BG,
-    borderColor: ISLAND_BORDER,
-    borderRadius: 16,
+    backgroundColor: MODAL_BG,
+    borderColor: DOCK_BORDER,
+    borderRadius: 12,
     borderWidth: 1,
-    marginBottom: 8,
-    maxWidth: 440,
+    maxWidth: 420,
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
   drawerWrap: { alignItems: 'center', flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'center' },
   drawerPillBtn: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.07)',
-    borderColor: ISLAND_BORDER,
-    borderRadius: 999,
+    backgroundColor: '#242424',
+    borderColor: DOCK_BORDER,
+    borderRadius: 8,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 4,
-    minHeight: 30,
-    paddingHorizontal: 12,
+    minHeight: 32,
+    paddingHorizontal: 13,
     paddingVertical: 4,
   },
-  drawerPillBtnActive: { backgroundColor: ACTIVE_BLUE, borderColor: '#93C5FD' },
-  drawerPillPending: { borderStyle: 'dashed' },
-  drawerPillText: { color: INK, fontSize: 12, fontWeight: '600', lineHeight: 15 },
+  drawerPillText: { color: INK, fontSize: 12.5, fontWeight: '600', lineHeight: 17 },
   drawerPillTextActive: { color: '#FFFFFF' },
-  pendingTag: { color: MUTED, fontSize: 9, lineHeight: 12 },
 
-  bottomDockBar: {
-    alignItems: 'center',
-    backgroundColor: DOCK_BG,
-    borderColor: ISLAND_BORDER,
-    borderRadius: 999,
-    borderWidth: 1,
+  /* Bottom 3 Docks (borderRadius: 10, Matte Charcoal) */
+  bottomThreeCardRow: {
+    alignItems: 'flex-end',
+    bottom: 12,
     flexDirection: 'row',
     gap: 8,
-    minHeight: 42,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
+    justifyContent: 'space-between',
+    left: 16,
+    position: 'absolute',
+    right: 16,
+    zIndex: 6,
   },
-  dockMotorBtn: { alignItems: 'center', flexDirection: 'row', gap: 6, minHeight: 30, paddingHorizontal: 4 },
-  motorDot: { borderRadius: 4, height: 8, width: 8 },
-  motorDotArmed: { backgroundColor: EMERALD_DOT },
-  motorDotOff: { backgroundColor: '#737B80' },
-  dockMotorText: { color: INK, fontSize: 13, fontWeight: '600', lineHeight: 18 },
-  dockMotorTextArmed: { color: EMERALD_INK },
-  motorDisablePill: { backgroundColor: 'rgba(255, 255, 255, 0.09)', borderColor: 'rgba(255, 255, 255, 0.14)', borderRadius: 999, borderWidth: 1 },
-  motorDisableSub: { color: '#CBD5E1', fontSize: 12, fontWeight: '500', lineHeight: 16 },
-  dockDivider: { backgroundColor: 'rgba(255, 255, 255, 0.14)', height: 16, width: 1 },
-  dockPostureGroup: { alignItems: 'center', flexDirection: 'row', gap: 4 },
-  dockItemBtn: { borderRadius: 999, minHeight: 28, justifyContent: 'center', paddingHorizontal: 9 },
-  dockItemBtnActive: { backgroundColor: 'rgba(255, 255, 255, 0.16)' },
-  dockItemText: { color: '#DCE3E8', fontSize: 13, fontWeight: '500', lineHeight: 18 },
-  dockItemTextActive: { color: '#FFFFFF', fontWeight: '600' },
-  dockCategories: { alignItems: 'center', flexDirection: 'row', gap: 2 },
-  dockCatBtn: { borderRadius: 999, justifyContent: 'center', minHeight: 28, paddingHorizontal: 8 },
-  dockCatBtnActive: { backgroundColor: ACTIVE_BLUE },
+  dockCard: {
+    alignItems: 'center',
+    backgroundColor: DOCK_BG,
+    borderColor: DOCK_BORDER,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 4,
+    minHeight: 38,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  cardItemBtn: {
+    alignItems: 'center',
+    borderRadius: 8,
+    flexDirection: 'row',
+    gap: 4,
+    justifyContent: 'center',
+    minHeight: 30,
+    paddingHorizontal: 8,
+  },
+  cardItemBtnDanger: { backgroundColor: 'rgba(220, 38, 38, 0.42)' },
+  cardIconOnlyBtn: {
+    alignItems: 'center',
+    borderRadius: 8,
+    height: 28,
+    justifyContent: 'center',
+    width: 28,
+  },
+  cardItemText: { color: '#EAEAEA', fontSize: 12.5, fontWeight: '500', lineHeight: 17 },
+  cardItemTextActive: { color: '#FFFFFF', fontWeight: '600' },
+  voiceDotHalo: { alignItems: 'center', borderRadius: 6, height: 11, justifyContent: 'center', width: 11 },
+  voiceDotCore: { borderRadius: 3.5, height: 6.5, width: 6.5 },
+  voiceEmotionBadge: { color: '#EAEAEA', fontWeight: '600' },
+  voiceReminderBadge: { alignItems: 'center', backgroundColor: '#343434', borderRadius: 7, height: 14, justifyContent: 'center', minWidth: 14, paddingHorizontal: 3 },
+  voiceReminderBadgeText: { color: '#FFFFFF', fontSize: 9.5, fontWeight: '700', lineHeight: 12 },
 
+  dockMotorBtn: { alignItems: 'center', flexDirection: 'row', gap: 5, minHeight: 30, paddingHorizontal: 4 },
+  motorDot: { borderRadius: 4, height: 7, width: 7 },
+  motorDotArmed: { backgroundColor: EMERALD_DOT },
+  motorDotOff: { backgroundColor: '#6B6B6B' },
+  dockMotorText: { color: INK, fontSize: 12.5, fontWeight: '600', lineHeight: 17 },
+  dockMotorTextArmed: { color: EMERALD_INK },
+  dockDivider: { backgroundColor: 'rgba(255, 255, 255, 0.10)', height: 16, width: 1 },
+  dockPostureGroup: { alignItems: 'center', flexDirection: 'row', gap: 2 },
+  dockItemBtnActive: { backgroundColor: 'rgba(255, 255, 255, 0.16)' },
+  dockCategories: { alignItems: 'center', flexDirection: 'row', gap: 2 },
+
+  /* Floating Overlay Stack & Center-Lane Toasts */
   floatingPanelsOverlay: {
-    bottom: 112,
+    bottom: 74,
     left: '50%',
     position: 'absolute',
-    top: 48,
+    top: 50,
     transform: [{ translateX: -175 }],
     width: 350,
     zIndex: 8,
   },
   floatingPanelsScroll: { maxHeight: '100%' },
   floatingPanelsContent: { gap: 8, paddingBottom: 8 },
-  disabled: { opacity: 0.42 },
-  toastLane: { alignItems: 'center', gap: 6, left: 0, position: 'absolute', right: 0, top: 52, zIndex: 9 },
-  feedback: { alignItems: 'center', alignSelf: 'center', backgroundColor: ISLAND_BG, borderColor: ISLAND_BORDER, borderRadius: 12, borderWidth: 1, maxWidth: 320, paddingHorizontal: 14, paddingVertical: 6 },
-  noticeStacked: { top: 90 },
+  disabled: { opacity: 0.48 },
+  toastLane: { alignItems: 'center', gap: 6, left: 0, position: 'absolute', right: 0, top: 52, zIndex: 15 },
+  feedback: { alignItems: 'center', alignSelf: 'center', backgroundColor: DOCK_BG, borderColor: DOCK_BORDER, borderRadius: 10, borderWidth: 1, maxWidth: 320, paddingHorizontal: 14, paddingVertical: 6 },
   feedbackText: { color: INK, fontSize: 12, textAlign: 'center' },
   pressed: { opacity: 0.72 },
 });

@@ -202,7 +202,7 @@ test('the connection screen keeps manual entry, Bluetooth honesty, and releases 
   const screen = read('src/screens/RobotConnectionScreen.tsx');
   assert.match(screen, /WifiDiscoveryPanel/);
   assert.match(screen, /releaseWifi\.current\(\)/);
-  assert.match(screen, /身份验证和配网尚未接入/);
+  assert.match(screen, /仅支持蓝牙发现/);
   assert.match(screen, /查找蓝牙设备/);
   assert.match(screen, /连接机器狗/);
   assert.match(screen, /视频与诊断/);

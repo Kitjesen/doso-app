@@ -19,6 +19,7 @@ import android.net.wifi.WifiManager
 import android.util.Base64
 import android.view.WindowInsets
 import android.view.WindowInsetsController
+import android.view.WindowManager
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import expo.modules.kotlin.Promise
@@ -65,6 +66,7 @@ class BrainstemGrpcModule : Module() {
   private var destroyed = false
   private var paused = false
   private var hideControlNavigation = false
+  private var keepScreenOn = false
   private var previousNavigationBehavior: Int? = null
   private var active: Read? = null
   private var picker: Promise? = null
@@ -132,6 +134,11 @@ class BrainstemGrpcModule : Module() {
     AsyncFunction("setControlNavigationHidden") { hidden: Boolean ->
       hideControlNavigation = hidden
       updateControlNavigation(hidden && !paused)
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("setKeepScreenOn") { enabled: Boolean ->
+      keepScreenOn = enabled
+      updateKeepScreenOn(enabled && !paused)
     }.runOnQueue(Queues.MAIN)
 
     AsyncFunction("isVoiceInputAvailable") {
@@ -388,7 +395,10 @@ class BrainstemGrpcModule : Module() {
         paused = false
         completePickerWhenForeground()
       }
-      appContext.currentActivity?.runOnUiThread { updateControlNavigation(hideControlNavigation) }
+      appContext.currentActivity?.runOnUiThread {
+        updateControlNavigation(hideControlNavigation)
+        updateKeepScreenOn(keepScreenOn)
+      }
     }
     OnActivityResult { _, payload ->
       if (payload.requestCode == VOICE_SPEECH_REQUEST_CODE) {
@@ -412,7 +422,10 @@ class BrainstemGrpcModule : Module() {
       }
       pendingVoiceUtterance = null
       runCatching { voiceTts?.stop() }
-      appContext.currentActivity?.runOnUiThread { updateControlNavigation(false) }
+      appContext.currentActivity?.runOnUiThread {
+        updateControlNavigation(false)
+        updateKeepScreenOn(false)
+      }
     }
     OnDestroy {
       synchronized(lock) {
@@ -435,7 +448,22 @@ class BrainstemGrpcModule : Module() {
       runCatching { voiceTts?.stop(); voiceTts?.shutdown() }
       voiceTts = null
       hideControlNavigation = false
-      appContext.currentActivity?.runOnUiThread { updateControlNavigation(false) }
+      keepScreenOn = false
+      appContext.currentActivity?.runOnUiThread {
+        updateControlNavigation(false)
+        updateKeepScreenOn(false)
+      }
+    }
+  }
+
+  private fun updateKeepScreenOn(enabled: Boolean) {
+    runCatching {
+      val window = appContext.currentActivity?.window ?: return
+      if (enabled && !destroyed) {
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+      } else {
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+      }
     }
   }
 

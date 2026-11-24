@@ -54,7 +54,7 @@ const buttons: readonly Readonly<{ id: G20InputButton; label: string }>[] = [
   { id: 'enableMotor', label: '电机使能' },
   { id: 'disableMotor', label: '电机失能' },
   { id: 'switchPolicy', label: '策略选择' },
-  { id: 'toggleJointParams', label: '关节参数 (L1)' },
+  { id: 'toggleJointParams', label: '关节参数' },
 ];
 
 const statusLabels: Readonly<Record<string, string>> = {
