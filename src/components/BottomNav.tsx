@@ -91,7 +91,7 @@ function TabBar<Tab extends string>({ active, onChange, items, showLabels = fals
 const styles = StyleSheet.create({
   outer: { paddingHorizontal: 8, paddingTop: 6, paddingBottom: 8, borderTopWidth: 1 },
   outerNarrow: { paddingHorizontal: 4 },
-  outerLandscape: { position: 'absolute', right: 14, top: 54, bottom: 20, zIndex: 20, width: 56, paddingHorizontal: 0, paddingVertical: 0, paddingTop: 0, paddingBottom: 0, backgroundColor: 'transparent', borderTopWidth: 0 },
+  outerLandscape: { position: 'absolute', right: 14, top: 54, bottom: 20, elevation: 20, zIndex: 20, width: 56, paddingHorizontal: 0, paddingVertical: 0, paddingTop: 0, paddingBottom: 0, backgroundColor: 'transparent', borderTopWidth: 0 },
   outerLandscapeShort: { top: 12, bottom: 12 },
   nav: { height: 56, minHeight: 56, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-around', paddingHorizontal: 8, width: '100%', alignSelf: 'center', maxWidth: 420 },
   navLandscape: { flex: 1, height: undefined, minHeight: 248, flexDirection: 'column', justifyContent: 'space-between', alignItems: 'center' },

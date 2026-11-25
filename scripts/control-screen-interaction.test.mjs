@@ -4358,3 +4358,141 @@ test('Settings ScrollView exposes Android scroll props, non-flexGrow content, E-
   assert.ok(screen.find('control-hud-stop'));
   screen.unmount();
 });
+
+test('Multi-size phone screens adapt cleanly without overflow and enforce monotonic Android elevation + zIndex layers', async () => {
+  const flat = style => Object.assign({}, ...(Array.isArray(style) ? style.flat(Infinity) : [style]));
+  const viewports = [
+    { name: 'small-phone-600x340', width: 600, height: 340, insets: { top: 0, right: 16, bottom: 12, left: 28 } },
+    { name: 'se-phone-667x375', width: 667, height: 375, insets: { top: 0, right: 0, bottom: 16, left: 0 } },
+    { name: 'android-20-9-780x360', width: 780, height: 360, insets: { top: 24, right: 20, bottom: 16, left: 44 } },
+    { name: 'iphone-844x390', width: 844, height: 390, insets: { top: 0, right: 47, bottom: 21, left: 47 } },
+    { name: 'g20-960x540', width: 960, height: 540, insets: { top: 0, right: 0, bottom: 0, left: 0 } },
+    { name: 'tablet-1280x720', width: 1280, height: 720, insets: { top: 0, right: 0, bottom: 0, left: 0 } },
+  ];
+
+  for (const vp of viewports) {
+    const effW = vp.width - vp.insets.left - vp.insets.right;
+    const effH = vp.height - vp.insets.top - vp.insets.bottom;
+    const screen = mount({
+      landscapeDocksExpanded: false,
+      dev: false,
+      dimensions: { width: vp.width, height: vp.height, fontScale: 1 },
+      previewSafeInsets: vp.insets,
+      connected: true,
+      speedMode: 'normal',
+      onChangeSpeedMode: async () => {},
+      runtimeState: {
+        controlLink: 'connected',
+        controlAuthority: 'held',
+        controlOwner: 'this-device',
+        motorState: 'enabled',
+        posture: 'standing',
+        faultStatus: 'clear',
+        battery: { voltageV: 53.2 },
+      },
+      operationReadiness: {
+        stand: { ready: true },
+        sit: { ready: true },
+        stop: { ready: true },
+        enableMotor: { ready: true },
+        disableMotor: { ready: true },
+        playGesture: { ready: true },
+      },
+      operationCallbacks: {
+        stand() {},
+        sit() {},
+        stop() {},
+        enableMotor() {},
+        disableMotor() {},
+        playGesture() {},
+      },
+      onListGestures: async () => [{ name: 'wave', description: '挥手', durationMs: 2000 }],
+      workspaceSettings: {
+        themePreference: 'dark',
+        onChangeTheme() {},
+        alertsEnabled: true,
+        onToggleAlerts() {},
+        connection: {
+          host: '192.168.66.13',
+          port: 13145,
+          connected: true,
+          readonlyConnected: false,
+          onConnectControl: async () => true,
+          onDisconnect: async () => {},
+        },
+      },
+    });
+    await screen.settle();
+
+    // 1. Top status bar band is height-bounded (not full-screen) and keeps E-Stop at zIndex 24 / elevation 24.
+    const statusBarStyle = flat(screen.find('control-hud-status-bar').props.style);
+    assert.equal(statusBarStyle.zIndex, 24, `${vp.name}: status bar zIndex`);
+    assert.equal(statusBarStyle.elevation, 24, `${vp.name}: status bar elevation`);
+    assert.equal(statusBarStyle.bottom, undefined, `${vp.name}: status bar must NOT span bottom: 0`);
+    assert.ok(statusBarStyle.height > 0 && statusBarStyle.height < effH * 0.35, `${vp.name}: status bar height bounded`);
+
+    // 2. Bottom docks stay mounted across every phone width and compact camera rail hides text only on ultra-narrow (<640dp).
+    assert.ok(screen.find('control-hud-primary-card'), `${vp.name}: primary dock`);
+    assert.ok(screen.find('control-hud-camera-rail'), `${vp.name}: camera rail`);
+    assert.ok(screen.find('control-hud-photo-capture'), `${vp.name}: capture button`);
+    assert.ok(screen.find('control-hud-voice-toggle'), `${vp.name}: voice bot orb`);
+
+    // 3. Flush-left voice wing fits inside viewport and never collides with Row 4 speed sign on short/compact phones.
+    screen.find('control-hud-voice-toggle').props.onPress();
+    screen.render();
+    const wingStyle = flat(screen.find('control-hud-voice-wing').props.style);
+    assert.equal(wingStyle.zIndex, 10, `${vp.name}: voice wing zIndex`);
+    assert.equal(wingStyle.elevation, 10, `${vp.name}: voice wing elevation`);
+    assert.ok(wingStyle.width <= effW, `${vp.name}: voice wing width ${wingStyle.width} <= ${effW}`);
+    assert.ok(wingStyle.top + wingStyle.bottom < effH - 80, `${vp.name}: voice wing keeps >=80dp vertical room`);
+    if (effW < 900 || effH < 460) {
+      assert.equal(screen.find('control-hud-speed-limit-toggle'), undefined, `${vp.name}: speed sign folds cleanly while voice wing is open`);
+    }
+    screen.find('control-hud-voice-toggle').props.onPress();
+    screen.render();
+
+    // 4. Action Studio modal fits inside viewport width & elevation > voice wing.
+    screen.find('control-hud-category-action').props.onPress();
+    screen.render();
+    const actionDockStyle = flat(screen.find('control-hud-action-dock').props.style);
+    assert.ok(actionDockStyle.width <= effW, `${vp.name}: action modal width ${actionDockStyle.width} <= ${effW}`);
+    screen.find('control-hud-category-action').props.onPress();
+    screen.render();
+
+    // 5. Status Bento Card fits inside viewport and elevates cleanly above action modal (13 > 11).
+    screen.find('control-hud-open-status').props.onPress();
+    screen.render();
+    const statusOverlayStyle = flat(screen.find('control-status-overlay').props.style);
+    const bentoStyle = flat(screen.find('status-bento-card').props.style);
+    assert.equal(statusOverlayStyle.zIndex, 13, `${vp.name}: status overlay zIndex`);
+    assert.equal(statusOverlayStyle.elevation, 13, `${vp.name}: status overlay elevation`);
+    assert.ok(bentoStyle.width <= effW, `${vp.name}: status bento width ${bentoStyle.width} <= ${effW}`);
+    assert.ok(bentoStyle.maxHeight <= effH, `${vp.name}: status bento maxHeight ${bentoStyle.maxHeight} <= ${effH}`);
+    screen.find('control-hud-open-status').props.onPress();
+    screen.render();
+
+    // 6. Settings modal never overflows narrow phone width and elevates above Status (15/16 > 13).
+    screen.find('control-hud-settings').props.onPress();
+    screen.render();
+    const settingsStyle = flat(screen.find('control-settings-menu').props.style);
+    assert.equal(settingsStyle.zIndex, 16, `${vp.name}: settings zIndex`);
+    assert.equal(settingsStyle.elevation, 16, `${vp.name}: settings elevation`);
+    assert.ok(settingsStyle.top >= 36, `${vp.name}: settings sits below top-right E-Stop band`);
+    const settingsShell = screen.find('control-settings-menu').props.children;
+    const shellStyle = flat(settingsShell.props.style);
+    assert.ok(shellStyle.maxWidth <= effW, `${vp.name}: settings shell maxWidth ${shellStyle.maxWidth} <= ${effW}`);
+    screen.find('control-close-settings').props.onPress();
+    screen.render();
+
+    // 7. Confirmation modal elevates above Settings & Toast (20 > 18 > 16) yet stays below E-Stop (24).
+    screen.find('control-hud-motor-power').props.onPress();
+    screen.render();
+    const confirmOverlay = screen.find('control-immersive-confirm-overlay');
+    assert.ok(confirmOverlay, `${vp.name}: confirmation overlay mounts`);
+    const confirmOverlayStyle = flat(confirmOverlay.props.style);
+    assert.equal(confirmOverlayStyle.zIndex, 20, `${vp.name}: confirm overlay zIndex`);
+    assert.equal(confirmOverlayStyle.elevation, 20, `${vp.name}: confirm overlay elevation`);
+    assert.ok(confirmOverlayStyle.zIndex < statusBarStyle.zIndex, `${vp.name}: E-Stop remains above confirmation`);
+    screen.unmount();
+  }
+});

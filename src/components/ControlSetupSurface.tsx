@@ -44,12 +44,14 @@ export function ControlSetupBackground({ media }: { media?: ControlSetupMedia })
 export function ControlSetupPage({ title, onBack, backTestID, header, media, children }: {
   title: string; onBack: () => void; backTestID?: string; header?: ReactNode; media?: ControlSetupMedia; children: ReactNode;
 }) {
-  const compact = useWindowDimensions().width < 600;
+  const { width } = useWindowDimensions();
+  const compact = width < 600;
+  const titlePillWidth = Math.min(compact ? 170 : 220, Math.max(132, width - (compact ? 132 : 180)));
   return <View style={styles.page}>
     <ControlSetupBackground media={media} />
     {header ?? <View style={styles.header}>
       <DosoWordmark width={compact ? 64 : 96} />
-      <View style={[styles.titlePill, compact && { width: 170, transform: [{ translateX: -85 }] }]}><Text accessibilityRole="header" style={styles.title}>{title}</Text></View>
+      <View style={[styles.titlePill, { width: titlePillWidth, transform: [{ translateX: -titlePillWidth / 2 }] }]}><Text accessibilityRole="header" numberOfLines={1} style={styles.title}>{title}</Text></View>
     </View>}
     <ControlPanelMotion style={styles.content}>{children}</ControlPanelMotion>
     <Pressable onPress={onBack} accessibilityRole="button" accessibilityLabel="返回" testID={backTestID} style={styles.back}>
@@ -61,9 +63,9 @@ export function ControlSetupPage({ title, onBack, backTestID, header, media, chi
 const styles = StyleSheet.create({
   page: { flex: 1, position: 'relative', backgroundColor: controlSetupAppearance.canvas },
   mediaStatus: { position: 'absolute', left: '4%', bottom: 12, color: controlHudColors.muted, fontSize: 12, lineHeight: 18 },
-  header: { position: 'absolute', top: 12, left: '4%', right: '3%', height: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', zIndex: 10 },
+  header: { position: 'absolute', top: 12, left: '4%', right: '3%', height: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', elevation: 10, zIndex: 10 },
   titlePill: { position: 'absolute', left: '50%', width: 220, transform: [{ translateX: -110 }], alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 30, backgroundColor: 'rgba(24, 24, 24, 0.88)', borderWidth: .5, borderColor: 'rgba(255, 255, 255, 0.12)' },
   title: { color: controlHudColors.ink, fontSize: 18, lineHeight: 24, fontWeight: '500' },
-  back: { position: 'absolute', right: '3%', bottom: 0, width: 44, height: 40, alignItems: 'center', justifyContent: 'center', zIndex: 11 },
+  back: { position: 'absolute', right: '3%', bottom: 0, width: 44, height: 40, alignItems: 'center', justifyContent: 'center', elevation: 11, zIndex: 11 },
   content: { flex: 1, paddingTop: 80, paddingBottom: 40, paddingHorizontal: '3.6%' },
 });

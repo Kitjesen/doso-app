@@ -241,12 +241,17 @@ export function StatusBentoCard({
       : subtleCol;
 
   const activeLegSpec = STATUS_LEGS.find(leg => leg.id === activeLegId) ?? STATUS_LEGS[0];
-  const compact = floating || (typeof maxWidth === 'number' && maxWidth <= 680);
-  const bayWidth = compact ? 222 : 254;
-  const heroWidth = compact ? 120 : 138;
-  const heroHeight = compact ? 150 : 172;
-  const haloOuterSize = compact ? 142 : 166;
-  const haloInnerSize = compact ? 96 : 114;
+  const effectiveWidth = typeof maxWidth === 'number' && maxWidth > 0 ? maxWidth : 656;
+  const stacked = effectiveWidth < 520;
+  const compact = floating || effectiveWidth <= 680;
+  const bayWidth = stacked
+    ? undefined
+    : Math.max(168, Math.min(compact ? 216 : 254, Math.round(effectiveWidth * 0.34)));
+  const narrowBay = !stacked && (bayWidth ?? 222) < 196;
+  const heroWidth = narrowBay ? 96 : compact ? 116 : 138;
+  const heroHeight = narrowBay ? 120 : compact ? 144 : 172;
+  const haloOuterSize = narrowBay ? 116 : compact ? 138 : 166;
+  const haloInnerSize = narrowBay ? 78 : compact ? 92 : 114;
 
   const getLegSummary = (leg: (typeof STATUS_LEGS)[number]) => {
     const temps: number[] = [];
@@ -432,9 +437,9 @@ export function StatusBentoCard({
   ) : null;
 
   const bentoColumns = (
-    <View style={styles.bentoGrid}>
+    <View style={[styles.bentoGrid, stacked && styles.bentoGridStacked]}>
       {/* Left Sculpted Chassis Bay */}
-      <View style={[styles.chassisBay, { backgroundColor: bayBg, borderColor: hairlineSoftCol, width: bayWidth }]}>
+      <View style={[styles.chassisBay, { backgroundColor: bayBg, borderColor: hairlineSoftCol }, bayWidth ? { width: bayWidth } : styles.chassisBayFull]}>
         <View style={styles.bayHeader}>
           <Text numberOfLines={1} style={[styles.bayTitle, { color: mutedCol }]}>底盘热力</Text>
           <Text numberOfLines={1} style={[styles.bayCounter, { color: hasDeviceSnapshot ? mutedCol : subtleCol }]}>
@@ -835,7 +840,7 @@ export function StatusBentoCard({
     </View>
   );
 
-  const cardShellWidth = floating ? Math.min(656, maxWidth ?? 656) : undefined;
+  const cardShellWidth = floating ? Math.min(656, effectiveWidth) : undefined;
   const cardShellMaxHeight = floating && typeof maxHeight === 'number' ? maxHeight : undefined;
 
   return (
@@ -1100,6 +1105,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 6,
   },
+  bentoGridStacked: {
+    flexDirection: 'column',
+  },
 
   /* Left Sculpted Chassis Bay */
   chassisBay: {
@@ -1108,6 +1116,9 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     justifyContent: 'space-between',
     padding: 8,
+  },
+  chassisBayFull: {
+    width: '100%',
   },
   bayHeader: {
     alignItems: 'center',
@@ -1267,7 +1278,7 @@ const styles = StyleSheet.create({
   topCardsRow: {
     flexDirection: 'row',
     gap: 6,
-    height: 66,
+    minHeight: 66,
   },
   topCard: {
     borderRadius: 12,
@@ -1623,13 +1634,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'rgba(12, 12, 12, 0.78)',
     bottom: 0,
+    elevation: 18,
     justifyContent: 'center',
     left: 0,
     padding: 16,
     position: 'absolute',
     right: 0,
     top: 0,
-    zIndex: 5,
+    zIndex: 18,
   },
   modalBackdrop: {
     alignItems: 'center',

@@ -85,11 +85,18 @@ export function JointStatusScreen({
     </View>
   );
 
+  const isCompactPortrait = !isLandscape && width < 380;
+  const horizontalInset = isCompactPortrait ? 12 : 18;
+  const cardMaxWidth = reserveRightNav
+    ? Math.max(260, width - 104)
+    : Math.max(260, width - horizontalInset * 2);
+
   return (
     <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={[styles.safe, { backgroundColor: canvasBg }]} testID="joint-status-screen">
       <ScrollView
         contentContainerStyle={[
           styles.content,
+          isCompactPortrait && styles.contentCompact,
           isLandscape && styles.contentLandscape,
           reserveRightNav && styles.rightRailClearance,
         ]}
@@ -105,7 +112,7 @@ export function JointStatusScreen({
             imu={imu}
             isWorkspace={isWorkspace}
             joints={validatedJoints}
-            maxWidth={reserveRightNav ? Math.max(320, width - 112) : Math.max(320, width - 32)}
+            maxWidth={cardMaxWidth}
             observedAt={observedAt}
             onBack={onBack}
             onRefresh={onRefresh}
@@ -124,6 +131,7 @@ export function JointStatusScreen({
 const styles = StyleSheet.create({
   safe: { flex: 1 },
   content: { flexGrow: 1, justifyContent: 'center', paddingBottom: 18, paddingHorizontal: 18, paddingTop: 10 },
+  contentCompact: { paddingHorizontal: 12 },
   contentLandscape: { paddingBottom: 12, paddingTop: 8 },
   rightRailClearance: { paddingRight: 84 },
   centeredStage: { alignSelf: 'center', maxWidth: 748, width: '100%' },

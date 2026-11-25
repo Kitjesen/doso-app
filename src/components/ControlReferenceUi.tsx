@@ -337,7 +337,10 @@ const FSD_CATEGORIES: readonly [ControlSettingsTab, keyof typeof Ionicons.glyphM
 export function renderControlSettings(p: SettingsProps) {
   const activeTab = normalizeSettingsCategory(p.category);
   const compact = p.height < 460 || p.width < 920;
-  const s = compact ? 0.92 : Math.max(0.95, Math.min(1.08, p.width / 1280));
+  const narrow = p.width < 720;
+  const ultraNarrow = p.width < 580;
+  const short = p.height < 410;
+  const s = ultraNarrow ? 0.84 : narrow ? 0.88 : compact ? 0.92 : Math.max(0.95, Math.min(1.08, p.width / 1280));
   const sp = (v: number) => Math.round(v * s);
   const c = controlSettingsColors;
   const isBlue = p.accentTone === 'fsdBlue';
@@ -368,12 +371,16 @@ export function renderControlSettings(p: SettingsProps) {
   const text = { color: c.ink, fontSize: sp(13.5), lineHeight: sp(18), fontWeight: '500' as const };
   const small = { color: c.muted, fontSize: sp(12), lineHeight: sp(16), fontWeight: '400' as const };
   const rawHudRatio = Math.min(p.width / 960, p.height / 540);
-  const hudScale = p.inHudOverlay ? (rawHudRatio < 1 ? Math.max(0.90, rawHudRatio) : Math.min(1.18, 1 + (rawHudRatio - 1) * 0.20)) : 1;
+  const hudScale = p.inHudOverlay ? (rawHudRatio < 1 ? Math.max(0.76, 0.28 + rawHudRatio * 0.72) : Math.min(1.18, 1 + (rawHudRatio - 1) * 0.20)) : 1;
+  const horizontalMargin = ultraNarrow ? 6 : narrow ? 8 : 12;
   // Sit cleanly below top-right bare HUD so red E-Stop at top-right stays 100% unobstructed.
-  const topOffset = p.inHudOverlay ? Math.round(50 * hudScale) : Math.max(58, p.height * 0.11);
-  const bottomOffset = p.inHudOverlay ? Math.round(12 * hudScale) : Math.max(12, p.height * 0.03);
-  const shellMaxWidth = p.inHudOverlay ? Math.min(920, Math.max(720, Math.round(p.width * 0.84))) : 900;
-  const sidebarWidth = compact ? 136 : 162;
+  const topOffset = p.inHudOverlay ? Math.max(36, Math.round((short ? 42 : 48) * hudScale)) : Math.max(48, p.height * 0.11);
+  const bottomOffset = p.inHudOverlay ? (short ? 6 : Math.round(10 * hudScale)) : Math.max(10, p.height * 0.03);
+  const maxAvailableWidth = Math.max(280, p.width - horizontalMargin * 2);
+  const shellMaxWidth = p.inHudOverlay
+    ? Math.min(920, maxAvailableWidth, Math.max(280, Math.round(p.width * (narrow ? 0.96 : 0.88))))
+    : Math.min(900, maxAvailableWidth);
+  const sidebarWidth = ultraNarrow ? 94 : narrow ? 114 : compact ? 130 : 162;
 
   const snapshot = p.snapshot ?? {};
   const activeSubview = p.subview ?? 'tabs';
@@ -1435,11 +1442,11 @@ export function renderControlSettings(p: SettingsProps) {
       onTouchEnd={stopTouchBubble}
       onTouchCancel={stopTouchBubble}
       testID="control-settings-menu"
-      style={[st.root, { top: topOffset, bottom: bottomOffset }]}
+      style={[st.root, { left: horizontalMargin, right: horizontalMargin, top: topOffset, bottom: bottomOffset }]}
     >
-      <View style={[st.consoleShell, { maxWidth: shellMaxWidth }]}>
+      <View style={[st.consoleShell, { maxWidth: shellMaxWidth, borderRadius: short ? 16 : 20 }]}>
         {/* Left Charcoal Sidebar Rail */}
-        <View style={[st.sidebar, { width: sidebarWidth }]}>
+        <View style={[st.sidebar, { width: sidebarWidth }, short && st.sidebarShort, ultraNarrow && st.sidebarNarrow]}>
           <View style={st.sidebarBrand}>
             <Text accessibilityRole="header" numberOfLines={1} style={st.sidebarTitle}>设置</Text>
             <View style={st.sidebarStatusRow}>
@@ -1469,13 +1476,15 @@ export function renderControlSettings(p: SettingsProps) {
                   testID={`control-settings-tab-${label}`}
                   style={({ pressed }) => [
                     st.railItem,
+                    short && st.railItemShort,
+                    ultraNarrow && st.railItemNarrow,
                     selected && st.railItemActive,
                     pressed && st.pressed,
                   ]}
                 >
                   {selected ? <View style={[st.railIndicator, { backgroundColor: accent.railBar }]} /> : null}
-                  <Ionicons name={glyph} size={15} color={selected ? c.ink : c.muted} />
-                  <Text numberOfLines={1} style={[st.railLabel, selected && st.railLabelActive]}>
+                  <Ionicons name={glyph} size={ultraNarrow ? 13 : 15} color={selected ? c.ink : c.muted} />
+                  <Text numberOfLines={1} style={[st.railLabel, ultraNarrow && st.railLabelNarrow, selected && st.railLabelActive]}>
                     {label}
                   </Text>
                 </Pressable>
@@ -1486,7 +1495,7 @@ export function renderControlSettings(p: SettingsProps) {
 
         {/* Right Content Area */}
         <View style={st.mainPane}>
-          <View style={st.paneHeader}>
+          <View style={[st.paneHeader, short && st.paneHeaderShort]}>
             <View style={st.paneTitleGroup}>
               {activeSubview !== 'tabs' && p.onBackSubview ? (
                 <Pressable
@@ -1561,6 +1570,13 @@ const st = StyleSheet.create({
     paddingVertical: 14,
     gap: 12,
   },
+  sidebarShort: {
+    gap: 8,
+    paddingVertical: 9,
+  },
+  sidebarNarrow: {
+    paddingHorizontal: 6,
+  },
   sidebarBrand: {
     gap: 4,
     paddingHorizontal: 6,
@@ -1606,6 +1622,13 @@ const st = StyleSheet.create({
     paddingHorizontal: 10,
     position: 'relative',
   },
+  railItemShort: {
+    minHeight: 32,
+  },
+  railItemNarrow: {
+    gap: 5,
+    paddingHorizontal: 6,
+  },
   railItemActive: {
     backgroundColor: controlSettingsColors.surface,
   },
@@ -1622,6 +1645,10 @@ const st = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
     lineHeight: 18,
+  },
+  railLabelNarrow: {
+    fontSize: 11.5,
+    lineHeight: 15,
   },
   railLabelActive: {
     color: controlSettingsColors.ink,
@@ -1644,6 +1671,11 @@ const st = StyleSheet.create({
     minHeight: 46,
     paddingHorizontal: 16,
     paddingVertical: 8,
+  },
+  paneHeaderShort: {
+    minHeight: 36,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
   },
   paneTitleGroup: {
     alignItems: 'center',
