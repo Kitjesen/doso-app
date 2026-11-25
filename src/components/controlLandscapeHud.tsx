@@ -166,7 +166,14 @@ export type ControlLandscapeHudProps = Readonly<{
   voiceChatQuietMode?: boolean;
   voiceChatPendingReminders?: number;
   voiceChatConnected?: boolean;
+  voiceChatWalkUnlocked?: boolean;
+  voiceChatActiveMove?: Readonly<{ active: boolean; progress: number; directionLabel: string }> | null;
   onToggleVoiceChat?: () => void;
+  onLockVoiceWalk?: () => void;
+  onStartHoldVoice?: () => void;
+  onFinishHoldVoice?: (cancelled?: boolean) => void;
+  onStopVoice?: () => void;
+  onBrakeMove?: () => void;
   voiceChatPanel?: ReactNode;
   showVirtualDiscControls?: boolean;
   onToggleVirtualDiscControls?: () => void;
@@ -260,6 +267,129 @@ function SafeAreaGuides({ insets }: { insets: LandscapeSafeInsets }) {
       {insets.right > 0 ? <View style={[styles.guideBar, styles.guideRight, { width: insets.right }]} /> : null}
       {insets.bottom > 0 ? <View style={[styles.guideBar, styles.guideBottom, { height: insets.bottom }]} /> : null}
       {insets.left > 0 ? <View style={[styles.guideBar, styles.guideLeft, { width: insets.left }]} /> : null}
+    </View>
+  );
+}
+
+const voiceOrbHoldGesture = {
+  timer: null as ReturnType<typeof setTimeout> | null,
+  holding: false,
+  cancelled: false,
+  suppressNextTap: false,
+  startY: null as number | null,
+};
+
+function LivingBotOrbFace({
+  mode,
+  offline,
+}: {
+  mode: 'idle' | 'listening' | 'thinking' | 'speaking' | 'moving';
+  offline: boolean;
+}) {
+  const breathe = useRef(new Animated.Value(0)).current;
+  const blink = useRef(new Animated.Value(1)).current;
+  const ripple = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (offline || typeof Animated.loop !== 'function' || typeof Animated.sequence !== 'function' || typeof Animated.timing !== 'function') {
+      return;
+    }
+    const breatheAnim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(breathe, { toValue: -1.4, duration: 2400, useNativeDriver: true }),
+        Animated.timing(breathe, { toValue: 0, duration: 2400, useNativeDriver: true }),
+      ]),
+    );
+    breatheAnim.start();
+    const blinkAnim = typeof Animated.delay === 'function'
+      ? Animated.loop(
+          Animated.sequence([
+            Animated.delay(3800),
+            Animated.timing(blink, { toValue: 0.12, duration: 90, useNativeDriver: true }),
+            Animated.timing(blink, { toValue: 1, duration: 110, useNativeDriver: true }),
+          ]),
+        )
+      : null;
+    blinkAnim?.start();
+    return () => {
+      breatheAnim.stop();
+      blinkAnim?.stop();
+    };
+  }, [blink, breathe, offline]);
+
+  useEffect(() => {
+    if ((mode !== 'listening' && mode !== 'speaking' && mode !== 'moving') || typeof Animated.loop !== 'function' || typeof Animated.timing !== 'function') {
+      ripple.setValue(0);
+      return;
+    }
+    ripple.setValue(0);
+    const wave = Animated.loop(
+      Animated.timing(ripple, { toValue: 1, duration: 1350, useNativeDriver: true }),
+    );
+    wave.start();
+    return () => wave.stop();
+  }, [mode, ripple]);
+
+  const rippleScale = typeof ripple.interpolate === 'function'
+    ? ripple.interpolate({ inputRange: [0, 1], outputRange: [1, 1.56] })
+    : 1;
+  const rippleOpacity = typeof ripple.interpolate === 'function'
+    ? ripple.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0.42, 0.24, 0] })
+    : 0;
+
+  const isListening = mode === 'listening';
+  const isSpeaking = mode === 'speaking';
+  const isThinking = mode === 'thinking';
+  const isMoving = mode === 'moving';
+  const ringTint = isMoving
+    ? 'rgba(233, 185, 99, 0.56)'
+    : isListening || isSpeaking
+      ? 'rgba(99, 199, 149, 0.52)'
+      : 'transparent';
+  const headBg = offline ? 'rgba(232, 233, 238, 0.36)' : '#ECEDF2';
+  const eyeColor = '#121318';
+  const eyeW = offline ? 5 : isSpeaking ? 5 : 3.2;
+  const eyeH = offline ? 2 : isListening ? 6.8 : isSpeaking ? 2.8 : 5.4;
+
+  return (
+    <View pointerEvents="none" style={styles.botOrbVisualWrap}>
+      {isListening || isSpeaking || isMoving ? (
+        <Animated.View
+          style={[
+            styles.botOrbRipple,
+            {
+              borderColor: ringTint,
+              opacity: rippleOpacity,
+              transform: [{ scale: rippleScale }],
+            },
+          ]}
+        />
+      ) : null}
+      <Animated.View
+        style={[
+          styles.botHeadShape,
+          { backgroundColor: headBg, transform: [{ translateY: breathe }] },
+        ]}
+      >
+        <Animated.View style={[styles.botEyesRow, !offline && { transform: [{ scaleY: blink }] }]}>
+          <View
+            style={{
+              width: eyeW,
+              height: isThinking ? 3.8 : eyeH,
+              borderRadius: 2.2,
+              backgroundColor: eyeColor,
+            }}
+          />
+          <View
+            style={{
+              width: eyeW,
+              height: isThinking ? 5.6 : eyeH,
+              borderRadius: 2.2,
+              backgroundColor: eyeColor,
+            }}
+          />
+        </Animated.View>
+      </Animated.View>
     </View>
   );
 }
@@ -475,14 +605,18 @@ export function controlLandscapeHud({
   voiceChatStatusLabel,
   voiceChatActive = false,
   voiceChatLiveState = 'idle',
-  voiceChatEmotionLabel = null,
   voiceChatQuietMode = false,
   voiceChatPendingReminders = 0,
   voiceChatConnected = false,
+  voiceChatWalkUnlocked = false,
+  voiceChatActiveMove = null,
   onToggleVoiceChat,
+  onLockVoiceWalk,
+  onStartHoldVoice,
+  onFinishHoldVoice,
+  onStopVoice,
+  onBrakeMove,
   voiceChatPanel,
-  showVirtualDiscControls = true,
-  onToggleVirtualDiscControls,
   bodyHeightPanelOpen = false,
   onToggleBodyHeightPanel,
   bodyHeight = null,
@@ -587,8 +721,8 @@ export function controlLandscapeHud({
       { id: 'platform', label: '高台', disabled: true, selected: false, hint: '暂无可用模式' },
     ];
   const hasVoiceOverlay = Boolean(voiceChatOpen && voiceChatPanel);
-  const anyFloatingPanel = (faultPanelOpen && faults.length > 0) || jointParamsOpen || jointTempOpen || bodyHeightPanelOpen || Boolean(recovery) || hasVoiceOverlay;
-  const suppressEmptyVideo = anyFloatingPanel || leftCategory !== 'policy' || Boolean(settingsMenu) || statusCardOpen;
+  const anyFloatingPanel = (faultPanelOpen && faults.length > 0) || jointParamsOpen || jointTempOpen || bodyHeightPanelOpen || Boolean(recovery);
+  const suppressEmptyVideo = anyFloatingPanel || hasVoiceOverlay || leftCategory !== 'policy' || Boolean(settingsMenu) || statusCardOpen;
 
   const activeHeightBadgeText = bodyHeight?.active && bodyHeight.supported
     && typeof bodyHeight.currentHeightM === 'number' && Number.isFinite(bodyHeight.currentHeightM) && bodyHeight.currentHeightM > 0
@@ -1192,7 +1326,7 @@ export function controlLandscapeHud({
           </Pressable>
         ) : null}
 
-        {/* Floating Joint Params / Joint Temp / Body Height / Voice / Faults / Recovery */}
+        {/* Floating Joint Params / Joint Temp / Body Height / Faults / Recovery */}
         {anyFloatingPanel && !settingsMenu && !statusCardOpen ? (
           <View pointerEvents="box-none" style={[styles.floatingPanelsOverlay, { bottom: sp(74), top: sp(50) + (feedback ? sp(44) : 0) + (hudNotice ? sp(44) : 0), transform: [{ translateX: -Math.round(overlayW / 2) }], width: overlayW }]} testID="control-hud-overlay-stack">
             <ScrollView
@@ -1201,7 +1335,6 @@ export function controlLandscapeHud({
               style={styles.floatingPanelsScroll}
             >
               {recovery}
-              {hasVoiceOverlay ? voiceChatPanel : null}
               {faultPanelOpen && faults.length > 0 ? FaultListPanel({
                 faults,
                 onClose: onToggleFaultPanel,
@@ -1240,6 +1373,24 @@ export function controlLandscapeHud({
                 accentTone,
               }) : null}
             </ScrollView>
+          </View>
+        ) : null}
+
+        {/* Flush-Left Airy Liquid-Glass Voice Wing (Stationary Background, Strictly Below Top Telemetry & Above Bottom Dock) */}
+        {hasVoiceOverlay && !settingsMenu && !statusCardOpen ? (
+          <View
+            pointerEvents="box-none"
+            style={[
+              styles.voiceLeftWingOverlay,
+              {
+                bottom: edgeBottom + sp(58),
+                top: edgeTop + (compactStage ? sp(114) : sp(126)),
+                width: Math.min(340, Math.max(272, Math.round(effectiveStageW * 0.39))),
+              },
+            ]}
+            testID="control-hud-voice-wing"
+          >
+            {voiceChatPanel}
           </View>
         ) : null}
 
@@ -1407,76 +1558,118 @@ export function controlLandscapeHud({
             style={[styles.bottomThreeCardRow, { bottom: edgeBottom, gap: sp(8), left: edgeX, right: edgeX }]}
             testID="control-hud-left-controls"
           >
-            {/* Left Dock: 对话 | 圆盘 | 高度 */}
-            <View style={[styles.dockCard, { gap: sp(2), minHeight: sp(38), paddingHorizontal: sp(5), paddingVertical: sp(3) }]} testID="control-hud-utility-card">
+            {/* Left Trigger: Single Unified Living Bot Orb (Tap = Dialogue/Stop, Hold = Speak) + Amber Walk-Lock Badge */}
+            <View style={styles.voiceOrbDock} testID="control-hud-utility-card">
               {onToggleVoiceChat ? (() => {
-                const voiceBusyState = voiceChatLiveState === 'listening' || voiceChatLiveState === 'thinking' || voiceChatLiveState === 'speaking' || voiceChatActive;
-                const voiceDotColor =
-                  voiceChatLiveState === 'listening'
-                    ? '#34D399'
+                const moveActive = Boolean(voiceChatActiveMove?.active);
+                const voiceBusyState = moveActive || voiceChatLiveState === 'listening' || voiceChatLiveState === 'thinking' || voiceChatLiveState === 'speaking' || voiceChatActive;
+                const orbMode: 'idle' | 'listening' | 'thinking' | 'speaking' | 'moving' = moveActive
+                  ? 'moving'
+                  : voiceChatLiveState === 'listening'
+                    ? 'listening'
                     : voiceChatLiveState === 'speaking'
-                      ? '#34D399'
-                      : voiceChatLiveState === 'thinking'
-                        ? '#F59E0B'
-                        : voiceChatQuietMode
-                          ? '#F59E0B'
-                          : voiceChatConnected
-                            ? '#34D399'
-                            : '#9A9A9A';
-                const voiceHaloColor =
-                  voiceChatLiveState === 'listening' || voiceChatLiveState === 'speaking'
-                    ? 'rgba(52, 211, 153, 0.28)'
-                    : 'rgba(245, 158, 11, 0.28)';
-                const dockVoiceLabel = voiceBusyState && voiceChatStatusLabel
-                  ? voiceChatStatusLabel
-                  : voiceChatQuietMode
-                    ? '轻声'
-                    : '对话';
+                      ? 'speaking'
+                      : voiceChatLiveState === 'thinking' || voiceChatActive
+                        ? 'thinking'
+                        : 'idle';
+                const voiceDotColor = moveActive
+                  ? '#E9B963'
+                  : voiceChatLiveState === 'listening' || voiceChatLiveState === 'speaking'
+                    ? '#63C795'
+                    : voiceChatLiveState === 'thinking' || voiceChatQuietMode
+                      ? '#E9B963'
+                      : voiceChatConnected
+                        ? '#63C795'
+                        : '#7A7D85';
+                const orbSize = compactStage ? 42 : sp(46);
                 return (
                   <Pressable
-                    accessibilityLabel={voiceChatOpen ? '收起语音对话' : '打开语音对话'}
+                    accessibilityLabel={
+                      moveActive
+                        ? '点击刹停'
+                        : voiceChatOpen
+                          ? '收起语音对话'
+                          : voiceChatStatusLabel
+                            ? `小算 ${voiceChatStatusLabel}`
+                            : '打开语音对话'
+                    }
                     accessibilityRole="button"
                     accessibilityState={{ expanded: voiceChatOpen, selected: voiceChatOpen || voiceBusyState }}
-                    onPress={onToggleVoiceChat}
+                    onPress={() => {
+                      if (voiceOrbHoldGesture.suppressNextTap) {
+                        voiceOrbHoldGesture.suppressNextTap = false;
+                        return;
+                      }
+                      if (moveActive && onBrakeMove) {
+                        onBrakeMove();
+                        return;
+                      }
+                      if (voiceChatLiveState === 'speaking' && onStopVoice) {
+                        onStopVoice();
+                        return;
+                      }
+                      onToggleVoiceChat();
+                    }}
+                    onPressIn={event => {
+                      if (voiceOrbHoldGesture.timer) {
+                        clearTimeout(voiceOrbHoldGesture.timer);
+                        voiceOrbHoldGesture.timer = null;
+                      }
+                      voiceOrbHoldGesture.holding = false;
+                      voiceOrbHoldGesture.cancelled = false;
+                      voiceOrbHoldGesture.suppressNextTap = false;
+                      const pageY = event?.nativeEvent?.pageY;
+                      voiceOrbHoldGesture.startY = typeof pageY === 'number' && Number.isFinite(pageY) ? pageY : null;
+                      if (onStartHoldVoice) {
+                        voiceOrbHoldGesture.timer = setTimeout(() => {
+                          voiceOrbHoldGesture.timer = null;
+                          voiceOrbHoldGesture.holding = true;
+                          voiceOrbHoldGesture.suppressNextTap = true;
+                          onStartHoldVoice();
+                        }, 260);
+                      }
+                    }}
+                    onPressOut={event => {
+                      if (voiceOrbHoldGesture.timer) {
+                        clearTimeout(voiceOrbHoldGesture.timer);
+                        voiceOrbHoldGesture.timer = null;
+                      }
+                      if (voiceOrbHoldGesture.holding) {
+                        const endY = event?.nativeEvent?.pageY;
+                        const slidUp =
+                          voiceOrbHoldGesture.startY !== null
+                          && typeof endY === 'number'
+                          && Number.isFinite(endY)
+                          && (voiceOrbHoldGesture.startY - endY) > 44;
+                        const wasCancelled = voiceOrbHoldGesture.cancelled || slidUp;
+                        voiceOrbHoldGesture.holding = false;
+                        voiceOrbHoldGesture.cancelled = false;
+                        voiceOrbHoldGesture.startY = null;
+                        onFinishHoldVoice?.(wasCancelled);
+                      } else {
+                        voiceOrbHoldGesture.startY = null;
+                      }
+                    }}
                     style={({ pressed }) => [
-                      styles.cardItemBtn,
-                      { gap: sp(4), minHeight: sp(30), paddingHorizontal: compactStage ? 6 : sp(8) },
-                      (voiceChatOpen || voiceBusyState) && { backgroundColor: activeItemBg },
-                      pressed && styles.pressed,
+                      styles.botOrbBtn,
+                      { width: orbSize, height: orbSize, borderRadius: orbSize / 2 },
+                      voiceChatOpen && styles.botOrbBtnOpen,
+                      moveActive && styles.botOrbBtnMoving,
+                      voiceChatLiveState === 'listening' && styles.botOrbBtnListening,
+                      pressed && styles.botOrbBtnPressed,
                     ]}
                     testID="control-hud-voice-toggle"
                   >
-                    {voiceChatConnected || voiceBusyState ? (
-                      <View
-                        style={[
-                          styles.voiceDotHalo,
-                          voiceBusyState && { backgroundColor: voiceHaloColor },
-                        ]}
-                        testID="control-hud-voice-presence-dot"
-                      >
-                        <View style={[styles.voiceDotCore, { backgroundColor: voiceDotColor }]} />
-                      </View>
-                    ) : (
-                      <Ionicons
-                        color={voiceChatOpen ? activeIconTint : INK}
-                        name={voiceChatOpen ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'}
-                        size={sp(14)}
-                      />
-                    )}
-                    <Text numberOfLines={1} style={[styles.cardItemText, { fontSize: fBody, lineHeight: fBodyLine }, (voiceChatOpen || voiceBusyState) && styles.cardItemTextActive]}>
-                      {dockVoiceLabel}
-                    </Text>
-                    {voiceChatEmotionLabel ? (
-                      <Text
-                        numberOfLines={1}
-                        style={[styles.voiceEmotionBadge, { fontSize: Math.max(9.5, sp(10)), lineHeight: sp(13) }]}
-                        testID="control-hud-voice-emotion"
-                      >
-                        {voiceChatEmotionLabel}
-                      </Text>
-                    ) : null}
+                    <LivingBotOrbFace mode={orbMode} offline={!voiceChatConnected && !voiceBusyState} />
+                    <View
+                      style={[
+                        styles.botPresenceDot,
+                        { backgroundColor: voiceDotColor },
+                      ]}
+                      testID="control-hud-voice-presence-dot"
+                    />
                     {voiceChatPendingReminders > 0 ? (
-                      <View style={styles.voiceReminderBadge} testID="control-hud-voice-reminder-badge">
+                      <View style={styles.botReminderBadge} testID="control-hud-voice-reminder-badge">
                         <Text style={styles.voiceReminderBadgeText}>{String(voiceChatPendingReminders)}</Text>
                       </View>
                     ) : null}
@@ -1484,53 +1677,16 @@ export function controlLandscapeHud({
                 );
               })() : null}
 
-              {onToggleVirtualDiscControls ? (
+              {voiceChatWalkUnlocked && onLockVoiceWalk ? (
                 <Pressable
-                  accessibilityLabel={showVirtualDiscControls ? '隐藏圆盘控制' : '显示圆盘控制'}
-                  accessibilityRole="switch"
-                  accessibilityState={{ checked: showVirtualDiscControls }}
-                  onPress={onToggleVirtualDiscControls}
-                  style={({ pressed }) => [
-                    styles.cardItemBtn,
-                    { gap: sp(4), minHeight: sp(30), paddingHorizontal: compactStage ? 6 : sp(8) },
-                    showVirtualDiscControls && { backgroundColor: activeItemBg },
-                    pressed && styles.pressed,
-                  ]}
-                  testID="control-hud-virtual-disc-toggle"
-                >
-                  <Ionicons
-                    color={showVirtualDiscControls ? activeIconTint : MUTED}
-                    name={showVirtualDiscControls ? 'disc' : 'disc-outline'}
-                    size={sp(14)}
-                  />
-                  <Text numberOfLines={1} style={[styles.cardItemText, { fontSize: fBody, lineHeight: fBodyLine }, showVirtualDiscControls && styles.cardItemTextActive]}>
-                    圆盘
-                  </Text>
-                </Pressable>
-              ) : null}
-
-              {onToggleBodyHeightPanel ? (
-                <Pressable
-                  accessibilityLabel={bodyHeightPanelOpen ? '收起机身高度' : '调节机身高度'}
+                  accessibilityLabel="立即锁定语音走动"
                   accessibilityRole="button"
-                  accessibilityState={{ expanded: bodyHeightPanelOpen, selected: bodyHeightPanelOpen || Boolean(bodyHeight?.active) }}
-                  onPress={onToggleBodyHeightPanel}
-                  style={({ pressed }) => [
-                    styles.cardItemBtn,
-                    { gap: sp(4), minHeight: sp(30), paddingHorizontal: compactStage ? 6 : sp(8) },
-                    (bodyHeightPanelOpen || bodyHeight?.active) && { backgroundColor: activeItemBg },
-                    pressed && styles.pressed,
-                  ]}
-                  testID="control-hud-height-toggle"
+                  onPress={onLockVoiceWalk}
+                  style={({ pressed }) => [styles.walkUnlockBadge, pressed && styles.pressed]}
+                  testID="control-hud-voice-walk-lock"
                 >
-                  <Ionicons
-                    color={(bodyHeightPanelOpen || bodyHeight?.active) ? activeIconTint : INK}
-                    name={bodyHeightPanelOpen || bodyHeight?.active ? 'swap-vertical' : 'swap-vertical-outline'}
-                    size={sp(14)}
-                  />
-                  <Text numberOfLines={1} style={[styles.cardItemText, { fontSize: fBody, lineHeight: fBodyLine }, (bodyHeightPanelOpen || bodyHeight?.active) && styles.cardItemTextActive]}>
-                    {activeHeightBadgeText ?? '高度'}
-                  </Text>
+                  <Ionicons color="#E9B963" name="lock-open-outline" size={12} />
+                  <Text numberOfLines={1} style={styles.walkUnlockBadgeText}>走动中</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -1628,6 +1784,23 @@ export function controlLandscapeHud({
               <View style={[styles.dockDivider, { height: sp(16) }]} />
 
               <View style={[styles.dockCategories, { gap: sp(2) }]} testID="control-hud-left-category-tabs">
+                <Pressable
+                  accessibilityLabel="姿态"
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: leftCategory === 'posture' }}
+                  onPress={() => onLeftCategoryChange(leftCategory === 'posture' ? 'policy' : 'posture')}
+                  style={({ pressed }) => [
+                    styles.cardItemBtn,
+                    { minHeight: sp(30), paddingHorizontal: compactStage ? 7 : sp(10) },
+                    (leftCategory === 'posture' || bodyHeightPanelOpen || Boolean(bodyHeight?.active)) && { backgroundColor: activeItemBg },
+                    pressed && styles.pressed,
+                  ]}
+                  testID="control-hud-category-posture"
+                >
+                  <Text numberOfLines={1} style={[styles.cardItemText, { fontSize: fBody, lineHeight: fBodyLine }, (leftCategory === 'posture' || bodyHeightPanelOpen || Boolean(bodyHeight?.active)) && styles.cardItemTextActive]}>
+                    {activeHeightBadgeText ?? '姿态'}
+                  </Text>
+                </Pressable>
                 <Pressable
                   accessibilityLabel="动作"
                   accessibilityRole="tab"
@@ -2115,6 +2288,105 @@ const styles = StyleSheet.create({
   voiceEmotionBadge: { color: '#EAEAEA', fontWeight: '600' },
   voiceReminderBadge: { alignItems: 'center', backgroundColor: '#343434', borderRadius: 7, height: 14, justifyContent: 'center', minWidth: 14, paddingHorizontal: 3 },
   voiceReminderBadgeText: { color: '#FFFFFF', fontSize: 9.5, fontWeight: '700', lineHeight: 12 },
+
+  /* Flush-Left Voice Wing & Single Living Bot Trigger */
+  voiceLeftWingOverlay: {
+    left: 0,
+    position: 'absolute',
+    zIndex: 9,
+  },
+  voiceOrbDock: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  botOrbBtn: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(18, 19, 24, 0.72)',
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    borderWidth: 1,
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  botOrbBtnOpen: {
+    backgroundColor: 'rgba(28, 30, 38, 0.86)',
+    borderColor: 'rgba(255, 255, 255, 0.28)',
+  },
+  botOrbBtnListening: {
+    borderColor: 'rgba(99, 199, 149, 0.78)',
+  },
+  botOrbBtnMoving: {
+    borderColor: 'rgba(233, 185, 99, 0.84)',
+  },
+  botOrbBtnPressed: {
+    transform: [{ scale: 0.94 }],
+  },
+  botOrbVisualWrap: {
+    alignItems: 'center',
+    height: 30,
+    justifyContent: 'center',
+    width: 30,
+  },
+  botOrbRipple: {
+    borderRadius: 23,
+    borderWidth: 1.5,
+    height: 44,
+    position: 'absolute',
+    width: 44,
+  },
+  botHeadShape: {
+    alignItems: 'center',
+    borderBottomLeftRadius: 10,
+    borderBottomRightRadius: 10,
+    borderTopLeftRadius: 13,
+    borderTopRightRadius: 13,
+    height: 23,
+    justifyContent: 'center',
+    width: 26,
+  },
+  botEyesRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 5.5,
+  },
+  botPresenceDot: {
+    borderColor: 'rgba(14, 15, 18, 0.92)',
+    borderRadius: 4.5,
+    borderWidth: 1.5,
+    bottom: 1,
+    height: 9,
+    position: 'absolute',
+    right: 1,
+    width: 9,
+  },
+  botReminderBadge: {
+    alignItems: 'center',
+    backgroundColor: '#E9B963',
+    borderRadius: 7,
+    height: 14,
+    justifyContent: 'center',
+    minWidth: 14,
+    paddingHorizontal: 3,
+    position: 'absolute',
+    right: -2,
+    top: -2,
+  },
+  walkUnlockBadge: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(233, 185, 99, 0.20)',
+    borderColor: 'rgba(233, 185, 99, 0.45)',
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 4,
+    height: 28,
+    paddingHorizontal: 9,
+  },
+  walkUnlockBadgeText: {
+    color: '#FDE68A',
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
 
   dockMotorBtn: { alignItems: 'center', flexDirection: 'row', gap: 5, minHeight: 30, paddingHorizontal: 4 },
   motorDot: { borderRadius: 4, height: 7, width: 7 },

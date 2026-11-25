@@ -318,6 +318,7 @@ export function ControlScreen({
   const statusCardOpenRef = useRef(false);
   statusCardOpenRef.current = statusCardOpen;
   const voiceChatOpenRef = useRef(false);
+  const voiceChatEstopRef = useRef<(() => void) | null>(null);
   const [bodyHeightPanelOpen, setBodyHeightPanelOpen] = useState(false);
   const [bodyHeightDraftM, setBodyHeightDraftM] = useState<number | null>(null);
   const [bodyHeightBusy, setBodyHeightBusy] = useState(false);
@@ -1195,6 +1196,7 @@ export function ControlScreen({
     if (action === 'switchPolicy') submittedPolicyRef.current = policyId ?? null;
     if (action === 'stop') {
       triggerControlHaptic('estop');
+      voiceChatEstopRef.current?.();
     } else if (
       action === 'stand'
       || action === 'sit'
@@ -1244,6 +1246,7 @@ export function ControlScreen({
       if (intent.action === 'stop') {
         // Software revocation remains available during another action or confirmation.
         triggerControlHaptic('estop');
+        voiceChatEstopRef.current?.();
         g20MotionGate.current.reset(); revokeOperationIntent(); resetControls(); interruptInput(); return;
       }
       if (!context.allowed) return;
@@ -1660,6 +1663,20 @@ export function ControlScreen({
   const voiceChatConnected = immersiveConnectionReady
     || Boolean(workspaceSettings?.connection?.readonlyConnected)
     || Boolean(directConnection?.fresh);
+  const openInlineConnection = workspaceSettings?.connection
+    ? () => {
+      setStatusCardOpen(false);
+      setFaultPanelOpen(false);
+      setSpeedLimitExpanded(false);
+      setBodyHeightPanelOpen(false);
+      closeAllHudSettings();
+      settingsMenuRef.current = true;
+      setSettingsSubview('tabs');
+      setSettingsCategory('连接与设备');
+      setHotspotScanPulse(count => count + 1);
+      setSettingsMenuOpen(true);
+    }
+    : (onOpenConnection || onOpenConnectionDiagnostics ? () => openView(onOpenConnection || onOpenConnectionDiagnostics) : undefined);
   const voiceChat = useRobotVoiceChat({
     appActive: appActive && !leaving,
     connected: voiceChatConnected,
@@ -1674,8 +1691,10 @@ export function ControlScreen({
       updateControlPrefs({ voiceBroadcastEnabled: next });
       return next;
     }),
+    onOpenConnection: openInlineConnection,
   });
   voiceChatOpenRef.current = voiceChat.open;
+  voiceChatEstopRef.current = voiceChat.onEstopVoice;
   useEffect(() => {
     if (!dismissWorkspaceOverlayRef) return;
     dismissWorkspaceOverlayRef.current = () => {
@@ -2661,12 +2680,14 @@ export function ControlScreen({
       }),
       voiceChatOpen: voiceChat.open,
       voiceChatStatusLabel: voiceChat.statusLabel,
-      voiceChatActive: voiceChat.listening || voiceChat.busy || voiceChat.phase === 'speaking' || voiceChat.phase === 'awaiting',
+      voiceChatActive: voiceChat.listening || voiceChat.busy || voiceChat.phase === 'speaking' || voiceChat.phase === 'awaiting' || Boolean(voiceChat.activeMove?.active),
       voiceChatLiveState: voiceChat.liveState,
       voiceChatEmotionLabel: voiceChat.emotionLabel,
       voiceChatQuietMode: voiceChat.quietMode,
       voiceChatPendingReminders: voiceChat.pendingRemindersCount,
       voiceChatConnected: voiceChat.phase !== 'disconnected' && voiceChat.phase !== 'unavailable',
+      voiceChatWalkUnlocked: voiceChat.isXiaosuanMode && voiceChat.capabilitiesSupported && voiceChat.capabilities.modules.voice_walk,
+      voiceChatActiveMove: voiceChat.activeMove,
       onToggleVoiceChat: () => {
         const next = !voiceChat.open;
         if (next) {
@@ -2680,11 +2701,17 @@ export function ControlScreen({
         }
         voiceChat.setOpen(next);
       },
+      onLockVoiceWalk: () => voiceChat.setCapabilityEnabled('voice_walk', false),
+      onStartHoldVoice: voiceChat.onStartHoldVoice,
+      onFinishHoldVoice: voiceChat.onFinishHoldVoice,
+      onStopVoice: voiceChat.onCancelTurn,
+      onBrakeMove: voiceChat.onBrakeMove,
       voiceChatPanel: voiceChat.open ? ControlVoiceChatPanel({
         controller: voiceChat,
-        maxHeight: Math.max(120, Math.min(220, Math.round((immersiveCanvasHeight || height) * 0.34))),
+        maxHeight: Math.max(180, Math.round((immersiveCanvasHeight || height) * 0.56)),
         onClose: () => voiceChat.setOpen(false),
         surfaceTone: 'dark',
+        variant: 'wing',
       }) : null,
       showVirtualDiscControls,
       onToggleVirtualDiscControls: toggleVirtualDiscControls,
@@ -2970,6 +2997,7 @@ export function ControlScreen({
                 maxHeight: 210,
                 onClose: () => voiceChat.setOpen(false),
                 surfaceTone: isDark ? 'dark' : 'light',
+                variant: 'card',
               })}
             </View>
           ) : null}

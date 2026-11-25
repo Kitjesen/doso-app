@@ -3389,17 +3389,20 @@ test('1-click HUD voice dialogue connects to LingTu conversation API, enforces p
   });
   await screen.settle();
 
-  // 1. 1-click HUD voice button exists and opens floating dialogue card.
+  // 1. 1-click HUD voice button exists and opens flush-left liquid-glass dialogue wing.
   assert.ok(screen.find('control-hud-voice-toggle'));
   assert.equal(screen.find('control-hud-voice-panel'), undefined);
   screen.find('control-hud-voice-toggle').props.onPress();
   await screen.settle();
   await screen.settle();
   await screen.settle();
+  assert.ok(screen.find('control-hud-voice-wing'));
   assert.ok(screen.find('control-hud-voice-panel'));
   assert.equal(screen.find('control-voice-status').props.children, '就绪');
 
-  // 2. Quick prompt sends message to LingTu :5050 conversation API and renders reply + pending action approval.
+  // 2. Quick prompt in + popover sends message to LingTu :5050 conversation API and renders reply + pending action approval.
+  screen.find('control-voice-quick-toggle').props.onPress();
+  screen.render();
   screen.find('control-voice-quick-查看状态').props.onPress();
   await screen.settle();
   assert.ok(apiCalls.some(c => c.path === '/api/v1/agent/conversations/conv_dog_01/messages' && c.body?.text === '查看状态'));
@@ -3456,25 +3459,31 @@ test('virtual disc toggle cancels active touch safely, hides discs, syncs with s
     },
   });
 
-  // Enabled by default on touch input: left velocity ('速度') & right yaw ('转向') discs visible even with G20 available.
+  // Enabled by default on touch input: left velocity ('速度') & right yaw ('转向') discs visible; bottom-left dock stays clean (single Bot orb only).
   assert.ok(screen.pair);
   assert.equal(screen.pair.showVisuals, true);
   assert.equal(screen.pair.left.label, '速度');
   assert.equal(screen.pair.right.label, '转向');
-  assert.equal(screen.find('control-hud-virtual-disc-toggle').props.accessibilityState.checked, true);
+  assert.equal(screen.find('control-hud-virtual-disc-toggle'), undefined);
 
-  // Active touch emits velocity; toggling OFF via HUD quick button immediately interrupts & blocks stale touch callbacks.
+  // Active touch emits velocity; toggling OFF via Settings -> 操控 -> 圆盘控制 immediately interrupts & blocks stale touch callbacks.
   const staleSample = screen.pair.left.onSample;
   screen.pair.left.onActiveChange(true);
   staleSample({ x: 0.4, y: -0.8 });
   assert.equal(sent.length, 1);
   const interruptsBeforeHide = interrupts;
 
-  screen.find('control-hud-virtual-disc-toggle').props.onPress();
+  screen.find('control-hud-settings').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-settings-page-操控'));
+  assert.equal(screen.find('control-setting-virtual-discs').props.accessibilityState.checked, true);
+  screen.find('control-setting-virtual-discs').props.onPress();
   screen.render();
   assert.ok(interrupts > interruptsBeforeHide, 'hiding virtual discs must immediately interrupt active touch vector');
   assert.equal(screen.pair, undefined, 'control-joystick-pair must be hidden when showVirtualDiscControls is false');
-  assert.equal(screen.find('control-hud-virtual-disc-toggle').props.accessibilityState.checked, false);
+  assert.equal(screen.find('control-setting-virtual-discs').props.accessibilityState.checked, false);
+  screen.find('control-close-settings').props.onPress();
+  screen.render();
   staleSample({ x: 0.9, y: -0.9 });
   assert.equal(sent.length, 1, 'stale touch callback cannot send motion after discs are hidden');
 
@@ -3526,9 +3535,11 @@ test('body height panel enforces safety guards, dynamic robot range, mutual excl
     onRefreshBodyHeight: async () => { refreshes += 1; },
   });
 
-  // 1. Disconnected: open via HUD quick button -> fallback 0.15–0.50 m range, all controls disabled with short truthful hint.
-  assert.ok(screen.find('control-hud-height-toggle'));
-  screen.find('control-hud-height-toggle').props.onPress();
+  // 1. Disconnected: open via center dock 姿态 -> 机身高度 (bottom-left dock stays clean) -> fallback 0.15–0.50 m range, all controls disabled with short truthful hint.
+  assert.equal(screen.find('control-hud-height-toggle'), undefined);
+  screen.find('control-hud-category-posture').props.onPress();
+  screen.render();
+  screen.find('control-hud-posture-height').props.onPress();
   screen.render();
   assert.ok(screen.find('control-hud-height-panel'));
   assert.equal(screen.find('control-hud-height-range').props.children.props.children, '0.15–0.50 m');
@@ -3557,7 +3568,9 @@ test('body height panel enforces safety guards, dynamic robot range, mutual excl
       rateMps: 0.05,
     },
   });
-  screen.find('control-hud-height-toggle').props.onPress();
+  screen.find('control-hud-category-posture').props.onPress();
+  screen.render();
+  screen.find('control-hud-posture-height').props.onPress();
   screen.render();
   assert.ok(screen.find('control-hud-height-panel'));
   assert.equal(refreshes, 1);
@@ -3928,7 +3941,9 @@ test('proactive alert banner, physical auto-hide discs, unified openSettingsSign
   screen.render();
   assert.equal(screen.hapticCalls.filter(k => k === 'step').length, 1);
 
-  screen.find('control-hud-height-toggle').props.onPress();
+  screen.find('control-hud-category-posture').props.onPress();
+  screen.render();
+  screen.find('control-hud-posture-height').props.onPress();
   screen.render();
   screen.find('control-hud-height-inc').props.onPress();
   screen.render();
@@ -3940,17 +3955,15 @@ test('proactive alert banner, physical auto-hide discs, unified openSettingsSign
   assert.equal(stopped, 1);
   assert.ok(screen.hapticCalls.includes('estop'));
 
-  // 6. Physical input transition auto-hides virtual discs, shows 实体摇杆 micro-tag, allows manual override, and restores on touch.
+  // 6. Physical input transition auto-hides virtual discs, shows 实体摇杆 micro-tag, and restores on touch.
   assert.ok(screen.pair);
   assert.equal(screen.find('control-hud-physical-mode'), undefined);
   screen.render({ inputSource: 'physical' });
   assert.equal(screen.pair, undefined);
-  assert.equal(screen.find('control-hud-virtual-disc-toggle').props.accessibilityState.checked, false);
   assert.ok(screen.find('control-hud-physical-mode'));
   assert.match(screen.copy, /实体摇杆/);
   screen.render({ inputSource: 'touch' });
   assert.ok(screen.pair);
-  assert.equal(screen.find('control-hud-virtual-disc-toggle').props.accessibilityState.checked, true);
   assert.equal(screen.find('control-hud-physical-mode'), undefined);
 
   // 7. Unified openSettingsSignal opens the 5-tab Settings Center and dismisses competing Status overlay.

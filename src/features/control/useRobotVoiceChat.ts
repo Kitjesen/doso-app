@@ -4,67 +4,47 @@ import {
   addVoiceReminder,
   cancelLingtuVoiceTurn,
   cancelTimer,
-  capturePhoto,
   clearVoiceSessionMemory,
   createLingtuVoiceConversation,
   decideLingtuVoiceApproval,
   DEFAULT_LEGACY_CAPABILITIES,
-  DEFAULT_XIAOSUAN_AMBIENT,
-  DEFAULT_XIAOSUAN_COMBOS,
   DEFAULT_XIAOSUAN_ROLES,
-  DEFAULT_XIAOSUAN_SCENES,
   DEFAULT_XIAOSUAN_STATUS,
   DEFAULT_XIAOSUAN_VOICES,
-  deletePhoto,
-  deleteSpeaker,
   deleteVoiceMemory,
   deleteVoiceReminder,
   detectSpeechInputMode,
   EMPTY_VOICE_MEMORY_ROOM_COUNTS,
-  enrollSpeaker,
   fetchVoiceMemories,
   fetchVoiceReminders,
   fetchXiaosuanPersona,
   fetchXiaosuanStatus,
-  formatAmbientSoundLabel,
   formatTimerCountdown,
   formatXiaosuanEmotionLabel,
   formatXiaosuanLiveStateLabel,
   formatXiaosuanRoleShortName,
   formatXiaosuanVoiceShortName,
-  generateDiary,
-  getAmbient,
   getTimers,
   LingtuVoiceChatError,
-  listCombos,
-  listDiaries,
-  listPhotos,
-  listScenes,
-  listSpeakers,
   pauseTimer,
-  playCombo,
   probeLingtuVoiceService,
-  readDiary,
   readLingtuVoiceConversation,
   readXiaosuanCapabilities,
   readXiaosuanVoiceTranscript,
   resolveRobotVoiceOrigin,
   resumeTimer,
   runBriefing,
-  runScene,
   sendBroadcast,
   sendLingtuVoiceMessage,
-  setAmbient,
-  setIdleLife,
   setXiaosuanQuietMode,
   setXiaosuanVolume,
   snoozeVoiceReminder,
   speakRobotVoiceReply,
   startSpeechInputCapture,
   startTimer,
-  stopCombo,
   stopRobotVoiceReply,
   stopXiaosuanVoice,
+  triggerXiaosuanEstop,
   updateVoiceMemory,
   updateXiaosuanCapabilities,
   updateXiaosuanPersona,
@@ -88,17 +68,10 @@ import {
   type VoiceMemoryRoomCounts,
   type VoiceReminderItem,
   type VoiceReminderRepeat,
-  type XiaosuanAmbientSoundId,
-  type XiaosuanAmbientStatus,
-  type XiaosuanComboOption,
-  type XiaosuanCompanionSnapshot,
-  type XiaosuanDiaryItem,
+  type XiaosuanActiveMoveSnapshot,
   type XiaosuanEmotion,
   type XiaosuanLiveState,
   type XiaosuanPersonaOption,
-  type XiaosuanPhotoItem,
-  type XiaosuanSceneOption,
-  type XiaosuanSpeakerItem,
   type XiaosuanStatusSnapshot,
   type XiaosuanTimerKind,
   type XiaosuanTimerSnapshot,
@@ -114,10 +87,10 @@ export type RobotVoicePhase =
   | 'awaiting'
   | 'unavailable';
 
-export type RobotVoiceTab = 'chat' | 'memory' | 'reminders' | 'moments';
+export type RobotVoiceTab = 'chat' | 'memory' | 'reminders' | 'config';
 export type VoiceDrawerTab = 'style' | 'capabilities';
+export type VoicePanelPopover = 'none' | 'role' | 'more' | 'walk' | 'quick';
 export type VoiceMemoryFilter = 'all' | VoiceMemoryRoom;
-export type VoiceQuickGroup = 'default' | 'scenes' | 'combos';
 export type {
   CapabilityHardwareStatus,
   CapabilityMemoryAcl,
@@ -132,17 +105,10 @@ export type {
   VoiceMemoryRoomCounts,
   VoiceReminderItem,
   VoiceReminderRepeat,
-  XiaosuanAmbientSoundId,
-  XiaosuanAmbientStatus,
-  XiaosuanComboOption,
-  XiaosuanCompanionSnapshot,
-  XiaosuanDiaryItem,
+  XiaosuanActiveMoveSnapshot,
   XiaosuanEmotion,
   XiaosuanLiveState,
   XiaosuanPersonaOption,
-  XiaosuanPhotoItem,
-  XiaosuanSceneOption,
-  XiaosuanSpeakerItem,
   XiaosuanStatusSnapshot,
   XiaosuanTimerKind,
   XiaosuanTimerSnapshot,
@@ -204,6 +170,10 @@ export type RobotVoiceController = Readonly<{
   onToggleStyleDrawer: () => void;
   drawerTab: VoiceDrawerTab;
   setDrawerTab: (tab: VoiceDrawerTab) => void;
+  openPopover: VoicePanelPopover;
+  setOpenPopover: (next: VoicePanelPopover) => void;
+  togglePopover: (kind: Exclude<VoicePanelPopover, 'none'>) => void;
+  activeMove: XiaosuanActiveMoveSnapshot | null;
   capabilities: RobotCapabilitiesSnapshot;
   capabilitiesSupported: boolean;
   capabilitiesBusy: boolean;
@@ -234,8 +204,13 @@ export type RobotVoiceController = Readonly<{
   voiceReplyEnabled: boolean;
   onToggleVoiceReply: () => void;
   onToggleListening: () => void;
+  onStartHoldVoice: () => void;
+  onFinishHoldVoice: (cancelled?: boolean) => void;
   onSubmit: (overrideText?: string) => void;
   onCancelTurn: () => void;
+  onBrakeMove: () => void;
+  onEstopVoice: () => void;
+  onRetryConnect: () => void;
   onWakeDog: () => void;
   onToggleQuietMode: () => void;
   onSetDogVolume: (volume: number) => void;
@@ -292,35 +267,11 @@ export type RobotVoiceController = Readonly<{
   onAddReminder: (content: string, timeExpr: string, repeat?: VoiceReminderRepeat) => void;
   onSnoozeReminder: (id: string, minutes?: number) => void;
   onDeleteReminder: (id: string) => void;
-  // Wave 2: Broadcast, Quick Actions (Scenes/Combos/Briefing), Ambient, Idle Life, Voiceprints, Timers, Moments (Photos/Diaries/Companion)
   broadcastMode: boolean;
   onToggleBroadcastMode: () => void;
   onSendBroadcast: (overrideText?: string) => void;
-  quickGroup: VoiceQuickGroup;
-  setQuickGroup: (group: VoiceQuickGroup) => void;
-  sceneOptions: readonly XiaosuanSceneOption[];
-  comboOptions: readonly XiaosuanComboOption[];
-  activeComboId: string | null;
   actionRailBusy: boolean;
-  onRunScene: (id: string, durationMin?: number) => void;
-  onPlayCombo: (id: string) => void;
-  onStopCombo: () => void;
   onRunBriefing: () => void;
-  ambient: XiaosuanAmbientStatus;
-  ambientDurationMin: number | null;
-  setAmbientDurationMin: (min: number | null) => void;
-  ambientBusy: boolean;
-  onSelectAmbient: (sound: XiaosuanAmbientSoundId) => void;
-  idleLifeEnabled: boolean;
-  idleLifeBusy: boolean;
-  onToggleIdleLife: () => void;
-  speakersAvailable: boolean;
-  speakers: readonly XiaosuanSpeakerItem[];
-  speakersBusy: boolean;
-  speakerNameDraft: string;
-  setSpeakerNameDraft: (value: string) => void;
-  onEnrollSpeaker: (name?: string) => void;
-  onDeleteSpeaker: (name: string) => void;
   activeTimer: XiaosuanTimerSnapshot | null;
   timerRemainingSec: number | null;
   timerDisplayLabel: string | null;
@@ -329,25 +280,6 @@ export type RobotVoiceController = Readonly<{
   onPauseTimer: () => void;
   onResumeTimer: () => void;
   onCancelTimer: () => void;
-  companion: XiaosuanCompanionSnapshot | null;
-  photosCount: number;
-  photos: readonly XiaosuanPhotoItem[];
-  photosLoading: boolean;
-  photoCapturing: boolean;
-  photoBusyId: string | null;
-  photosError: string | null;
-  selectedPhotoId: string | null;
-  setSelectedPhotoId: (id: string | null) => void;
-  onCapturePhoto: () => void;
-  onDeletePhoto: (id: string) => void;
-  diaries: readonly XiaosuanDiaryItem[];
-  diariesLoading: boolean;
-  diaryGenerating: boolean;
-  diaryReadingDate: string | null;
-  diariesError: string | null;
-  onGenerateDiary: (force?: boolean) => void;
-  onReadDiary: (date?: string) => void;
-  onRefreshMoments: () => void;
 }>;
 
 export function useRobotVoiceChat(options: {
@@ -360,6 +292,7 @@ export function useRobotVoiceChat(options: {
   volumePercent: number;
   voiceReplyEnabled: boolean;
   onToggleVoiceReply: () => void;
+  onOpenConnection?: () => void;
 }): RobotVoiceController {
   const {
     appActive,
@@ -371,12 +304,14 @@ export function useRobotVoiceChat(options: {
     volumePercent,
     voiceReplyEnabled,
     onToggleVoiceReply,
+    onOpenConnection,
   } = options;
 
   const [open, setOpenState] = useState(false);
   const [activeTab, setActiveTabState] = useState<RobotVoiceTab>('chat');
   const [styleDrawerOpen, setStyleDrawerOpen] = useState(false);
   const [drawerTab, setDrawerTabState] = useState<VoiceDrawerTab>('style');
+  const [openPopover, setOpenPopoverState] = useState<VoicePanelPopover>('none');
   const [capabilitiesState, setCapabilitiesState] = useState<RobotCapabilitiesSnapshot | null>(null);
   const [capabilitiesBusy, setCapabilitiesBusy] = useState(false);
   const [serviceState, setServiceState] = useState<'idle' | 'connecting' | 'ready' | 'unavailable'>('idle');
@@ -430,36 +365,11 @@ export function useRobotVoiceChat(options: {
   const [remindersError, setRemindersError] = useState<string | null>(null);
 
   const [broadcastMode, setBroadcastMode] = useState(false);
-  const [quickGroup, setQuickGroupState] = useState<VoiceQuickGroup>('default');
-  const [sceneOptions, setSceneOptions] = useState<readonly XiaosuanSceneOption[]>(DEFAULT_XIAOSUAN_SCENES);
-  const [comboOptions, setComboOptions] = useState<readonly XiaosuanComboOption[]>(DEFAULT_XIAOSUAN_COMBOS);
-  const [activeComboId, setActiveComboId] = useState<string | null>(null);
   const [actionRailBusy, setActionRailBusy] = useState(false);
-
-  const [ambientDurationMin, setAmbientDurationMinState] = useState<number | null>(30);
-  const [ambientBusy, setAmbientBusy] = useState(false);
-  const [idleLifeBusy, setIdleLifeBusy] = useState(false);
-  const [speakersAvailableOverride, setSpeakersAvailableOverride] = useState<boolean | null>(null);
-  const [speakers, setSpeakers] = useState<readonly XiaosuanSpeakerItem[]>([]);
-  const [speakersBusy, setSpeakersBusy] = useState(false);
-  const [speakerNameDraft, setSpeakerNameDraft] = useState('');
 
   const [activeTimer, setActiveTimer] = useState<XiaosuanTimerSnapshot | null>(null);
   const [timerDisplaySec, setTimerDisplaySec] = useState<number | null>(null);
   const [timerBusy, setTimerBusy] = useState(false);
-
-  const [photos, setPhotos] = useState<readonly XiaosuanPhotoItem[]>([]);
-  const [photosLoading, setPhotosLoading] = useState(false);
-  const [photoCapturing, setPhotoCapturing] = useState(false);
-  const [photoBusyId, setPhotoBusyId] = useState<string | null>(null);
-  const [photosError, setPhotosError] = useState<string | null>(null);
-  const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(null);
-
-  const [diaries, setDiaries] = useState<readonly XiaosuanDiaryItem[]>([]);
-  const [diariesLoading, setDiariesLoading] = useState(false);
-  const [diaryGenerating, setDiaryGenerating] = useState(false);
-  const [diaryReadingDate, setDiaryReadingDate] = useState<string | null>(null);
-  const [diariesError, setDiariesError] = useState<string | null>(null);
 
   const mountedRef = useRef(true);
   const speechCaptureRef = useRef<ActiveSpeechCapture | null>(null);
@@ -468,13 +378,9 @@ export function useRobotVoiceChat(options: {
   const optimisticPendingRef = useRef<PendingOptimisticMessage[]>([]);
   const memoryFetchSeqRef = useRef(0);
   const remindersFetchSeqRef = useRef(0);
-  const momentsFetchSeqRef = useRef(0);
-  const drawerExtrasLoadedRef = useRef(false);
   const capabilitiesLoadedRef = useRef(false);
   const capabilitiesUnsupportedRef = useRef(false);
   const capabilitiesSyncSeqRef = useRef(0);
-  const scenesLoadedRef = useRef(false);
-  const combosLoadedRef = useRef(false);
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const submitRef = useRef<(overrideText?: string) => void>(() => {});
   const autoProbedOriginRef = useRef<string | null>(null);
@@ -523,11 +429,11 @@ export function useRobotVoiceChat(options: {
   }, []);
 
   useEffect(() => {
-    if (!appActive || !open) {
+    if (!appActive) {
       stopListening(true);
-      if (!appActive) stopRobotVoiceReply();
+      stopRobotVoiceReply();
     }
-  }, [appActive, open, stopListening]);
+  }, [appActive, stopListening]);
 
   // Reset session state whenever robot origin changes.
   useEffect(() => {
@@ -549,6 +455,7 @@ export function useRobotVoiceChat(options: {
     setNoticeText(null);
     setStyleDrawerOpen(false);
     setDrawerTabState('style');
+    setOpenPopoverState('none');
     setCapabilitiesState(null);
     setCapabilitiesBusy(false);
     setActiveTabState('chat');
@@ -561,13 +468,9 @@ export function useRobotVoiceChat(options: {
     optimisticPendingRef.current = [];
     memoryFetchSeqRef.current += 1;
     remindersFetchSeqRef.current += 1;
-    momentsFetchSeqRef.current += 1;
-    drawerExtrasLoadedRef.current = false;
     capabilitiesLoadedRef.current = false;
     capabilitiesUnsupportedRef.current = false;
     capabilitiesSyncSeqRef.current += 1;
-    scenesLoadedRef.current = false;
-    combosLoadedRef.current = false;
     setMemoryFilterState('all');
     setMemoryQuery('');
     setMemoryDraft('');
@@ -594,42 +497,17 @@ export function useRobotVoiceChat(options: {
     setRemindersActionBusy(false);
     setRemindersError(null);
     setBroadcastMode(false);
-    setQuickGroupState('default');
-    setSceneOptions(DEFAULT_XIAOSUAN_SCENES);
-    setComboOptions(DEFAULT_XIAOSUAN_COMBOS);
-    setActiveComboId(null);
     setActionRailBusy(false);
-    setAmbientDurationMinState(30);
-    setAmbientBusy(false);
-    setIdleLifeBusy(false);
-    setSpeakersAvailableOverride(null);
-    setSpeakers([]);
-    setSpeakersBusy(false);
-    setSpeakerNameDraft('');
     setActiveTimer(null);
     setTimerDisplaySec(null);
     setTimerBusy(false);
-    setPhotos([]);
-    setPhotosLoading(false);
-    setPhotoCapturing(false);
-    setPhotoBusyId(null);
-    setPhotosError(null);
-    setSelectedPhotoId(null);
-    setDiaries([]);
-    setDiariesLoading(false);
-    setDiaryGenerating(false);
-    setDiaryReadingDate(null);
-    setDiariesError(null);
   }, [resolvedOrigin, stopListening]);
 
   const isXiaosuanMode = serviceMode === 'xiaosuan';
   const capabilitiesSupported = isXiaosuanMode && capabilitiesState !== null;
   const capabilities = capabilitiesState ?? DEFAULT_LEGACY_CAPABILITIES;
-  const modRobotControl = !isXiaosuanMode || capabilities.modules.robot_control;
   const modMemory = !isXiaosuanMode || capabilities.modules.memory;
   const modInfoReminders = !isXiaosuanMode || capabilities.modules.info_reminders;
-  const modVisionNav = !isXiaosuanMode || capabilities.modules.vision_nav;
-  const modCompanion = !isXiaosuanMode || capabilities.modules.companion;
 
   const syncActiveTimer = useCallback((next: XiaosuanTimerSnapshot | null) => {
     setActiveTimer(next);
@@ -957,11 +835,11 @@ export function useRobotVoiceChat(options: {
     viewerToken,
   ]);
 
-  // Refresh capabilities when opening the capability drawer tab so server-side auto-disarm is reflected immediately.
+  // Refresh capabilities when opening the capability view so server-side auto-disarm is reflected immediately.
   useEffect(() => {
     const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
     if (!appActive || !targetOrigin || serviceMode !== 'xiaosuan' || serviceState !== 'ready') return;
-    if (!open || !styleDrawerOpen || drawerTab !== 'capabilities') return;
+    if (!open || (activeTab !== 'config' && (!styleDrawerOpen || drawerTab !== 'capabilities'))) return;
     if (!capabilitiesLoadedRef.current || capabilitiesUnsupportedRef.current) return;
 
     const controller = new AbortController();
@@ -988,6 +866,7 @@ export function useRobotVoiceChat(options: {
     return () => controller.abort();
   }, [
     activeServiceOrigin,
+    activeTab,
     allowLocalHttp,
     appActive,
     drawerTab,
@@ -999,32 +878,15 @@ export function useRobotVoiceChat(options: {
     viewerToken,
   ]);
 
-  // Auto-fallback active tab, quick sub-bars, and memory room filters when capability gates change.
+  // Auto-fallback active tab and memory room filters when capability gates change.
   useEffect(() => {
     if (!isXiaosuanMode) return;
     if (activeTab === 'memory' && !modMemory) {
       setActiveTabState('chat');
     } else if (activeTab === 'reminders' && !modInfoReminders) {
       setActiveTabState('chat');
-    } else if (activeTab === 'moments' && !modVisionNav && !modCompanion) {
-      setActiveTabState('chat');
     }
-  }, [activeTab, isXiaosuanMode, modCompanion, modInfoReminders, modMemory, modVisionNav]);
-
-  useEffect(() => {
-    if (!isXiaosuanMode) return;
-    if (quickGroup === 'scenes' && !modCompanion) {
-      setQuickGroupState('default');
-    } else if (quickGroup === 'combos' && (!modRobotControl || !modCompanion)) {
-      setQuickGroupState('default');
-    }
-    if ((!modRobotControl || !modCompanion) && activeComboId) {
-      setActiveComboId(null);
-    }
-    if (!modVisionNav && selectedPhotoId) {
-      setSelectedPhotoId(null);
-    }
-  }, [activeComboId, isXiaosuanMode, modCompanion, modRobotControl, modVisionNav, quickGroup, selectedPhotoId]);
+  }, [activeTab, isXiaosuanMode, modInfoReminders, modMemory]);
 
   useEffect(() => {
     if (!capabilitiesSupported) return;
@@ -1054,57 +916,6 @@ export function useRobotVoiceChat(options: {
     editingMemoryRoom,
     memoryFilter,
     memoryRoomDraft,
-  ]);
-
-  // Load ambient & conditional voiceprint members when opening the style drawer (ONLY when companion is enabled).
-  useEffect(() => {
-    const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
-    if (!appActive || !targetOrigin || serviceMode !== 'xiaosuan' || serviceState !== 'ready') return;
-    if (!styleDrawerOpen || !modCompanion) return;
-    const needsInitialLoad = !drawerExtrasLoadedRef.current;
-    const speakerCountDrifted = xiaosuanStatus.speakersCount !== speakers.length;
-    if (!needsInitialLoad && !speakerCountDrifted) return;
-    drawerExtrasLoadedRef.current = true;
-
-    const controller = new AbortController();
-    const target = { origin: targetOrigin, viewerToken, allowLocalHttp, signal: controller.signal };
-    if (needsInitialLoad) {
-      void getAmbient(target)
-        .then(ambient => {
-          if (!mountedRef.current || controller.signal.aborted) return;
-          setXiaosuanStatus(prev => ({ ...prev, ambient }));
-        })
-        .catch(() => {
-          /* Legacy firmware without /api/ambient degrades cleanly. */
-        });
-    }
-    void listSpeakers(target)
-      .then(snap => {
-        if (!mountedRef.current || controller.signal.aborted) return;
-        setSpeakersAvailableOverride(snap.available);
-        setSpeakers(snap.speakers);
-        setXiaosuanStatus(prev => ({
-          ...prev,
-          speakersAvailable: snap.available,
-          speakersCount: snap.speakers.length,
-        }));
-      })
-      .catch(() => {
-        /* Legacy firmware without /api/speakers keeps voiceprint UI hidden. */
-      });
-    return () => controller.abort();
-  }, [
-    activeServiceOrigin,
-    allowLocalHttp,
-    appActive,
-    modCompanion,
-    resolvedOrigin,
-    serviceMode,
-    serviceState,
-    speakers.length,
-    styleDrawerOpen,
-    viewerToken,
-    xiaosuanStatus.speakersCount,
   ]);
 
   const activeTurn = useMemo(
@@ -1186,9 +997,54 @@ export function useRobotVoiceChat(options: {
     allowLocalHttp,
     appActive,
     applySnapshot,
+    applyXiaosuanStatus,
     conversationId,
     open,
     pendingApprovals.length,
+    resolvedOrigin,
+    sending,
+    serviceMode,
+    serviceState,
+    viewerToken,
+  ]);
+
+  // High-frequency progress polling strictly while a voice locomotion move is active or a chat command is running.
+  const activeMoveLive = Boolean(xiaosuanStatus.activeMove?.active);
+  useEffect(() => {
+    const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
+    if (!appActive || !targetOrigin || serviceMode !== 'xiaosuan' || serviceState !== 'ready') return;
+    if (!activeMoveLive && !sending) return;
+
+    let cancelled = false;
+    const controller = new AbortController();
+    const timer = setInterval(() => {
+      void fetchXiaosuanStatus({
+        origin: targetOrigin,
+        viewerToken,
+        allowLocalHttp,
+        signal: controller.signal,
+      })
+        .then(status => {
+          if (!cancelled && mountedRef.current) {
+            applyXiaosuanStatus(status);
+          }
+        })
+        .catch(() => {
+          /* Transient drop; next tick retries cleanly. */
+        });
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      controller.abort();
+    };
+  }, [
+    activeMoveLive,
+    activeServiceOrigin,
+    allowLocalHttp,
+    appActive,
+    applyXiaosuanStatus,
     resolvedOrigin,
     sending,
     serviceMode,
@@ -1436,13 +1292,46 @@ export function useRobotVoiceChat(options: {
     submitMessage(overrideText);
   };
 
-  const onToggleListening = useCallback(() => {
-    if (listening) {
-      stopListening(false);
-      return;
-    }
+  const onWakeDog = useCallback(() => {
+    const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
+    if (!targetOrigin || hardwareBusy) return;
+    setHardwareBusy(true);
+    setErrorText(null);
+    setXiaosuanStatus(prev => ({ ...prev, liveState: 'listening' }));
+    void wakeXiaosuanVoice({ origin: targetOrigin, viewerToken, allowLocalHttp })
+      .then(res => {
+        if (!mountedRef.current) return;
+        setXiaosuanStatus(prev => ({
+          ...res.status,
+          liveState: res.status.liveState === 'idle' ? 'listening' : res.status.liveState,
+          quietMode: res.status.quietMode ?? prev.quietMode,
+          profile: res.status.capabilities ? res.status.profile : prev.profile,
+          profileName: res.status.capabilities ? res.status.profileName : prev.profileName,
+          capabilities: res.status.capabilities ?? prev.capabilities,
+        }));
+        if (res.status.capabilities) {
+          setCapabilitiesState(prev => mergeCapabilitiesSnapshot(prev, res.status.capabilities!));
+        }
+        showNotice(res.message);
+      })
+      .catch(err => {
+        if (!mountedRef.current) return;
+        setXiaosuanStatus(prev => ({ ...prev, liveState: 'idle' }));
+        setErrorText(err instanceof LingtuVoiceChatError ? err.message : '唤醒失败');
+      })
+      .finally(() => {
+        if (mountedRef.current) setHardwareBusy(false);
+      });
+  }, [activeServiceOrigin, allowLocalHttp, hardwareBusy, resolvedOrigin, showNotice, viewerToken]);
+
+  const onStartHoldVoice = useCallback(() => {
+    if (listening) return;
     if (speechMode === 'none') {
-      setErrorText('不支持语音');
+      if (isXiaosuanMode) {
+        onWakeDog();
+      } else {
+        setErrorText('不支持语音');
+      }
       return;
     }
     stopRobotVoiceReply();
@@ -1471,7 +1360,24 @@ export function useRobotVoiceChat(options: {
       },
     });
     speechCaptureRef.current = session;
-  }, [listening, speechMode, stopListening]);
+  }, [isXiaosuanMode, listening, onWakeDog, speechMode]);
+
+  const onFinishHoldVoice = useCallback(
+    (cancelled = false) => {
+      if (listening) {
+        stopListening(Boolean(cancelled));
+      }
+    },
+    [listening, stopListening],
+  );
+
+  const onToggleListening = useCallback(() => {
+    if (listening) {
+      stopListening(false);
+      return;
+    }
+    onStartHoldVoice();
+  }, [listening, onStartHoldVoice, stopListening]);
 
   const onCancelTurn = useCallback(() => {
     stopRobotVoiceReply();
@@ -1481,8 +1387,7 @@ export function useRobotVoiceChat(options: {
     if (serviceMode === 'xiaosuan') {
       setHardwareBusy(true);
       setErrorText(null);
-      setActiveComboId(null);
-      setXiaosuanStatus(prev => ({ ...prev, liveState: 'idle' }));
+      setXiaosuanStatus(prev => ({ ...prev, liveState: 'idle', activeMove: null }));
       void stopXiaosuanVoice({ origin: targetOrigin, viewerToken, allowLocalHttp })
         .then(res => {
           if (!mountedRef.current) return;
@@ -1524,37 +1429,65 @@ export function useRobotVoiceChat(options: {
     viewerToken,
   ]);
 
-  const onWakeDog = useCallback(() => {
+  const onBrakeMove = useCallback(() => {
+    stopRobotVoiceReply();
     const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
-    if (!targetOrigin || hardwareBusy) return;
+    setXiaosuanStatus(prev => ({ ...prev, liveState: 'idle', activeMove: null }));
+    if (!targetOrigin) return;
     setHardwareBusy(true);
-    setErrorText(null);
-    setXiaosuanStatus(prev => ({ ...prev, liveState: 'listening' }));
-    void wakeXiaosuanVoice({ origin: targetOrigin, viewerToken, allowLocalHttp })
-      .then(res => {
-        if (!mountedRef.current) return;
-        setXiaosuanStatus(prev => ({
-          ...res.status,
-          liveState: res.status.liveState === 'idle' ? 'listening' : res.status.liveState,
-          quietMode: res.status.quietMode ?? prev.quietMode,
-          profile: res.status.capabilities ? res.status.profile : prev.profile,
-          profileName: res.status.capabilities ? res.status.profileName : prev.profileName,
-          capabilities: res.status.capabilities ?? prev.capabilities,
-        }));
-        if (res.status.capabilities) {
-          setCapabilitiesState(prev => mergeCapabilitiesSnapshot(prev, res.status.capabilities!));
-        }
-        showNotice(res.message);
+    void stopXiaosuanVoice({ origin: targetOrigin, viewerToken, allowLocalHttp })
+      .then(() => {
+        if (mountedRef.current) showNotice('已刹停');
       })
-      .catch(err => {
-        if (!mountedRef.current) return;
-        setXiaosuanStatus(prev => ({ ...prev, liveState: 'idle' }));
-        setErrorText(err instanceof LingtuVoiceChatError ? err.message : '唤醒失败');
-      })
+      .catch(() => undefined)
       .finally(() => {
         if (mountedRef.current) setHardwareBusy(false);
       });
-  }, [activeServiceOrigin, allowLocalHttp, hardwareBusy, resolvedOrigin, showNotice, viewerToken]);
+  }, [activeServiceOrigin, allowLocalHttp, resolvedOrigin, showNotice, viewerToken]);
+
+  const onEstopVoice = useCallback(() => {
+    stopListening(true);
+    stopRobotVoiceReply();
+    setOpenPopoverState('none');
+    setXiaosuanStatus(prev => ({ ...prev, liveState: 'idle', activeMove: null }));
+    setCapabilitiesState(prev => {
+      if (!prev) return prev;
+      const { voice_walk: _dropped, ...restOverrides } = prev.overrides;
+      return {
+        ...prev,
+        modules: { ...prev.modules, voice_walk: false },
+        moduleList: prev.moduleList.map(m => (
+          m.id === 'voice_walk'
+            ? { ...m, enabled: false, statusLabel: prev.modules.robot_control ? '已锁定' : '需开控狗' }
+            : m
+        )),
+        overrides: restOverrides,
+      };
+    });
+    const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
+    if (!targetOrigin) return;
+    void triggerXiaosuanEstop({ origin: targetOrigin, viewerToken, allowLocalHttp })
+      .then(res => {
+        if (!mountedRef.current) return;
+        if (res.capabilities) {
+          setCapabilitiesState(prev => mergeCapabilitiesSnapshot(prev, res.capabilities!));
+          setXiaosuanStatus(prev => ({ ...prev, capabilities: res.capabilities, activeMove: null, liveState: 'idle' }));
+        }
+      })
+      .catch(() => {
+        /* Brainstem primary E-Stop already executed; tolerate offline voice service silently. */
+      });
+  }, [activeServiceOrigin, allowLocalHttp, resolvedOrigin, stopListening, viewerToken]);
+
+  const onRetryConnect = useCallback(() => {
+    if (!resolvedOrigin) {
+      onOpenConnection?.();
+      return;
+    }
+    setErrorText(null);
+    autoProbedOriginRef.current = null;
+    setServiceState('idle');
+  }, [onOpenConnection, resolvedOrigin]);
 
   const onToggleQuietMode = useCallback(() => {
     const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
@@ -1776,20 +1709,16 @@ export function useRobotVoiceChat(options: {
       if (isXiaosuanMode) {
         if (tab === 'memory' && !modMemory) resolvedTab = 'chat';
         else if (tab === 'reminders' && !modInfoReminders) resolvedTab = 'chat';
-        else if (tab === 'moments' && !modVisionNav && !modCompanion) resolvedTab = 'chat';
       }
       if (resolvedTab !== 'chat') {
         stopListening(true);
       }
+      setOpenPopoverState('none');
       if (resolvedTab === 'memory') setMemoryError(null);
       if (resolvedTab === 'reminders') setRemindersError(null);
-      if (resolvedTab === 'moments') {
-        setPhotosError(null);
-        setDiariesError(null);
-      }
       setActiveTabState(resolvedTab);
     },
-    [isXiaosuanMode, modCompanion, modInfoReminders, modMemory, modVisionNav, stopListening],
+    [isXiaosuanMode, modInfoReminders, modMemory, stopListening],
   );
 
   const setMemoryFilter = useCallback((next: VoiceMemoryFilter) => {
@@ -1912,81 +1841,6 @@ export function useRobotVoiceChat(options: {
     }
     void loadReminders({ silent: false });
   }, [activeServiceOrigin, activeTab, appActive, isXiaosuanMode, loadReminders, modInfoReminders, open, resolvedOrigin]);
-
-  const loadMoments = useCallback(
-    async (opts?: { silent?: boolean }) => {
-      const fetchPhotos = !isXiaosuanMode || modVisionNav;
-      const fetchDiaries = !isXiaosuanMode || modCompanion;
-      if (!fetchPhotos && !fetchDiaries) {
-        setPhotosLoading(false);
-        setDiariesLoading(false);
-        return;
-      }
-      const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
-      if (!targetOrigin) {
-        if (fetchPhotos) setPhotosError('未连接');
-        if (fetchDiaries) setDiariesError('未连接');
-        setPhotosLoading(false);
-        setDiariesLoading(false);
-        return;
-      }
-      const seq = ++momentsFetchSeqRef.current;
-      if (!opts?.silent) {
-        if (fetchPhotos) setPhotosLoading(true);
-        if (fetchDiaries) setDiariesLoading(true);
-      }
-      setPhotosError(null);
-      setDiariesError(null);
-      const target = { origin: targetOrigin, viewerToken, allowLocalHttp };
-      const [photosResult, diariesResult] = await Promise.allSettled([
-        fetchPhotos ? listPhotos(target) : Promise.resolve<readonly XiaosuanPhotoItem[] | null>(null),
-        fetchDiaries ? listDiaries(target) : Promise.resolve<readonly XiaosuanDiaryItem[] | null>(null),
-      ]);
-      if (!mountedRef.current || seq !== momentsFetchSeqRef.current) return;
-
-      if (fetchPhotos) {
-        if (photosResult.status === 'fulfilled' && photosResult.value !== null) {
-          setPhotos(photosResult.value);
-          setXiaosuanStatus(prev => ({ ...prev, photosCount: photosResult.value!.length }));
-        } else if (photosResult.status === 'rejected') {
-          const err = photosResult.reason;
-          if (!(err instanceof LingtuVoiceChatError && err.httpStatus === 404)) {
-            setPhotosError(err instanceof LingtuVoiceChatError ? err.message : '读取失败');
-          }
-        }
-      }
-
-      if (fetchDiaries) {
-        if (diariesResult.status === 'fulfilled' && diariesResult.value !== null) {
-          setDiaries(diariesResult.value);
-        } else if (diariesResult.status === 'rejected') {
-          const err = diariesResult.reason;
-          if (!(err instanceof LingtuVoiceChatError && err.httpStatus === 404)) {
-            setDiariesError(err instanceof LingtuVoiceChatError ? err.message : '读取失败');
-          }
-        }
-      }
-
-      setPhotosLoading(false);
-      setDiariesLoading(false);
-    },
-    [activeServiceOrigin, allowLocalHttp, isXiaosuanMode, modCompanion, modVisionNav, resolvedOrigin, viewerToken],
-  );
-
-  const onRefreshMoments = useCallback(() => {
-    void loadMoments({ silent: false });
-  }, [loadMoments]);
-
-  useEffect(() => {
-    if (!open || !appActive || activeTab !== 'moments') return;
-    if (isXiaosuanMode && !modVisionNav && !modCompanion) return;
-    if (!activeServiceOrigin && !resolvedOrigin) {
-      setPhotosError(null);
-      setDiariesError(null);
-      return;
-    }
-    void loadMoments({ silent: false });
-  }, [activeServiceOrigin, activeTab, appActive, isXiaosuanMode, loadMoments, modCompanion, modVisionNav, open, resolvedOrigin]);
 
   const onToggleMemoryPanel = useCallback(() => {
     if (isXiaosuanMode && !modMemory) return;
@@ -2394,109 +2248,10 @@ export function useRobotVoiceChat(options: {
     ],
   );
 
-  // Wave 2 interactive actions (Scenes, Combos, Briefing, Ambient, Idle Life, Speakers, Timers, Photos, Diaries)
+  // Broadcast, Briefing, and Timers
   const onToggleBroadcastMode = useCallback(() => {
     setBroadcastMode(prev => !prev);
   }, []);
-
-  const setQuickGroup = useCallback(
-    (next: VoiceQuickGroup) => {
-      if (next === 'scenes' && !modCompanion) {
-        setQuickGroupState('default');
-        return;
-      }
-      if (next === 'combos' && (!modRobotControl || !modCompanion)) {
-        setQuickGroupState('default');
-        return;
-      }
-      setQuickGroupState(next);
-      const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
-      if (!targetOrigin || serviceMode !== 'xiaosuan') return;
-      const target = { origin: targetOrigin, viewerToken, allowLocalHttp };
-      if (next === 'scenes' && !scenesLoadedRef.current) {
-        scenesLoadedRef.current = true;
-        void listScenes(target)
-          .then(list => {
-            if (mountedRef.current && list.length > 0) setSceneOptions(list);
-          })
-          .catch(() => undefined);
-      } else if (next === 'combos' && !combosLoadedRef.current) {
-        combosLoadedRef.current = true;
-        void listCombos(target)
-          .then(list => {
-            if (mountedRef.current && list.length > 0) setComboOptions(list);
-          })
-          .catch(() => undefined);
-      }
-    },
-    [activeServiceOrigin, allowLocalHttp, modCompanion, modRobotControl, resolvedOrigin, serviceMode, viewerToken],
-  );
-
-  const onRunScene = useCallback(
-    (id: string, durationMin?: number) => {
-      const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
-      if (!targetOrigin || actionRailBusy) return;
-      setActionRailBusy(true);
-      setErrorText(null);
-      void runScene({ origin: targetOrigin, viewerToken, allowLocalHttp }, id, durationMin)
-        .then(async res => {
-          if (!mountedRef.current) return;
-          showNotice(res.message);
-          setQuickGroupState('default');
-          const status = await fetchXiaosuanStatus({ origin: targetOrigin, viewerToken, allowLocalHttp }).catch(() => null);
-          if (status && mountedRef.current) applyXiaosuanStatus(status);
-        })
-        .catch(err => {
-          if (mountedRef.current) {
-            setErrorText(err instanceof LingtuVoiceChatError ? err.message : '切换失败');
-          }
-        })
-        .finally(() => {
-          if (mountedRef.current) setActionRailBusy(false);
-        });
-    },
-    [actionRailBusy, activeServiceOrigin, allowLocalHttp, applyXiaosuanStatus, resolvedOrigin, showNotice, viewerToken],
-  );
-
-  const onPlayCombo = useCallback(
-    (id: string) => {
-      const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
-      if (!targetOrigin || actionRailBusy) return;
-      setActionRailBusy(true);
-      setErrorText(null);
-      setActiveComboId(id);
-      void playCombo({ origin: targetOrigin, viewerToken, allowLocalHttp }, id)
-        .then(res => {
-          if (!mountedRef.current) return;
-          showNotice(res.message);
-        })
-        .catch(err => {
-          if (!mountedRef.current) return;
-          setActiveComboId(null);
-          setErrorText(err instanceof LingtuVoiceChatError ? err.message : '表演失败');
-        })
-        .finally(() => {
-          if (mountedRef.current) setActionRailBusy(false);
-        });
-    },
-    [actionRailBusy, activeServiceOrigin, allowLocalHttp, resolvedOrigin, showNotice, viewerToken],
-  );
-
-  const onStopCombo = useCallback(() => {
-    const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
-    if (!targetOrigin) return;
-    setActiveComboId(null);
-    setErrorText(null);
-    void stopCombo({ origin: targetOrigin, viewerToken, allowLocalHttp })
-      .then(res => {
-        if (mountedRef.current) showNotice(res.message);
-      })
-      .catch(err => {
-        if (mountedRef.current) {
-          setErrorText(err instanceof LingtuVoiceChatError ? err.message : '停止失败');
-        }
-      });
-  }, [activeServiceOrigin, allowLocalHttp, resolvedOrigin, showNotice, viewerToken]);
 
   const onRunBriefing = useCallback(() => {
     const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
@@ -2516,184 +2271,6 @@ export function useRobotVoiceChat(options: {
         if (mountedRef.current) setActionRailBusy(false);
       });
   }, [actionRailBusy, activeServiceOrigin, allowLocalHttp, resolvedOrigin, showNotice, viewerToken]);
-
-  const onSelectAmbient = useCallback(
-    (sound: XiaosuanAmbientSoundId) => {
-      const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
-      if (!targetOrigin || ambientBusy) return;
-      const prevAmbient = xiaosuanStatus.ambient;
-      const nextDuration = sound === 'off' ? null : ambientDurationMin;
-      setAmbientBusy(true);
-      setErrorText(null);
-      setXiaosuanStatus(prev => ({
-        ...prev,
-        ambient: {
-          ...prev.ambient,
-          active: sound !== 'off',
-          sound,
-          soundLabel: formatAmbientSoundLabel(sound),
-          remainingSec: sound !== 'off' && nextDuration ? nextDuration * 60 : null,
-        },
-      }));
-      void setAmbient({ origin: targetOrigin, viewerToken, allowLocalHttp }, sound, nextDuration)
-        .then(res => {
-          if (!mountedRef.current) return;
-          setXiaosuanStatus(prev => ({ ...prev, ambient: res.ambient }));
-          showNotice(res.message);
-        })
-        .catch(err => {
-          if (!mountedRef.current) return;
-          setXiaosuanStatus(prev => ({ ...prev, ambient: prevAmbient }));
-          setErrorText(err instanceof LingtuVoiceChatError ? err.message : '设置失败');
-        })
-        .finally(() => {
-          if (mountedRef.current) setAmbientBusy(false);
-        });
-    },
-    [
-      activeServiceOrigin,
-      allowLocalHttp,
-      ambientBusy,
-      ambientDurationMin,
-      resolvedOrigin,
-      showNotice,
-      viewerToken,
-      xiaosuanStatus.ambient,
-    ],
-  );
-
-  const setAmbientDurationMin = useCallback(
-    (min: number | null) => {
-      setAmbientDurationMinState(min);
-      const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
-      if (!targetOrigin || ambientBusy) return;
-      if (xiaosuanStatus.ambient.active && xiaosuanStatus.ambient.sound !== 'off') {
-        setAmbientBusy(true);
-        void setAmbient({ origin: targetOrigin, viewerToken, allowLocalHttp }, xiaosuanStatus.ambient.sound, min)
-          .then(res => {
-            if (!mountedRef.current) return;
-            setXiaosuanStatus(prev => ({ ...prev, ambient: res.ambient }));
-            showNotice(min ? `定时${min}分` : '已更新');
-          })
-          .catch(() => undefined)
-          .finally(() => {
-            if (mountedRef.current) setAmbientBusy(false);
-          });
-      }
-    },
-    [
-      activeServiceOrigin,
-      allowLocalHttp,
-      ambientBusy,
-      resolvedOrigin,
-      showNotice,
-      viewerToken,
-      xiaosuanStatus.ambient.active,
-      xiaosuanStatus.ambient.sound,
-    ],
-  );
-
-  const onToggleIdleLife = useCallback(() => {
-    const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
-    if (!targetOrigin || idleLifeBusy) return;
-    const prevEnabled = xiaosuanStatus.idleLifeEnabled;
-    const nextEnabled = !prevEnabled;
-    setIdleLifeBusy(true);
-    setErrorText(null);
-    setXiaosuanStatus(prev => ({ ...prev, idleLifeEnabled: nextEnabled }));
-    void setIdleLife({ origin: targetOrigin, viewerToken, allowLocalHttp }, nextEnabled)
-      .then(res => {
-        if (!mountedRef.current) return;
-        setXiaosuanStatus(prev => ({ ...prev, idleLifeEnabled: res.enabled }));
-        showNotice(res.message);
-      })
-      .catch(err => {
-        if (!mountedRef.current) return;
-        setXiaosuanStatus(prev => ({ ...prev, idleLifeEnabled: prevEnabled }));
-        setErrorText(err instanceof LingtuVoiceChatError ? err.message : '设置失败');
-      })
-      .finally(() => {
-        if (mountedRef.current) setIdleLifeBusy(false);
-      });
-  }, [
-    activeServiceOrigin,
-    allowLocalHttp,
-    idleLifeBusy,
-    resolvedOrigin,
-    showNotice,
-    viewerToken,
-    xiaosuanStatus.idleLifeEnabled,
-  ]);
-
-  const onEnrollSpeaker = useCallback(
-    (name?: string) => {
-      const cleanName = (name ?? speakerNameDraft).trim();
-      if (!cleanName || speakersBusy) return;
-      const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
-      if (!targetOrigin) {
-        setErrorText('未连接');
-        return;
-      }
-      setSpeakersBusy(true);
-      setErrorText(null);
-      void enrollSpeaker({ origin: targetOrigin, viewerToken, allowLocalHttp }, cleanName)
-        .then(async res => {
-          if (!mountedRef.current) return;
-          setSpeakerNameDraft('');
-          showNotice(res.message);
-          const refreshed = await listSpeakers({ origin: targetOrigin, viewerToken, allowLocalHttp }).catch(() => null);
-          if (refreshed && mountedRef.current) {
-            setSpeakersAvailableOverride(refreshed.available);
-            setSpeakers(refreshed.speakers);
-            setXiaosuanStatus(prev => ({
-              ...prev,
-              speakersAvailable: refreshed.available,
-              speakersCount: refreshed.speakers.length,
-            }));
-          }
-        })
-        .catch(err => {
-          if (mountedRef.current) {
-            setErrorText(err instanceof LingtuVoiceChatError ? err.message : '录入失败');
-          }
-        })
-        .finally(() => {
-          if (mountedRef.current) setSpeakersBusy(false);
-        });
-    },
-    [activeServiceOrigin, allowLocalHttp, resolvedOrigin, showNotice, speakerNameDraft, speakersBusy, viewerToken],
-  );
-
-  const onDeleteSpeaker = useCallback(
-    (name: string) => {
-      const cleanName = name.trim();
-      if (!cleanName || speakersBusy) return;
-      const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
-      if (!targetOrigin) return;
-      const prevSpeakers = speakers;
-      setSpeakersBusy(true);
-      setErrorText(null);
-      setSpeakers(prev => prev.filter(s => s.name !== cleanName));
-      void deleteSpeaker({ origin: targetOrigin, viewerToken, allowLocalHttp }, cleanName)
-        .then(res => {
-          if (!mountedRef.current) return;
-          showNotice(res.message);
-          setXiaosuanStatus(prev => ({
-            ...prev,
-            speakersCount: Math.max(0, prevSpeakers.length - 1),
-          }));
-        })
-        .catch(err => {
-          if (!mountedRef.current) return;
-          setSpeakers(prevSpeakers);
-          setErrorText(err instanceof LingtuVoiceChatError ? err.message : '删除失败');
-        })
-        .finally(() => {
-          if (mountedRef.current) setSpeakersBusy(false);
-        });
-    },
-    [activeServiceOrigin, allowLocalHttp, resolvedOrigin, showNotice, speakers, speakersBusy, viewerToken],
-  );
 
   const onStartTimer = useCallback(
     (opts: { kind?: XiaosuanTimerKind; durationSec: number; label?: string; autoQuiet?: boolean }) => {
@@ -2816,116 +2393,6 @@ export function useRobotVoiceChat(options: {
       });
   }, [activeServiceOrigin, allowLocalHttp, resolvedOrigin, showNotice, syncActiveTimer, timerBusy, viewerToken]);
 
-  const onCapturePhoto = useCallback(() => {
-    const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
-    if (!targetOrigin || photoCapturing) return;
-    setPhotoCapturing(true);
-    setPhotosError(null);
-    setErrorText(null);
-    void capturePhoto({ origin: targetOrigin, viewerToken, allowLocalHttp })
-      .then(async res => {
-        if (!mountedRef.current) return;
-        showNotice(res.message);
-        if (res.photo) {
-          setPhotos(prev => [res.photo!, ...prev.filter(p => p.id !== res.photo!.id)]);
-          setXiaosuanStatus(prev => ({ ...prev, photosCount: prev.photosCount + 1 }));
-        } else if (activeTab === 'moments') {
-          await loadMoments({ silent: true });
-        }
-      })
-      .catch(err => {
-        if (!mountedRef.current) return;
-        const msg = err instanceof LingtuVoiceChatError ? err.message : '拍照失败';
-        setPhotosError(msg);
-        setErrorText(msg);
-      })
-      .finally(() => {
-        if (mountedRef.current) setPhotoCapturing(false);
-      });
-  }, [activeServiceOrigin, activeTab, allowLocalHttp, loadMoments, photoCapturing, resolvedOrigin, showNotice, viewerToken]);
-
-  const onDeletePhoto = useCallback(
-    (id: string) => {
-      if (!id.trim() || photoBusyId) return;
-      const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
-      if (!targetOrigin) return;
-      const prevPhotos = photos;
-      setPhotoBusyId(id);
-      setPhotosError(null);
-      setPhotos(prev => prev.filter(p => p.id !== id));
-      if (selectedPhotoId === id) setSelectedPhotoId(null);
-      void deletePhoto({ origin: targetOrigin, viewerToken, allowLocalHttp }, id)
-        .then(res => {
-          if (!mountedRef.current) return;
-          showNotice(res.message);
-          setXiaosuanStatus(prev => ({
-            ...prev,
-            photosCount: Math.max(0, prevPhotos.length - 1),
-          }));
-        })
-        .catch(err => {
-          if (!mountedRef.current) return;
-          setPhotos(prevPhotos);
-          setPhotosError(err instanceof LingtuVoiceChatError ? err.message : '删除失败');
-        })
-        .finally(() => {
-          if (mountedRef.current) setPhotoBusyId(null);
-        });
-    },
-    [activeServiceOrigin, allowLocalHttp, photoBusyId, photos, resolvedOrigin, selectedPhotoId, showNotice, viewerToken],
-  );
-
-  const onGenerateDiary = useCallback(
-    (force = true) => {
-      const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
-      if (!targetOrigin || diaryGenerating) return;
-      setDiaryGenerating(true);
-      setDiariesError(null);
-      void generateDiary({ origin: targetOrigin, viewerToken, allowLocalHttp }, { force })
-        .then(async res => {
-          if (!mountedRef.current) return;
-          showNotice(res.message);
-          if (res.diary) {
-            setDiaries(prev => [res.diary!, ...prev.filter(d => d.date !== res.diary!.date)]);
-          } else {
-            await loadMoments({ silent: true });
-          }
-        })
-        .catch(err => {
-          if (mountedRef.current) {
-            setDiariesError(err instanceof LingtuVoiceChatError ? err.message : '生成失败');
-          }
-        })
-        .finally(() => {
-          if (mountedRef.current) setDiaryGenerating(false);
-        });
-    },
-    [activeServiceOrigin, allowLocalHttp, diaryGenerating, loadMoments, resolvedOrigin, showNotice, viewerToken],
-  );
-
-  const onReadDiary = useCallback(
-    (date?: string) => {
-      const targetOrigin = activeServiceOrigin ?? resolvedOrigin;
-      if (!targetOrigin || diaryReadingDate) return;
-      const marker = date ?? 'latest';
-      setDiaryReadingDate(marker);
-      setDiariesError(null);
-      void readDiary({ origin: targetOrigin, viewerToken, allowLocalHttp }, date)
-        .then(res => {
-          if (mountedRef.current) showNotice(res.message);
-        })
-        .catch(err => {
-          if (mountedRef.current) {
-            setDiariesError(err instanceof LingtuVoiceChatError ? err.message : '朗读失败');
-          }
-        })
-        .finally(() => {
-          if (mountedRef.current) setDiaryReadingDate(null);
-        });
-    },
-    [activeServiceOrigin, allowLocalHttp, diaryReadingDate, resolvedOrigin, showNotice, viewerToken],
-  );
-
   const applyCapabilitiesMutation = useCallback(
     (next: RobotCapabilitiesSnapshot, noticeMessage: string) => {
       setCapabilitiesState(next);
@@ -2938,12 +2405,6 @@ export function useRobotVoiceChat(options: {
       }));
       if (!next.modules.info_reminders) {
         syncActiveTimer(null);
-      }
-      if (!next.modules.companion || !next.modules.robot_control) {
-        setActiveComboId(null);
-      }
-      if (!next.modules.vision_nav) {
-        setSelectedPhotoId(null);
       }
       showNotice(noticeMessage);
     },
@@ -3085,8 +2546,7 @@ export function useRobotVoiceChat(options: {
       stopListening(true);
       setStyleDrawerOpen(false);
       setDrawerTabState('style');
-      setQuickGroupState('default');
-      setSelectedPhotoId(null);
+      setOpenPopoverState('none');
       setBroadcastMode(false);
       setActiveTabState('chat');
     }
@@ -3097,8 +2557,20 @@ export function useRobotVoiceChat(options: {
     setOpen(!open);
   }, [open, setOpen]);
 
+  const setOpenPopover = useCallback((next: VoicePanelPopover) => {
+    setOpenPopoverState(next);
+  }, []);
+
+  const togglePopover = useCallback((kind: Exclude<VoicePanelPopover, 'none'>) => {
+    setOpenPopoverState(prev => (prev === kind ? 'none' : kind));
+  }, []);
+
   const onToggleStyleDrawer = useCallback(() => {
-    setStyleDrawerOpen(prev => !prev);
+    setStyleDrawerOpen(prev => {
+      const next = !prev;
+      if (next) setOpenPopoverState('none');
+      return next;
+    });
   }, []);
 
   const setDrawerTab = useCallback((tab: VoiceDrawerTab) => {
@@ -3151,7 +2623,7 @@ export function useRobotVoiceChat(options: {
     : null;
 
   const canStop = isXiaosuanMode
-    ? (xiaosuanStatus.liveState === 'speaking' || xiaosuanStatus.liveState === 'thinking' || sending)
+    ? (xiaosuanStatus.liveState === 'speaking' || xiaosuanStatus.liveState === 'thinking' || sending || Boolean(xiaosuanStatus.activeMove?.active))
     : Boolean(activeTurn);
 
   const memoryHasSessionContext =
@@ -3159,15 +2631,9 @@ export function useRobotVoiceChat(options: {
     || memoryWorkingTurnCount > 0
     || (!memorySessionCleared && messages.length > 0);
 
-  const speakersAvailable = speakersAvailableOverride !== null
-    ? speakersAvailableOverride
-    : xiaosuanStatus.speakersAvailable;
   const exposedPendingRemindersCount = isXiaosuanMode && !modInfoReminders
     ? 0
     : xiaosuanStatus.pendingReminders;
-  const photosCount = isXiaosuanMode && !modVisionNav
-    ? 0
-    : Math.max(xiaosuanStatus.photosCount, photos.length);
   const exposedActiveTimer = isXiaosuanMode && !modInfoReminders ? null : activeTimer;
   const timerRemainingSec = exposedActiveTimer
     ? (timerDisplaySec !== null ? timerDisplaySec : exposedActiveTimer.remainingSec)
@@ -3198,6 +2664,10 @@ export function useRobotVoiceChat(options: {
     onToggleStyleDrawer,
     drawerTab,
     setDrawerTab,
+    openPopover,
+    setOpenPopover,
+    togglePopover,
+    activeMove: xiaosuanStatus.activeMove,
     capabilities,
     capabilitiesSupported,
     capabilitiesBusy,
@@ -3231,8 +2701,13 @@ export function useRobotVoiceChat(options: {
       onToggleVoiceReply();
     },
     onToggleListening,
+    onStartHoldVoice,
+    onFinishHoldVoice,
     onSubmit: submitMessage,
     onCancelTurn,
+    onBrakeMove,
+    onEstopVoice,
+    onRetryConnect,
     onWakeDog,
     onToggleQuietMode,
     onSetDogVolume,
@@ -3292,31 +2767,8 @@ export function useRobotVoiceChat(options: {
     broadcastMode,
     onToggleBroadcastMode,
     onSendBroadcast: sendBroadcastText,
-    quickGroup,
-    setQuickGroup,
-    sceneOptions,
-    comboOptions,
-    activeComboId,
     actionRailBusy,
-    onRunScene,
-    onPlayCombo,
-    onStopCombo,
     onRunBriefing,
-    ambient: xiaosuanStatus.ambient ?? DEFAULT_XIAOSUAN_AMBIENT,
-    ambientDurationMin,
-    setAmbientDurationMin,
-    ambientBusy,
-    onSelectAmbient,
-    idleLifeEnabled: xiaosuanStatus.idleLifeEnabled,
-    idleLifeBusy,
-    onToggleIdleLife,
-    speakersAvailable,
-    speakers,
-    speakersBusy,
-    speakerNameDraft,
-    setSpeakerNameDraft,
-    onEnrollSpeaker,
-    onDeleteSpeaker,
     activeTimer: exposedActiveTimer,
     timerRemainingSec,
     timerDisplayLabel,
@@ -3325,24 +2777,5 @@ export function useRobotVoiceChat(options: {
     onPauseTimer,
     onResumeTimer,
     onCancelTimer,
-    companion: xiaosuanStatus.companion,
-    photosCount,
-    photos,
-    photosLoading,
-    photoCapturing,
-    photoBusyId,
-    photosError,
-    selectedPhotoId,
-    setSelectedPhotoId,
-    onCapturePhoto,
-    onDeletePhoto,
-    diaries,
-    diariesLoading,
-    diaryGenerating,
-    diaryReadingDate,
-    diariesError,
-    onGenerateDiary,
-    onReadDiary,
-    onRefreshMoments,
   };
 }
