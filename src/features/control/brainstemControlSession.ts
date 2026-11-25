@@ -83,7 +83,7 @@ export class BrainstemControlSession {
   private pendingAction: object | null = null;
   private reading = false;
   private readDone: Promise<void> | null = null;
-  private interrupting: { id: string | null; epoch: number; promise: Promise<void> } | null = null;
+  private interrupting: { id: string | null; epoch: number; force: boolean; promise: Promise<void> } | null = null;
   private inputBusy = false;
   private lastInputSentAt: number | null = null;
   private pendingInput: { id: string; epoch: number; drive: ControlVector; turn: ControlVector;
@@ -818,7 +818,7 @@ export class BrainstemControlSession {
     const safe = base && !!this.currentProfile() && this.currentProfile()?.activeModeId !== 'recovery' && status.owner !== 'yunzhuo' && !status.criticalMotorFault && status.fsmKind !== 'transitioning';
     const result = (ready: boolean, reason: string): ControlActionReadiness => ({ ready, ...(ready ? {} : { blockedReason: reason }) });
     return {
-      stop: result(this.state.connected && this.state.leaseActive, '尚未取得控制权'),
+      stop: result(this.state.connected, '未连接机器狗'),
       enableMotor: result(!!safe && !status?.motorOutputEnabled, '请先连接机器狗并确认电机状态'),
       disableMotor: result(!!base && status?.motorOutputEnabled === true, '请先连接机器狗并确认电机状态'),
       stand: result(!!safe && !!status?.motorOutputEnabled && (status.fsmKind === 'grounded' || status.fsmKind === 'zero'
@@ -1060,25 +1060,29 @@ export class BrainstemControlSession {
     }
   }
 
-  interrupt(): Promise<void> {
+  emergencyStop(): Promise<void> {
+    return this.interrupt(true);
+  }
+
+  interrupt(force = false): Promise<void> {
     const pending = this.interrupting;
-    if (pending && pending.id === this.sessionId && pending.epoch === this.epoch) return pending.promise;
-    const promise = this.performInterrupt();
-    const request = { id: this.sessionId, epoch: this.epoch, promise };
+    if (pending && pending.id === this.sessionId && pending.epoch === this.epoch && (!force || pending.force)) return pending.promise;
+    const promise = this.performInterrupt(force);
+    const request = { id: this.sessionId, epoch: this.epoch, force, promise };
     this.interrupting = request;
     const clear = () => { if (this.interrupting === request) this.interrupting = null; };
     void promise.then(clear, clear);
     return promise;
   }
 
-  private async performInterrupt(): Promise<void> {
+  private async performInterrupt(force = false): Promise<void> {
     const id = this.sessionId;
     if (this.retired) return;
     if (!id) {
       if (this.state.error) throw new Error(this.state.error);
       return;
     }
-    const nativeMayHoldLease = this.state.leaseActive || this.acquiring || this.inputBusy || this.moving || this.pendingAction !== null;
+    const nativeMayHoldLease = force || this.state.leaseActive || this.acquiring || this.inputBusy || this.moving || this.pendingAction !== null;
     if (!nativeMayHoldLease && !this.state.manualPrepared) return;
     // Rotate before cancellation so a late Acquire/ACK can never re-arm UI.
     const epoch = ++this.epoch; this.busy = true; this.pendingAction = null; this.reading = false; this.inputBusy = false;

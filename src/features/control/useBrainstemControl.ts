@@ -50,7 +50,7 @@ export function useBrainstemControl({ ownerKey, ready, autoConnectEndpoint, auto
     interrupt: () => session.interrupt().catch(() => undefined),
     disconnect: recovery.disconnect.bind(recovery), suspend: recovery.suspend.bind(recovery),
     operationCallbacks: {
-      stop: () => session.interrupt(), stand: () => session.action('stand-up'), sit: () => session.action('sit-down'),
+      stop: () => session.emergencyStop(), stand: () => session.action('stand-up'), sit: () => session.action('sit-down'),
       enableMotor: () => session.action('enable'), disableMotor: () => session.action('disable'),
       switchPolicy: (id: string) => session.action('switch-profile', id),
       setZero: () => session.action('set-zero'),

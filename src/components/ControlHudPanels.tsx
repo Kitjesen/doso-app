@@ -1260,6 +1260,8 @@ const styles = StyleSheet.create({
   gestureCatTrack: {
     flex: 1,
     flexGrow: 1,
+    minWidth: 0,
+    overflow: 'hidden',
   },
   gestureCatScroll: {
     alignItems: 'center',

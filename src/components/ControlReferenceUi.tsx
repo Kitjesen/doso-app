@@ -380,7 +380,7 @@ export function renderControlSettings(p: SettingsProps) {
   const shellMaxWidth = p.inHudOverlay
     ? Math.min(920, maxAvailableWidth, Math.max(280, Math.round(p.width * (narrow ? 0.96 : 0.88))))
     : Math.min(900, maxAvailableWidth);
-  const sidebarWidth = ultraNarrow ? 94 : narrow ? 114 : compact ? 130 : 162;
+  const sidebarWidth = ultraNarrow ? 104 : narrow ? 124 : compact ? 136 : 162;
 
   const snapshot = p.snapshot ?? {};
   const activeSubview = p.subview ?? 'tabs';
@@ -1441,6 +1441,7 @@ export function renderControlSettings(p: SettingsProps) {
       onTouchMove={stopTouchBubble}
       onTouchEnd={stopTouchBubble}
       onTouchCancel={stopTouchBubble}
+      pointerEvents="box-none"
       testID="control-settings-menu"
       style={[st.root, { left: horizontalMargin, right: horizontalMargin, top: topOffset, bottom: bottomOffset }]}
     >
@@ -1477,14 +1478,14 @@ export function renderControlSettings(p: SettingsProps) {
                   style={({ pressed }) => [
                     st.railItem,
                     short && st.railItemShort,
-                    ultraNarrow && st.railItemNarrow,
+                    narrow && st.railItemNarrow,
                     selected && st.railItemActive,
                     pressed && st.pressed,
                   ]}
                 >
                   {selected ? <View style={[st.railIndicator, { backgroundColor: accent.railBar }]} /> : null}
-                  <Ionicons name={glyph} size={ultraNarrow ? 13 : 15} color={selected ? c.ink : c.muted} />
-                  <Text numberOfLines={1} style={[st.railLabel, ultraNarrow && st.railLabelNarrow, selected && st.railLabelActive]}>
+                  <Ionicons name={glyph} size={narrow ? 13 : 15} color={selected ? c.ink : c.muted} />
+                  <Text numberOfLines={1} style={[st.railLabel, narrow && st.railLabelNarrow, selected && st.railLabelActive]}>
                     {label}
                   </Text>
                 </Pressable>

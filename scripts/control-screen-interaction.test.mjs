@@ -4493,6 +4493,60 @@ test('Multi-size phone screens adapt cleanly without overflow and enforce monoto
     assert.equal(confirmOverlayStyle.zIndex, 20, `${vp.name}: confirm overlay zIndex`);
     assert.equal(confirmOverlayStyle.elevation, 20, `${vp.name}: confirm overlay elevation`);
     assert.ok(confirmOverlayStyle.zIndex < statusBarStyle.zIndex, `${vp.name}: E-Stop remains above confirmation`);
+
+    // 8. JSX child order inside control-landscape-safe matches monotonic zIndex/elevation
+    //    (sticks first, topStatusBarLayer with E-Stop very last so Android/Web touch hit-testing never drops E-Stop or HUD taps).
+    const safeChildren = screen.find('control-landscape-safe').props.children.flat(Infinity).filter(n => n && typeof n === 'object');
+    const safeIds = safeChildren.map(n => n.props?.testID).filter(Boolean);
+    const sticksIdx = safeIds.indexOf('control-immersive-sticks');
+    const docksIdx = safeIds.indexOf('control-hud-left-controls');
+    const statusBarIdx = safeIds.indexOf('control-hud-status-bar');
+    assert.ok(sticksIdx >= 0 && docksIdx > sticksIdx, `${vp.name}: sticks render before bottom docks`);
+    assert.equal(statusBarIdx, safeIds.length - 1, `${vp.name}: top status bar / E-Stop renders LAST in JSX`);
+    assert.equal(screen.find('control-immersive-sticks').props.pointerEvents, 'none', `${vp.name}: sticks yield pointerEvents during confirmation`);
     screen.unmount();
   }
+});
+
+test('E-Stop remains re-triggerable after accepted status and triggers immediate voice/local stop while voice walk is active', async () => {
+  let stopCalls = 0;
+  let resolveFirstStop;
+  const screen = mount({
+    landscapeDocksExpanded: false,
+    dev: false,
+    dimensions: { width: 780, height: 360, fontScale: 1 },
+    connected: true,
+    runtimeState: {
+      controlLink: 'connected',
+      controlAuthority: 'not-held',
+      motorState: 'enabled',
+      posture: 'standing',
+    },
+    operationReadiness: {
+      stop: { ready: true },
+    },
+    operationCallbacks: {
+      stop: () => {
+        stopCalls += 1;
+        if (stopCalls === 1) return new Promise(resolve => { resolveFirstStop = resolve; });
+        return Promise.resolve();
+      },
+    },
+  });
+  await screen.settle();
+
+  // First tap dispatches E-Stop even when controlAuthority is not-held.
+  assert.equal(screen.find('control-hud-stop').props.disabled, false);
+  screen.find('control-hud-stop').props.onPress();
+  screen.render();
+  assert.equal(stopCalls, 1);
+
+  // Once accepted (awaiting telemetry poll), E-Stop MUST remain enabled and re-triggerable.
+  resolveFirstStop();
+  await screen.settle();
+  assert.equal(screen.find('control-hud-stop').props.disabled, false);
+  screen.find('control-hud-stop').props.onPress();
+  await screen.settle();
+  assert.equal(stopCalls, 2);
+  screen.unmount();
 });

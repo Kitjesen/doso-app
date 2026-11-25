@@ -153,7 +153,7 @@ type Props = {
   onInputSourceChange?: (source: ControlInputSource) => void;
   onNotifications?: () => void;
   routeModeBlockedReason?: string;
-  robotImage: ImageSourcePropType;
+  robotImage?: ImageSourcePropType;
   robotName: string;
   robotType: string;
   taskModeBlockedReason?: string;
@@ -1977,6 +1977,35 @@ export function ControlScreen({
   });
   const stopReadiness = getControlOperationReadiness({ action: 'stop', readiness: operationReadiness, callbacks: operationCallbacks, runtimeState, foreground: appActive, leaving, inFlight: false });
   const stopState = operationStateFor('stop', stopReadiness);
+  const voiceStopActive = Boolean(
+    voiceChat.activeMove?.active
+    || voiceChat.listening
+    || voiceChat.phase === 'speaking'
+    || voiceChat.busy
+    || (voiceChat.isXiaosuanMode && voiceChat.capabilitiesSupported && voiceChat.capabilities.modules.voice_walk),
+  );
+  // Keep E-Stop live whenever robot control is connected or voice motion/audio is active,
+  // and never lock out repeat E-Stop taps while awaiting an earlier 'accepted'/'executing' poll.
+  const hudStopDisabled = (!stopReadiness.ready && !voiceStopActive) || stopState.status === 'submitted';
+  const handleEmergencyStop = () => {
+    dismissHudSettingsForAction();
+    setStatusCardOpen(false);
+    voiceChat.setOpen(false);
+    setFaultPanelOpen(false);
+    setSpeedLimitExpanded(false);
+    setBodyHeightPanelOpen(false);
+    setConfirmingHighSpeed(false);
+    setLeftCategory('policy');
+    if (stopReadiness.ready) {
+      runOperation('stop', renderGeneration);
+    } else {
+      triggerControlHaptic('estop');
+      voiceChatEstopRef.current?.();
+      resetControls();
+      interruptInput();
+      if (voiceStopActive) showHudNotice('已急停');
+    }
+  };
   const recoveryPanel = recovery ? RobotRecoveryControls({
     view: recoveryOperator.view,
     displayReason: recoveryOperator.displayReason,
@@ -2295,8 +2324,8 @@ export function ControlScreen({
       batteryPercent: resolvedBatteryPercent,
       voltageV: runtimeState?.battery?.voltageV ?? null,
       remainingRangeKm: runtimeState?.remainingRangeKm ?? null,
-      onStop: () => { dismissHudSettingsForAction(); setStatusCardOpen(false); voiceChat.setOpen(false); setFaultPanelOpen(false); setSpeedLimitExpanded(false); setBodyHeightPanelOpen(false); runOperation('stop', renderGeneration); },
-      stopDisabled: !stopReadiness.ready || ['submitted', 'accepted', 'executing'].includes(stopState.status),
+      onStop: handleEmergencyStop,
+      stopDisabled: hudStopDisabled,
       stopHint: stopState.detail ?? stopReadiness.blockedReason,
       docksExpanded,
       onToggleDocks: () => {
@@ -2604,8 +2633,8 @@ export function ControlScreen({
           onOpenAdvanced: workspaceSettings.connection.onOpenAdvanced ? () => openView(workspaceSettings.connection?.onOpenAdvanced) : undefined,
           onOpenBle: workspaceSettings.connection.onOpenBle ? () => openView(workspaceSettings.connection?.onOpenBle) : undefined,
         } : undefined,
-        onStopNow: () => { dismissHudSettingsForAction(); setFaultPanelOpen(false); setSpeedLimitExpanded(false); setBodyHeightPanelOpen(false); runOperation('stop', renderGeneration); },
-        stopDisabled: !stopReadiness.ready || ['submitted', 'accepted', 'executing'].includes(stopState.status),
+        onStopNow: handleEmergencyStop,
+        stopDisabled: hudStopDisabled,
         webStageMode,
         onToggleWebStageMode,
         policies: hudPolicies,
@@ -2949,27 +2978,27 @@ export function ControlScreen({
           style={styles.scroll}
         >
           {recoveryPanel}
-          <View style={styles.header}>
+          <View style={[styles.header, width < 420 && styles.headerCompact]}>
             <Pressable
               accessibilityLabel="返回" accessibilityRole="button" onPress={handleBack}
               style={({ pressed }) => [styles.back, pressed && styles.pressed]} testID="control-back"
             ><Ionicons color={colors.inkSoft} name="arrow-back" size={22} /></Pressable>
             <View style={styles.identity}>
-              <Text accessibilityRole="header" style={[styles.title, { color: colors.ink }]}>{robotName}</Text>
-              <Text style={[styles.caption, { color: colors.muted }]}>{robotType}</Text>
+              <Text accessibilityRole="header" numberOfLines={1} style={[styles.title, width < 420 && styles.titleCompact, { color: colors.ink }]}>{robotName}</Text>
+              <Text numberOfLines={1} style={[styles.caption, { color: colors.muted }]}>{robotType}</Text>
             </View>
             <Pressable
               accessibilityLabel={voiceChat.open ? '收起语音对话' : '打开语音对话'}
               accessibilityRole="button"
               accessibilityState={{ expanded: voiceChat.open, selected: voiceChat.open }}
               onPress={() => voiceChat.toggleOpen()}
-              style={styles.back}
+              style={[styles.back, width < 420 && styles.headerIconCompact]}
               testID="control-portrait-voice-toggle"
             >
               <Ionicons
                 color={voiceChat.open ? appearance.blueInk : colors.ink}
                 name={voiceChat.open ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'}
-                size={22}
+                size={21}
               />
               {voiceChat.phase !== 'disconnected' && voiceChat.phase !== 'unavailable' ? (
                 <View
@@ -2992,9 +3021,9 @@ export function ControlScreen({
                 />
               ) : null}
             </Pressable>
-            <Pressable accessibilityLabel="摇杆布局设置" accessibilityRole="button" onPress={openJoystickSettings} style={styles.back} testID="control-open-joystick-layout"><Ionicons color={colors.ink} name="resize-outline" size={22} /></Pressable>
-            {g20Controller ? <Pressable accessibilityLabel="遥控器输入设置" accessibilityRole="button" onPress={openInputSettings} style={styles.back} testID="control-open-input">
-              <Ionicons color={colors.ink} name="game-controller-outline" size={22} />
+            <Pressable accessibilityLabel="摇杆布局设置" accessibilityRole="button" onPress={openJoystickSettings} style={[styles.back, width < 420 && styles.headerIconCompact]} testID="control-open-joystick-layout"><Ionicons color={colors.ink} name="resize-outline" size={20} /></Pressable>
+            {g20Controller ? <Pressable accessibilityLabel="遥控器输入设置" accessibilityRole="button" onPress={openInputSettings} style={[styles.back, width < 420 && styles.headerIconCompact]} testID="control-open-input">
+              <Ionicons color={colors.ink} name="game-controller-outline" size={20} />
             </Pressable> : null}
             <Pressable
               accessibilityLabel="设备连接" accessibilityRole="button"
@@ -3078,7 +3107,7 @@ export function ControlScreen({
           </View>
           <View style={[styles.workspace, layout.useColumns && styles.columns, { gap: layout.sectionGap }]} testID="control-workspace">
             {renderWorkspacePane('operations', layout.operationsPanelWidth, <>
-              <View style={[styles.operationHeader, { width: layout.operationGroupWidth, backgroundColor: appearance.surface }]} testID="control-action-header">
+              <View style={[styles.operationHeader, { width: layout.useColumns ? layout.operationGroupWidth : '100%', backgroundColor: appearance.surface }]} testID="control-action-header">
                 <View style={styles.operationHeaderCopy}>
                   <Text accessibilityRole="header" style={[styles.label, { color: colors.ink }]}>动作区</Text>
                 </View>
@@ -3096,7 +3125,7 @@ export function ControlScreen({
               {controlSession?.error ? <Text accessibilityLiveRegion="polite" style={[styles.caption, { color: colors.dangerText }]}>{controlSession.error}</Text> : null}
               {!visibleConfirmation && !selectingPolicy && actionsExpanded ? <>
                 <View style={[styles.operationGroups, { gap: layout.sectionGap }]} testID="control-operation-groups">
-                  {visibleOperationGroups.map(group => <View key={group.title} style={[styles.operationGroup, layout.useColumns && styles.operationGroupCompact, { width: layout.operationGroupWidth, backgroundColor: appearance.surface }]}>
+                  {visibleOperationGroups.map(group => <View key={group.title} style={[styles.operationGroup, layout.useColumns && styles.operationGroupCompact, { width: layout.useColumns ? layout.operationGroupWidth : '100%', backgroundColor: appearance.surface }]}>
                     <Text accessibilityRole="header" style={[styles.label, { color: colors.ink }]}>{group.title}</Text>
                     <View style={[styles.operationRows, layout.useColumns && styles.operationActionsRow]}>
                       {group.actions.map(action => {
@@ -3118,7 +3147,7 @@ export function ControlScreen({
                     </View>
                   </View>)}
                   {!layout.useColumns && displayedGestures.length > 0 ? (
-                    <View style={[styles.operationGroup, { width: layout.operationGroupWidth, backgroundColor: appearance.surface }]} testID="control-portrait-gesture-group">
+                    <View style={[styles.operationGroup, { width: '100%', backgroundColor: appearance.surface }]} testID="control-portrait-gesture-group">
                       <Text accessibilityRole="header" style={[styles.label, { color: colors.ink }]}>{`预设动作 ${displayedGestures.length}`}</Text>
                       {GestureDeckPanel({
                         gestures: displayedGestures,
@@ -3179,9 +3208,9 @@ export function ControlScreen({
               {operationMessage ? <Text accessibilityLiveRegion="polite" style={[styles.caption, { color: colors.muted }]} testID="control-operation-message">{operationMessage}</Text> : null}
             </>)}
 
-            <View style={[styles.panels, layout.useColumns && styles.columns, { gap: layout.sectionGap, width: layout.mainPanelWidth }]} testID="control-panels">
+            <View style={[styles.panels, layout.useColumns && styles.columns, { gap: layout.sectionGap, width: layout.useColumns ? layout.mainPanelWidth : '100%' }]} testID="control-panels">
               {showPlanning && (!layout.useColumns || auxiliaryExpanded) ? renderWorkspacePane('map', layout.mapPanelWidth,
-                <View style={[styles.mapPanel, { backgroundColor: appearance.surface, width: layout.mapPanelWidth }]}>
+                <View style={[styles.mapPanel, { backgroundColor: appearance.surface, width: layout.useColumns ? layout.mapPanelWidth : '100%' }]}>
                   <View style={styles.panelHeading}>
                     <Text accessibilityRole="header" style={[styles.label, { color: colors.ink }]}>设备地图</Text>
                     <View style={styles.panelHeadingActions}>
@@ -3215,7 +3244,7 @@ export function ControlScreen({
                 </View>) : null}
 
               {renderWorkspacePane('manual', manualPanelWidth,
-                <View style={[styles.manualPanel, layout.useColumns && styles.manualPanelCompact, { width: manualPanelWidth }]}>
+                <View style={[styles.manualPanel, layout.useColumns && styles.manualPanelCompact, { width: layout.useColumns ? manualPanelWidth : '100%' }]}>
                   {showPlanning && layout.useColumns && !auxiliaryExpanded ? <View style={[styles.secondaryNavigation, { backgroundColor: appearance.surface }]} testID="control-secondary-navigation">
                     <View style={styles.secondaryNavigationCopy}>
                       <Text style={[styles.caption, { color: colors.ink }]}>更多</Text>
@@ -3373,7 +3402,10 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { flexGrow: 1, paddingTop: 4, paddingBottom: 16 },
   header: { alignItems: 'center', flexDirection: 'row', gap: 8, marginBottom: 12, minHeight: 56 },
+  headerCompact: { gap: 4 },
   back: { alignItems: 'center', justifyContent: 'center', height: 48, width: 48, borderRadius: 24, position: 'relative' },
+  headerIconCompact: { height: 40, width: 34 },
+  titleCompact: { fontSize: 16, lineHeight: 22 },
   portraitVoiceDot: { position: 'absolute', top: 10, right: 10, width: 7, height: 7, borderRadius: 3.5 },
   identity: { flex: 1, minWidth: 0 },
   title: { ...typography.pageTitle },
