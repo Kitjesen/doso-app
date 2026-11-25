@@ -30,21 +30,6 @@ export type VoiceChatMessageSource =
   | 'broadcast'
   | 'system';
 
-export type XiaosuanAmbientSoundId = 'off' | 'rain' | 'ocean' | 'pink' | 'fire' | 'night';
-
-export type XiaosuanAmbientOption = Readonly<{
-  id: XiaosuanAmbientSoundId;
-  label: string;
-}>;
-
-export type XiaosuanAmbientStatus = Readonly<{
-  active: boolean;
-  sound: XiaosuanAmbientSoundId;
-  soundLabel: string;
-  remainingSec: number | null;
-  sounds: readonly XiaosuanAmbientOption[];
-}>;
-
 export type XiaosuanTimerKind = 'pomodoro' | 'countdown';
 
 export type XiaosuanTimerState = 'running' | 'paused' | 'completed' | 'cancelled';
@@ -59,12 +44,17 @@ export type XiaosuanTimerSnapshot = Readonly<{
   autoQuiet: boolean;
 }>;
 
-export type XiaosuanCompanionSnapshot = Readonly<{
-  daysTogether: number;
-  streakDays: number;
-  mood: string;
-  moodLabel: string;
-  speakerTier: string;
+export type XiaosuanActiveMoveSnapshot = Readonly<{
+  active: boolean;
+  direction: string;
+  directionLabel: string;
+  isTurn: boolean;
+  current: number;
+  target: number;
+  unit: 'm' | 'deg';
+  progress: number;
+  closedLoop: boolean;
+  source: string;
 }>;
 
 export type DutyProfileId = 'assistant' | 'host' | 'companion';
@@ -74,8 +64,7 @@ export type CapabilityModuleId =
   | 'voice_walk'
   | 'memory'
   | 'info_reminders'
-  | 'vision_nav'
-  | 'companion';
+  | 'vision_nav';
 
 export type DutyProfileOption = Readonly<{
   id: DutyProfileId;
@@ -87,7 +76,6 @@ export type CapabilityModuleMap = Readonly<Record<CapabilityModuleId, boolean>>;
 export type CapabilityHardwareStatus = Readonly<{
   camera: boolean;
   navigation: boolean;
-  voiceprint: boolean;
   brainstem: boolean;
 }>;
 
@@ -129,13 +117,8 @@ export type XiaosuanStatusSnapshot = Readonly<{
   voice: string;
   voiceName: string;
   pendingReminders: number;
-  ambient: XiaosuanAmbientStatus;
   activeTimer: XiaosuanTimerSnapshot | null;
-  companion: XiaosuanCompanionSnapshot | null;
-  idleLifeEnabled: boolean;
-  speakersAvailable: boolean;
-  speakersCount: number;
-  photosCount: number;
+  activeMove: XiaosuanActiveMoveSnapshot | null;
   profile: DutyProfileId;
   profileName: string;
   capabilities: RobotCapabilitiesSnapshot | null;
@@ -168,45 +151,6 @@ export type VoiceReminderItem = Readonly<{
   triggerAtLocal: string;
   status: string;
   repeat: VoiceReminderRepeat;
-}>;
-
-export type XiaosuanPhotoItem = Readonly<{
-  id: string;
-  url: string;
-  caption: string;
-  emotion: XiaosuanEmotion;
-  speakerId: string;
-  createdAt: string;
-  ts: number | null;
-}>;
-
-export type XiaosuanSpeakerItem = Readonly<{
-  name: string;
-  samples: number;
-}>;
-
-export type XiaosuanSpeakersSnapshot = Readonly<{
-  available: boolean;
-  speakers: readonly XiaosuanSpeakerItem[];
-}>;
-
-export type XiaosuanSceneOption = Readonly<{
-  id: string;
-  label: string;
-}>;
-
-export type XiaosuanComboOption = Readonly<{
-  id: string;
-  label: string;
-}>;
-
-export type XiaosuanDiaryItem = Readonly<{
-  date: string;
-  text: string;
-  mood: string;
-  moodLabel: string;
-  photoIds: readonly string[];
-  createdAt: string;
 }>;
 
 export type VoiceChatMessageItem = Readonly<{
@@ -322,7 +266,6 @@ export const CAPABILITY_MODULE_ORDER: readonly CapabilityModuleId[] = Object.fre
   'memory',
   'info_reminders',
   'vision_nav',
-  'companion',
 ]);
 
 export const CAPABILITY_MODULE_LABELS: Readonly<Record<CapabilityModuleId, string>> = Object.freeze({
@@ -331,7 +274,6 @@ export const CAPABILITY_MODULE_LABELS: Readonly<Record<CapabilityModuleId, strin
   memory: '长期记忆',
   info_reminders: '联网与提醒',
   vision_nav: '视觉与导航',
-  companion: '陪伴与娱乐',
 });
 
 const PROFILE_DEFAULT_MODULES: Readonly<Record<DutyProfileId, CapabilityModuleMap>> = Object.freeze({
@@ -341,7 +283,6 @@ const PROFILE_DEFAULT_MODULES: Readonly<Record<DutyProfileId, CapabilityModuleMa
     memory: true,
     info_reminders: true,
     vision_nav: false,
-    companion: false,
   }),
   host: Object.freeze({
     robot_control: true,
@@ -349,7 +290,6 @@ const PROFILE_DEFAULT_MODULES: Readonly<Record<DutyProfileId, CapabilityModuleMa
     memory: true,
     info_reminders: false,
     vision_nav: false,
-    companion: false,
   }),
   companion: Object.freeze({
     robot_control: true,
@@ -357,7 +297,6 @@ const PROFILE_DEFAULT_MODULES: Readonly<Record<DutyProfileId, CapabilityModuleMa
     memory: true,
     info_reminders: true,
     vision_nav: false,
-    companion: true,
   }),
 });
 
@@ -376,12 +315,10 @@ export const DEFAULT_LEGACY_CAPABILITIES: RobotCapabilitiesSnapshot = Object.fre
     memory: true,
     info_reminders: true,
     vision_nav: true,
-    companion: true,
   }),
   hardware: Object.freeze({
     camera: true,
     navigation: true,
-    voiceprint: true,
     brainstem: true,
   }),
   moduleList: Object.freeze([
@@ -390,7 +327,6 @@ export const DEFAULT_LEGACY_CAPABILITIES: RobotCapabilitiesSnapshot = Object.fre
     Object.freeze({ id: 'memory', name: '长期记忆', enabled: true, available: true, statusLabel: '已开' }),
     Object.freeze({ id: 'info_reminders', name: '联网与提醒', enabled: true, available: true, statusLabel: '已开' }),
     Object.freeze({ id: 'vision_nav', name: '视觉与导航', enabled: true, available: true, statusLabel: '已开' }),
-    Object.freeze({ id: 'companion', name: '陪伴与娱乐', enabled: true, available: true, statusLabel: '已开' }),
   ]),
   memoryAcl: Object.freeze({
     readRooms: ALL_VOICE_MEMORY_ROOMS,
@@ -431,57 +367,12 @@ const VOICE_SHORT_NAMES: Readonly<Record<string, string>> = Object.freeze({
   guide: '女孩',
 });
 
-export const DEFAULT_AMBIENT_SOUNDS: readonly XiaosuanAmbientOption[] = Object.freeze([
-  Object.freeze({ id: 'rain', label: '雨声' }),
-  Object.freeze({ id: 'ocean', label: '海浪' }),
-  Object.freeze({ id: 'pink', label: '暖噪' }),
-  Object.freeze({ id: 'fire', label: '篝火' }),
-  Object.freeze({ id: 'night', label: '静夜' }),
-]);
-
-export const DEFAULT_XIAOSUAN_AMBIENT: XiaosuanAmbientStatus = Object.freeze({
-  active: false,
-  sound: 'off',
-  soundLabel: '关闭',
-  remainingSec: null,
-  sounds: DEFAULT_AMBIENT_SOUNDS,
-});
-
-export const DEFAULT_XIAOSUAN_SCENES: readonly XiaosuanSceneOption[] = Object.freeze([
-  Object.freeze({ id: 'morning', label: '早安' }),
-  Object.freeze({ id: 'focus', label: '专注' }),
-  Object.freeze({ id: 'bedtime', label: '睡前' }),
-  Object.freeze({ id: 'welcome', label: '迎宾' }),
-]);
-
-export const DEFAULT_XIAOSUAN_COMBOS: readonly XiaosuanComboOption[] = Object.freeze([
-  Object.freeze({ id: 'new_year', label: '拜年' }),
-  Object.freeze({ id: 'welcome', label: '迎宾' }),
-  Object.freeze({ id: 'cute', label: '卖萌' }),
-  Object.freeze({ id: 'warmup', label: '热身' }),
-]);
-
-export const AMBIENT_SOUND_LABELS: Readonly<Record<XiaosuanAmbientSoundId, string>> = Object.freeze({
-  off: '关闭',
-  rain: '雨声',
-  ocean: '海浪',
-  pink: '暖噪',
-  fire: '篝火',
-  night: '静夜',
-});
-
 export const VOICE_REMINDER_REPEAT_LABELS: Readonly<Record<VoiceReminderRepeat, string>> = Object.freeze({
   '': '单次',
   daily: '每天',
   weekdays: '工作日',
   weekly: '每周',
 });
-
-export const SAFE_PHOTO_ID_RE = /^pho_[0-9a-f]{12}$/;
-
-export function isValidPhotoId(id: string | null | undefined): boolean {
-  return typeof id === 'string' && SAFE_PHOTO_ID_RE.test(id.trim());
-}
 
 export const DEFAULT_XIAOSUAN_STATUS: XiaosuanStatusSnapshot = Object.freeze({
   ok: false,
@@ -494,13 +385,8 @@ export const DEFAULT_XIAOSUAN_STATUS: XiaosuanStatusSnapshot = Object.freeze({
   voice: 'xiaosuan',
   voiceName: '小何',
   pendingReminders: 0,
-  ambient: DEFAULT_XIAOSUAN_AMBIENT,
   activeTimer: null,
-  companion: null,
-  idleLifeEnabled: false,
-  speakersAvailable: false,
-  speakersCount: 0,
-  photosCount: 0,
+  activeMove: null,
   profile: 'assistant',
   profileName: '日常助手',
   capabilities: null,
@@ -573,24 +459,11 @@ function normalizeSource(value: unknown): VoiceChatMessageSource | undefined {
   return undefined;
 }
 
-function normalizeAmbientSoundId(value: unknown): XiaosuanAmbientSoundId {
-  if (typeof value !== 'string') return 'off';
-  const key = value.trim().toLowerCase();
-  if (key === 'rain' || key === 'ocean' || key === 'pink' || key === 'fire' || key === 'night') {
-    return key;
-  }
-  return 'off';
-}
-
 function normalizeReminderRepeat(value: unknown): VoiceReminderRepeat {
   if (typeof value !== 'string') return '';
   const key = value.trim().toLowerCase();
   if (key === 'daily' || key === 'weekdays' || key === 'weekly') return key;
   return '';
-}
-
-export function formatAmbientSoundLabel(sound: XiaosuanAmbientSoundId | string | null | undefined): string {
-  return AMBIENT_SOUND_LABELS[normalizeAmbientSoundId(sound)];
 }
 
 export function formatReminderRepeatLabel(repeat: VoiceReminderRepeat | string | null | undefined): string | null {
@@ -608,20 +481,6 @@ export function formatTimerCountdown(remainingSec: number | null | undefined): s
   const secs = clamped % 60;
   const pad = (n: number) => String(n).padStart(2, '0');
   return hours > 0 ? `${hours}:${pad(mins)}:${pad(secs)}` : `${pad(mins)}:${pad(secs)}`;
-}
-
-export function formatCompanionMoodLabel(mood: string | null | undefined, explicitLabel?: string | null): string {
-  const cleanExplicit = typeof explicitLabel === 'string' ? explicitLabel.trim() : '';
-  if (cleanExplicit && /^[\u4e00-\u9fa5]{1,6}$/.test(cleanExplicit)) {
-    return cleanExplicit;
-  }
-  const key = typeof mood === 'string' ? mood.trim().toLowerCase() : '';
-  if (key === 'happy' || key === 'excited' || key === 'joy') return '开心';
-  if (key === 'playful' || key === 'wink' || key === 'cozy') return '撒娇';
-  if (key === 'sleepy' || key === 'tired' || key === 'drowsy') return '困倦';
-  if (key === 'sad' || key === 'care' || key === 'concerned') return '关心';
-  if (key === 'focused' || key === 'thinking') return '专注';
-  return '安心';
 }
 
 export function formatXiaosuanLiveStateLabel(state: XiaosuanLiveState): string {
@@ -721,46 +580,6 @@ export function formatReminderTriggerShort(
   return item.timeExpr.trim() || '待触发';
 }
 
-function parseAmbientPayload(raw: unknown): XiaosuanAmbientStatus {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return DEFAULT_XIAOSUAN_AMBIENT;
-  }
-  const rec = raw as Record<string, unknown>;
-  const sound = normalizeAmbientSoundId(rec.sound);
-  const active = rec.active === true && sound !== 'off';
-  const resolvedSound: XiaosuanAmbientSoundId = active ? sound : 'off';
-  const rawLabel = typeof rec.sound_label === 'string' && rec.sound_label.trim()
-    ? rec.sound_label.trim().slice(0, 6)
-    : typeof rec.soundLabel === 'string' && rec.soundLabel.trim()
-      ? rec.soundLabel.trim().slice(0, 6)
-      : formatAmbientSoundLabel(resolvedSound);
-  const remRaw = rec.remaining_sec ?? rec.remainingSec;
-  const remainingSec = typeof remRaw === 'number' && Number.isFinite(remRaw) && remRaw >= 0
-    ? Math.floor(remRaw)
-    : null;
-  const rawSounds = Array.isArray(rec.sounds) ? rec.sounds : [];
-  const parsedSounds: XiaosuanAmbientOption[] = [];
-  for (const item of rawSounds) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
-    const opt = item as Record<string, unknown>;
-    const optId = normalizeAmbientSoundId(opt.id ?? opt.key);
-    if (optId === 'off') continue;
-    const label = typeof opt.label === 'string' && opt.label.trim()
-      ? opt.label.trim().slice(0, 6)
-      : formatAmbientSoundLabel(optId);
-    if (!parsedSounds.some(existing => existing.id === optId)) {
-      parsedSounds.push({ id: optId, label });
-    }
-  }
-  return {
-    active,
-    sound: resolvedSound,
-    soundLabel: active ? rawLabel : '关闭',
-    remainingSec: active ? remainingSec : null,
-    sounds: parsedSounds.length > 0 ? parsedSounds : DEFAULT_AMBIENT_SOUNDS,
-  };
-}
-
 function parseTimerPayload(raw: unknown): XiaosuanTimerSnapshot | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const rec = raw as Record<string, unknown>;
@@ -797,34 +616,40 @@ function parseTimerPayload(raw: unknown): XiaosuanTimerSnapshot | null {
   };
 }
 
-function parseCompanionPayload(raw: unknown): XiaosuanCompanionSnapshot | null {
+function parseActiveMovePayload(raw: unknown): XiaosuanActiveMoveSnapshot | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const rec = raw as Record<string, unknown>;
-  const daysRaw = rec.days_together ?? rec.daysTogether;
-  const streakRaw = rec.streak_days ?? rec.streakDays;
-  const daysTogether = typeof daysRaw === 'number' && Number.isFinite(daysRaw) && daysRaw >= 1
-    ? Math.floor(daysRaw)
-    : 1;
-  const streakDays = typeof streakRaw === 'number' && Number.isFinite(streakRaw) && streakRaw >= 0
-    ? Math.floor(streakRaw)
-    : daysTogether;
-  const mood = typeof rec.mood === 'string' && rec.mood.trim() ? rec.mood.trim() : 'calm';
-  const explicitLabel = typeof rec.mood_label === 'string'
-    ? rec.mood_label
-    : typeof rec.moodLabel === 'string'
-      ? rec.moodLabel
-      : null;
-  const speakerTier = typeof rec.speaker_tier === 'string'
-    ? rec.speaker_tier.trim().slice(0, 6)
-    : typeof rec.speakerTier === 'string'
-      ? rec.speakerTier.trim().slice(0, 6)
-      : '';
+  if (rec.active !== true) return null;
+  const targetRaw = rec.target;
+  const target = typeof targetRaw === 'number' && Number.isFinite(targetRaw) && targetRaw > 0 ? targetRaw : 0;
+  if (target <= 0) return null;
+  const currentRaw = rec.current;
+  const current = typeof currentRaw === 'number' && Number.isFinite(currentRaw) && currentRaw >= 0 ? currentRaw : 0;
+  const unitRaw = typeof rec.unit === 'string' ? rec.unit.trim().toLowerCase() : '';
+  const isTurn = rec.is_turn === true || rec.isTurn === true || unitRaw === 'deg';
+  const unit: 'm' | 'deg' = isTurn ? 'deg' : 'm';
+  const progressRaw = rec.progress;
+  const progress = typeof progressRaw === 'number' && Number.isFinite(progressRaw)
+    ? Math.max(0, Math.min(1, progressRaw))
+    : Math.max(0, Math.min(1, current / target));
+  const direction = typeof rec.direction === 'string' && rec.direction.trim() ? rec.direction.trim() : 'forward';
+  const rawLabel = typeof rec.direction_label === 'string' && rec.direction_label.trim()
+    ? rec.direction_label.trim()
+    : typeof rec.directionLabel === 'string' && rec.directionLabel.trim()
+      ? rec.directionLabel.trim()
+      : '移动';
+  const source = typeof rec.source === 'string' && rec.source.trim() ? rec.source.trim() : 'open_loop';
   return {
-    daysTogether,
-    streakDays,
-    mood,
-    moodLabel: formatCompanionMoodLabel(mood, explicitLabel),
-    speakerTier,
+    active: true,
+    direction,
+    directionLabel: rawLabel.slice(0, 8),
+    isTurn,
+    current: Number(current.toFixed(isTurn ? 1 : 2)),
+    target: Number(target.toFixed(isTurn ? 1 : 2)),
+    unit,
+    progress,
+    closedLoop: rec.closed_loop === true || rec.closedLoop === true,
+    source,
   };
 }
 
@@ -843,7 +668,6 @@ function isCapabilityModuleId(value: unknown): value is CapabilityModuleId {
     || value === 'memory'
     || value === 'info_reminders'
     || value === 'vision_nav'
-    || value === 'companion'
   );
 }
 
@@ -953,7 +777,6 @@ export function parseRobotCapabilitiesPayload(
     memory: resolveModBool('memory'),
     info_reminders: resolveModBool('info_reminders'),
     vision_nav: resolveModBool('vision_nav'),
-    companion: resolveModBool('companion'),
   };
 
   const rawHw = rec.hardware && typeof rec.hardware === 'object' && !Array.isArray(rec.hardware)
@@ -963,7 +786,6 @@ export function parseRobotCapabilitiesPayload(
   const hardware: CapabilityHardwareStatus = {
     camera: hasExplicitHw ? rawHw.camera === true : modules.vision_nav,
     navigation: hasExplicitHw ? rawHw.navigation === true : modules.vision_nav,
-    voiceprint: hasExplicitHw ? rawHw.voiceprint === true : modules.companion,
     brainstem: hasExplicitHw ? rawHw.brainstem !== false : true,
   };
 
@@ -1053,7 +875,6 @@ export function parseRobotCapabilitiesPayload(
       memory: moduleList[2].enabled,
       info_reminders: moduleList[3].enabled,
       vision_nav: moduleList[4].enabled,
-      companion: moduleList[5].enabled,
     },
     hardware,
     moduleList,
@@ -1102,14 +923,6 @@ export function parseXiaosuanStatusPayload(data: Record<string, unknown> | null)
   const pendingReminders = typeof pendingRaw === 'number' && Number.isFinite(pendingRaw) && pendingRaw >= 0
     ? Math.floor(pendingRaw)
     : 0;
-  const speakersCountRaw = data.speakers_count;
-  const speakersCount = typeof speakersCountRaw === 'number' && Number.isFinite(speakersCountRaw) && speakersCountRaw >= 0
-    ? Math.floor(speakersCountRaw)
-    : 0;
-  const photosCountRaw = data.photos_count;
-  const photosCount = typeof photosCountRaw === 'number' && Number.isFinite(photosCountRaw) && photosCountRaw >= 0
-    ? Math.floor(photosCountRaw)
-    : 0;
 
   const rawCaps = data.capabilities && typeof data.capabilities === 'object' && !Array.isArray(data.capabilities)
     ? data.capabilities
@@ -1131,13 +944,8 @@ export function parseXiaosuanStatusPayload(data: Record<string, unknown> | null)
     voice: voiceId,
     voiceName: formatXiaosuanVoiceShortName(voiceNameRaw),
     pendingReminders,
-    ambient: parseAmbientPayload(data.ambient),
     activeTimer: parseTimerPayload(data.active_timer),
-    companion: parseCompanionPayload(data.companion),
-    idleLifeEnabled: data.idle_life_enabled === true,
-    speakersAvailable: data.speakers_available === true,
-    speakersCount,
-    photosCount,
+    activeMove: parseActiveMovePayload(data.active_move ?? data.activeMove),
     profile,
     profileName,
     capabilities,
@@ -1156,13 +964,9 @@ function hasStatusFields(data: Record<string, unknown> | null): boolean {
     || 'role' in data
     || 'voice' in data
     || 'pending_reminders' in data
-    || 'ambient' in data
     || 'active_timer' in data
-    || 'companion' in data
-    || 'idle_life_enabled' in data
-    || 'speakers_available' in data
-    || 'speakers_count' in data
-    || 'photos_count' in data
+    || 'active_move' in data
+    || 'activeMove' in data
     || 'profile' in data
     || 'profile_name' in data
     || 'capabilities' in data
@@ -1232,20 +1036,16 @@ const TOOL_LABELS: Readonly<Record<string, string>> = {
   change_role_or_voice: '切换风格',
   set_quiet_mode: '轻声模式',
   set_volume: '调节音量',
+  set_speaker_volume: '调节音量',
+  robot_posture: '切换姿态',
+  play_robot_gesture: '动作控制',
+  set_robot_height: '调节身高',
   control_robot_dog: '动作控制',
   robot_action: '动作控制',
   move_robot: '运动控制',
   get_robot_status: '读取状态',
-  take_photo: '拍照留念',
-  play_combo: '才艺表演',
-  control_ambient: '白噪音',
-  run_scene: '切换情景',
   manage_timer: '定时专注',
   daily_briefing: '今日早报',
-  read_diary: '读取日记',
-  write_diary: '写日记',
-  enroll_speaker: '录入声纹',
-  who_am_i: '识别声纹',
   broadcast: '传话播报',
 };
 
@@ -1564,6 +1364,20 @@ export async function stopXiaosuanVoice(
     throw extractErrorMessage(res.status, res.data);
   }
   return { ok: true, message: '已停止' };
+}
+
+export async function triggerXiaosuanEstop(
+  target: VoiceTargetOptions,
+): Promise<Readonly<{ ok: boolean; message: string; capabilities: RobotCapabilitiesSnapshot | null }>> {
+  const xsTarget = resolveXiaosuanTarget(target);
+  const res = await requestVoiceJson(xsTarget, 'POST', '/api/estop', {}, 3_500);
+  if (res.status < 200 || res.status >= 300) {
+    throw extractErrorMessage(res.status, res.data);
+  }
+  const capabilities = res.data?.capabilities
+    ? parseRobotCapabilitiesPayload(res.data.capabilities)
+    : null;
+  return { ok: true, message: '已急停', capabilities };
 }
 
 export async function wakeXiaosuanVoice(
@@ -2006,355 +1820,8 @@ export async function clearVoiceSessionMemory(
 }
 
 // ---------------------------------------------------------------------------
-// Wave 2 Companion & Embodied Skills (:8770)
+// Timers, Daily Briefing & Broadcast (:8770)
 // ---------------------------------------------------------------------------
-
-export function getPhotoUrl(target: VoiceTargetOptions | string, id: string): string {
-  const cleanId = typeof id === 'string' ? id.trim() : '';
-  if (!SAFE_PHOTO_ID_RE.test(cleanId)) return '';
-  try {
-    const origin = typeof target === 'string'
-      ? deriveXiaosuanVoiceOrigin(target, true)
-      : resolveXiaosuanTarget(target).origin;
-    if (!origin) return '';
-    return `${origin}/api/photos/${encodeURIComponent(cleanId)}.jpg`;
-  } catch {
-    return '';
-  }
-}
-
-function parsePhotoItem(xsTarget: VoiceTargetOptions, raw: unknown): XiaosuanPhotoItem | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const rec = raw as Record<string, unknown>;
-  const id = typeof rec.id === 'string' ? rec.id.trim() : '';
-  if (!SAFE_PHOTO_ID_RE.test(id)) return null;
-  const caption = typeof rec.caption === 'string'
-    ? rec.caption.trim()
-    : typeof rec.summary === 'string'
-      ? rec.summary.trim()
-      : '';
-  const speakerId = typeof rec.speaker_id === 'string'
-    ? rec.speaker_id.trim()
-    : typeof rec.speakerId === 'string'
-      ? rec.speakerId.trim()
-      : '';
-  const createdAt = typeof rec.local_time === 'string' && rec.local_time.trim()
-    ? rec.local_time.trim()
-    : typeof rec.localTime === 'string' && rec.localTime.trim()
-      ? rec.localTime.trim()
-      : typeof rec.created_at_local === 'string' && rec.created_at_local.trim()
-        ? rec.created_at_local.trim()
-        : typeof rec.createdAtLocal === 'string' && rec.createdAtLocal.trim()
-          ? rec.createdAtLocal.trim()
-          : typeof rec.created_at === 'string'
-            ? rec.created_at.trim()
-            : typeof rec.createdAt === 'string'
-              ? rec.createdAt.trim()
-              : '';
-  const tsRaw = rec.created_ts ?? rec.createdTs ?? rec.ts ?? rec.timestamp;
-  const ts = typeof tsRaw === 'number' && Number.isFinite(tsRaw) ? tsRaw : null;
-  return {
-    id,
-    url: getPhotoUrl(xsTarget, id),
-    caption,
-    emotion: normalizeEmotion(rec.emotion),
-    speakerId,
-    createdAt,
-    ts,
-  };
-}
-
-export async function listPhotos(
-  target: VoiceTargetOptions,
-  limit?: number,
-): Promise<readonly XiaosuanPhotoItem[]> {
-  const xsTarget = resolveXiaosuanTarget(target);
-  const path = typeof limit === 'number' && Number.isFinite(limit) && limit > 0
-    ? `/api/photos?limit=${Math.min(100, Math.round(limit))}`
-    : '/api/photos';
-  const res = await requestVoiceJson(xsTarget, 'GET', path, undefined, 5_000);
-  if (res.status < 200 || res.status >= 300 || !res.data || res.data.ok === false) {
-    throw extractMemoryError(res.status, res.data);
-  }
-  const rawList = Array.isArray(res.data.photos)
-    ? res.data.photos
-    : Array.isArray(res.data.items)
-      ? res.data.items
-      : [];
-  return rawList
-    .map(item => parsePhotoItem(xsTarget, item))
-    .filter((item): item is XiaosuanPhotoItem => item !== null);
-}
-
-export async function capturePhoto(
-  target: VoiceTargetOptions,
-  options?: { question?: string },
-): Promise<Readonly<{ ok: boolean; photo?: XiaosuanPhotoItem; message: string }>> {
-  const xsTarget = resolveXiaosuanTarget(target);
-  const payload: Record<string, unknown> = {};
-  if (typeof options?.question === 'string' && options.question.trim()) {
-    payload.question = options.question.trim().slice(0, 120);
-  }
-  const res = await requestVoiceJson(xsTarget, 'POST', '/api/photos/capture', payload, 12_000);
-  if (res.status < 200 || res.status >= 300 || !res.data || res.data.ok === false) {
-    throw extractErrorMessage(res.status, res.data);
-  }
-  const photo = parsePhotoItem(xsTarget, res.data.photo ?? res.data) ?? undefined;
-  return { ok: true, photo, message: '已拍照' };
-}
-
-export async function deletePhoto(
-  target: VoiceTargetOptions,
-  id: string,
-): Promise<VoiceMemoryMutationResult> {
-  const cleanId = id.trim();
-  if (!SAFE_PHOTO_ID_RE.test(cleanId)) {
-    throw new LingtuVoiceChatError('config', '记录无效');
-  }
-  const xsTarget = resolveXiaosuanTarget(target);
-  const res = await requestVoiceJson(xsTarget, 'POST', '/api/photos/delete', { id: cleanId }, 6_000);
-  if (res.status < 200 || res.status >= 300 || !res.data || res.data.ok === false) {
-    throw extractMemoryError(res.status, res.data);
-  }
-  return { ok: true, message: '已删除' };
-}
-
-export async function listSpeakers(
-  target: VoiceTargetOptions,
-): Promise<XiaosuanSpeakersSnapshot> {
-  const xsTarget = resolveXiaosuanTarget(target);
-  const res = await requestVoiceJson(xsTarget, 'GET', '/api/speakers', undefined, 4_500);
-  if (res.status < 200 || res.status >= 300 || !res.data || res.data.ok === false) {
-    throw extractMemoryError(res.status, res.data);
-  }
-  const rawList = Array.isArray(res.data.speakers) ? res.data.speakers : [];
-  const speakers: XiaosuanSpeakerItem[] = [];
-  for (const item of rawList) {
-    if (typeof item === 'string' && item.trim()) {
-      speakers.push({ name: item.trim().slice(0, 24), samples: 1 });
-      continue;
-    }
-    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
-    const rec = item as Record<string, unknown>;
-    const name = typeof rec.name === 'string' ? rec.name.trim() : '';
-    if (!name) continue;
-    const samples = typeof rec.samples === 'number' && Number.isFinite(rec.samples) && rec.samples >= 0
-      ? Math.floor(rec.samples)
-      : 1;
-    speakers.push({ name: name.slice(0, 24), samples });
-  }
-  return {
-    available: res.data.available === true,
-    speakers,
-  };
-}
-
-export async function enrollSpeaker(
-  target: VoiceTargetOptions,
-  name: string,
-): Promise<Readonly<{ ok: boolean; name: string; samples?: number; message: string }>> {
-  const cleanName = name.trim();
-  if (!cleanName) {
-    throw new LingtuVoiceChatError('config', '称呼为空');
-  }
-  const xsTarget = resolveXiaosuanTarget(target);
-  const res = await requestVoiceJson(
-    xsTarget,
-    'POST',
-    '/api/speakers/enroll',
-    { name: cleanName.slice(0, 24) },
-    8_000,
-  );
-  if (res.status < 200 || res.status >= 300 || !res.data || res.data.ok !== true) {
-    throw extractErrorMessage(res.status, res.data);
-  }
-  const samples = typeof res.data.samples === 'number' && Number.isFinite(res.data.samples)
-    ? Math.floor(res.data.samples)
-    : undefined;
-  return {
-    ok: true,
-    name: typeof res.data.name === 'string' && res.data.name.trim() ? res.data.name.trim() : cleanName,
-    samples,
-    message: '已录声纹',
-  };
-}
-
-export async function deleteSpeaker(
-  target: VoiceTargetOptions,
-  name: string,
-): Promise<VoiceMemoryMutationResult> {
-  const cleanName = name.trim();
-  if (!cleanName) {
-    throw new LingtuVoiceChatError('config', '称呼为空');
-  }
-  const xsTarget = resolveXiaosuanTarget(target);
-  const res = await requestVoiceJson(
-    xsTarget,
-    'POST',
-    '/api/speakers/delete',
-    { name: cleanName.slice(0, 24) },
-    6_000,
-  );
-  if (res.status < 200 || res.status >= 300 || !res.data || res.data.ok === false) {
-    throw extractErrorMessage(res.status, res.data);
-  }
-  return { ok: true, message: '已删除' };
-}
-
-export async function getAmbient(
-  target: VoiceTargetOptions,
-): Promise<XiaosuanAmbientStatus> {
-  const xsTarget = resolveXiaosuanTarget(target);
-  const res = await requestVoiceJson(xsTarget, 'GET', '/api/ambient', undefined, 4_500);
-  if (res.status < 200 || res.status >= 300 || !res.data || res.data.ok === false) {
-    throw extractErrorMessage(res.status, res.data);
-  }
-  return parseAmbientPayload(res.data.ambient ?? res.data);
-}
-
-export async function setAmbient(
-  target: VoiceTargetOptions,
-  sound: XiaosuanAmbientSoundId,
-  durationMin?: number | null,
-): Promise<Readonly<{ ok: boolean; ambient: XiaosuanAmbientStatus; message: string }>> {
-  const normalized = normalizeAmbientSoundId(sound);
-  const payload: Record<string, unknown> = { sound: normalized };
-  if (normalized !== 'off' && typeof durationMin === 'number' && Number.isFinite(durationMin) && durationMin > 0) {
-    payload.duration_min = Math.round(durationMin);
-  } else if (durationMin === null) {
-    payload.duration_min = null;
-  }
-  const xsTarget = resolveXiaosuanTarget(target);
-  const res = await requestVoiceJson(xsTarget, 'POST', '/api/ambient', payload, 6_000);
-  if (res.status < 200 || res.status >= 300 || !res.data || res.data.ok === false) {
-    throw extractErrorMessage(res.status, res.data);
-  }
-  const parsed = parseAmbientPayload(res.data.ambient ?? res.data);
-  const ambient: XiaosuanAmbientStatus = normalized === 'off'
-    ? { ...parsed, active: false, sound: 'off', soundLabel: '关闭', remainingSec: null }
-    : parsed.sound === 'off'
-      ? {
-        ...parsed,
-        active: true,
-        sound: normalized,
-        soundLabel: formatAmbientSoundLabel(normalized),
-        remainingSec: typeof payload.duration_min === 'number' ? payload.duration_min * 60 : null,
-      }
-      : parsed;
-  return {
-    ok: true,
-    ambient,
-    message: ambient.active ? `已播${ambient.soundLabel}` : '已关白噪音',
-  };
-}
-
-export async function listScenes(
-  target: VoiceTargetOptions,
-): Promise<readonly XiaosuanSceneOption[]> {
-  const xsTarget = resolveXiaosuanTarget(target);
-  const res = await requestVoiceJson(xsTarget, 'GET', '/api/scenes', undefined, 4_500);
-  if (res.status < 200 || res.status >= 300 || !res.data || res.data.ok === false) {
-    throw extractErrorMessage(res.status, res.data);
-  }
-  const rawList = Array.isArray(res.data.scenes) ? res.data.scenes : [];
-  const parsed: XiaosuanSceneOption[] = [];
-  for (const item of rawList) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
-    const rec = item as Record<string, unknown>;
-    const id = String(rec.id ?? rec.key ?? '').trim();
-    if (!id) continue;
-    const label = typeof rec.label === 'string' && rec.label.trim()
-      ? rec.label.trim().slice(0, 6)
-      : typeof rec.name === 'string' && rec.name.trim()
-        ? rec.name.trim().slice(0, 6)
-        : id;
-    parsed.push({ id, label });
-  }
-  return parsed.length > 0 ? parsed : DEFAULT_XIAOSUAN_SCENES;
-}
-
-export async function runScene(
-  target: VoiceTargetOptions,
-  id: string,
-  durationMin?: number,
-): Promise<Readonly<{ ok: boolean; id: string; message: string }>> {
-  const cleanId = id.trim();
-  if (!cleanId) {
-    throw new LingtuVoiceChatError('config', '参数无效');
-  }
-  const payload: Record<string, unknown> = { id: cleanId };
-  if (typeof durationMin === 'number' && Number.isFinite(durationMin) && durationMin > 0) {
-    payload.duration_min = Math.round(durationMin);
-  }
-  const xsTarget = resolveXiaosuanTarget(target);
-  const res = await requestVoiceJson(xsTarget, 'POST', '/api/scenes/run', payload, 12_000);
-  if (res.status < 200 || res.status >= 300 || !res.data || res.data.ok === false) {
-    throw extractErrorMessage(res.status, res.data);
-  }
-  const known = DEFAULT_XIAOSUAN_SCENES.find(s => s.id === cleanId);
-  return {
-    ok: true,
-    id: cleanId,
-    message: known ? `已切${known.label}` : '已切情景',
-  };
-}
-
-export async function listCombos(
-  target: VoiceTargetOptions,
-): Promise<readonly XiaosuanComboOption[]> {
-  const xsTarget = resolveXiaosuanTarget(target);
-  const res = await requestVoiceJson(xsTarget, 'GET', '/api/combos', undefined, 4_500);
-  if (res.status < 200 || res.status >= 300 || !res.data || res.data.ok === false) {
-    throw extractErrorMessage(res.status, res.data);
-  }
-  const rawList = Array.isArray(res.data.combos) ? res.data.combos : [];
-  const parsed: XiaosuanComboOption[] = [];
-  for (const item of rawList) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
-    const rec = item as Record<string, unknown>;
-    const id = String(rec.id ?? rec.key ?? '').trim();
-    if (!id) continue;
-    const label = typeof rec.label === 'string' && rec.label.trim()
-      ? rec.label.trim().slice(0, 6)
-      : typeof rec.name === 'string' && rec.name.trim()
-        ? rec.name.trim().slice(0, 6)
-        : id;
-    parsed.push({ id, label });
-  }
-  return parsed.length > 0 ? parsed : DEFAULT_XIAOSUAN_COMBOS;
-}
-
-export async function playCombo(
-  target: VoiceTargetOptions,
-  id: string,
-): Promise<Readonly<{ ok: boolean; id: string; message: string }>> {
-  const cleanId = id.trim();
-  if (!cleanId) {
-    throw new LingtuVoiceChatError('config', '参数无效');
-  }
-  const xsTarget = resolveXiaosuanTarget(target);
-  const res = await requestVoiceJson(xsTarget, 'POST', '/api/combos/play', { id: cleanId }, 8_000);
-  if (res.status < 200 || res.status >= 300 || !res.data || res.data.ok === false) {
-    throw extractErrorMessage(res.status, res.data);
-  }
-  const known = DEFAULT_XIAOSUAN_COMBOS.find(c => c.id === cleanId);
-  return {
-    ok: true,
-    id: cleanId,
-    message: known ? `表演${known.label}` : '开始表演',
-  };
-}
-
-export async function stopCombo(
-  target: VoiceTargetOptions,
-): Promise<VoiceMemoryMutationResult> {
-  const xsTarget = resolveXiaosuanTarget(target);
-  const res = await requestVoiceJson(xsTarget, 'POST', '/api/combos/stop', {}, 5_000);
-  if (res.status < 200 || res.status >= 300 || (res.data && res.data.ok === false)) {
-    throw extractErrorMessage(res.status, res.data);
-  }
-  return { ok: true, message: '已停表演' };
-}
 
 export async function runBriefing(
   target: VoiceTargetOptions,
@@ -2479,108 +1946,6 @@ export async function cancelTimer(
   return { ok: true, message: '已结束' };
 }
 
-function parseDiaryItem(raw: unknown): XiaosuanDiaryItem | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
-  const rec = raw as Record<string, unknown>;
-  const date = typeof rec.date === 'string' ? rec.date.trim() : '';
-  const text = typeof rec.text === 'string'
-    ? rec.text.trim()
-    : typeof rec.content === 'string'
-      ? rec.content.trim()
-      : typeof rec.body === 'string'
-        ? rec.body.trim()
-        : '';
-  if (!date || !text) return null;
-  const mood = typeof rec.mood === 'string' && rec.mood.trim() ? rec.mood.trim() : 'calm';
-  const explicitMood = typeof rec.mood_label === 'string'
-    ? rec.mood_label
-    : typeof rec.moodLabel === 'string'
-      ? rec.moodLabel
-      : null;
-  const rawPhotoIds = Array.isArray(rec.photo_ids)
-    ? rec.photo_ids
-    : Array.isArray(rec.photoIds)
-      ? rec.photoIds
-      : [];
-  const photoIds = rawPhotoIds
-    .filter((pid): pid is string => typeof pid === 'string' && SAFE_PHOTO_ID_RE.test(pid.trim()))
-    .map(pid => pid.trim());
-  const createdAt = typeof rec.created_at === 'string'
-    ? rec.created_at.trim()
-    : typeof rec.createdAt === 'string'
-      ? rec.createdAt.trim()
-      : '';
-  return {
-    date,
-    text,
-    mood,
-    moodLabel: formatCompanionMoodLabel(mood, explicitMood),
-    photoIds,
-    createdAt,
-  };
-}
-
-export async function listDiaries(
-  target: VoiceTargetOptions,
-  limit?: number,
-): Promise<readonly XiaosuanDiaryItem[]> {
-  const xsTarget = resolveXiaosuanTarget(target);
-  const path = typeof limit === 'number' && Number.isFinite(limit) && limit > 0
-    ? `/api/diary?limit=${Math.min(90, Math.round(limit))}`
-    : '/api/diary';
-  const res = await requestVoiceJson(xsTarget, 'GET', path, undefined, 5_000);
-  if (res.status < 200 || res.status >= 300 || !res.data || res.data.ok === false) {
-    throw extractMemoryError(res.status, res.data);
-  }
-  const rawList = Array.isArray(res.data.diaries)
-    ? res.data.diaries
-    : Array.isArray(res.data.items)
-      ? res.data.items
-      : res.data.diary
-        ? [res.data.diary]
-        : [];
-  return rawList
-    .map(parseDiaryItem)
-    .filter((item): item is XiaosuanDiaryItem => item !== null);
-}
-
-export async function generateDiary(
-  target: VoiceTargetOptions,
-  opts?: { date?: string; force?: boolean },
-): Promise<Readonly<{ ok: boolean; diary?: XiaosuanDiaryItem; message: string }>> {
-  const payload: Record<string, unknown> = {};
-  if (typeof opts?.date === 'string' && opts.date.trim()) {
-    payload.date = opts.date.trim();
-  }
-  if (typeof opts?.force === 'boolean') {
-    payload.force = opts.force;
-  }
-  const xsTarget = resolveXiaosuanTarget(target);
-  const res = await requestVoiceJson(xsTarget, 'POST', '/api/diary/generate', payload, 15_000);
-  if (res.status < 200 || res.status >= 300 || !res.data || res.data.ok === false) {
-    throw extractErrorMessage(res.status, res.data);
-  }
-  const diary = parseDiaryItem(res.data.diary ?? res.data) ?? undefined;
-  return { ok: true, diary, message: '已写日记' };
-}
-
-export async function readDiary(
-  target: VoiceTargetOptions,
-  date?: string,
-): Promise<Readonly<{ ok: boolean; diary?: XiaosuanDiaryItem; message: string }>> {
-  const payload: Record<string, unknown> = {};
-  if (typeof date === 'string' && date.trim()) {
-    payload.date = date.trim();
-  }
-  const xsTarget = resolveXiaosuanTarget(target);
-  const res = await requestVoiceJson(xsTarget, 'POST', '/api/diary/read', payload, 10_000);
-  if (res.status < 200 || res.status >= 300 || !res.data || res.data.ok === false) {
-    throw extractErrorMessage(res.status, res.data);
-  }
-  const diary = parseDiaryItem(res.data.diary ?? res.data) ?? undefined;
-  return { ok: true, diary, message: '朗读中' };
-}
-
 export async function sendBroadcast(
   target: VoiceTargetOptions,
   text: string,
@@ -2601,27 +1966,6 @@ export async function sendBroadcast(
     throw extractErrorMessage(res.status, res.data);
   }
   return { ok: true, text: cleanText, message: '已传话' };
-}
-
-export async function setIdleLife(
-  target: VoiceTargetOptions,
-  enabled: boolean,
-): Promise<Readonly<{ ok: boolean; enabled: boolean; message: string }>> {
-  const xsTarget = resolveXiaosuanTarget(target);
-  const res = await requestVoiceJson(xsTarget, 'POST', '/api/idle_life', { enabled }, 5_000);
-  if (res.status < 200 || res.status >= 300 || !res.data || res.data.ok === false) {
-    throw extractErrorMessage(res.status, res.data);
-  }
-  const resolved = typeof res.data.enabled === 'boolean'
-    ? res.data.enabled
-    : typeof res.data.idle_life_enabled === 'boolean'
-      ? res.data.idle_life_enabled
-      : enabled;
-  return {
-    ok: true,
-    enabled: resolved,
-    message: resolved ? '待机微动开' : '待机微动关',
-  };
 }
 
 export async function probeLingtuVoiceService(target: VoiceTargetOptions): Promise<Readonly<{
@@ -2815,13 +2159,8 @@ export async function readXiaosuanVoiceTranscript(
       patch.voiceName = parsedStatus.voiceName;
     }
     if ('pending_reminders' in res.data) patch.pendingReminders = parsedStatus.pendingReminders;
-    if ('ambient' in res.data) patch.ambient = parsedStatus.ambient;
     if ('active_timer' in res.data) patch.activeTimer = parsedStatus.activeTimer;
-    if ('companion' in res.data) patch.companion = parsedStatus.companion;
-    if ('idle_life_enabled' in res.data) patch.idleLifeEnabled = parsedStatus.idleLifeEnabled;
-    if ('speakers_available' in res.data) patch.speakersAvailable = parsedStatus.speakersAvailable;
-    if ('speakers_count' in res.data) patch.speakersCount = parsedStatus.speakersCount;
-    if ('photos_count' in res.data) patch.photosCount = parsedStatus.photosCount;
+    if ('active_move' in res.data || 'activeMove' in res.data) patch.activeMove = parsedStatus.activeMove;
     if ('profile' in res.data || 'profile_name' in res.data) {
       patch.profile = parsedStatus.profile;
       patch.profileName = parsedStatus.profileName;

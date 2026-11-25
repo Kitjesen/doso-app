@@ -59,32 +59,32 @@ function loadVoiceService() {
 
 const voiceService = loadVoiceService();
 
-test('HUD and Portrait ControlScreen expose live voice presence, 4-tab workspace, style drawer, and Wave 2 controls', () => {
+test('HUD and Portrait ControlScreen expose flush-left voice wing, single living Bot orb, popovers, subviews, and core controls', () => {
   assert.ok(hudSource.includes('testID="control-hud-voice-toggle"'));
   assert.ok(hudSource.includes('testID="control-hud-voice-presence-dot"'));
+  assert.ok(hudSource.includes('testID="control-hud-voice-wing"'));
+  assert.ok(hudSource.includes('testID="control-hud-voice-walk-lock"'));
+  assert.ok(!hudSource.includes('testID="control-hud-virtual-disc-toggle"'), '圆盘 must stay in Settings, not bottom-left dock');
+  assert.ok(!hudSource.includes('testID="control-hud-height-toggle"'), '高度 must stay in 姿态 drawer, not bottom-left dock');
   assert.ok(panelSource.includes('testID="control-hud-voice-panel"'));
   assert.ok(panelSource.includes('testID="control-voice-presence-pill"'));
-  assert.ok(panelSource.includes('testID="control-voice-style-drawer"'));
-  assert.ok(panelSource.includes('testID={`control-voice-tab-${tab.key}`}'));
-  assert.ok(panelSource.includes("{ key: 'chat', label: '对话' }"));
-  assert.ok(panelSource.includes("{ key: 'memory', label: '记忆' }"));
-  assert.ok(panelSource.includes("{ key: 'reminders', label: '提醒' }"));
-  assert.ok(panelSource.includes("{ key: 'moments', label: '时光' }"));
+  assert.ok(panelSource.includes('testID="control-voice-role-popover"'));
+  assert.ok(panelSource.includes('testID="control-voice-more-popover"'));
+  assert.ok(panelSource.includes('testID="control-voice-config-view"'));
+  assert.ok(panelSource.includes('testID="control-voice-tab-memory"'));
+  assert.ok(panelSource.includes('testID="control-voice-tab-reminders"'));
+  assert.ok(panelSource.includes('testID="control-voice-menu-config"'));
+  assert.ok(panelSource.includes('testID="control-voice-move-bar"'));
+  assert.ok(panelSource.includes('testID="control-voice-move-brake"'));
+  assert.ok(panelSource.includes('testID="control-voice-walk-shield"'));
+  assert.ok(panelSource.includes('testID="control-voice-walk-popover"'));
+  assert.ok(panelSource.includes('testID="control-voice-retry"'));
+  assert.ok(!panelSource.includes("{ key: 'moments'"), 'removed 时光 tab must not remain');
   assert.ok(panelSource.includes('testID="control-voice-quick-rail"'));
-  assert.ok(panelSource.includes('testID="control-voice-quick-scenes"'));
   assert.ok(panelSource.includes('testID="control-voice-quick-briefing"'));
-  assert.ok(panelSource.includes('testID="control-voice-quick-photo"'));
-  assert.ok(panelSource.includes('testID="control-voice-quick-combos"'));
   assert.ok(panelSource.includes('testID="control-voice-broadcast-toggle"'));
-  assert.ok(panelSource.includes('testID="control-voice-ambient-row"'));
-  assert.ok(panelSource.includes('testID="control-voice-idle-life-toggle"'));
-  assert.ok(panelSource.includes('testID="control-voice-speakers-section"'));
   assert.ok(panelSource.includes('testID="control-voice-timer-bar"'));
   assert.ok(panelSource.includes('testID="control-voice-reminder-repeat-row"'));
-  assert.ok(panelSource.includes('testID="control-voice-moments-view"'));
-  assert.ok(panelSource.includes('testID="control-voice-companion-strip"'));
-  assert.ok(panelSource.includes('testID="control-voice-photos-section"'));
-  assert.ok(panelSource.includes('testID="control-voice-diaries-section"'));
   assert.ok(panelSource.includes('testID="control-voice-mic-btn"'));
   assert.ok(panelSource.includes('testID="control-voice-input"'));
   assert.ok(panelSource.includes('testID="control-voice-send-btn"'));
@@ -92,19 +92,35 @@ test('HUD and Portrait ControlScreen expose live voice presence, 4-tab workspace
   assert.ok(panelSource.includes('testID="control-voice-memory-add-pin"'));
   assert.ok(panelSource.includes('testID="control-voice-reminder-add"'));
   assert.ok(controlSource.includes('useRobotVoiceChat('));
+  assert.ok(controlSource.includes('voiceChatEstopRef.current?.()'));
   assert.ok(controlSource.includes('testID="control-portrait-voice-toggle"'));
   assert.ok(controlSource.includes('testID="control-portrait-voice-dot"'));
   assert.ok(referenceUiSource.includes("id: 'control-setting-dog-volume'"));
   assert.ok(referenceUiSource.includes("'control-setting-quiet-mode'"));
+
+  // Removed photo/companion/toy controls stay out of UI.
+  for (const removedId of [
+    'control-voice-quick-scenes',
+    'control-voice-quick-photo',
+    'control-voice-quick-combos',
+    'control-voice-ambient-row',
+    'control-voice-idle-life-toggle',
+    'control-voice-speakers-section',
+    'control-voice-moments-view',
+    'control-voice-companion-strip',
+    'control-voice-photos-section',
+    'control-voice-diaries-section',
+  ]) {
+    assert.ok(!panelSource.includes(removedId), `removed UI control ${removedId} must not remain`);
+  }
 
   // Consumer-friendly unified 4-char memory category labels (zero raw keys rendered).
   for (const label of ['人物画像', '业务知识', '过往记录', '交互规范']) {
     assert.ok(panelSource.includes(`'${label}'`), `missing unified memory room label ${label}`);
     assert.ok(Object.values(voiceService.VOICE_MEMORY_ROOM_LABELS).includes(label), `missing VOICE_MEMORY_ROOM_LABELS ${label}`);
   }
-  assert.ok(panelSource.includes('testID="control-voice-drawer-tabs"'));
-  assert.ok(panelSource.includes('testID="control-voice-drawer-tab-style"'));
-  assert.ok(panelSource.includes('testID="control-voice-drawer-tab-capabilities"'));
+  assert.ok(panelSource.includes('testID="control-voice-drawer-capabilities-view"'));
+  assert.ok(panelSource.includes('testID="control-voice-drawer-style-view"'));
   assert.ok(panelSource.includes('testID="control-voice-cap-reset"'));
   assert.equal(voiceService.formatVoiceToolLabel('move_robot'), '运动控制');
 });
@@ -130,7 +146,7 @@ test('Zero-jargon, zero-lecturing, zero-parenthetical, and zero-fake-wall sweep 
   assert.doesNotMatch(hudSource, /待接入/);
 });
 
-test('LingTu & Xiaosuan voice service wires every pinned :8770 and :5050 endpoint (Wave 1 + Wave 2)', () => {
+test('LingTu & Xiaosuan voice service wires every pinned :8770 and :5050 v0.0.1 endpoint and drops removed toy/photo routes', () => {
   for (const route of [
     "'/api/v1/agent/options'",
     '/api/v1/agent/conversations',
@@ -139,6 +155,7 @@ test('LingTu & Xiaosuan voice service wires every pinned :8770 and :5050 endpoin
     "'/api/chat'",
     "'/api/transcript'",
     "'/api/stop'",
+    "'/api/estop'",
     "'/api/wake'",
     "'/api/quiet_mode'",
     "'/api/volume'",
@@ -155,37 +172,31 @@ test('LingTu & Xiaosuan voice service wires every pinned :8770 and :5050 endpoin
     "'/api/v1/instruction'",
     '/approvals/',
     '/cancel',
-    "'/api/photos'",
-    "'/api/photos/capture'",
-    "'/api/photos/delete'",
-    '/api/photos/',
-    "'/api/speakers'",
-    "'/api/speakers/enroll'",
-    "'/api/speakers/delete'",
-    "'/api/ambient'",
-    "'/api/scenes'",
-    "'/api/scenes/run'",
-    "'/api/combos'",
-    "'/api/combos/play'",
-    "'/api/combos/stop'",
     "'/api/briefing'",
     "'/api/timers'",
     "'/api/timers/start'",
     "'/api/timers/pause'",
     "'/api/timers/resume'",
     "'/api/timers/cancel'",
-    "'/api/diary'",
-    "'/api/diary/generate'",
-    "'/api/diary/read'",
     "'/api/broadcast'",
-    "'/api/idle_life'",
   ]) {
     assert.ok(serviceSource.includes(route), `missing route ${route}`);
+  }
+  for (const removedRoute of [
+    '/api/photos',
+    '/api/speakers',
+    '/api/ambient',
+    '/api/scenes',
+    '/api/combos',
+    '/api/diary',
+    '/api/idle_life',
+  ]) {
+    assert.ok(!serviceSource.includes(removedRoute), `removed route ${removedRoute} must not remain in serviceSource`);
   }
   assert.ok(bridgeSource.includes("url.pathname === '/api/v1/dev-lan/lingtu'"));
 });
 
-test('fetchXiaosuanStatus parses additive Wave 1 + Wave 2 live fields and degrades gracefully for legacy firmware and offline hosts', async () => {
+test('fetchXiaosuanStatus parses v0.0.1 live fields and degrades gracefully for legacy firmware and offline hosts', async () => {
   const fullTarget = {
     origin: 'http://192.168.66.64:5050',
     allowLocalHttp: true,
@@ -204,16 +215,6 @@ test('fetchXiaosuanStatus parses additive Wave 1 + Wave 2 live fields and degrad
           voice: 'gentle',
           voice_name: '温柔女声思思',
           pending_reminders: 3,
-          ambient: {
-            active: true,
-            sound: 'rain',
-            sound_label: '雨声',
-            remaining_sec: 900,
-            sounds: [
-              { id: 'rain', label: '雨声' },
-              { id: 'ocean', label: '海浪' },
-            ],
-          },
           active_timer: {
             id: 'tmr_1',
             kind: 'pomodoro',
@@ -223,17 +224,18 @@ test('fetchXiaosuanStatus parses additive Wave 1 + Wave 2 live fields and degrad
             state: 'running',
             auto_quiet: true,
           },
-          companion: {
-            days_together: 7,
-            streak_days: 5,
-            mood: 'happy',
-            mood_label: '开心',
-            speaker_tier: '默契',
+          active_move: {
+            active: true,
+            direction: 'turn_left',
+            direction_label: '左转',
+            is_turn: true,
+            current: 45,
+            target: 90,
+            unit: 'deg',
+            progress: 0.5,
+            closed_loop: true,
+            source: 'imu',
           },
-          idle_life_enabled: true,
-          speakers_available: true,
-          speakers_count: 2,
-          photos_count: 4,
         }),
       };
     },
@@ -249,10 +251,6 @@ test('fetchXiaosuanStatus parses additive Wave 1 + Wave 2 live fields and degrad
   assert.equal(full.voice, 'gentle');
   assert.equal(full.voiceName, '思思');
   assert.equal(full.pendingReminders, 3);
-  assert.equal(full.ambient.active, true);
-  assert.equal(full.ambient.sound, 'rain');
-  assert.equal(full.ambient.soundLabel, '雨声');
-  assert.equal(full.ambient.remainingSec, 900);
   assert.deepEqual({ ...full.activeTimer }, {
     id: 'tmr_1',
     kind: 'pomodoro',
@@ -262,19 +260,43 @@ test('fetchXiaosuanStatus parses additive Wave 1 + Wave 2 live fields and degrad
     state: 'running',
     autoQuiet: true,
   });
-  assert.deepEqual({ ...full.companion }, {
-    daysTogether: 7,
-    streakDays: 5,
-    mood: 'happy',
-    moodLabel: '开心',
-    speakerTier: '默契',
+  assert.deepEqual({ ...full.activeMove }, {
+    active: true,
+    direction: 'turn_left',
+    directionLabel: '左转',
+    isTurn: true,
+    current: 45,
+    target: 90,
+    unit: 'deg',
+    progress: 0.5,
+    closedLoop: true,
+    source: 'imu',
   });
-  assert.equal(full.idleLifeEnabled, true);
-  assert.equal(full.speakersAvailable, true);
-  assert.equal(full.speakersCount, 2);
-  assert.equal(full.photosCount, 4);
 
-  // Older firmware returning only { ok: true } degrades with safe Wave 1 + Wave 2 defaults.
+  // triggerXiaosuanEstop posts to :8770/api/estop and returns disarmed capabilities.
+  const estopRes = await voiceService.triggerXiaosuanEstop({
+    origin: 'http://192.168.66.64:5050',
+    allowLocalHttp: true,
+    fetchImpl: async (url, init = {}) => {
+      assert.equal(url, 'http://192.168.66.64:8770/api/estop');
+      assert.equal(init.method, 'POST');
+      return {
+        status: 200,
+        json: async () => ({
+          ok: true,
+          capabilities: {
+            profile: 'assistant',
+            profile_name: '日常助手',
+            modules: { robot_control: true, voice_walk: false, memory: true, info_reminders: true, vision_nav: false },
+          },
+        }),
+      };
+    },
+  });
+  assert.equal(estopRes.ok, true);
+  assert.equal(estopRes.capabilities.modules.voice_walk, false);
+
+  // Older firmware returning only { ok: true } degrades with safe defaults.
   const legacy = await voiceService.fetchXiaosuanStatus({
     origin: 'http://192.168.66.64:8770',
     allowLocalHttp: true,
@@ -288,14 +310,7 @@ test('fetchXiaosuanStatus parses additive Wave 1 + Wave 2 live fields and degrad
   assert.equal(legacy.roleName, '伙伴');
   assert.equal(legacy.voiceName, '小何');
   assert.equal(legacy.pendingReminders, 0);
-  assert.equal(legacy.ambient.active, false);
-  assert.equal(legacy.ambient.sound, 'off');
   assert.equal(legacy.activeTimer, null);
-  assert.equal(legacy.companion, null);
-  assert.equal(legacy.idleLifeEnabled, false);
-  assert.equal(legacy.speakersAvailable, false);
-  assert.equal(legacy.speakersCount, 0);
-  assert.equal(legacy.photosCount, 0);
 
   // Offline network rejection surfaces short clean error.
   await assert.rejects(
@@ -453,9 +468,8 @@ test('readXiaosuanVoiceTranscript merges chunked replies by turn_id, preserves s
   assert.equal(snap.messages[2].source, 'reminder');
 });
 
-test('Wave 2 :8770 client methods cover photos, speakers, ambient, scenes, combos, briefing, timers, repeat, diary, broadcast, and idle life', async () => {
+test('Core :8770 client methods cover briefing, timers, repeat reminders, broadcast, and transcript speaker badges', async () => {
   const calls = [];
-  const validPhotoId = 'pho_0123456789ab';
   const target = {
     origin: 'http://192.168.66.64:5050',
     allowLocalHttp: true,
@@ -464,75 +478,6 @@ test('Wave 2 :8770 client methods cover photos, speakers, ambient, scenes, combo
       const body = init.body ? JSON.parse(init.body) : null;
       calls.push({ method: init.method ?? 'GET', origin: parsed.origin, path: parsed.pathname, body });
 
-      if (parsed.pathname === '/api/photos') {
-        return {
-          status: 200,
-          json: async () => ({
-            ok: true,
-            photos: [
-              {
-                id: validPhotoId,
-                caption: '窗台阳光',
-                emotion: 'wink',
-                speaker_id: '方总',
-                created_at: '2026-11-24T02:15:00+00:00',
-                local_time: '2026-11-24 10:15:00',
-                created_ts: 1795400100,
-              },
-              {
-                id: 'pho_001122334455',
-                caption: '傍晚微风',
-                emotion: 'happy',
-                created_at: '2026-11-24T10:30:00Z',
-                created_at_local: '2026-11-24 18:30:00',
-                created_ts: 1795429800,
-              },
-              { id: '../evil', caption: 'bad' },
-            ],
-          }),
-        };
-      }
-      if (parsed.pathname === '/api/photos/capture') {
-        return {
-          status: 200,
-          json: async () => ({
-            ok: true,
-            photo: { id: 'pho_abcdef012345', caption: '新拍照片', emotion: 'wink', speaker_id: '方总', created_at: '2026-11-24 12:00:00' },
-          }),
-        };
-      }
-      if (parsed.pathname === '/api/photos/delete') return { status: 200, json: async () => ({ ok: true }) };
-      if (parsed.pathname === '/api/speakers') {
-        return { status: 200, json: async () => ({ ok: true, available: true, speakers: [{ name: '方总', samples: 3 }] }) };
-      }
-      if (parsed.pathname === '/api/speakers/enroll') {
-        return { status: 200, json: async () => ({ ok: true, name: body.name, samples: 1 }) };
-      }
-      if (parsed.pathname === '/api/speakers/delete') return { status: 200, json: async () => ({ ok: true }) };
-      if (parsed.pathname === '/api/ambient' && (init.method ?? 'GET') === 'GET') {
-        return { status: 200, json: async () => ({ ok: true, active: false, sound: 'off', sound_label: '关闭', remaining_sec: null }) };
-      }
-      if (parsed.pathname === '/api/ambient' && init.method === 'POST') {
-        return {
-          status: 200,
-          json: async () => ({
-            ok: true,
-            active: body.sound !== 'off',
-            sound: body.sound,
-            sound_label: body.sound === 'rain' ? '雨声' : '关闭',
-            remaining_sec: body.duration_min ? body.duration_min * 60 : null,
-          }),
-        };
-      }
-      if (parsed.pathname === '/api/scenes') {
-        return { status: 200, json: async () => ({ ok: true, scenes: [{ id: 'morning', label: '早安' }, { id: 'focus', label: '专注' }] }) };
-      }
-      if (parsed.pathname === '/api/scenes/run') return { status: 200, json: async () => ({ ok: true, id: body.id }) };
-      if (parsed.pathname === '/api/combos') {
-        return { status: 200, json: async () => ({ ok: true, combos: [{ id: 'new_year', label: '拜年' }, { id: 'cute', label: '卖萌' }] }) };
-      }
-      if (parsed.pathname === '/api/combos/play') return { status: 200, json: async () => ({ ok: true, id: body.id }) };
-      if (parsed.pathname === '/api/combos/stop') return { status: 200, json: async () => ({ ok: true }) };
       if (parsed.pathname === '/api/briefing') return { status: 200, json: async () => ({ ok: true, script: '早上好，今天晴朗。' }) };
       if (parsed.pathname === '/api/timers') {
         return { status: 200, json: async () => ({ ok: true, active_timer: { id: 't1', kind: 'pomodoro', label: '专注', duration_sec: 1500, remaining_sec: 1452, state: 'running', auto_quiet: true } }) };
@@ -550,15 +495,7 @@ test('Wave 2 :8770 client methods cover photos, speakers, ambient, scenes, combo
       if (parsed.pathname === '/api/reminders/add') {
         return { status: 200, json: async () => ({ ok: true, reminder: { id: 'rem_rep', content: body.content, time_expr: body.time_expr, repeat: body.repeat || '', status: 'pending' } }) };
       }
-      if (parsed.pathname === '/api/diary') {
-        return { status: 200, json: async () => ({ ok: true, diaries: [{ date: '2026-11-24', text: '今天陪主人散步很开心。', mood: 'happy', mood_label: '开心', photo_ids: [validPhotoId] }] }) };
-      }
-      if (parsed.pathname === '/api/diary/generate') {
-        return { status: 200, json: async () => ({ ok: true, diary: { date: '2026-11-24', text: '刚写好的今天日记。', mood: 'happy', mood_label: '开心', photo_ids: [] } }) };
-      }
-      if (parsed.pathname === '/api/diary/read') return { status: 200, json: async () => ({ ok: true }) };
       if (parsed.pathname === '/api/broadcast') return { status: 200, json: async () => ({ ok: true }) };
-      if (parsed.pathname === '/api/idle_life') return { status: 200, json: async () => ({ ok: true, enabled: body.enabled }) };
       if (parsed.pathname === '/api/transcript') {
         return {
           status: 200,
@@ -575,43 +512,6 @@ test('Wave 2 :8770 client methods cover photos, speakers, ambient, scenes, combo
     },
   };
 
-  // Photo URL guard against path traversal.
-  assert.equal(voiceService.getPhotoUrl(target, validPhotoId), `http://192.168.66.64:8770/api/photos/${validPhotoId}.jpg`);
-  assert.equal(voiceService.getPhotoUrl(target, '../secret'), '');
-  await assert.rejects(() => voiceService.deletePhoto(target, '../secret'), err => err.code === 'config');
-
-  const photos = await voiceService.listPhotos(target);
-  assert.equal(photos.length, 2, 'invalid photo IDs must be filtered out');
-  assert.equal(photos[0].url, `http://192.168.66.64:8770/api/photos/${validPhotoId}.jpg`);
-  assert.equal(photos[0].speakerId, '方总');
-  assert.equal(photos[0].createdAt, '2026-11-24 10:15:00', 'must prefer local_time over UTC created_at');
-  assert.equal(photos[0].ts, 1795400100, 'must parse created_ts into ts');
-  assert.equal(photos[1].createdAt, '2026-11-24 18:30:00', 'must prefer created_at_local over UTC created_at');
-  assert.equal(photos[1].ts, 1795429800);
-  const cap = await voiceService.capturePhoto(target);
-  assert.equal(cap.message, '已拍照');
-  assert.equal(cap.photo.id, 'pho_abcdef012345');
-  assert.equal((await voiceService.deletePhoto(target, validPhotoId)).message, '已删除');
-
-  const spk = await voiceService.listSpeakers(target);
-  assert.equal(spk.available, true);
-  assert.equal(spk.speakers[0].name, '方总');
-  assert.equal((await voiceService.enrollSpeaker(target, '小李')).message, '已录声纹');
-  assert.equal((await voiceService.deleteSpeaker(target, '小李')).message, '已删除');
-
-  assert.equal((await voiceService.getAmbient(target)).active, false);
-  const ambOn = await voiceService.setAmbient(target, 'rain', 30);
-  assert.equal(ambOn.ambient.active, true);
-  assert.equal(ambOn.ambient.sound, 'rain');
-  assert.equal(ambOn.ambient.remainingSec, 1800);
-  assert.equal(ambOn.message, '已播雨声');
-  assert.equal((await voiceService.setAmbient(target, 'off')).message, '已关白噪音');
-
-  assert.equal((await voiceService.listScenes(target)).length, 2);
-  assert.equal((await voiceService.runScene(target, 'focus', 25)).message, '已切专注');
-  assert.equal((await voiceService.listCombos(target)).length, 2);
-  assert.equal((await voiceService.playCombo(target, 'new_year')).message, '表演拜年');
-  assert.equal((await voiceService.stopCombo(target)).message, '已停表演');
   const brief = await voiceService.runBriefing(target, { city: '上海', speak: true });
   assert.equal(brief.message, '已播早报');
   assert.match(brief.text, /晴朗/);
@@ -628,13 +528,7 @@ test('Wave 2 :8770 client methods cover photos, speakers, ambient, scenes, combo
   assert.equal(repRem.reminder.repeat, 'weekdays');
   assert.equal(calls.find(c => c.path === '/api/reminders/add').body.repeat, 'weekdays');
 
-  const diaries = await voiceService.listDiaries(target);
-  assert.equal(diaries.length, 1);
-  assert.equal(diaries[0].moodLabel, '开心');
-  assert.equal((await voiceService.generateDiary(target, { force: true })).message, '已写日记');
-  assert.equal((await voiceService.readDiary(target, '2026-11-24')).message, '朗读中');
   assert.equal((await voiceService.sendBroadcast(target, '外卖到了')).message, '已传话');
-  assert.equal((await voiceService.setIdleLife(target, true)).message, '待机微动开');
 
   const tx = await voiceService.readXiaosuanVoiceTranscript(target);
   assert.equal(tx.messages[0].speakerId, '方总');
@@ -863,27 +757,9 @@ function mountVoicePanelHarness({ fetchImpl }) {
   };
 }
 
-test('Wave 2 hook & panel drive 1s local timer ticker, conditional voiceprints, moments tab, broadcast, scenes, combos, and ambient', async () => {
+test('Hook & panel drive 1s local timer ticker, broadcast, briefing, and repeat reminders cleanly', async () => {
   const calls = [];
-  let speakersAvailable = false;
-  let speakers = [];
-  let ambient = { active: false, sound: 'off', sound_label: '关闭', remaining_sec: null };
   let activeTimer = null;
-  let idleLifeEnabled = false;
-  let photos = [
-    {
-      id: 'pho_111122223333',
-      caption: '客厅阳光',
-      emotion: 'wink',
-      speaker_id: '方总',
-      created_at: '2026-11-24T01:30:00+00:00',
-      local_time: '2026-11-24 09:30:00',
-      created_ts: 1795397400,
-    },
-  ];
-  let diaries = [
-    { date: '2026-11-24', text: '今天和方总玩得很开心，还拍了一张照。', mood: 'happy', mood_label: '开心', photo_ids: ['pho_111122223333'] },
-  ];
   let reminders = [
     { id: 'rem_1', content: '吃早饭', time_expr: '早8点', repeat: 'daily', trigger_at_local: '2026-11-25 08:00:00', status: 'pending' },
   ];
@@ -903,13 +779,7 @@ test('Wave 2 hook & panel drive 1s local timer ticker, conditional voiceprints, 
     voice: 'xiaosuan',
     voice_name: '小何',
     pending_reminders: reminders.length,
-    ambient,
     active_timer: activeTimer,
-    companion: { days_together: 7, streak_days: 7, mood: 'happy', mood_label: '开心', speaker_tier: '默契' },
-    idle_life_enabled: idleLifeEnabled,
-    speakers_available: speakersAvailable,
-    speakers_count: speakers.length,
-    photos_count: photos.length,
   });
 
   const ui = mountVoicePanelHarness({
@@ -922,51 +792,11 @@ test('Wave 2 hook & panel drive 1s local timer ticker, conditional voiceprints, 
       if (parsed.pathname === '/api/status') return { status: 200, json: async () => statusBody() };
       if (parsed.pathname === '/api/transcript') return { status: 200, json: async () => ({ ok: true, live_state: 'idle', emotion: 'happy', events }) };
       if (parsed.pathname === '/api/persona') return { status: 200, json: async () => ({ ok: true, role: 'xiaosuan', voice: 'xiaosuan', roles: [], voices: [] }) };
-      if (parsed.pathname === '/api/ambient' && (init.method ?? 'GET') === 'GET') return { status: 200, json: async () => ({ ok: true, ...ambient }) };
-      if (parsed.pathname === '/api/ambient' && init.method === 'POST') {
-        ambient = { active: body.sound !== 'off', sound: body.sound, sound_label: body.sound === 'rain' ? '雨声' : '关闭', remaining_sec: body.duration_min ? body.duration_min * 60 : null };
-        return { status: 200, json: async () => ({ ok: true, ...ambient }) };
-      }
-      if (parsed.pathname === '/api/idle_life') {
-        idleLifeEnabled = Boolean(body.enabled);
-        return { status: 200, json: async () => ({ ok: true, enabled: idleLifeEnabled }) };
-      }
-      if (parsed.pathname === '/api/speakers') return { status: 200, json: async () => ({ ok: true, available: speakersAvailable, speakers }) };
-      if (parsed.pathname === '/api/speakers/enroll') {
-        speakers = [...speakers, { name: body.name, samples: 1 }];
-        return { status: 200, json: async () => ({ ok: true, name: body.name, samples: 1 }) };
-      }
-      if (parsed.pathname === '/api/speakers/delete') {
-        speakers = speakers.filter(s => s.name !== body.name);
-        return { status: 200, json: async () => ({ ok: true }) };
-      }
-      if (parsed.pathname === '/api/scenes') return { status: 200, json: async () => ({ ok: true, scenes: [{ id: 'morning', label: '早安' }, { id: 'focus', label: '专注' }, { id: 'bedtime', label: '睡前' }, { id: 'welcome', label: '迎宾' }] }) };
-      if (parsed.pathname === '/api/scenes/run') return { status: 200, json: async () => ({ ok: true, id: body.id }) };
-      if (parsed.pathname === '/api/combos') return { status: 200, json: async () => ({ ok: true, combos: [{ id: 'new_year', label: '拜年' }, { id: 'welcome', label: '迎宾' }, { id: 'cute', label: '卖萌' }, { id: 'warmup', label: '热身' }] }) };
-      if (parsed.pathname === '/api/combos/play') return { status: 200, json: async () => ({ ok: true, id: body.id }) };
-      if (parsed.pathname === '/api/combos/stop') return { status: 200, json: async () => ({ ok: true }) };
       if (parsed.pathname === '/api/briefing') return { status: 200, json: async () => ({ ok: true, script: '今日晴朗。' }) };
       if (parsed.pathname === '/api/broadcast') {
         events = [...events, { seq: events.length + 1, turn_id: `b_${events.length}`, event: 'tts', role: 'user', text: body.text, source: 'broadcast', ts: 20 }];
         return { status: 200, json: async () => ({ ok: true }) };
       }
-      if (parsed.pathname === '/api/photos') return { status: 200, json: async () => ({ ok: true, photos }) };
-      if (parsed.pathname === '/api/photos/capture') {
-        const nextPhoto = { id: 'pho_999988887777', caption: '刚拍的画面', emotion: 'wink', speaker_id: '', created_at: '2026-11-24 12:10:00' };
-        photos = [nextPhoto, ...photos];
-        return { status: 200, json: async () => ({ ok: true, photo: nextPhoto }) };
-      }
-      if (parsed.pathname === '/api/photos/delete') {
-        photos = photos.filter(p => p.id !== body.id);
-        return { status: 200, json: async () => ({ ok: true }) };
-      }
-      if (parsed.pathname === '/api/diary') return { status: 200, json: async () => ({ ok: true, diaries }) };
-      if (parsed.pathname === '/api/diary/generate') {
-        const nextDiary = { date: '2026-11-24', text: '重新整理的温暖日记。', mood: 'happy', mood_label: '开心', photo_ids: [] };
-        diaries = [nextDiary];
-        return { status: 200, json: async () => ({ ok: true, diary: nextDiary }) };
-      }
-      if (parsed.pathname === '/api/diary/read') return { status: 200, json: async () => ({ ok: true }) };
       if (parsed.pathname === '/api/reminders') return { status: 200, json: async () => ({ ok: true, reminders }) };
       if (parsed.pathname === '/api/reminders/add') {
         reminders = [...reminders, { id: 'rem_new', content: body.content, time_expr: body.time_expr, repeat: body.repeat || '', trigger_at_local: '2026-11-25 09:00:00', status: 'pending' }];
@@ -998,12 +828,14 @@ test('Wave 2 hook & panel drive 1s local timer ticker, conditional voiceprints, 
   ui.render();
   await ui.settle();
 
-  // 1. Chat tab: speaker_id chip + 传话 badge + broadcast toggle + quick rail (情景/早报/拍照/才艺).
+  // 1. Chat tab: speaker_id chip + 传话 badge + broadcast toggle + 早报 quick popover.
   assert.ok(ui.find('control-voice-speaker-xs_user_v1'), 'voice bubble must display speaker_id chip');
   assert.ok(ui.find('control-voice-source-xs_user_b1'), 'broadcast bubble must display 传话 badge');
   assert.match(ui.copy, /方总/);
   assert.match(ui.copy, /传话/);
 
+  ui.find('control-voice-quick-toggle').props.onPress();
+  ui.render();
   ui.find('control-voice-broadcast-toggle').props.onPress();
   ui.render();
   ui.find('control-voice-input').props.onChangeText('准备开饭啦');
@@ -1012,43 +844,15 @@ test('Wave 2 hook & panel drive 1s local timer ticker, conditional voiceprints, 
   await ui.settle();
   assert.ok(calls.some(c => c.path === '/api/broadcast' && c.body?.text === '准备开饭啦'));
 
-  ui.find('control-voice-quick-scenes').props.onPress();
+  ui.find('control-voice-quick-toggle').props.onPress();
   ui.render();
-  assert.ok(ui.find('control-voice-scene-bar'));
-  ui.find('control-voice-scene-focus').props.onPress();
-  await ui.settle();
-  assert.ok(calls.some(c => c.path === '/api/scenes/run' && c.body?.id === 'focus'));
-
   ui.find('control-voice-quick-briefing').props.onPress();
   await ui.settle();
   assert.ok(calls.some(c => c.path === '/api/briefing'));
 
-  ui.find('control-voice-quick-combos').props.onPress();
+  // 2. Reminders subview via ··· menu: live Pomodoro 1-second local countdown ticker + pause/resume/cancel + repeat picker.
+  ui.find('control-voice-more-toggle').props.onPress();
   ui.render();
-  ui.find('control-voice-combo-new_year').props.onPress();
-  await ui.settle();
-  assert.ok(calls.some(c => c.path === '/api/combos/play' && c.body?.id === 'new_year'));
-  ui.find('control-voice-combo-stop').props.onPress();
-  await ui.settle();
-  assert.ok(calls.some(c => c.path === '/api/combos/stop'));
-
-  // 2. Style drawer: 白噪音 + 待机微动 + CONDITIONAL 声纹 HIDDEN when !speakersAvailable && speakers.length === 0!
-  ui.find('control-voice-style-toggle').props.onPress();
-  ui.render();
-  await ui.settle();
-  assert.ok(ui.find('control-voice-ambient-row'));
-  assert.ok(ui.find('control-voice-idle-life-toggle'));
-  assert.equal(ui.find('control-voice-speakers-section'), undefined, '声纹 section MUST stay hidden when unavailable and empty (zero fake wall)');
-
-  ui.find('control-voice-ambient-rain').props.onPress();
-  await ui.settle();
-  assert.ok(calls.some(c => c.path === '/api/ambient' && c.body?.sound === 'rain' && c.body?.duration_min === 30));
-
-  ui.find('control-voice-idle-life-toggle').props.onPress();
-  await ui.settle();
-  assert.ok(calls.some(c => c.path === '/api/idle_life' && c.body?.enabled === true));
-
-  // 3. Reminders tab: live Pomodoro 1-second local countdown ticker + pause/resume/cancel + repeat picker.
   ui.find('control-voice-tab-reminders').props.onPress();
   ui.render();
   await ui.settle();
@@ -1079,96 +883,10 @@ test('Wave 2 hook & panel drive 1s local timer ticker, conditional voiceprints, 
   await ui.settle();
   assert.ok(calls.some(c => c.path === '/api/reminders/add' && c.body?.content === '晨会' && c.body?.repeat === 'weekdays'));
 
-  // 4. Moments tab (时光): companion bond, 2-col photo grid, tap-to-preview modal + delete, diary generate + read.
-  ui.find('control-voice-tab-moments').props.onPress();
-  ui.render();
-  await ui.settle();
-  assert.ok(ui.find('control-voice-moments-view'));
-  assert.equal(ui.find('control-voice-companion-days').props.children, '陪伴第7天');
-  assert.match(ui.copy, /开心/);
-  assert.ok(ui.find('control-voice-photo-item-pho_111122223333'));
-
-  ui.find('control-voice-photo-item-pho_111122223333').props.onPress();
-  ui.render();
-  assert.ok(ui.find('control-voice-photo-preview'));
-  assert.equal(ui.find('control-voice-photo-preview-image').props.source.uri, 'http://192.168.66.64:8770/api/photos/pho_111122223333.jpg');
-  assert.match(ui.copy, /11-24 09:30/, 'photo preview must display local_time instead of UTC created_at');
-  assert.doesNotMatch(ui.copy, /11-24 01:30/);
-  ui.find('control-voice-photo-preview-delete').props.onPress();
-  await ui.settle();
-  assert.ok(calls.some(c => c.path === '/api/photos/delete' && c.body?.id === 'pho_111122223333'));
-  assert.equal(ui.find('control-voice-photo-preview'), undefined);
-  assert.ok(ui.find('control-voice-photos-empty'));
-
-  ui.find('control-voice-moments-capture').props.onPress();
-  await ui.settle();
-  assert.ok(calls.some(c => c.path === '/api/photos/capture'));
-  assert.ok(ui.find('control-voice-photo-item-pho_999988887777'));
-
-  ui.find('control-voice-diary-generate').props.onPress();
-  await ui.settle();
-  assert.ok(calls.some(c => c.path === '/api/diary/generate'));
-  ui.find('control-voice-diary-read-2026-11-24').props.onPress();
-  await ui.settle();
-  assert.ok(calls.some(c => c.path === '/api/diary/read' && c.body?.date === '2026-11-24'));
-
-  // Zero-jargon rendered copy sweep across Wave 2 UI.
+  // Zero-jargon rendered copy sweep.
   assert.doesNotMatch(ui.copy, /暂未接入|仅作预览|暂不可用|清空上下文|AskMe|MemPalace|8770|8780|ONNX|Opus|TTS|ASR|EOT/);
   ui.unmount();
   assert.equal(ui.activeIntervals, 0, 'all intervals including 1s timer ticker must clean up on unmount');
-});
-
-test('Style drawer shows conditional 声纹 enroll/delete controls ONLY when speakersAvailable or speakers exist', async () => {
-  const calls = [];
-  let speakers = [{ name: '方总', samples: 2 }];
-  const ui = mountVoicePanelHarness({
-    fetchImpl: async (url, init = {}) => {
-      const parsed = new URL(url);
-      const body = init.body ? JSON.parse(init.body) : null;
-      calls.push({ method: init.method ?? 'GET', path: parsed.pathname, body });
-
-      if (parsed.pathname === '/api/v1/agent/options') return { status: 404, json: async () => ({}) };
-      if (parsed.pathname === '/api/status') {
-        return { status: 200, json: async () => ({ ok: true, live_state: 'idle', speakers_available: true, speakers_count: speakers.length }) };
-      }
-      if (parsed.pathname === '/api/transcript') return { status: 200, json: async () => ({ ok: true, events: [] }) };
-      if (parsed.pathname === '/api/persona') return { status: 200, json: async () => ({ ok: true, roles: [], voices: [] }) };
-      if (parsed.pathname === '/api/ambient') return { status: 200, json: async () => ({ ok: true, active: false, sound: 'off' }) };
-      if (parsed.pathname === '/api/speakers') return { status: 200, json: async () => ({ ok: true, available: true, speakers }) };
-      if (parsed.pathname === '/api/speakers/enroll') {
-        speakers = [...speakers, { name: body.name, samples: 1 }];
-        return { status: 200, json: async () => ({ ok: true, name: body.name, samples: 1 }) };
-      }
-      if (parsed.pathname === '/api/speakers/delete') {
-        speakers = speakers.filter(s => s.name !== body.name);
-        return { status: 200, json: async () => ({ ok: true }) };
-      }
-      return { status: 404, json: async () => ({ ok: false }) };
-    },
-  });
-
-  await ui.settle();
-  ui.controller.setOpen(true);
-  ui.render();
-  await ui.settle();
-  ui.find('control-voice-style-toggle').props.onPress();
-  ui.render();
-  await ui.settle();
-
-  assert.ok(ui.find('control-voice-speakers-section'));
-  assert.ok(ui.find('control-voice-speaker-item-方总'));
-  ui.find('control-voice-speaker-input').props.onChangeText('小王');
-  ui.render();
-  ui.find('control-voice-speaker-enroll').props.onPress();
-  await ui.settle();
-  assert.ok(calls.some(c => c.path === '/api/speakers/enroll' && c.body?.name === '小王'));
-  assert.ok(ui.find('control-voice-speaker-item-小王'));
-
-  ui.find('control-voice-speaker-delete-方总').props.onPress();
-  await ui.settle();
-  assert.ok(calls.some(c => c.path === '/api/speakers/delete' && c.body?.name === '方总'));
-  assert.equal(ui.find('control-voice-speaker-item-方总'), undefined);
-  ui.unmount();
 });
 
 test('readXiaosuanCapabilities, updateXiaosuanCapabilities, and additive /api/status capabilities parse cleanly with legacy fallback', async () => {
@@ -1183,23 +901,22 @@ test('readXiaosuanCapabilities, updateXiaosuanCapabilities, and additive /api/st
     ],
     modules: {
       robot_control: true,
+      voice_walk: false,
       memory: true,
       info_reminders: true,
       vision_nav: false,
-      companion: false,
     },
     hardware: {
       camera: false,
       navigation: false,
-      voiceprint: false,
       brainstem: true,
     },
     module_list: [
       { id: 'robot_control', name: '语音控狗', enabled: true, available: true, status_label: '已开' },
+      { id: 'voice_walk', name: '语音走动', enabled: false, available: true, status_label: '已锁定', safety_lock: true },
       { id: 'memory', name: '长期记忆', enabled: true, available: true, status_label: '已开' },
       { id: 'info_reminders', name: '联网与提醒', enabled: true, available: true, status_label: '已开' },
       { id: 'vision_nav', name: '视觉与导航', enabled: false, available: false, status_label: '未接硬件' },
-      { id: 'companion', name: '陪伴与娱乐', enabled: false, available: true, status_label: '已关' },
     ],
     memory_acl: {
       read_rooms: ['user_long_term', 'customer_knowledge', 'episodic_events', 'robot_behavior'],
@@ -1244,7 +961,7 @@ test('readXiaosuanCapabilities, updateXiaosuanCapabilities, and additive /api/st
         if (body?.reset) {
           state = {
             ...state,
-            modules: { robot_control: true, memory: true, info_reminders: true, vision_nav: false, companion: false },
+            modules: { robot_control: true, voice_walk: false, memory: true, info_reminders: true, vision_nav: false },
             overrides: {},
             has_overrides: false,
           };
@@ -1253,7 +970,7 @@ test('readXiaosuanCapabilities, updateXiaosuanCapabilities, and additive /api/st
             ...state,
             profile: 'host',
             profile_name: '展厅迎宾',
-            modules: { robot_control: true, memory: true, info_reminders: false, vision_nav: false, companion: false },
+            modules: { robot_control: true, voice_walk: false, memory: true, info_reminders: false, vision_nav: false },
             memory_acl: {
               read_rooms: ['customer_knowledge', 'robot_behavior'],
               write_rooms: [],
@@ -1273,10 +990,10 @@ test('readXiaosuanCapabilities, updateXiaosuanCapabilities, and additive /api/st
         }
         state.module_list = [
           { id: 'robot_control', name: '语音控狗', enabled: state.modules.robot_control, available: true, status_label: state.modules.robot_control ? '已开' : '已关' },
+          { id: 'voice_walk', name: '语音走动', enabled: state.modules.voice_walk, available: state.modules.robot_control, status_label: state.modules.voice_walk ? '已解锁' : '已锁定', safety_lock: true },
           { id: 'memory', name: '长期记忆', enabled: state.modules.memory, available: true, status_label: state.modules.memory ? '已开' : '已关' },
           { id: 'info_reminders', name: '联网与提醒', enabled: state.modules.info_reminders, available: true, status_label: state.modules.info_reminders ? '已开' : '已关' },
           { id: 'vision_nav', name: '视觉与导航', enabled: false, available: false, status_label: '未接硬件' },
-          { id: 'companion', name: '陪伴与娱乐', enabled: state.modules.companion, available: true, status_label: state.modules.companion ? '已开' : '已关' },
         ];
         return { status: 200, json: async () => ({ ok: true, ...state }) };
       }
@@ -1290,7 +1007,6 @@ test('readXiaosuanCapabilities, updateXiaosuanCapabilities, and additive /api/st
   assert.equal(statusSnap.profileName, '日常助手');
   assert.ok(statusSnap.capabilities);
   assert.equal(statusSnap.capabilities.modules.vision_nav, false);
-  assert.equal(statusSnap.capabilities.modules.companion, false);
   const statusVision = statusSnap.capabilities.moduleList.find(m => m.id === 'vision_nav');
   assert.equal(statusVision.available, false);
   assert.equal(statusVision.statusLabel, '未接硬件');
@@ -1311,17 +1027,16 @@ test('readXiaosuanCapabilities, updateXiaosuanCapabilities, and additive /api/st
   assert.deepEqual([...switched.capabilities.memoryAcl.readRooms], ['customer_knowledge', 'robot_behavior']);
   assert.equal(switched.capabilities.memoryAcl.allowVoiceWrite, false);
 
-  // POST /api/capabilities override -> companion ON
-  const toggled = await voiceService.updateXiaosuanCapabilities(target, { overrides: { companion: true } });
-  assert.equal(toggled.message, '陪伴与娱乐开');
-  assert.equal(toggled.capabilities.modules.companion, true);
+  // POST /api/capabilities override -> info_reminders ON
+  const toggled = await voiceService.updateXiaosuanCapabilities(target, { overrides: { info_reminders: true } });
+  assert.equal(toggled.message, '联网与提醒开');
+  assert.equal(toggled.capabilities.modules.info_reminders, true);
   assert.equal(toggled.capabilities.hasOverrides, true);
 
   // POST /api/capabilities reset
   const resetRes = await voiceService.updateXiaosuanCapabilities(target, { reset: true });
   assert.equal(resetRes.message, '已恢复默认');
   assert.equal(resetRes.capabilities.hasOverrides, false);
-  assert.equal(resetRes.capabilities.modules.companion, false);
 
   // Empty mutation rejected
   await assert.rejects(() => voiceService.updateXiaosuanCapabilities(target, {}), err => err.code === 'config');
@@ -1338,12 +1053,12 @@ test('readXiaosuanCapabilities, updateXiaosuanCapabilities, and additive /api/st
   assert.ok(calls.every(c => c.origin === 'http://192.168.66.64:8770'));
 });
 
-test('3-role + 5-switch dynamic UI hides disabled tabs/rail/drawer sections, enforces host memory ACL & HUD reminder isolation, and skips disabled polling', async () => {
+test('3-role + 5-module dynamic UI hides disabled tabs/rail, enforces host memory ACL & HUD reminder isolation, and skips disabled polling', async () => {
   const calls = [];
   const profileDefaults = {
     assistant: {
       name: '日常助手',
-      modules: { robot_control: true, memory: true, info_reminders: true, vision_nav: false, companion: false },
+      modules: { robot_control: true, voice_walk: false, memory: true, info_reminders: true, vision_nav: false },
       acl: {
         read_rooms: ['user_long_term', 'customer_knowledge', 'episodic_events', 'robot_behavior'],
         write_rooms: ['user_long_term', 'customer_knowledge', 'episodic_events', 'robot_behavior'],
@@ -1352,7 +1067,7 @@ test('3-role + 5-switch dynamic UI hides disabled tabs/rail/drawer sections, enf
     },
     host: {
       name: '展厅迎宾',
-      modules: { robot_control: true, memory: true, info_reminders: false, vision_nav: false, companion: false },
+      modules: { robot_control: true, voice_walk: false, memory: true, info_reminders: false, vision_nav: false },
       acl: {
         read_rooms: ['customer_knowledge', 'robot_behavior'],
         write_rooms: [],
@@ -1361,7 +1076,7 @@ test('3-role + 5-switch dynamic UI hides disabled tabs/rail/drawer sections, enf
     },
     companion: {
       name: '家庭陪伴',
-      modules: { robot_control: true, memory: true, info_reminders: true, vision_nav: false, companion: true },
+      modules: { robot_control: true, voice_walk: false, memory: true, info_reminders: true, vision_nav: false },
       acl: {
         read_rooms: ['user_long_term', 'customer_knowledge', 'episodic_events', 'robot_behavior'],
         write_rooms: ['user_long_term', 'customer_knowledge', 'episodic_events', 'robot_behavior'],
@@ -1372,7 +1087,7 @@ test('3-role + 5-switch dynamic UI hides disabled tabs/rail/drawer sections, enf
 
   let activeProfile = 'assistant';
   let overrides = {};
-  let hardware = { camera: false, navigation: false, voiceprint: false, brainstem: true };
+  let hardware = { camera: false, navigation: false, brainstem: true };
 
   const buildCapPayload = () => {
     const def = profileDefaults[activeProfile];
@@ -1380,17 +1095,17 @@ test('3-role + 5-switch dynamic UI hides disabled tabs/rail/drawer sections, enf
     const rawMods = { ...def.modules, ...overrides };
     const effective = {
       robot_control: Boolean(rawMods.robot_control),
+      voice_walk: Boolean(rawMods.robot_control) && Boolean(rawMods.voice_walk),
       memory: Boolean(rawMods.memory),
       info_reminders: Boolean(rawMods.info_reminders),
       vision_nav: visionAvail ? Boolean(rawMods.vision_nav) : false,
-      companion: Boolean(rawMods.companion),
     };
     const module_list = [
       { id: 'robot_control', name: '语音控狗', enabled: effective.robot_control, available: true, status_label: effective.robot_control ? '已开' : '已关' },
+      { id: 'voice_walk', name: '语音走动', enabled: effective.voice_walk, available: effective.robot_control, status_label: effective.robot_control ? '' : '需开控狗', safety_lock: true },
       { id: 'memory', name: '长期记忆', enabled: effective.memory, available: true, status_label: effective.memory ? '已开' : '已关' },
       { id: 'info_reminders', name: '联网与提醒', enabled: effective.info_reminders, available: true, status_label: effective.info_reminders ? '已开' : '已关' },
       { id: 'vision_nav', name: '视觉与导航', enabled: effective.vision_nav, available: visionAvail, status_label: visionAvail ? (effective.vision_nav ? '已开' : '已关') : '未接硬件' },
-      { id: 'companion', name: '陪伴与娱乐', enabled: effective.companion, available: true, status_label: effective.companion ? '已开' : '已关' },
     ];
     return {
       ok: true,
@@ -1435,7 +1150,6 @@ test('3-role + 5-switch dynamic UI hides disabled tabs/rail/drawer sections, enf
             quiet_mode: false,
             volume: 65,
             pending_reminders: 3,
-            photos_count: 2,
             profile: cap.profile,
             profile_name: cap.profile_name,
             capabilities: {
@@ -1477,26 +1191,6 @@ test('3-role + 5-switch dynamic UI hides disabled tabs/rail/drawer sections, enf
       }
       if (parsed.pathname === '/api/reminders') return { status: 200, json: async () => ({ ok: true, reminders: [] }) };
       if (parsed.pathname === '/api/timers') return { status: 200, json: async () => ({ ok: true, active_timer: null }) };
-      if (parsed.pathname === '/api/photos') {
-        return {
-          status: 200,
-          json: async () => ({
-            ok: true,
-            photos: [{ id: 'pho_aaaa11112222', caption: '前视快照', emotion: 'happy', local_time: '2026-11-24 14:00:00', created_ts: 1795413600 }],
-          }),
-        };
-      }
-      if (parsed.pathname === '/api/diary') {
-        return {
-          status: 200,
-          json: async () => ({
-            ok: true,
-            diaries: [{ date: '2026-11-24', text: '今天心情很好。', mood: 'happy', mood_label: '开心', photo_ids: [] }],
-          }),
-        };
-      }
-      if (parsed.pathname === '/api/ambient') return { status: 200, json: async () => ({ ok: true, active: false, sound: 'off' }) };
-      if (parsed.pathname === '/api/speakers') return { status: 200, json: async () => ({ ok: true, available: false, speakers: [] }) };
       return { status: 404, json: async () => ({ ok: false }) };
     },
   });
@@ -1506,51 +1200,53 @@ test('3-role + 5-switch dynamic UI hides disabled tabs/rail/drawer sections, enf
   ui.render();
   await ui.settle();
 
-  // 1. Default assistant (日常助手): 3 tabs (对话/记忆/提醒), 时光 hidden, vision/companion quick chips hidden.
+  // 1. Default assistant (日常助手): minimal header role label, ··· menu exposes 长期记忆/日程提醒/能力与声音, + popover hides 看看前面 when vision_nav is OFF.
   assert.equal(ui.find('control-voice-role-pill-label').props.children, '日常助手');
   assert.equal(ui.find('control-voice-override-dot'), undefined);
-  assert.ok(ui.find('control-voice-tab-chat'));
-  assert.ok(ui.find('control-voice-tab-memory'));
-  assert.ok(ui.find('control-voice-tab-reminders'));
-  assert.equal(ui.find('control-voice-tab-moments'), undefined, '时光 tab must be hidden when vision_nav & companion are OFF');
   assert.equal(ui.controller.pendingRemindersCount, 3);
 
+  ui.find('control-voice-more-toggle').props.onPress();
+  ui.render();
+  assert.ok(ui.find('control-voice-tab-memory'));
+  assert.ok(ui.find('control-voice-tab-reminders'));
+  assert.ok(ui.find('control-voice-menu-config'));
+
+  ui.find('control-voice-quick-toggle').props.onPress();
+  ui.render();
   assert.ok(ui.find('control-voice-quick-查看状态'));
   assert.ok(ui.find('control-voice-quick-打招呼'));
   assert.ok(ui.find('control-voice-quick-坐下'));
   assert.ok(ui.find('control-voice-quick-今天天气'));
   assert.ok(ui.find('control-voice-quick-briefing'));
-  assert.equal(ui.find('control-voice-quick-photo'), undefined, '拍照 must be hidden when vision_nav is OFF');
   assert.equal(ui.find('control-voice-quick-看看前面'), undefined, '看看前面 must be hidden when vision_nav is OFF');
-  assert.equal(ui.find('control-voice-quick-scenes'), undefined, '情景 must be hidden when companion is OFF');
-  assert.equal(ui.find('control-voice-quick-combos'), undefined, '才艺 must be hidden when companion is OFF');
 
-  // 2. Open Drawer -> 样式 tab shows 3 role pills, hides 白噪音/待机微动/声纹, and SKIPS /api/ambient & /api/speakers polling!
+  // 2. Open Role popover -> shows 3 role options cleanly.
   ui.find('control-voice-style-toggle').props.onPress();
   ui.render();
   await ui.settle();
-  assert.ok(ui.find('control-voice-drawer-tabs'));
+  assert.ok(ui.find('control-voice-role-popover'));
   assert.ok(ui.find('control-voice-profile-assistant'));
   assert.ok(ui.find('control-voice-profile-host'));
   assert.ok(ui.find('control-voice-profile-companion'));
-  assert.equal(ui.find('control-voice-ambient-row'), undefined, '白噪音 hidden when companion is OFF');
-  assert.equal(ui.find('control-voice-idle-life-row'), undefined, '待机微动 hidden when companion is OFF');
-  assert.equal(ui.find('control-voice-speakers-section'), undefined, '声纹 hidden when companion is OFF');
-  assert.equal(calls.filter(c => c.path === '/api/ambient' || c.path === '/api/speakers').length, 0, 'must skip ambient/speakers polling when companion is OFF');
 
-  // 3. Switch Drawer to 能力 tab -> 5 modules; vision_nav shows 未接硬件 badge (NO fake toggle!); 恢复默认 hidden.
-  ui.find('control-voice-drawer-tab-capabilities').props.onPress();
+  // 3. Open 能力与声音 subview via ··· -> 5 modules; vision_nav shows 未接硬件 badge (NO fake toggle!); 恢复默认 hidden.
+  ui.find('control-voice-more-toggle').props.onPress();
   ui.render();
+  ui.find('control-voice-menu-config').props.onPress();
+  ui.render();
+  await ui.settle();
   assert.ok(ui.find('control-voice-drawer-capabilities-view'));
   assert.ok(ui.find('control-voice-cap-toggle-robot_control'));
+  assert.ok(ui.find('control-voice-cap-toggle-voice_walk'));
   assert.ok(ui.find('control-voice-cap-toggle-memory'));
   assert.ok(ui.find('control-voice-cap-toggle-info_reminders'));
-  assert.ok(ui.find('control-voice-cap-toggle-companion'));
   assert.equal(ui.find('control-voice-cap-toggle-vision_nav'), undefined, 'unavailable vision_nav must NOT render a fake toggle');
   assert.equal(ui.find('control-voice-cap-status-vision_nav').props.children.props.children, '未接硬件');
   assert.equal(ui.find('control-voice-cap-reset'), undefined, '恢复默认 must stay hidden when hasOverrides is false');
 
   // 4. Unified 4-char memory labels + writable add/edit/pin/delete controls in 日常助手 mode.
+  ui.find('control-voice-more-toggle').props.onPress();
+  ui.render();
   ui.find('control-voice-tab-memory').props.onPress();
   ui.render();
   await ui.settle();
@@ -1565,15 +1261,22 @@ test('3-role + 5-switch dynamic UI hides disabled tabs/rail/drawer sections, enf
   assert.ok(ui.find('control-voice-memory-edit-m_biz'));
   assert.ok(ui.find('control-voice-memory-delete-m_biz'));
 
-  // 5. Switch to 展厅迎宾 (host) -> hides 提醒 tab, zeroes pendingRemindersCount (HUD privacy!), filters memory ACL to 业务知识 + 交互规范 ONLY, and hides write controls when writeRooms=[].
-  ui.find('control-voice-drawer-tab-style').props.onPress();
+  // 5. Switch to 展厅迎宾 (host) via Role popover -> hides 日程提醒, zeroes pendingRemindersCount, filters memory ACL to 业务知识 + 交互规范 ONLY, hides write controls.
+  ui.find('control-voice-subview-back').props.onPress();
+  ui.render();
+  ui.find('control-voice-style-toggle').props.onPress();
   ui.render();
   ui.find('control-voice-profile-host').props.onPress();
   await ui.settle();
   assert.equal(ui.find('control-voice-role-pill-label').props.children, '展厅迎宾');
   assert.equal(ui.controller.pendingRemindersCount, 0, 'host mode must expose pendingRemindersCount = 0 so no private badge leaks on HUD');
-  assert.equal(ui.find('control-voice-tab-reminders'), undefined, '提醒 tab hidden in host mode');
-  assert.equal(ui.find('control-voice-tab-moments'), undefined, '时光 tab hidden in host mode');
+  ui.find('control-voice-more-toggle').props.onPress();
+  ui.render();
+  assert.equal(ui.find('control-voice-tab-reminders'), undefined, '提醒 item hidden in host mode');
+  assert.equal(ui.find('control-voice-memory-count').props.children.props.children, '2', 'memory count badge must exclude hidden private rooms');
+  ui.find('control-voice-tab-memory').props.onPress();
+  ui.render();
+  await ui.settle();
   assert.equal(ui.find('control-voice-memory-filter-user_long_term'), undefined, 'host mode must hide 人物画像 filter');
   assert.equal(ui.find('control-voice-memory-filter-episodic_events'), undefined, 'host mode must hide 过往记录 filter');
   assert.ok(ui.find('control-voice-memory-filter-customer_knowledge'));
@@ -1586,83 +1289,84 @@ test('3-role + 5-switch dynamic UI hides disabled tabs/rail/drawer sections, enf
   assert.equal(ui.find('control-voice-memory-pin-m_biz'), undefined, 'read-only host mode must hide pin button');
   assert.equal(ui.find('control-voice-memory-edit-m_biz'), undefined, 'read-only host mode must hide edit button');
   assert.equal(ui.find('control-voice-memory-delete-m_biz'), undefined, 'read-only host mode must hide delete button');
-  assert.equal(ui.find('control-voice-memory-pin-m_rule'), undefined);
-  assert.equal(ui.find('control-voice-memory-edit-m_rule'), undefined);
-  assert.equal(ui.find('control-voice-memory-delete-m_rule'), undefined);
-  assert.equal(ui.find('control-voice-memory-count').props.children.props.children, '2', 'memory count badge must exclude hidden private rooms');
   assert.equal(calls.filter(c => c.path === '/api/reminders' || c.path === '/api/timers').length, 0, 'must never poll reminders/timers when info_reminders is OFF');
 
-  // 6. Switch to 家庭陪伴 (companion) -> restores memory write controls, 时光 tab appears with 陪伴 + 日记 (NO 相册 since vision_nav=F), 白噪音/待机微动 appear in 样式 drawer!
+  // 6. Switch to 家庭陪伴 (companion) -> restores memory write controls and 日程提醒.
+  ui.find('control-voice-subview-back').props.onPress();
+  ui.render();
+  ui.find('control-voice-style-toggle').props.onPress();
+  ui.render();
   ui.find('control-voice-profile-companion').props.onPress();
   await ui.settle();
   assert.equal(ui.find('control-voice-role-pill-label').props.children, '家庭陪伴');
+  ui.find('control-voice-more-toggle').props.onPress();
+  ui.render();
+  assert.ok(ui.find('control-voice-tab-reminders'));
+  ui.find('control-voice-tab-memory').props.onPress();
+  ui.render();
+  await ui.settle();
   assert.ok(ui.find('control-voice-memory-add-bar'), 'writable companion mode restores add bar');
   assert.ok(ui.find('control-voice-memory-edit-m_biz'), 'writable companion mode restores per-card actions');
-  assert.ok(ui.find('control-voice-ambient-row'), '白噪音 visible when companion is ON');
-  assert.ok(ui.find('control-voice-idle-life-row'), '待机微动 visible when companion is ON');
-  assert.ok(calls.some(c => c.path === '/api/ambient'), 'ambient loads on demand once companion is enabled');
-  assert.ok(ui.find('control-voice-tab-moments'));
-  assert.ok(ui.find('control-voice-tab-reminders'));
 
-  ui.find('control-voice-tab-moments').props.onPress();
+  // 7. Turn OFF memory switch in 能力与声音 -> hides 长期记忆 menu item, shows 恢复默认 + override dot on chat header.
+  ui.find('control-voice-more-toggle').props.onPress();
   ui.render();
-  await ui.settle();
-  assert.ok(ui.find('control-voice-companion-strip'));
-  assert.ok(ui.find('control-voice-diaries-section'));
-  assert.equal(ui.find('control-voice-photos-section'), undefined, '相册 hidden inside 时光 when vision_nav is OFF');
-  assert.equal(calls.filter(c => c.path === '/api/photos').length, 0, 'must skip /api/photos polling when vision_nav is OFF');
-  assert.ok(calls.some(c => c.path === '/api/diary'), 'diary fetches when companion is ON');
-
-  // 7. Turn OFF companion switch while viewing 时光 tab -> auto-fallback activeTab to chat, override dot + 恢复默认 appear!
-  ui.find('control-voice-drawer-tab-capabilities').props.onPress();
+  ui.find('control-voice-menu-config').props.onPress();
   ui.render();
-  ui.find('control-voice-cap-toggle-companion').props.onPress();
+  ui.find('control-voice-cap-toggle-memory').props.onPress();
   await ui.settle();
-  assert.equal(ui.controller.activeTab, 'chat', 'disabling active tab module must auto-fallback to chat');
-  assert.equal(ui.find('control-voice-tab-moments'), undefined);
-  assert.ok(ui.find('control-voice-override-dot'), 'header must show subtle override dot when custom overrides exist');
   assert.ok(ui.find('control-voice-cap-reset'), '恢复默认 must appear when hasOverrides is true');
+  ui.find('control-voice-more-toggle').props.onPress();
+  ui.render();
+  assert.equal(ui.find('control-voice-tab-memory'), undefined);
+  ui.find('control-voice-subview-back').props.onPress();
+  ui.render();
+  assert.ok(ui.find('control-voice-override-dot'), 'header must show subtle override dot when custom overrides exist');
 
-  // 8. Reset overrides -> restores companion default and clears override dot + 恢复默认.
+  // 8. Reset overrides -> restores memory default and clears override dot + 恢复默认.
+  ui.find('control-voice-more-toggle').props.onPress();
+  ui.render();
+  ui.find('control-voice-menu-config').props.onPress();
+  ui.render();
   ui.find('control-voice-cap-reset').props.onPress();
   await ui.settle();
-  assert.equal(ui.find('control-voice-override-dot'), undefined);
   assert.equal(ui.find('control-voice-cap-reset'), undefined);
-  assert.ok(ui.find('control-voice-tab-moments'));
+  ui.find('control-voice-more-toggle').props.onPress();
+  ui.render();
+  assert.ok(ui.find('control-voice-tab-memory'));
 
-  // 9. Hardware attached (camera=true) + enable vision_nav while turning companion OFF -> 时光 shows 相册 ONLY and polls /api/photos!
-  hardware = { camera: true, navigation: false, voiceprint: false, brainstem: true };
-  ui.find('control-voice-cap-toggle-companion').props.onPress();
+  // 9. Hardware attached (camera=true) + enable vision_nav -> exposes 看看前面 quick prompt!
+  hardware = { camera: true, navigation: false, brainstem: true };
+  ui.find('control-voice-cap-toggle-info_reminders').props.onPress();
   await ui.settle();
   assert.ok(ui.find('control-voice-cap-toggle-vision_nav'), 'camera attached exposes real vision_nav toggle');
   assert.equal(ui.find('control-voice-cap-status-vision_nav'), undefined);
   ui.find('control-voice-cap-toggle-vision_nav').props.onPress();
   await ui.settle();
-  assert.ok(ui.find('control-voice-quick-photo'));
-  assert.ok(ui.find('control-voice-quick-看看前面'));
-  ui.find('control-voice-tab-moments').props.onPress();
+  ui.find('control-voice-subview-back').props.onPress();
   ui.render();
-  await ui.settle();
-  assert.ok(ui.find('control-voice-photos-section'));
-  assert.equal(ui.find('control-voice-companion-strip'), undefined);
-  assert.equal(ui.find('control-voice-diaries-section'), undefined);
-  assert.ok(calls.some(c => c.path === '/api/photos'));
+  ui.find('control-voice-quick-toggle').props.onPress();
+  ui.render();
+  assert.ok(ui.find('control-voice-quick-看看前面'));
 
-  // 10. Turn OFF all 5 switches -> auto-fallback to chat, segmented tabs collapse cleanly, empty quick rail hides cleanly.
+  // 10. Turn OFF remaining switches -> memory & reminders items hide cleanly, quick prompts hide cleanly.
+  ui.find('control-voice-more-toggle').props.onPress();
+  ui.render();
+  ui.find('control-voice-menu-config').props.onPress();
+  ui.render();
   ui.find('control-voice-cap-toggle-vision_nav').props.onPress();
   await ui.settle();
   ui.find('control-voice-cap-toggle-memory').props.onPress();
   await ui.settle();
-  ui.find('control-voice-cap-toggle-info_reminders').props.onPress();
-  await ui.settle();
   ui.find('control-voice-cap-toggle-robot_control').props.onPress();
   await ui.settle();
-  assert.equal(ui.controller.activeTab, 'chat');
+  ui.find('control-voice-more-toggle').props.onPress();
+  ui.render();
   assert.equal(ui.find('control-voice-tab-memory'), undefined);
   assert.equal(ui.find('control-voice-tab-reminders'), undefined);
-  assert.equal(ui.find('control-voice-tab-moments'), undefined);
-  assert.equal(ui.find('control-voice-tab-chat'), undefined, 'single-tab segmented track collapses cleanly');
-  assert.equal(ui.find('control-voice-quick-rail'), undefined, 'empty quick rail hides cleanly when all action modules are OFF');
+  ui.find('control-voice-subview-back').props.onPress();
+  ui.render();
+  assert.equal(ui.find('control-voice-walk-shield'), undefined, 'walk shield hides when robot_control is OFF');
 
   // 11. Strict zero-jargon / zero-fake-wall check across rendered copy.
   assert.doesNotMatch(ui.copy, /暂未接入|仅作预览|暂不可用|清空上下文|AskMe|MemPalace|8770|8780|ONNX|Opus|TTS|ASR|EOT|ACL/);
@@ -1681,14 +1385,14 @@ test('Memory tab restricts add/edit room pickers and per-card write actions stri
       { id: 'host', name: '展厅迎宾' },
       { id: 'companion', name: '家庭陪伴' },
     ],
-    modules: { robot_control: true, memory: true, info_reminders: false, vision_nav: false, companion: false },
-    hardware: { camera: false, navigation: false, voiceprint: false, brainstem: true },
+    modules: { robot_control: true, voice_walk: false, memory: true, info_reminders: false, vision_nav: false },
+    hardware: { camera: false, navigation: false, brainstem: true },
     module_list: [
       { id: 'robot_control', name: '语音控狗', enabled: true, available: true, status_label: '已开' },
+      { id: 'voice_walk', name: '语音走动', enabled: false, available: true, status_label: '已锁定', safety_lock: true },
       { id: 'memory', name: '长期记忆', enabled: true, available: true, status_label: '已开' },
       { id: 'info_reminders', name: '联网与提醒', enabled: false, available: true, status_label: '已关' },
       { id: 'vision_nav', name: '视觉与导航', enabled: false, available: false, status_label: '未接硬件' },
-      { id: 'companion', name: '陪伴与娱乐', enabled: false, available: true, status_label: '已关' },
     ],
     memory_acl: {
       read_rooms: ['customer_knowledge', 'robot_behavior'],
@@ -1733,6 +1437,8 @@ test('Memory tab restricts add/edit room pickers and per-card write actions stri
   ui.render();
   await ui.settle();
 
+  ui.find('control-voice-more-toggle').props.onPress();
+  ui.render();
   ui.find('control-voice-tab-memory').props.onPress();
   ui.render();
   await ui.settle();
@@ -1776,7 +1482,6 @@ test('voice_walk safety lock contract defaults false, parses safety_lock & statu
     'memory',
     'info_reminders',
     'vision_nav',
-    'companion',
   ]);
   assert.equal(voiceService.CAPABILITY_MODULE_LABELS.voice_walk, '语音走动');
   assert.equal(voiceService.DEFAULT_LEGACY_CAPABILITIES.modules.voice_walk, false);
@@ -1839,7 +1544,6 @@ test('voice_walk safety lock contract defaults false, parses safety_lock & statu
               memory: true,
               info_reminders: true,
               vision_nav: false,
-              companion: false,
             },
             module_list: [
               { id: 'robot_control', name: '语音控狗', enabled: true, available: true, status_label: '已开' },
@@ -1847,7 +1551,6 @@ test('voice_walk safety lock contract defaults false, parses safety_lock & statu
               { id: 'memory', name: '长期记忆', enabled: true, available: true, status_label: '已开' },
               { id: 'info_reminders', name: '联网与提醒', enabled: true, available: true, status_label: '已开' },
               { id: 'vision_nav', name: '视觉与导航', enabled: false, available: false, status_label: '未接硬件' },
-              { id: 'companion', name: '陪伴与娱乐', enabled: false, available: true, status_label: '已关' },
             ],
             overrides: {},
             has_overrides: false,
@@ -1899,16 +1602,14 @@ test('voice_walk safety lock UI renders under 语音控狗, toggles 已锁定/�
         memory: true,
         info_reminders: activeProfile !== 'host',
         vision_nav: false,
-        companion: activeProfile === 'companion',
       },
-      hardware: { camera: false, navigation: false, voiceprint: false, brainstem: true },
+      hardware: { camera: false, navigation: false, brainstem: true },
       module_list: [
         { id: 'robot_control', name: '语音控狗', enabled: robotControlOn, available: true, status_label: robotControlOn ? '已开' : '已关' },
         { id: 'voice_walk', name: '语音走动', enabled: walkEnabled, available: walkAvail, status_label: walkAvail ? '' : '需开控狗', safety_lock: true },
         { id: 'memory', name: '长期记忆', enabled: true, available: true, status_label: '已开' },
         { id: 'info_reminders', name: '联网与提醒', enabled: activeProfile !== 'host', available: true, status_label: activeProfile !== 'host' ? '已开' : '已关' },
         { id: 'vision_nav', name: '视觉与导航', enabled: false, available: false, status_label: '未接硬件' },
-        { id: 'companion', name: '陪伴与娱乐', enabled: activeProfile === 'companion', available: true, status_label: activeProfile === 'companion' ? '已开' : '已关' },
       ],
       memory_acl: {
         read_rooms: ['user_long_term', 'customer_knowledge', 'episodic_events', 'robot_behavior'],
@@ -1995,6 +1696,10 @@ test('voice_walk safety lock UI renders under 语音控狗, toggles 已锁定/�
         return { status: 200, json: async () => buildCap() };
       }
       if (parsed.pathname === '/api/persona') return { status: 200, json: async () => ({ ok: true, roles: [], voices: [] }) };
+      if (parsed.pathname === '/api/estop' && init.method === 'POST') {
+        voiceWalkArmed = false;
+        return { status: 200, json: async () => ({ ok: true, capabilities: buildCap() }) };
+      }
       return { status: 404, json: async () => ({ ok: false }) };
     },
   });
@@ -2004,24 +1709,24 @@ test('voice_walk safety lock UI renders under 语音控狗, toggles 已锁定/�
   ui.render();
   await ui.settle();
 
-  // 1. Open drawer -> 能力 tab: 语音走动 appears right beneath 语音控狗 and starts 已锁定.
-  ui.find('control-voice-style-toggle').props.onPress();
+  // 1. Open ··· -> 能力与声音: 语音走动 appears right beneath 语音控狗 and starts 已锁定.
+  ui.find('control-voice-more-toggle').props.onPress();
   ui.render();
-  ui.find('control-voice-drawer-tab-capabilities').props.onPress();
+  ui.find('control-voice-menu-config').props.onPress();
   ui.render();
   await ui.settle();
 
   const capListNode = ui.find('control-voice-drawer-capabilities-view');
-  const rowIds = capListNode.props.children[0].filter(Boolean).map(n => n.props.testID);
+  const capRowsContainer = capListNode.props.children[1];
+  const rowIds = capRowsContainer.props.children.filter(Boolean).map(n => n.props.testID);
   assert.equal(rowIds[0], 'control-voice-cap-row-robot_control');
   assert.equal(rowIds[1], 'control-voice-cap-row-voice_walk', '语音走动 must render directly beneath 语音控狗');
   assert.equal(ui.controller.capabilities.modules.voice_walk, false);
   const walkToggleInitial = ui.find('control-voice-cap-toggle-voice_walk');
   assert.equal(walkToggleInitial.props.accessibilityState.checked, false);
   assert.equal(walkToggleInitial.props.children.props.children, '已锁定');
-  assert.equal(ui.find('control-voice-walk-unlocked-indicator'), undefined);
 
-  // 2. Toggle voice_walk ON -> POST /api/capabilities, amber indicator + 已解锁 + 走动已开启 toast.
+  // 2. Toggle voice_walk ON -> POST /api/capabilities, 已解锁 + 走动已开启 toast + amber indicator on chat header.
   walkToggleInitial.props.onPress();
   await ui.settle();
   assert.ok(calls.some(c => c.method === 'POST' && c.path === '/api/capabilities' && c.body?.overrides?.voice_walk === true));
@@ -2030,45 +1735,60 @@ test('voice_walk safety lock UI renders under 语音控狗, toggles 已锁定/�
   const walkToggleOn = ui.find('control-voice-cap-toggle-voice_walk');
   assert.equal(walkToggleOn.props.accessibilityState.checked, true);
   assert.equal(walkToggleOn.props.children.props.children, '已解锁');
+  ui.find('control-voice-subview-back').props.onPress();
+  ui.render();
   assert.ok(ui.find('control-voice-walk-unlocked-indicator'), 'amber unlocked indicator must show when voice_walk is ON');
 
-  // 3. Toggle voice_walk OFF -> POST /api/capabilities, 已锁定 + 走动已锁定 toast.
-  walkToggleOn.props.onPress();
+  // 2b. In-chat walk shield popover toggles voice_walk OFF -> 已锁定 + 走动已锁定 toast.
+  ui.find('control-voice-walk-shield').props.onPress();
+  ui.render();
+  ui.find('control-voice-walk-quick-toggle').props.onPress();
   await ui.settle();
   assert.ok(calls.some(c => c.method === 'POST' && c.path === '/api/capabilities' && c.body?.overrides?.voice_walk === false));
   assert.equal(ui.controller.capabilities.modules.voice_walk, false);
   assert.equal(ui.controller.noticeText, '走动已锁定');
-  assert.equal(ui.find('control-voice-cap-toggle-voice_walk').props.children.props.children, '已锁定');
   assert.equal(ui.find('control-voice-walk-unlocked-indicator'), undefined);
 
-  // 4. Auto-disarm on profile switch: unlock voice_walk, switch to host -> immediately locked.
-  ui.find('control-voice-cap-toggle-voice_walk').props.onPress();
+  // 3. onEstopVoice fires POST /api/estop and immediately disarms voice_walk.
+  ui.find('control-voice-walk-shield').props.onPress();
+  ui.render();
+  ui.find('control-voice-walk-quick-toggle').props.onPress();
   await ui.settle();
   assert.equal(ui.controller.capabilities.modules.voice_walk, true);
-  ui.find('control-voice-drawer-tab-style').props.onPress();
+  ui.controller.onEstopVoice();
+  await ui.settle();
+  assert.ok(calls.some(c => c.method === 'POST' && c.path === '/api/estop'));
+  assert.equal(ui.controller.capabilities.modules.voice_walk, false);
+
+  // 4. Auto-disarm on profile switch: unlock voice_walk, switch to host -> immediately locked.
+  ui.find('control-voice-walk-shield').props.onPress();
+  ui.render();
+  ui.find('control-voice-walk-quick-toggle').props.onPress();
+  await ui.settle();
+  assert.equal(ui.controller.capabilities.modules.voice_walk, true);
+  ui.find('control-voice-style-toggle').props.onPress();
   ui.render();
   ui.find('control-voice-profile-host').props.onPress();
   await ui.settle();
   assert.equal(ui.controller.capabilities.modules.voice_walk, false, 'profile switch must auto-disarm voice_walk');
   assert.equal(ui.find('control-voice-walk-unlocked-indicator'), undefined);
-  ui.find('control-voice-drawer-tab-capabilities').props.onPress();
-  ui.render();
-  await ui.settle();
-  assert.equal(ui.find('control-voice-cap-toggle-voice_walk').props.children.props.children, '已锁定');
 
   // 5. Auto-disarm reflected on foreground transcript poll (e.g. server-side estop).
-  ui.find('control-voice-cap-toggle-voice_walk').props.onPress();
+  ui.find('control-voice-walk-shield').props.onPress();
+  ui.render();
+  ui.find('control-voice-walk-quick-toggle').props.onPress();
   await ui.settle();
   assert.equal(ui.controller.capabilities.modules.voice_walk, true);
   voiceWalkArmed = false; // Simulate estop disarm on robot
   ui.advance(1_200);
   await ui.settle();
   assert.equal(ui.controller.capabilities.modules.voice_walk, false, 'status update on poll must reflect estop auto-disarm');
-  assert.equal(ui.find('control-voice-cap-toggle-voice_walk').props.children.props.children, '已锁定');
   assert.equal(ui.find('control-voice-walk-unlocked-indicator'), undefined);
 
   // 6. Auto-disarm reflected on background /api/status poll while panel is collapsed.
-  ui.find('control-voice-cap-toggle-voice_walk').props.onPress();
+  ui.find('control-voice-walk-shield').props.onPress();
+  ui.render();
+  ui.find('control-voice-walk-quick-toggle').props.onPress();
   await ui.settle();
   assert.equal(ui.controller.capabilities.modules.voice_walk, true);
   ui.controller.setOpen(false);
@@ -2082,9 +1802,9 @@ test('voice_walk safety lock UI renders under 语音控狗, toggles 已锁定/�
   ui.controller.setOpen(true);
   ui.render();
   await ui.settle();
-  ui.find('control-voice-style-toggle').props.onPress();
+  ui.find('control-voice-more-toggle').props.onPress();
   ui.render();
-  ui.find('control-voice-drawer-tab-capabilities').props.onPress();
+  ui.find('control-voice-menu-config').props.onPress();
   ui.render();
   await ui.settle();
   ui.find('control-voice-cap-toggle-voice_walk').props.onPress();
@@ -2097,7 +1817,6 @@ test('voice_walk safety lock UI renders under 语音控狗, toggles 已锁定/�
   assert.equal(ui.controller.capabilities.modules.voice_walk, false);
   assert.equal(ui.find('control-voice-cap-row-voice_walk'), undefined, '语音走动 must hide cleanly when robot_control is OFF');
   assert.equal(ui.find('control-voice-cap-toggle-voice_walk'), undefined);
-  assert.equal(ui.find('control-voice-walk-unlocked-indicator'), undefined);
   assert.equal(ui.controller.capabilities.moduleList.find(m => m.id === 'voice_walk').statusLabel, '需开控狗');
 
   // Re-enabling robot_control brings 语音走动 back in locked state (never auto-re-arms!).

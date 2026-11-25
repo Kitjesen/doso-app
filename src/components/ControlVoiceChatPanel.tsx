@@ -1,16 +1,14 @@
-import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Text, TextInput } from './AppText';
 import type {
   RobotVoiceController,
-  RobotVoiceTab,
   VoiceMemoryFilter,
   VoiceMemoryRoom,
   VoiceReminderItem,
   VoiceReminderRepeat,
-  XiaosuanAmbientSoundId,
-  XiaosuanPhotoItem,
+  XiaosuanEmotion,
 } from '../features/control/useRobotVoiceChat';
 
 const DEFAULT_QUICK_PROMPTS = ['查看状态', '观察周围', '今天天气'] as const;
@@ -21,8 +19,6 @@ const VOLUME_PRESETS: readonly Readonly<{ value: number; label: string }>[] = [
   { value: 65, label: '标准' },
   { value: 90, label: '大声' },
 ];
-
-const AMBIENT_DURATION_PRESETS: readonly number[] = [15, 30, 60];
 
 const REMINDER_QUICK_CHIPS: readonly Readonly<{ label: string; expr: string }>[] = [
   { label: '+10分钟', expr: '10分钟后' },
@@ -66,12 +62,13 @@ const LEGACY_MEMORY_ROOM_LABELS: Readonly<Record<VoiceMemoryRoom, string>> = {
   robot_behavior: '性格设定',
 };
 
-const WORKSPACE_TABS: readonly Readonly<{ key: RobotVoiceTab; label: string }>[] = [
-  { key: 'chat', label: '对话' },
-  { key: 'memory', label: '记忆' },
-  { key: 'reminders', label: '提醒' },
-  { key: 'moments', label: '时光' },
-];
+const WEB_GLASS_WING = Platform.OS === 'web'
+  ? ({ backdropFilter: 'blur(26px) saturate(155%)', WebkitBackdropFilter: 'blur(26px) saturate(155%)' } as object)
+  : null;
+
+const WEB_GLASS_POPOVER = Platform.OS === 'web'
+  ? ({ backdropFilter: 'blur(28px) saturate(145%)', WebkitBackdropFilter: 'blur(28px) saturate(145%)' } as object)
+  : null;
 
 function getNextMemoryRoom(
   current: VoiceMemoryRoom,
@@ -87,28 +84,6 @@ function getSourceBadgeLabel(source: string | undefined): string | null {
   if (source === 'reminder') return '提醒';
   if (source === 'broadcast') return '传话';
   return null;
-}
-
-function formatPhotoTimeLabel(photo: XiaosuanPhotoItem): string {
-  const raw = (photo.createdAt || '').trim();
-  const hasExplicitZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
-  if (raw && !hasExplicitZone) {
-    const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}:\d{2})/);
-    if (match) {
-      return `${match[2]}-${match[3]} ${match[4]}`;
-    }
-  }
-  const epochMs = typeof photo.ts === 'number' && Number.isFinite(photo.ts) && photo.ts > 0
-    ? photo.ts * 1000
-    : hasExplicitZone
-      ? Date.parse(raw)
-      : Number.NaN;
-  if (Number.isFinite(epochMs)) {
-    const dt = new Date(epochMs);
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `${pad(dt.getMonth() + 1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
-  }
-  return raw.slice(0, 16);
 }
 
 function formatReminderTimeLabel(item: VoiceReminderItem): string {
@@ -128,47 +103,91 @@ function formatReminderTimeLabel(item: VoiceReminderItem): string {
   return item.timeExpr.trim() || '待触发';
 }
 
+function renderMiniBotHead(options: {
+  offline: boolean;
+  listening: boolean;
+  thinking: boolean;
+  speaking: boolean;
+  emotion: XiaosuanEmotion;
+  light: boolean;
+}) {
+  const { offline, listening, thinking, speaking, emotion, light } = options;
+  const headBg = light
+    ? (offline ? 'rgba(15, 23, 42, 0.25)' : '#1E293B')
+    : (offline ? 'rgba(232, 233, 238, 0.36)' : '#E8E9EE');
+  const eyeColor = light ? '#F8FAFC' : '#121318';
+  const eyeHeight = offline ? 1.8 : listening ? 5.2 : speaking || emotion === 'happy' ? 2.4 : 4.2;
+  const eyeWidth = offline ? 4.2 : speaking || emotion === 'happy' ? 4.2 : 2.6;
+  const eyeRadius = offline ? 1 : 2;
+  const leftEyeHeight = thinking ? 3.2 : eyeHeight;
+  const rightEyeHeight = thinking ? 4.6 : emotion === 'wink' ? 1.8 : eyeHeight;
+
+  return (
+    <View style={[styles.miniBotHead, { backgroundColor: headBg }]}>
+      <View style={styles.miniBotEyesRow}>
+        <View
+          style={{
+            width: eyeWidth,
+            height: leftEyeHeight,
+            borderRadius: eyeRadius,
+            backgroundColor: eyeColor,
+          }}
+        />
+        <View
+          style={{
+            width: eyeWidth,
+            height: rightEyeHeight,
+            borderRadius: eyeRadius,
+            backgroundColor: eyeColor,
+          }}
+        />
+      </View>
+    </View>
+  );
+}
+
 export function ControlVoiceChatPanel({
   controller,
   onClose,
-  maxHeight = 250,
+  maxHeight = 260,
   surfaceTone = 'dark',
+  variant = 'wing',
 }: {
   controller: RobotVoiceController;
   onClose: () => void;
   maxHeight?: number;
   surfaceTone?: 'dark' | 'light';
+  variant?: 'wing' | 'card';
 }) {
   let scrollNode: ScrollView | null = null;
   const light = surfaceTone === 'light';
+  const isWing = variant === 'wing' && !light;
   const activeTab = controller.activeTab;
   const isXiaosuan = controller.isXiaosuanMode;
   const disconnected = controller.phase === 'disconnected';
+  const unavailable = controller.phase === 'unavailable';
+  const isOffline = disconnected || unavailable;
 
   const isLivePulse =
     controller.phase === 'listening'
     || controller.phase === 'thinking'
-    || controller.phase === 'speaking';
+    || controller.phase === 'speaking'
+    || Boolean(controller.activeMove?.active);
 
   const statusDotColor =
-    controller.phase === 'listening'
-      ? '#22C55E'
-      : controller.phase === 'speaking'
-        ? '#38BDF8'
-        : controller.phase === 'thinking' || controller.phase === 'connecting'
-          ? '#60A5FA'
-          : controller.phase === 'awaiting'
-            ? '#F59E0B'
-            : controller.phase === 'ready'
-              ? (controller.quietMode ? '#F59E0B' : '#22C55E')
-              : '#888888';
-
-  const statusHaloColor =
-    controller.phase === 'listening'
-      ? 'rgba(34, 197, 94, 0.32)'
-      : controller.phase === 'speaking'
-        ? 'rgba(56, 189, 248, 0.34)'
-        : 'rgba(96, 165, 250, 0.32)';
+    controller.activeMove?.active
+      ? '#E9B963'
+      : controller.phase === 'listening'
+        ? '#63C795'
+        : controller.phase === 'speaking'
+          ? '#63C795'
+          : controller.phase === 'thinking' || controller.phase === 'connecting'
+            ? '#E9B963'
+            : controller.phase === 'awaiting'
+              ? '#E9B963'
+              : controller.phase === 'ready'
+                ? (controller.quietMode ? '#E9B963' : '#63C795')
+                : '#7A7D85';
 
   const canSend = Boolean(controller.draft.trim()) && !controller.busy && !disconnected;
   const canAddMemory =
@@ -188,7 +207,6 @@ export function ControlVoiceChatPanel({
   const modMemory = !isXiaosuan || caps.modules.memory;
   const modInfoReminders = !isXiaosuan || caps.modules.info_reminders;
   const modVisionNav = !isXiaosuan || caps.modules.vision_nav;
-  const modCompanion = !isXiaosuan || caps.modules.companion;
 
   const memoryRoomLabels = capsSupported ? UNIFIED_MEMORY_ROOM_LABELS : LEGACY_MEMORY_ROOM_LABELS;
   const allowedReadRooms: readonly VoiceMemoryRoom[] = capsSupported
@@ -233,18 +251,7 @@ export function ControlVoiceChatPanel({
     return controller.memoryRoomCounts[filterKey];
   };
 
-  const visibleTabs = WORKSPACE_TABS.filter(tab => {
-    if (tab.key === 'chat') return true;
-    if (tab.key === 'memory') return modMemory;
-    if (tab.key === 'reminders') return modInfoReminders;
-    if (tab.key === 'moments') return modVisionNav || modCompanion;
-    return true;
-  });
-
-  const showQuickScenes = isXiaosuan && modCompanion;
   const showQuickBriefing = isXiaosuan && modInfoReminders;
-  const showQuickPhoto = isXiaosuan && modVisionNav;
-  const showQuickCombos = isXiaosuan && modRobotControl && modCompanion;
   const quickPrompts: readonly string[] = isXiaosuan
     ? [
         ...(modVisionNav ? ['看看前面'] : []),
@@ -252,902 +259,630 @@ export function ControlVoiceChatPanel({
         ...(modInfoReminders ? ['今天天气'] : []),
       ]
     : DEFAULT_QUICK_PROMPTS;
-  const hasQuickRail =
-    showQuickScenes || showQuickBriefing || showQuickPhoto || showQuickCombos || quickPrompts.length > 0;
-
-  const listMaxHeight = Math.max(88, maxHeight - 44);
+  const hasQuickActions = showQuickBriefing || quickPrompts.length > 0 || isXiaosuan;
   const currentDogVolume = controller.dogVolume ?? 65;
-  const showVoiceprints = modCompanion && (controller.speakersAvailable || controller.speakers.length > 0);
-  const canEnrollSpeaker =
-    controller.speakersAvailable
-    && Boolean(controller.speakerNameDraft.trim())
-    && !controller.speakersBusy
-    && !disconnected;
-  const selectedPhoto = modVisionNav && controller.selectedPhotoId
-    ? controller.photos.find(item => item.id === controller.selectedPhotoId) ?? null
+
+  const activeMove = controller.activeMove?.active ? controller.activeMove : null;
+  const activeMoveReadout = activeMove
+    ? (activeMove.isTurn
+      ? `${activeMove.directionLabel} ${Math.round(activeMove.current)}° / ${Math.round(activeMove.target)}°`
+      : `${activeMove.directionLabel} ${activeMove.current.toFixed(2)} / ${activeMove.target.toFixed(2)} m`)
     : null;
-  const ambientChips: readonly Readonly<{ id: XiaosuanAmbientSoundId; label: string }>[] = [
-    ...controller.ambient.sounds,
-    { id: 'off', label: '关闭' },
-  ];
+
+  const isSubview = activeTab !== 'chat';
+  const subviewTitle =
+    activeTab === 'memory'
+      ? '长期记忆'
+      : activeTab === 'reminders'
+        ? '日程提醒'
+        : '能力与声音';
+
+  const roleHeaderLabel = capsSupported
+    ? controller.dutyProfileName
+    : `${controller.activeRoleName}·${controller.activeVoiceName}`;
+
+  const showRolePopover = controller.openPopover === 'role' && activeTab === 'chat' && isXiaosuan;
+  const showMorePopover = controller.openPopover === 'more';
+  const showWalkPopover = controller.openPopover === 'walk' && activeTab === 'chat' && capsSupported && modRobotControl;
+  const showQuickPopover = controller.openPopover === 'quick' && activeTab === 'chat' && !disconnected;
+  const showInlineMic = controller.speechSupported || isXiaosuan;
+
+  const listStyle = isWing ? styles.wingScroll : [styles.cardScroll, { maxHeight }];
 
   return (
     <View
       style={[
-        styles.card,
-        light ? styles.cardLight : styles.cardDark,
+        styles.shell,
+        isWing ? styles.shellWing : (light ? styles.shellCardLight : styles.shellCardDark),
+        isWing && WEB_GLASS_WING,
       ]}
       testID="control-hud-voice-panel"
     >
-      {/* Top Header: Identity + Live Presence/Emotion Pill + Real Hardware Controls */}
+      {/* Minimal Header: Left [Bot + Name + Role ▾] or [← Back + Title] | Right ONLY [···] [×] */}
       <View style={styles.header}>
-        <View style={styles.titleRow}>
-          <Ionicons
-            color={light ? '#1D4ED8' : '#F2F2F2'}
-            name={isXiaosuan ? 'sparkles-outline' : 'chatbubble-ellipses-outline'}
-            size={15}
-          />
-          <Text style={[styles.title, light && styles.titleLight]}>
-            {isXiaosuan ? '小算' : '对话'}
-          </Text>
-
-          <View
-            style={[
-              styles.statusBadge,
-              light && styles.statusBadgeLight,
-              isLivePulse && (light ? styles.statusBadgeLiveLight : styles.statusBadgeLive),
-            ]}
-            testID="control-voice-presence-pill"
-          >
-            <View
-              style={[
-                styles.statusDotHalo,
-                isLivePulse && { backgroundColor: statusHaloColor },
-              ]}
-              testID="control-voice-presence-dot"
+        {isSubview ? (
+          <View style={styles.subviewHeaderLeft}>
+            <Pressable
+              accessibilityLabel="返回对话"
+              accessibilityRole="button"
+              onPress={() => controller.setActiveTab('chat')}
+              style={({ pressed }) => [styles.ghostBackBtn, light && styles.ghostBtnLight, pressed && styles.pressed]}
+              testID="control-voice-subview-back"
             >
-              <View style={[styles.statusDot, { backgroundColor: statusDotColor }]} />
-            </View>
-            <Text style={[styles.statusText, light && styles.statusTextLight]} testID="control-voice-status">
-              {controller.statusLabel}
-            </Text>
-            {controller.emotionLabel ? (
-              <Text
-                style={[styles.emotionTag, light && styles.emotionTagLight]}
-                testID="control-voice-emotion"
+              <Ionicons color={light ? '#0F172A' : 'rgba(255,255,255,0.82)'} name="chevron-back" size={16} />
+              <Text style={[styles.subviewTitle, light && styles.inkLight]}>{subviewTitle}</Text>
+            </Pressable>
+            {activeTab === 'memory' ? (
+              <Pressable
+                accessibilityLabel="刷新记忆"
+                accessibilityRole="button"
+                disabled={controller.memoryLoading || disconnected}
+                onPress={controller.onRefreshMemories}
+                style={({ pressed }) => [
+                  styles.ghostIconBtn,
+                  (controller.memoryLoading || disconnected) && styles.disabled,
+                  pressed && styles.pressed,
+                ]}
+                testID="control-voice-memory-refresh"
               >
-                {controller.emotionLabel}
-              </Text>
+                <Ionicons color={light ? '#475569' : 'rgba(255,255,255,0.58)'} name="refresh-outline" size={14} />
+              </Pressable>
+            ) : activeTab === 'reminders' ? (
+              <Pressable
+                accessibilityLabel="刷新提醒"
+                accessibilityRole="button"
+                disabled={controller.remindersLoading || disconnected}
+                onPress={controller.onRefreshReminders}
+                style={({ pressed }) => [
+                  styles.ghostIconBtn,
+                  (controller.remindersLoading || disconnected) && styles.disabled,
+                  pressed && styles.pressed,
+                ]}
+                testID="control-voice-reminders-refresh"
+              >
+                <Ionicons color={light ? '#475569' : 'rgba(255,255,255,0.58)'} name="refresh-outline" size={14} />
+              </Pressable>
             ) : null}
           </View>
-        </View>
+        ) : (
+          <View style={styles.titleCluster}>
+            <Pressable
+              accessibilityLabel={isXiaosuan ? `小算 ${roleHeaderLabel}` : '对话'}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: showRolePopover }}
+              disabled={!isXiaosuan || disconnected}
+              onPress={() => {
+                if (isXiaosuan) controller.togglePopover('role');
+              }}
+              style={({ pressed }) => [
+                styles.roleTriggerBtn,
+                showRolePopover && (light ? styles.ghostBtnActiveLight : styles.ghostBtnActive),
+                pressed && isXiaosuan && !disconnected && styles.pressed,
+              ]}
+              testID="control-voice-style-toggle"
+            >
+              {renderMiniBotHead({
+                offline: isOffline,
+                listening: controller.phase === 'listening',
+                thinking: controller.phase === 'thinking' || controller.phase === 'connecting',
+                speaking: controller.phase === 'speaking',
+                emotion: controller.emotion,
+                light,
+              })}
+              <Text numberOfLines={1} style={[styles.brandName, light && styles.inkLight]}>
+                {isXiaosuan ? '小算' : '对话'}
+              </Text>
+              {isXiaosuan ? (
+                <>
+                  <Text style={[styles.headerDividerDot, light && styles.mutedLight]}>·</Text>
+                  <Text
+                    numberOfLines={1}
+                    style={[styles.roleLabel, light && styles.mutedLight]}
+                    testID="control-voice-role-pill-label"
+                  >
+                    {roleHeaderLabel}
+                  </Text>
+                  {modVoiceWalk ? (
+                    <Ionicons
+                      color="#E9B963"
+                      name="lock-open"
+                      size={10}
+                      testID="control-voice-walk-unlocked-indicator"
+                    />
+                  ) : null}
+                  {capsSupported && caps.hasOverrides ? (
+                    <View style={styles.overrideDot} testID="control-voice-override-dot" />
+                  ) : null}
+                  <Ionicons
+                    color={light ? '#64748B' : 'rgba(255,255,255,0.42)'}
+                    name={showRolePopover ? 'chevron-up' : 'chevron-down'}
+                    size={12}
+                  />
+                </>
+              ) : null}
+            </Pressable>
 
-        <View style={styles.headerActions}>
-          {isXiaosuan ? (
-            <>
-              {controller.canStop ? (
-                <Pressable
-                  accessibilityLabel="停止播报"
-                  accessibilityRole="button"
-                  disabled={controller.hardwareBusy}
-                  onPress={controller.onCancelTurn}
-                  style={({ pressed }) => [
-                    styles.stopPillBtn,
-                    controller.hardwareBusy && styles.disabled,
-                    pressed && styles.pressed,
-                  ]}
-                  testID="control-voice-stop-btn"
-                >
-                  <Ionicons color="#FFFFFF" name="stop" size={11} />
-                  <Text style={styles.stopPillText}>停止</Text>
-                </Pressable>
-              ) : (
-                <Pressable
-                  accessibilityLabel="唤醒小算"
-                  accessibilityRole="button"
-                  disabled={disconnected || controller.hardwareBusy}
-                  onPress={controller.onWakeDog}
-                  style={({ pressed }) => [
-                    styles.actionPillBtn,
-                    light && styles.iconBtnLight,
-                    (disconnected || controller.hardwareBusy) && styles.disabled,
-                    pressed && styles.pressed,
-                  ]}
-                  testID="control-voice-wake-btn"
-                >
-                  <Ionicons color={light ? '#1D4ED8' : '#F2F2F2'} name="radio-outline" size={12} />
-                  <Text style={[styles.actionPillText, light && styles.actionPillTextLight]}>唤醒</Text>
-                </Pressable>
-              )}
-
-              <Pressable
-                accessibilityLabel={controller.quietMode ? '关闭轻声模式' : '开启轻声模式'}
-                accessibilityRole="switch"
-                accessibilityState={{ checked: controller.quietMode, disabled: disconnected || controller.hardwareBusy }}
-                disabled={disconnected || controller.hardwareBusy}
-                onPress={controller.onToggleQuietMode}
-                style={({ pressed }) => [
-                  styles.actionPillBtn,
-                  light && styles.iconBtnLight,
-                  controller.quietMode && (light ? styles.quietPillActiveLight : styles.quietPillActive),
-                  (disconnected || controller.hardwareBusy) && styles.disabled,
-                  pressed && styles.pressed,
-                ]}
-                testID="control-voice-quiet-toggle"
-              >
-                <Ionicons
-                  color={controller.quietMode ? '#F59E0B' : (light ? '#475569' : '#C8C8C8')}
-                  name={controller.quietMode ? 'moon' : 'moon-outline'}
-                  size={12}
+            {(!isXiaosuan || isLivePulse || isOffline) ? (
+              <View style={styles.whisperStatusWrap} testID="control-voice-presence-pill">
+                <View
+                  style={[styles.statusDotCore, { backgroundColor: statusDotColor }]}
+                  testID="control-voice-presence-dot"
                 />
-                <Text
-                  style={[
-                    styles.actionPillText,
-                    light && styles.actionPillTextLight,
-                    controller.quietMode && styles.quietPillTextActive,
-                  ]}
-                >
-                  轻声
-                </Text>
-              </Pressable>
-
-              <Pressable
-                accessibilityLabel={capsSupported ? '角色与能力' : '角色音色音量'}
-                accessibilityRole="button"
-                accessibilityState={{ expanded: controller.styleDrawerOpen }}
-                disabled={disconnected}
-                onPress={controller.onToggleStyleDrawer}
-                style={({ pressed }) => [
-                  styles.actionPillBtn,
-                  light && styles.iconBtnLight,
-                  controller.styleDrawerOpen && (light ? styles.iconBtnActiveLight : styles.iconBtnActive),
-                  disconnected && styles.disabled,
-                  pressed && styles.pressed,
-                ]}
-                testID="control-voice-style-toggle"
-              >
                 <Text
                   numberOfLines={1}
-                  style={[
-                    styles.actionPillText,
-                    light && styles.actionPillTextLight,
-                    controller.styleDrawerOpen && (light ? styles.tabTextActiveLight : styles.tabTextActive),
-                  ]}
-                  testID="control-voice-role-pill-label"
+                  style={[styles.whisperStatusText, light && styles.mutedLight]}
+                  testID="control-voice-status"
                 >
-                  {capsSupported
-                    ? controller.dutyProfileName
-                    : `${controller.activeRoleName}·${controller.activeVoiceName}`}
+                  {controller.statusLabel}
                 </Text>
-                {modVoiceWalk ? (
-                  <Ionicons
-                    color={light ? '#D97706' : '#FBBF24'}
-                    name="lock-open"
-                    size={10}
-                    testID="control-voice-walk-unlocked-indicator"
-                  />
-                ) : null}
-                {capsSupported && caps.hasOverrides ? (
-                  <View style={styles.overrideDot} testID="control-voice-override-dot" />
-                ) : null}
-                <Ionicons
-                  color={controller.styleDrawerOpen ? (light ? '#1D4ED8' : '#F2F2F2') : (light ? '#64748B' : '#A0A0A0')}
-                  name={controller.styleDrawerOpen ? 'chevron-up' : 'chevron-down'}
-                  size={11}
-                />
-              </Pressable>
-            </>
-          ) : (
-            <>
-              <Pressable
-                accessibilityLabel={controller.voiceReplyEnabled ? '关闭播报' : '开启播报'}
-                accessibilityRole="button"
-                accessibilityState={{ selected: controller.voiceReplyEnabled }}
-                onPress={controller.onToggleVoiceReply}
-                style={({ pressed }) => [
-                  styles.iconBtn,
-                  light && styles.iconBtnLight,
-                  controller.voiceReplyEnabled && (light ? styles.iconBtnActiveLight : styles.iconBtnActive),
-                  pressed && styles.pressed,
-                ]}
-                testID="control-voice-tts-toggle"
-              >
-                <Ionicons
-                  color={
-                    controller.voiceReplyEnabled
-                      ? (light ? '#1D4ED8' : '#F2F2F2')
-                      : (light ? '#64748B' : '#A0A0A0')
-                  }
-                  name={controller.voiceReplyEnabled ? 'volume-high-outline' : 'volume-mute-outline'}
-                  size={15}
-                />
-              </Pressable>
+              </View>
+            ) : null}
+          </View>
+        )}
 
-              <Pressable
-                accessibilityLabel="新对话"
-                accessibilityRole="button"
-                disabled={controller.busy || disconnected}
-                onPress={controller.onResetConversation}
-                style={({ pressed }) => [
-                  styles.iconBtn,
-                  light && styles.iconBtnLight,
-                  (controller.busy || disconnected) && styles.disabled,
-                  pressed && styles.pressed,
-                ]}
-                testID="control-voice-reset"
-              >
-                <Ionicons color={light ? '#334155' : '#C8C8C8'} name="refresh-outline" size={15} />
-              </Pressable>
-            </>
-          )}
+        <View style={styles.headerRightIcons}>
+          <Pressable
+            accessibilityLabel="更多选项"
+            accessibilityRole="button"
+            accessibilityState={{ expanded: showMorePopover }}
+            onPress={() => controller.togglePopover('more')}
+            style={({ pressed }) => [
+              styles.ghostIconBtn,
+              showMorePopover && (light ? styles.ghostBtnActiveLight : styles.ghostBtnActive),
+              pressed && styles.pressed,
+            ]}
+            testID="control-voice-more-toggle"
+          >
+            <Ionicons
+              color={showMorePopover ? (light ? '#0F172A' : '#FFFFFF') : (light ? '#475569' : 'rgba(255,255,255,0.62)')}
+              name="ellipsis-horizontal"
+              size={16}
+            />
+            {isXiaosuan && (controller.pendingRemindersCount > 0 || (capsSupported && caps.hasOverrides)) && !showMorePopover ? (
+              <View style={styles.moreAlertDot} />
+            ) : null}
+          </Pressable>
 
           <Pressable
             accessibilityLabel="关闭"
             accessibilityRole="button"
             onPress={onClose}
-            style={({ pressed }) => [styles.iconBtn, light && styles.iconBtnLight, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.ghostIconBtn, pressed && styles.pressed]}
             testID="control-voice-close"
           >
-            <Ionicons color={light ? '#334155' : '#C8C8C8'} name="close" size={16} />
+            <Ionicons color={light ? '#475569' : 'rgba(255,255,255,0.62)'} name="close" size={16} />
           </Pressable>
         </View>
       </View>
 
-      {/* Inline Style & Capability Drawer */}
-      {controller.styleDrawerOpen && isXiaosuan ? (
+      {/* Role Switcher Popover (Anchored beneath left header) */}
+      {showRolePopover ? (
         <View
-          style={[styles.styleDrawer, light ? styles.styleDrawerLight : styles.styleDrawerDark]}
-          testID="control-voice-style-drawer"
+          style={[
+            styles.popover,
+            styles.rolePopoverPos,
+            light ? styles.popoverLight : styles.popoverDark,
+            !light && WEB_GLASS_POPOVER,
+          ]}
+          testID="control-voice-role-popover"
         >
-          {capsSupported ? (
-            <View
-              style={[styles.drawerTabTrack, light && styles.segmentedTrackLight]}
-              testID="control-voice-drawer-tabs"
-            >
-              <Pressable
-                accessibilityLabel="样式"
-                accessibilityRole="tab"
-                accessibilityState={{ selected: controller.drawerTab === 'style' }}
-                onPress={() => controller.setDrawerTab('style')}
-                style={({ pressed }) => [
-                  styles.drawerTabBtn,
-                  controller.drawerTab === 'style' && (light ? styles.tabBtnActiveLight : styles.tabBtnActive),
-                  pressed && styles.pressed,
-                ]}
-                testID="control-voice-drawer-tab-style"
-              >
-                <Text
-                  style={[
-                    styles.tabText,
-                    light && styles.tabTextLight,
-                    controller.drawerTab === 'style' && (light ? styles.tabTextActiveLight : styles.tabTextActive),
-                  ]}
-                >
-                  样式
-                </Text>
-              </Pressable>
-              <Pressable
-                accessibilityLabel="能力"
-                accessibilityRole="tab"
-                accessibilityState={{ selected: controller.drawerTab === 'capabilities' }}
-                onPress={() => controller.setDrawerTab('capabilities')}
-                style={({ pressed }) => [
-                  styles.drawerTabBtn,
-                  controller.drawerTab === 'capabilities' && (light ? styles.tabBtnActiveLight : styles.tabBtnActive),
-                  pressed && styles.pressed,
-                ]}
-                testID="control-voice-drawer-tab-capabilities"
-              >
-                <Text
-                  style={[
-                    styles.tabText,
-                    light && styles.tabTextLight,
-                    controller.drawerTab === 'capabilities' && (light ? styles.tabTextActiveLight : styles.tabTextActive),
-                  ]}
-                >
-                  能力
-                </Text>
-                {caps.hasOverrides ? (
-                  <View style={styles.overrideDot} testID="control-voice-drawer-cap-dot" />
-                ) : null}
-              </Pressable>
-            </View>
-          ) : null}
-
-          {capsSupported && controller.drawerTab === 'capabilities' ? (
-            <View style={styles.capList} testID="control-voice-drawer-capabilities-view">
-              {caps.moduleList.map(mod => {
-                if (mod.id === 'voice_walk' && !caps.modules.robot_control) return null;
-                const isSafetyLock = mod.safetyLock === true || mod.id === 'voice_walk';
-                const toggleLabel = isSafetyLock
-                  ? (mod.enabled ? '已解锁' : '已锁定')
-                  : (mod.enabled ? '已开' : '已关');
+          {capsSupported
+            ? caps.profiles.map(prof => {
+                const selected = controller.dutyProfile === prof.id;
                 return (
-                  <View
-                    key={mod.id}
-                    style={[styles.capRow, isSafetyLock && styles.capSubRow]}
-                    testID={`control-voice-cap-row-${mod.id}`}
+                  <Pressable
+                    key={prof.id}
+                    accessibilityLabel={`角色 ${prof.name}`}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected, disabled: controller.capabilitiesBusy || disconnected }}
+                    disabled={controller.capabilitiesBusy || disconnected}
+                    onPress={() => {
+                      controller.setDutyProfile(prof.id);
+                      controller.setOpenPopover('none');
+                    }}
+                    style={({ pressed }) => [
+                      styles.popoverRow,
+                      selected && (light ? styles.popoverRowActiveLight : styles.popoverRowActive),
+                      pressed && styles.pressed,
+                    ]}
+                    testID={`control-voice-profile-${prof.id}`}
                   >
-                    <View style={styles.capNameWrap}>
-                      {isSafetyLock ? (
-                        <Ionicons
-                          color={
-                            mod.enabled
-                              ? (light ? '#D97706' : '#FBBF24')
-                              : (light ? '#64748B' : '#A0A0A0')
-                          }
-                          name={mod.enabled ? 'lock-open-outline' : 'lock-closed-outline'}
-                          size={12}
-                        />
-                      ) : null}
-                      <Text style={[styles.capName, light && styles.titleLight]}>{mod.name}</Text>
-                    </View>
-                    {mod.available ? (
-                      <Pressable
-                        accessibilityLabel={`${mod.name} ${toggleLabel}`}
-                        accessibilityRole="switch"
-                        accessibilityState={{
-                          checked: mod.enabled,
-                          disabled: controller.capabilitiesBusy || disconnected,
-                        }}
-                        disabled={controller.capabilitiesBusy || disconnected}
-                        onPress={() => controller.setCapabilityEnabled(mod.id, !mod.enabled)}
-                        style={({ pressed }) => [
-                          styles.capSwitchBtn,
-                          light && styles.filterChipLight,
-                          mod.enabled && (
-                            isSafetyLock
-                              ? (light ? styles.capSafetyBtnActiveLight : styles.capSafetyBtnActive)
-                              : (light ? styles.filterChipActiveLight : styles.filterChipActive)
-                          ),
-                          (controller.capabilitiesBusy || disconnected) && styles.disabled,
-                          pressed && styles.pressed,
-                        ]}
-                        testID={`control-voice-cap-toggle-${mod.id}`}
-                      >
-                        <Text
-                          style={[
-                            styles.styleChipText,
-                            light && styles.filterChipTextLight,
-                            mod.enabled && (
-                              isSafetyLock
-                                ? (light ? styles.capSafetyTextActiveLight : styles.capSafetyTextActive)
-                                : (light ? styles.filterChipTextActiveLight : styles.filterChipTextActive)
-                            ),
-                          ]}
-                        >
-                          {toggleLabel}
-                        </Text>
-                      </Pressable>
-                    ) : (
-                      <View
-                        style={[styles.capStatusBadge, light && styles.capStatusBadgeLight]}
-                        testID={`control-voice-cap-status-${mod.id}`}
-                      >
-                        <Text style={[styles.capStatusText, light && styles.capStatusTextLight]}>
-                          {mod.statusLabel || (mod.id === 'voice_walk' ? '需开控狗' : '未接硬件')}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
+                    <Text style={[styles.popoverRowText, light && styles.inkLight, selected && styles.popoverRowTextActive]}>
+                      {prof.name}
+                    </Text>
+                    {selected ? (
+                      <Ionicons color={light ? '#1D4ED8' : '#63C795'} name="checkmark" size={14} />
+                    ) : null}
+                  </Pressable>
+                );
+              })
+            : controller.roleOptions.map(opt => {
+                const selected = controller.activeRoleId === opt.id;
+                return (
+                  <Pressable
+                    key={opt.id}
+                    accessibilityLabel={`角色 ${opt.shortName}`}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected, disabled: controller.personaBusy || disconnected }}
+                    disabled={controller.personaBusy || disconnected}
+                    onPress={() => {
+                      controller.onSelectRole(opt.id);
+                      controller.setOpenPopover('none');
+                    }}
+                    style={({ pressed }) => [
+                      styles.popoverRow,
+                      selected && (light ? styles.popoverRowActiveLight : styles.popoverRowActive),
+                      pressed && styles.pressed,
+                    ]}
+                    testID={`control-voice-role-${opt.id}`}
+                  >
+                    <Text style={[styles.popoverRowText, light && styles.inkLight, selected && styles.popoverRowTextActive]}>
+                      {opt.shortName}
+                    </Text>
+                    {selected ? (
+                      <Ionicons color={light ? '#1D4ED8' : '#63C795'} name="checkmark" size={14} />
+                    ) : null}
+                  </Pressable>
                 );
               })}
+        </View>
+      ) : null}
 
-              {caps.hasOverrides ? (
-                <View style={styles.capFooterRow}>
+      {/* More Menu Popover (··· -> 长期记忆 · 日程提醒 · 能力与声音 · 清空对话) */}
+      {showMorePopover ? (
+        <View
+          style={[
+            styles.popover,
+            styles.morePopoverPos,
+            light ? styles.popoverLight : styles.popoverDark,
+            !light && WEB_GLASS_POPOVER,
+          ]}
+          testID="control-voice-more-popover"
+        >
+          {isXiaosuan && modMemory ? (
+            <Pressable
+              accessibilityLabel="长期记忆"
+              accessibilityRole="button"
+              onPress={() => controller.setActiveTab('memory')}
+              style={({ pressed }) => [
+                styles.popoverRow,
+                activeTab === 'memory' && (light ? styles.popoverRowActiveLight : styles.popoverRowActive),
+                pressed && styles.pressed,
+              ]}
+              testID="control-voice-tab-memory"
+            >
+              <View style={styles.popoverRowLeft}>
+                <Ionicons color={light ? '#334155' : 'rgba(255,255,255,0.72)'} name="bookmark-outline" size={14} />
+                <Text style={[styles.popoverRowText, light && styles.inkLight]}>长期记忆</Text>
+              </View>
+              {totalMemoryCount > 0 ? (
+                <View style={styles.popoverCountPill} testID="control-voice-memory-count">
+                  <Text style={styles.popoverCountText}>{String(totalMemoryCount)}</Text>
+                </View>
+              ) : null}
+            </Pressable>
+          ) : null}
+
+          {isXiaosuan && modInfoReminders ? (
+            <Pressable
+              accessibilityLabel="日程提醒"
+              accessibilityRole="button"
+              onPress={() => controller.setActiveTab('reminders')}
+              style={({ pressed }) => [
+                styles.popoverRow,
+                activeTab === 'reminders' && (light ? styles.popoverRowActiveLight : styles.popoverRowActive),
+                pressed && styles.pressed,
+              ]}
+              testID="control-voice-tab-reminders"
+            >
+              <View style={styles.popoverRowLeft}>
+                <Ionicons color={light ? '#334155' : 'rgba(255,255,255,0.72)'} name="alarm-outline" size={14} />
+                <Text style={[styles.popoverRowText, light && styles.inkLight]}>日程提醒</Text>
+              </View>
+              {controller.pendingRemindersCount > 0 ? (
+                <View style={[styles.popoverCountPill, styles.popoverCountAmber]} testID="control-voice-reminders-badge">
+                  <Text style={styles.popoverCountAmberText}>{String(controller.pendingRemindersCount)}</Text>
+                </View>
+              ) : null}
+            </Pressable>
+          ) : null}
+
+          {isXiaosuan ? (
+            <Pressable
+              accessibilityLabel="能力与声音"
+              accessibilityRole="button"
+              onPress={() => controller.setActiveTab('config')}
+              style={({ pressed }) => [
+                styles.popoverRow,
+                activeTab === 'config' && (light ? styles.popoverRowActiveLight : styles.popoverRowActive),
+                pressed && styles.pressed,
+              ]}
+              testID="control-voice-menu-config"
+            >
+              <View style={styles.popoverRowLeft}>
+                <Ionicons color={light ? '#334155' : 'rgba(255,255,255,0.72)'} name="options-outline" size={14} />
+                <Text style={[styles.popoverRowText, light && styles.inkLight]}>能力与声音</Text>
+              </View>
+              {capsSupported && caps.hasOverrides ? (
+                <View style={styles.overrideDot} />
+              ) : null}
+            </Pressable>
+          ) : (
+            <Pressable
+              accessibilityLabel={controller.voiceReplyEnabled ? '关闭播报' : '开启播报'}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: controller.voiceReplyEnabled }}
+              onPress={() => {
+                controller.onToggleVoiceReply();
+                controller.setOpenPopover('none');
+              }}
+              style={({ pressed }) => [styles.popoverRow, pressed && styles.pressed]}
+              testID="control-voice-tts-toggle"
+            >
+              <View style={styles.popoverRowLeft}>
+                <Ionicons
+                  color={light ? '#334155' : 'rgba(255,255,255,0.72)'}
+                  name={controller.voiceReplyEnabled ? 'volume-high-outline' : 'volume-mute-outline'}
+                  size={14}
+                />
+                <Text style={[styles.popoverRowText, light && styles.inkLight]}>
+                  {controller.voiceReplyEnabled ? '关闭播报' : '开启播报'}
+                </Text>
+              </View>
+            </Pressable>
+          )}
+
+          <View style={[styles.popoverSep, light && styles.popoverSepLight]} />
+
+          <Pressable
+            accessibilityLabel="清空对话"
+            accessibilityRole="button"
+            disabled={controller.busy || disconnected}
+            onPress={() => {
+              controller.onResetConversation();
+              controller.setOpenPopover('none');
+            }}
+            style={({ pressed }) => [
+              styles.popoverRow,
+              (controller.busy || disconnected) && styles.disabled,
+              pressed && styles.pressed,
+            ]}
+            testID="control-voice-reset"
+          >
+            <View style={styles.popoverRowLeft}>
+              <Ionicons color={light ? '#64748B' : 'rgba(255,255,255,0.52)'} name="trash-outline" size={14} />
+              <Text style={[styles.popoverRowText, light && styles.mutedLight]}>清空对话</Text>
+            </View>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {/* Floating Subtle Notice Toast */}
+      {controller.noticeText ? (
+        <View style={[styles.noticePill, light && styles.noticePillLight]} testID="control-voice-notice">
+          <Text numberOfLines={1} style={[styles.noticeText, light && styles.inkLight]}>
+            {controller.noticeText}
+          </Text>
+        </View>
+      ) : null}
+
+      {/* SUBVIEW: 能力与声音 */}
+      {activeTab === 'config' && isXiaosuan ? (
+        <ScrollView
+          contentContainerStyle={styles.subviewContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          style={listStyle}
+          testID="control-voice-config-view"
+        >
+          {capsSupported ? (
+            <View style={styles.configBlock} testID="control-voice-drawer-capabilities-view">
+              <View style={styles.configSectionHead}>
+                <Text style={[styles.configSectionTitle, light && styles.mutedLight]}>能力开关</Text>
+                {caps.hasOverrides ? (
                   <Pressable
                     accessibilityLabel="恢复默认"
                     accessibilityRole="button"
                     disabled={controller.capabilitiesBusy || disconnected}
                     onPress={controller.resetCapabilities}
                     style={({ pressed }) => [
-                      styles.clearSessionBtn,
-                      light && styles.clearSessionBtnLight,
+                      styles.softPillBtn,
+                      light && styles.softPillBtnLight,
                       (controller.capabilitiesBusy || disconnected) && styles.disabled,
                       pressed && styles.pressed,
                     ]}
                     testID="control-voice-cap-reset"
                   >
-                    <Text style={[styles.clearSessionText, light && styles.clearSessionTextLight]}>
-                      恢复默认
-                    </Text>
+                    <Text style={[styles.softPillText, light && styles.mutedLight]}>恢复默认</Text>
                   </Pressable>
-                </View>
-              ) : null}
-            </View>
-          ) : (
-            <View style={styles.styleDrawerSection} testID="control-voice-drawer-style-view">
-              <View style={styles.styleRow}>
-                <Text style={[styles.styleLabel, light && styles.styleLabelLight]}>角色</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.styleChipsRow}>
-                  {capsSupported
-                    ? caps.profiles.map(prof => {
-                        const selected = controller.dutyProfile === prof.id;
-                        return (
-                          <Pressable
-                            key={prof.id}
-                            accessibilityLabel={`角色 ${prof.name}`}
-                            accessibilityRole="button"
-                            accessibilityState={{ selected, disabled: controller.capabilitiesBusy || disconnected }}
-                            disabled={controller.capabilitiesBusy || disconnected}
-                            onPress={() => controller.setDutyProfile(prof.id)}
-                            style={({ pressed }) => [
-                              styles.styleChip,
-                              light && styles.filterChipLight,
-                              selected && (light ? styles.filterChipActiveLight : styles.filterChipActive),
-                              pressed && styles.pressed,
-                            ]}
-                            testID={`control-voice-profile-${prof.id}`}
-                          >
-                            <Text
-                              style={[
-                                styles.styleChipText,
-                                light && styles.filterChipTextLight,
-                                selected && (light ? styles.filterChipTextActiveLight : styles.filterChipTextActive),
-                              ]}
-                            >
-                              {prof.name}
-                            </Text>
-                          </Pressable>
-                        );
-                      })
-                    : controller.roleOptions.map(opt => {
-                        const selected = controller.activeRoleId === opt.id;
-                        return (
-                          <Pressable
-                            key={opt.id}
-                            accessibilityLabel={`角色 ${opt.shortName}`}
-                            accessibilityRole="button"
-                            accessibilityState={{ selected, disabled: controller.personaBusy || disconnected }}
-                            disabled={controller.personaBusy || disconnected}
-                            onPress={() => controller.onSelectRole(opt.id)}
-                            style={({ pressed }) => [
-                              styles.styleChip,
-                              light && styles.filterChipLight,
-                              selected && (light ? styles.filterChipActiveLight : styles.filterChipActive),
-                              pressed && styles.pressed,
-                            ]}
-                            testID={`control-voice-role-${opt.id}`}
-                          >
-                            <Text
-                              style={[
-                                styles.styleChipText,
-                                light && styles.filterChipTextLight,
-                                selected && (light ? styles.filterChipTextActiveLight : styles.filterChipTextActive),
-                              ]}
-                            >
-                              {opt.shortName}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                </ScrollView>
+                ) : null}
               </View>
 
-              <View style={styles.styleRow}>
-                <Text style={[styles.styleLabel, light && styles.styleLabelLight]}>音色</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.styleChipsRow}>
-                  {controller.voiceOptions.map(opt => {
-                    const selected = controller.activeVoiceId === opt.id;
-                    return (
-                      <Pressable
-                        key={opt.id}
-                        accessibilityLabel={`音色 ${opt.shortName}`}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected, disabled: controller.personaBusy || disconnected }}
-                        disabled={controller.personaBusy || disconnected}
-                        onPress={() => controller.onSelectVoice(opt.id)}
-                        style={({ pressed }) => [
-                          styles.styleChip,
-                          light && styles.filterChipLight,
-                          selected && (light ? styles.filterChipActiveLight : styles.filterChipActive),
-                          pressed && styles.pressed,
-                        ]}
-                        testID={`control-voice-voice-${opt.id}`}
-                      >
-                        <Text
-                          style={[
-                            styles.styleChipText,
-                            light && styles.filterChipTextLight,
-                            selected && (light ? styles.filterChipTextActiveLight : styles.filterChipTextActive),
-                          ]}
-                        >
-                          {opt.shortName}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-
-              <View style={styles.styleRow}>
-                <Text style={[styles.styleLabel, light && styles.styleLabelLight]}>音量</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.styleChipsRow}>
-                  {VOLUME_PRESETS.map(preset => {
-                    const selected = Math.abs(currentDogVolume - preset.value) <= 8;
-                    return (
-                      <Pressable
-                        key={preset.value}
-                        accessibilityLabel={`音量 ${preset.label}`}
-                        accessibilityRole="button"
-                        accessibilityState={{ selected, disabled: controller.hardwareBusy || disconnected }}
-                        disabled={controller.hardwareBusy || disconnected}
-                        onPress={() => controller.onSetDogVolume(preset.value)}
-                        style={({ pressed }) => [
-                          styles.styleChip,
-                          light && styles.filterChipLight,
-                          selected && (light ? styles.filterChipActiveLight : styles.filterChipActive),
-                          pressed && styles.pressed,
-                        ]}
-                        testID={`control-voice-volume-${preset.value}`}
-                      >
-                        <Text
-                          style={[
-                            styles.styleChipText,
-                            light && styles.filterChipTextLight,
-                            selected && (light ? styles.filterChipTextActiveLight : styles.filterChipTextActive),
-                          ]}
-                        >
-                          {preset.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                  <Pressable
-                    accessibilityLabel="轻声模式"
-                    accessibilityRole="switch"
-                    accessibilityState={{ checked: controller.quietMode, disabled: controller.hardwareBusy || disconnected }}
-                    disabled={controller.hardwareBusy || disconnected}
-                    onPress={controller.onToggleQuietMode}
-                    style={({ pressed }) => [
-                      styles.styleChip,
-                      light && styles.filterChipLight,
-                      controller.quietMode && (light ? styles.quietPillActiveLight : styles.quietPillActive),
-                      pressed && styles.pressed,
-                    ]}
-                    testID="control-voice-style-quiet"
-                  >
-                    <Text
+              <View style={styles.capList}>
+                {caps.moduleList.map(mod => {
+                  if (mod.id === 'voice_walk' && !caps.modules.robot_control) return null;
+                  const isSafetyLock = mod.safetyLock === true || mod.id === 'voice_walk';
+                  const toggleLabel = isSafetyLock
+                    ? (mod.enabled ? '已解锁' : '已锁定')
+                    : (mod.enabled ? '已开' : '已关');
+                  return (
+                    <View
+                      key={mod.id}
                       style={[
-                        styles.styleChipText,
-                        light && styles.filterChipTextLight,
-                        controller.quietMode && styles.quietPillTextActive,
+                        styles.capRow,
+                        light && styles.glassRowLight,
+                        isSafetyLock && styles.capSubRow,
                       ]}
+                      testID={`control-voice-cap-row-${mod.id}`}
                     >
-                      {controller.quietMode ? '轻声开' : '轻声关'}
-                    </Text>
-                  </Pressable>
-                </ScrollView>
-              </View>
-
-              {modCompanion ? (
-                <>
-                  <View style={styles.styleRow} testID="control-voice-ambient-row">
-                    <Text style={[styles.styleLabelWide, light && styles.styleLabelLight]}>白噪音</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.styleChipsRow}>
-                      {ambientChips.map(opt => {
-                        const selected = opt.id === 'off'
-                          ? !controller.ambient.active
-                          : controller.ambient.active && controller.ambient.sound === opt.id;
-                        return (
-                          <Pressable
-                            key={opt.id}
-                            accessibilityLabel={`白噪音 ${opt.label}`}
-                            accessibilityRole="button"
-                            accessibilityState={{ selected, disabled: controller.ambientBusy || disconnected }}
-                            disabled={controller.ambientBusy || disconnected}
-                            onPress={() => controller.onSelectAmbient(opt.id)}
-                            style={({ pressed }) => [
-                              styles.styleChip,
-                              light && styles.filterChipLight,
-                              selected && (light ? styles.filterChipActiveLight : styles.filterChipActive),
-                              pressed && styles.pressed,
-                            ]}
-                            testID={`control-voice-ambient-${opt.id}`}
-                          >
-                            <Text
-                              style={[
-                                styles.styleChipText,
-                                light && styles.filterChipTextLight,
-                                selected && (light ? styles.filterChipTextActiveLight : styles.filterChipTextActive),
-                              ]}
-                            >
-                              {opt.label}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                      {AMBIENT_DURATION_PRESETS.map(mins => {
-                        const selected = controller.ambientDurationMin === mins;
-                        return (
-                          <Pressable
-                            key={mins}
-                            accessibilityLabel={`定时 ${mins}分`}
-                            accessibilityRole="button"
-                            accessibilityState={{ selected, disabled: controller.ambientBusy || disconnected }}
-                            disabled={controller.ambientBusy || disconnected}
-                            onPress={() => controller.setAmbientDurationMin(mins)}
-                            style={({ pressed }) => [
-                              styles.styleChip,
-                              light && styles.filterChipLight,
-                              selected && (light ? styles.quietPillActiveLight : styles.quietPillActive),
-                              pressed && styles.pressed,
-                            ]}
-                            testID={`control-voice-ambient-dur-${mins}`}
-                          >
-                            <Text
-                              style={[
-                                styles.styleChipText,
-                                light && styles.filterChipTextLight,
-                                selected && styles.quietPillTextActive,
-                              ]}
-                            >
-                              {`${mins}分`}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-
-                  <View style={styles.styleRow} testID="control-voice-idle-life-row">
-                    <Text style={[styles.styleLabelWide, light && styles.styleLabelLight]}>待机微动</Text>
-                    <Pressable
-                      accessibilityLabel="待机微动"
-                      accessibilityRole="switch"
-                      accessibilityState={{
-                        checked: controller.idleLifeEnabled,
-                        disabled: controller.idleLifeBusy || disconnected,
-                      }}
-                      disabled={controller.idleLifeBusy || disconnected}
-                      onPress={controller.onToggleIdleLife}
-                      style={({ pressed }) => [
-                        styles.styleChip,
-                        light && styles.filterChipLight,
-                        controller.idleLifeEnabled && (light ? styles.filterChipActiveLight : styles.filterChipActive),
-                        (controller.idleLifeBusy || disconnected) && styles.disabled,
-                        pressed && styles.pressed,
-                      ]}
-                      testID="control-voice-idle-life-toggle"
-                    >
-                      <Text
-                        style={[
-                          styles.styleChipText,
-                          light && styles.filterChipTextLight,
-                          controller.idleLifeEnabled && (light ? styles.filterChipTextActiveLight : styles.filterChipTextActive),
-                        ]}
-                      >
-                        {controller.idleLifeEnabled ? '已开' : '已关'}
-                      </Text>
-                    </Pressable>
-                  </View>
-
-                  {showVoiceprints ? (
-                    <View style={styles.speakerSection} testID="control-voice-speakers-section">
-                      <View style={styles.styleRow}>
-                        <Text style={[styles.styleLabelWide, light && styles.styleLabelLight]}>声纹</Text>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.styleChipsRow}>
-                          {controller.speakers.length === 0 ? (
-                            <Text style={[styles.emptyMiniHint, light && styles.emptyHintLight]}>暂无成员</Text>
-                          ) : (
-                            controller.speakers.map(item => (
-                              <View
-                                key={item.name}
-                                style={[styles.speakerChip, light && styles.filterChipLight]}
-                                testID={`control-voice-speaker-item-${item.name}`}
-                              >
-                                <Text style={[styles.styleChipText, light && styles.filterChipTextLight]}>
-                                  {item.name}
-                                </Text>
-                                <Pressable
-                                  accessibilityLabel={`删除 ${item.name}`}
-                                  accessibilityRole="button"
-                                  disabled={controller.speakersBusy || disconnected}
-                                  onPress={() => controller.onDeleteSpeaker(item.name)}
-                                  style={({ pressed }) => [styles.speakerDelBtn, pressed && styles.pressed]}
-                                  testID={`control-voice-speaker-delete-${item.name}`}
-                                >
-                                  <Ionicons color={light ? '#DC2626' : '#F87171'} name="close" size={11} />
-                                </Pressable>
-                              </View>
-                            ))
-                          )}
-                        </ScrollView>
-                      </View>
-                      {controller.speakersAvailable ? (
-                        <View style={styles.speakerEnrollRow}>
-                          <TextInput
-                            accessibilityLabel="声纹称呼"
-                            editable={!disconnected && !controller.speakersBusy}
-                            maxLength={24}
-                            onChangeText={controller.setSpeakerNameDraft}
-                            onSubmitEditing={() => {
-                              if (canEnrollSpeaker) controller.onEnrollSpeaker();
-                            }}
-                            placeholder="称呼…"
-                            placeholderTextColor={light ? '#94A3B8' : '#707070'}
-                            returnKeyType="done"
-                            style={[styles.speakerInput, light && styles.inputLight]}
-                            testID="control-voice-speaker-input"
-                            value={controller.speakerNameDraft}
+                      <View style={styles.capNameWrap}>
+                        {isSafetyLock ? (
+                          <Ionicons
+                            color={mod.enabled ? '#E9B963' : (light ? '#64748B' : 'rgba(255,255,255,0.48)')}
+                            name={mod.enabled ? 'lock-open-outline' : 'lock-closed-outline'}
+                            size={13}
                           />
-                          <Pressable
-                            accessibilityLabel="录入声纹"
-                            accessibilityRole="button"
-                            accessibilityState={{ disabled: !canEnrollSpeaker }}
-                            disabled={!canEnrollSpeaker}
-                            onPress={() => controller.onEnrollSpeaker()}
-                            style={({ pressed }) => [
-                              styles.speakerEnrollBtn,
-                              !canEnrollSpeaker && styles.sendBtnDisabled,
-                              pressed && canEnrollSpeaker && styles.pressed,
-                            ]}
-                            testID="control-voice-speaker-enroll"
-                          >
-                            <Text style={styles.speakerEnrollText}>录入</Text>
-                          </Pressable>
-                        </View>
-                      ) : null}
-                    </View>
-                  ) : null}
-                </>
-              ) : null}
-            </View>
-          )}
-        </View>
-      ) : null}
-
-      {/* Dynamic Workspace Segmented Bar: 对话 | 记忆 | 提醒 | 时光 */}
-      {visibleTabs.length > 1 || isXiaosuan ? (
-        <View
-          style={[styles.tabBarRow, visibleTabs.length <= 1 && styles.tabBarRowEnd]}
-          testID="control-voice-tabs"
-        >
-          {visibleTabs.length > 1 ? (
-            <View style={[styles.segmentedTrack, light && styles.segmentedTrackLight]}>
-              {visibleTabs.map(tab => {
-                const selected = activeTab === tab.key;
-                const badge =
-                  tab.key === 'reminders' && controller.pendingRemindersCount > 0
-                    ? controller.pendingRemindersCount
-                    : tab.key === 'memory' && totalMemoryCount > 0
-                      ? totalMemoryCount
-                      : tab.key === 'moments' && modVisionNav && controller.photosCount > 0
-                        ? controller.photosCount
-                        : 0;
-                return (
-                  <Pressable
-                    key={tab.key}
-                    accessibilityLabel={tab.label}
-                    accessibilityRole="tab"
-                    accessibilityState={{ selected }}
-                    onPress={() => controller.setActiveTab(tab.key)}
-                    style={({ pressed }) => [
-                      styles.tabBtn,
-                      selected && (light ? styles.tabBtnActiveLight : styles.tabBtnActive),
-                      pressed && styles.pressed,
-                    ]}
-                    testID={`control-voice-tab-${tab.key}`}
-                  >
-                    <Text
-                      style={[
-                        styles.tabText,
-                        light && styles.tabTextLight,
-                        selected && (light ? styles.tabTextActiveLight : styles.tabTextActive),
-                      ]}
-                    >
-                      {tab.label}
-                    </Text>
-                    {badge > 0 ? (
-                      <View
-                        style={[
-                          styles.tabBadge,
-                          tab.key === 'reminders' && styles.tabBadgeAccent,
-                        ]}
-                        testID={
-                          tab.key === 'reminders'
-                            ? 'control-voice-reminders-badge'
-                            : tab.key === 'moments'
-                              ? 'control-voice-moments-count'
-                              : 'control-voice-memory-count'
-                        }
-                      >
-                        <Text style={styles.tabBadgeText}>{String(badge)}</Text>
+                        ) : null}
+                        <Text style={[styles.capName, light && styles.inkLight]}>{mod.name}</Text>
                       </View>
-                    ) : null}
-                  </Pressable>
-                );
-              })}
+
+                      {mod.available ? (
+                        <Pressable
+                          accessibilityLabel={`${mod.name} ${toggleLabel}`}
+                          accessibilityRole="switch"
+                          accessibilityState={{
+                            checked: mod.enabled,
+                            disabled: controller.capabilitiesBusy || disconnected,
+                          }}
+                          disabled={controller.capabilitiesBusy || disconnected}
+                          onPress={() => controller.setCapabilityEnabled(mod.id, !mod.enabled)}
+                          style={({ pressed }) => [
+                            styles.capToggleChip,
+                            light && styles.softChipLight,
+                            mod.enabled && (isSafetyLock ? styles.capToggleAmber : styles.capToggleGreen),
+                            (controller.capabilitiesBusy || disconnected) && styles.disabled,
+                            pressed && styles.pressed,
+                          ]}
+                          testID={`control-voice-cap-toggle-${mod.id}`}
+                        >
+                          <Text
+                            style={[
+                              styles.capToggleText,
+                              light && styles.mutedLight,
+                              mod.enabled && (isSafetyLock ? styles.capToggleAmberText : styles.capToggleGreenText),
+                            ]}
+                          >
+                            {toggleLabel}
+                          </Text>
+                        </Pressable>
+                      ) : (
+                        <View
+                          style={[styles.capStatusBadge, light && styles.softChipLight]}
+                          testID={`control-voice-cap-status-${mod.id}`}
+                        >
+                          <Text style={[styles.capStatusText, light && styles.mutedLight]}>
+                            {mod.statusLabel || (mod.id === 'voice_walk' ? '需开控狗' : '未接硬件')}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
             </View>
           ) : null}
 
-        {activeTab === 'memory' ? (
-          <Pressable
-            accessibilityLabel="刷新记忆"
-            accessibilityRole="button"
-            disabled={controller.memoryLoading || disconnected}
-            onPress={controller.onRefreshMemories}
-            style={({ pressed }) => [
-              styles.iconBtn,
-              light && styles.iconBtnLight,
-              (controller.memoryLoading || disconnected) && styles.disabled,
-              pressed && styles.pressed,
-            ]}
-            testID="control-voice-memory-refresh"
-          >
-            <Ionicons color={light ? '#334155' : '#C8C8C8'} name="refresh-outline" size={14} />
-          </Pressable>
-        ) : activeTab === 'reminders' ? (
-          <Pressable
-            accessibilityLabel="刷新提醒"
-            accessibilityRole="button"
-            disabled={controller.remindersLoading || disconnected}
-            onPress={controller.onRefreshReminders}
-            style={({ pressed }) => [
-              styles.iconBtn,
-              light && styles.iconBtnLight,
-              (controller.remindersLoading || disconnected) && styles.disabled,
-              pressed && styles.pressed,
-            ]}
-            testID="control-voice-reminders-refresh"
-          >
-            <Ionicons color={light ? '#334155' : '#C8C8C8'} name="refresh-outline" size={14} />
-          </Pressable>
-        ) : activeTab === 'moments' ? (
-          <Pressable
-            accessibilityLabel="刷新时光"
-            accessibilityRole="button"
-            disabled={(controller.photosLoading && controller.diariesLoading) || disconnected}
-            onPress={controller.onRefreshMoments}
-            style={({ pressed }) => [
-              styles.iconBtn,
-              light && styles.iconBtnLight,
-              ((controller.photosLoading && controller.diariesLoading) || disconnected) && styles.disabled,
-              pressed && styles.pressed,
-            ]}
-            testID="control-voice-moments-refresh"
-          >
-            <Ionicons color={light ? '#334155' : '#C8C8C8'} name="refresh-outline" size={14} />
-          </Pressable>
-        ) : isXiaosuan ? (
-          <Pressable
-            accessibilityLabel="清空对话"
-            accessibilityRole="button"
-            disabled={controller.busy || disconnected}
-            onPress={controller.onResetConversation}
-            style={({ pressed }) => [
-              styles.iconBtn,
-              light && styles.iconBtnLight,
-              (controller.busy || disconnected) && styles.disabled,
-              pressed && styles.pressed,
-            ]}
-            testID="control-voice-reset"
-          >
-            <Ionicons color={light ? '#334155' : '#C8C8C8'} name="trash-outline" size={14} />
-          </Pressable>
-        ) : null}
-        </View>
-      ) : null}
+          <View style={styles.configBlock} testID="control-voice-drawer-style-view">
+            <Text style={[styles.configSectionTitle, light && styles.mutedLight]}>声音与风格</Text>
 
-      {controller.noticeText ? (
-        <View style={[styles.noticePill, light && styles.noticePillLight]} testID="control-voice-notice">
-          <Text numberOfLines={1} style={[styles.noticeText, light && styles.noticeTextLight]}>
-            {controller.noticeText}
-          </Text>
-        </View>
-      ) : null}
+            <View style={[styles.styleCard, light && styles.glassRowLight]}>
+              <Text style={[styles.styleRowLabel, light && styles.mutedLight]}>音色</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+                {controller.voiceOptions.map(opt => {
+                  const selected = controller.activeVoiceId === opt.id;
+                  return (
+                    <Pressable
+                      key={opt.id}
+                      accessibilityLabel={`音色 ${opt.shortName}`}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected, disabled: controller.personaBusy || disconnected }}
+                      disabled={controller.personaBusy || disconnected}
+                      onPress={() => controller.onSelectVoice(opt.id)}
+                      style={({ pressed }) => [
+                        styles.softChip,
+                        light && styles.softChipLight,
+                        selected && (light ? styles.softChipActiveLight : styles.softChipActive),
+                        pressed && styles.pressed,
+                      ]}
+                      testID={`control-voice-voice-${opt.id}`}
+                    >
+                      <Text
+                        style={[
+                          styles.softChipText,
+                          light && styles.mutedLight,
+                          selected && (light ? styles.softChipActiveTextLight : styles.softChipActiveText),
+                        ]}
+                      >
+                        {opt.shortName}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
 
-      {/* TAB 2: 记忆 */}
-      {activeTab === 'memory' && modMemory ? (
+            <View style={[styles.styleCard, light && styles.glassRowLight]}>
+              <Text style={[styles.styleRowLabel, light && styles.mutedLight]}>音量</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+                {VOLUME_PRESETS.map(preset => {
+                  const selected = Math.abs(currentDogVolume - preset.value) <= 8;
+                  return (
+                    <Pressable
+                      key={preset.value}
+                      accessibilityLabel={`音量 ${preset.label}`}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected, disabled: controller.hardwareBusy || disconnected }}
+                      disabled={controller.hardwareBusy || disconnected}
+                      onPress={() => controller.onSetDogVolume(preset.value)}
+                      style={({ pressed }) => [
+                        styles.softChip,
+                        light && styles.softChipLight,
+                        selected && (light ? styles.softChipActiveLight : styles.softChipActive),
+                        pressed && styles.pressed,
+                      ]}
+                      testID={`control-voice-volume-${preset.value}`}
+                    >
+                      <Text
+                        style={[
+                          styles.softChipText,
+                          light && styles.mutedLight,
+                          selected && (light ? styles.softChipActiveTextLight : styles.softChipActiveText),
+                        ]}
+                      >
+                        {preset.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+                <Pressable
+                  accessibilityLabel="轻声模式"
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: controller.quietMode, disabled: controller.hardwareBusy || disconnected }}
+                  disabled={controller.hardwareBusy || disconnected}
+                  onPress={controller.onToggleQuietMode}
+                  style={({ pressed }) => [
+                    styles.softChip,
+                    light && styles.softChipLight,
+                    controller.quietMode && styles.capToggleAmber,
+                    pressed && styles.pressed,
+                  ]}
+                  testID="control-voice-style-quiet"
+                >
+                  <Text
+                    style={[
+                      styles.softChipText,
+                      light && styles.mutedLight,
+                      controller.quietMode && styles.capToggleAmberText,
+                    ]}
+                  >
+                    {controller.quietMode ? '轻声开' : '轻声关'}
+                  </Text>
+                </Pressable>
+              </ScrollView>
+            </View>
+          </View>
+        </ScrollView>
+      ) : activeTab === 'memory' && modMemory ? (
+        /* SUBVIEW: 长期记忆 */
         <View style={styles.sectionWrap} testID="control-voice-memory-view">
-          <View style={[styles.searchRow, light && styles.searchRowLight]} testID="control-voice-memory-search-row">
-            <Ionicons color={light ? '#64748B' : '#A0A0A0'} name="search-outline" size={13} />
+          <View style={[styles.recessedSearch, light && styles.recessedLight]} testID="control-voice-memory-search-row">
+            <Ionicons color={light ? '#64748B' : 'rgba(255,255,255,0.44)'} name="search-outline" size={13} />
             <TextInput
               accessibilityLabel="搜索记忆"
               onChangeText={controller.setMemoryQuery}
               placeholder="搜记忆…"
-              placeholderTextColor={light ? '#94A3B8' : '#707070'}
-              style={[styles.searchInput, light && styles.searchInputLight]}
+              placeholderTextColor={light ? '#94A3B8' : 'rgba(255,255,255,0.36)'}
+              style={[styles.searchInput, light && styles.inkLight]}
               testID="control-voice-memory-search"
               value={controller.memoryQuery}
             />
@@ -1159,16 +894,17 @@ export function ControlVoiceChatPanel({
                 style={({ pressed }) => [styles.clearSearchBtn, pressed && styles.pressed]}
                 testID="control-voice-memory-search-clear"
               >
-                <Ionicons color={light ? '#64748B' : '#A0A0A0'} name="close-circle" size={14} />
+                <Ionicons color={light ? '#64748B' : 'rgba(255,255,255,0.52)'} name="close-circle" size={14} />
               </Pressable>
             ) : null}
           </View>
 
           <ScrollView
-            contentContainerStyle={styles.filterRow}
+            contentContainerStyle={styles.chipRow}
             horizontal
             keyboardShouldPersistTaps="handled"
             showsHorizontalScrollIndicator={false}
+            style={styles.filterScroll}
             testID="control-voice-memory-filters"
           >
             {visibleMemoryFilters.map(chip => {
@@ -1182,18 +918,18 @@ export function ControlVoiceChatPanel({
                   accessibilityState={{ selected }}
                   onPress={() => controller.setMemoryFilter(chip.key)}
                   style={({ pressed }) => [
-                    styles.filterChip,
-                    light && styles.filterChipLight,
-                    selected && (light ? styles.filterChipActiveLight : styles.filterChipActive),
+                    styles.softChip,
+                    light && styles.softChipLight,
+                    selected && (light ? styles.softChipActiveLight : styles.softChipActive),
                     pressed && styles.pressed,
                   ]}
                   testID={`control-voice-memory-filter-${chip.key}`}
                 >
                   <Text
                     style={[
-                      styles.filterChipText,
-                      light && styles.filterChipTextLight,
-                      selected && (light ? styles.filterChipTextActiveLight : styles.filterChipTextActive),
+                      styles.softChipText,
+                      light && styles.mutedLight,
+                      selected && (light ? styles.softChipActiveTextLight : styles.softChipActiveText),
                     ]}
                   >
                     {count > 0 ? `${chip.label} ${count}` : chip.label}
@@ -1206,26 +942,24 @@ export function ControlVoiceChatPanel({
           <ScrollView
             contentContainerStyle={[
               styles.listContent,
-              (disconnected || filteredMemories.length === 0) && styles.messageContentEmpty,
+              (disconnected || filteredMemories.length === 0) && styles.emptyCenterContent,
             ]}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
-            style={[styles.listScroll, { maxHeight: listMaxHeight }]}
+            style={listStyle}
             testID="control-voice-memory-list"
           >
             {disconnected ? (
               <View style={styles.emptyWrap}>
-                <Ionicons color={light ? '#737373' : '#6B6B6B'} name="cloud-offline-outline" size={18} />
-                <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>未连接</Text>
+                <Text style={[styles.emptyHint, light && styles.mutedLight]}>未连接</Text>
               </View>
             ) : controller.memoryLoading && filteredMemories.length === 0 ? (
               <View style={styles.emptyWrap}>
-                <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>加载中…</Text>
+                <Text style={[styles.emptyHint, light && styles.mutedLight]}>加载中…</Text>
               </View>
             ) : filteredMemories.length === 0 ? (
               <View style={styles.emptyWrap}>
-                <Ionicons color={light ? '#737373' : '#6B6B6B'} name="bookmark-outline" size={18} />
-                <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>
+                <Text style={[styles.emptyHint, light && styles.mutedLight]}>
                   {normalizedQuery ? '无匹配项' : '暂无记忆'}
                 </Text>
               </View>
@@ -1234,31 +968,12 @@ export function ControlVoiceChatPanel({
                 const itemBusy = controller.memoryBusyId === item.id;
                 const canWriteItem = writableMemoryRooms.includes(item.room);
                 const isEditing = canWriteItem && controller.editingMemoryId === item.id;
-                const roomTagStyle =
-                  item.room === 'user_long_term'
-                    ? (light ? styles.roomTagUserLight : styles.roomTagUser)
-                    : item.room === 'customer_knowledge'
-                      ? (light ? styles.roomTagKnowledgeLight : styles.roomTagKnowledge)
-                      : item.room === 'episodic_events'
-                        ? (light ? styles.roomTagEpisodicLight : styles.roomTagEpisodic)
-                        : (light ? styles.roomTagBehaviorLight : styles.roomTagBehavior);
-                const roomTagTextStyle =
-                  item.room === 'user_long_term'
-                    ? (light ? styles.roomTagTextUserLight : styles.roomTagTextUser)
-                    : item.room === 'customer_knowledge'
-                      ? (light ? styles.roomTagTextKnowledgeLight : styles.roomTagTextKnowledge)
-                      : item.room === 'episodic_events'
-                        ? (light ? styles.roomTagTextEpisodicLight : styles.roomTagTextEpisodic)
-                        : (light ? styles.roomTagTextBehaviorLight : styles.roomTagTextBehavior);
 
                 if (isEditing) {
                   return (
                     <View
                       key={item.id}
-                      style={[
-                        styles.memoryCardEdit,
-                        light ? styles.memoryCardLight : styles.memoryCardDark,
-                      ]}
+                      style={[styles.glassRowEdit, light && styles.glassRowLight]}
                       testID={`control-voice-memory-editing-${item.id}`}
                     >
                       <View style={styles.editTopRow}>
@@ -1266,14 +981,10 @@ export function ControlVoiceChatPanel({
                           accessibilityLabel={`分类 ${memoryRoomLabels[effectiveEditingMemoryRoom]}`}
                           accessibilityRole="button"
                           onPress={() => controller.setEditingMemoryRoom(getNextMemoryRoom(effectiveEditingMemoryRoom, writableMemoryRooms))}
-                          style={({ pressed }) => [
-                            styles.roomSelectMini,
-                            light && styles.roomSelectBtnLight,
-                            pressed && styles.pressed,
-                          ]}
+                          style={({ pressed }) => [styles.softChip, light && styles.softChipLight, pressed && styles.pressed]}
                           testID="control-voice-memory-edit-room"
                         >
-                          <Text style={[styles.roomSelectText, light && styles.roomSelectTextLight]}>
+                          <Text style={[styles.softChipText, light && styles.mutedLight]}>
                             {memoryRoomLabels[effectiveEditingMemoryRoom]}
                           </Text>
                         </Pressable>
@@ -1282,7 +993,7 @@ export function ControlVoiceChatPanel({
                           maxLength={400}
                           onChangeText={controller.setEditingMemoryText}
                           onSubmitEditing={controller.onSaveEditMemory}
-                          style={[styles.editInput, light && styles.inputLight]}
+                          style={[styles.editInput, light && styles.inkLight]}
                           testID="control-voice-memory-edit-input"
                           value={controller.editingMemoryText}
                         />
@@ -1292,10 +1003,10 @@ export function ControlVoiceChatPanel({
                           accessibilityLabel="取消编辑"
                           accessibilityRole="button"
                           onPress={controller.onCancelEditMemory}
-                          style={({ pressed }) => [styles.rejectBtn, pressed && styles.pressed]}
+                          style={({ pressed }) => [styles.softPillBtn, light && styles.softPillBtnLight, pressed && styles.pressed]}
                           testID="control-voice-memory-edit-cancel"
                         >
-                          <Text style={styles.rejectBtnText}>取消</Text>
+                          <Text style={[styles.softPillText, light && styles.mutedLight]}>取消</Text>
                         </Pressable>
                         <Pressable
                           accessibilityLabel="保存记忆"
@@ -1303,13 +1014,13 @@ export function ControlVoiceChatPanel({
                           disabled={!controller.editingMemoryText.trim()}
                           onPress={controller.onSaveEditMemory}
                           style={({ pressed }) => [
-                            styles.approveBtn,
+                            styles.primaryPillBtn,
                             !controller.editingMemoryText.trim() && styles.disabled,
                             pressed && styles.pressed,
                           ]}
                           testID="control-voice-memory-edit-save"
                         >
-                          <Text style={styles.approveBtnText}>保存</Text>
+                          <Text style={styles.primaryPillText}>保存</Text>
                         </Pressable>
                       </View>
                     </View>
@@ -1319,46 +1030,32 @@ export function ControlVoiceChatPanel({
                 return (
                   <View
                     key={item.id}
-                    style={[
-                      styles.memoryCard,
-                      light ? styles.memoryCardLight : styles.memoryCardDark,
-                    ]}
+                    style={[styles.glassRow, light && styles.glassRowLight]}
                     testID={`control-voice-memory-item-${item.id}`}
                   >
-                    <View style={styles.memoryCardBody}>
-                      <View style={[styles.roomTag, roomTagStyle]}>
-                        <Text style={[styles.roomTagText, roomTagTextStyle]}>
+                    <View style={styles.rowBody}>
+                      <View style={[styles.roomTag, light && styles.softChipLight]}>
+                        <Text style={[styles.roomTagText, light && styles.mutedLight]}>
                           {memoryRoomLabels[item.room]}
                         </Text>
                       </View>
-                      <Text
-                        style={[
-                          styles.memoryCardText,
-                          light ? styles.bubbleTextLight : styles.bubbleTextDark,
-                        ]}
-                      >
-                        {item.text}
-                      </Text>
+                      <Text style={[styles.rowText, light && styles.inkLight]}>{item.text}</Text>
                     </View>
                     {canWriteItem ? (
-                      <View style={styles.memoryCardActions}>
+                      <View style={styles.rowActions}>
                         <Pressable
                           accessibilityLabel={item.pinned ? '取消置顶' : '置顶'}
                           accessibilityRole="button"
                           accessibilityState={{ selected: item.pinned, disabled: itemBusy }}
                           disabled={itemBusy}
                           onPress={() => controller.onTogglePinMemory(item.id, !item.pinned)}
-                          style={({ pressed }) => [
-                            styles.cardActionBtn,
-                            itemBusy && styles.disabled,
-                            pressed && styles.pressed,
-                          ]}
+                          style={({ pressed }) => [styles.miniActionBtn, itemBusy && styles.disabled, pressed && styles.pressed]}
                           testID={`control-voice-memory-pin-${item.id}`}
                         >
                           <Ionicons
-                            color={item.pinned ? '#F59E0B' : (light ? '#94A3B8' : '#707070')}
+                            color={item.pinned ? '#E9B963' : (light ? '#94A3B8' : 'rgba(255,255,255,0.36)')}
                             name={item.pinned ? 'star' : 'star-outline'}
-                            size={14}
+                            size={13}
                           />
                         </Pressable>
                         <Pressable
@@ -1367,18 +1064,10 @@ export function ControlVoiceChatPanel({
                           accessibilityState={{ disabled: itemBusy }}
                           disabled={itemBusy}
                           onPress={() => controller.onStartEditMemory(item)}
-                          style={({ pressed }) => [
-                            styles.cardActionBtn,
-                            itemBusy && styles.disabled,
-                            pressed && styles.pressed,
-                          ]}
+                          style={({ pressed }) => [styles.miniActionBtn, itemBusy && styles.disabled, pressed && styles.pressed]}
                           testID={`control-voice-memory-edit-${item.id}`}
                         >
-                          <Ionicons
-                            color={light ? '#475569' : '#A0A0A0'}
-                            name="create-outline"
-                            size={14}
-                          />
+                          <Ionicons color={light ? '#64748B' : 'rgba(255,255,255,0.48)'} name="create-outline" size={13} />
                         </Pressable>
                         <Pressable
                           accessibilityLabel="删除"
@@ -1386,18 +1075,10 @@ export function ControlVoiceChatPanel({
                           accessibilityState={{ disabled: itemBusy }}
                           disabled={itemBusy}
                           onPress={() => controller.onDeleteMemory(item.id)}
-                          style={({ pressed }) => [
-                            styles.cardActionBtn,
-                            itemBusy && styles.disabled,
-                            pressed && styles.pressed,
-                          ]}
+                          style={({ pressed }) => [styles.miniActionBtn, itemBusy && styles.disabled, pressed && styles.pressed]}
                           testID={`control-voice-memory-delete-${item.id}`}
                         >
-                          <Ionicons
-                            color={light ? '#DC2626' : '#F87171'}
-                            name="trash-outline"
-                            size={14}
-                          />
+                          <Ionicons color="#EF6B6E" name="trash-outline" size={13} />
                         </Pressable>
                       </View>
                     ) : null}
@@ -1414,24 +1095,22 @@ export function ControlVoiceChatPanel({
           ) : null}
 
           {canWriteAnyMemory ? (
-            <View style={styles.composerRow} testID="control-voice-memory-add-bar">
+            <View style={[styles.pillComposer, light && styles.recessedLight]} testID="control-voice-memory-add-bar">
               <Pressable
                 accessibilityLabel={`分类 ${memoryRoomLabels[effectiveMemoryRoomDraft]}`}
                 accessibilityRole="button"
                 disabled={controller.memoryActionBusy || disconnected}
                 onPress={() => controller.setMemoryRoomDraft(getNextMemoryRoom(effectiveMemoryRoomDraft, writableMemoryRooms))}
                 style={({ pressed }) => [
-                  styles.roomSelectBtn,
-                  light && styles.roomSelectBtnLight,
+                  styles.inlineTagBtn,
                   (controller.memoryActionBusy || disconnected) && styles.disabled,
                   pressed && styles.pressed,
                 ]}
                 testID="control-voice-memory-room-select"
               >
-                <Text style={[styles.roomSelectText, light && styles.roomSelectTextLight]}>
+                <Text style={[styles.inlineTagText, light && styles.mutedLight]}>
                   {memoryRoomLabels[effectiveMemoryRoomDraft]}
                 </Text>
-                <Ionicons color={light ? '#475569' : '#A0A0A0'} name="chevron-down" size={11} />
               </Pressable>
 
               <Pressable
@@ -1440,19 +1119,13 @@ export function ControlVoiceChatPanel({
                 accessibilityState={{ checked: controller.memoryPinOnAdd, disabled: controller.memoryActionBusy || disconnected }}
                 disabled={controller.memoryActionBusy || disconnected}
                 onPress={controller.onToggleMemoryPinOnAdd}
-                style={({ pressed }) => [
-                  styles.pinAddBtn,
-                  light && styles.roomSelectBtnLight,
-                  controller.memoryPinOnAdd && styles.pinAddBtnActive,
-                  (controller.memoryActionBusy || disconnected) && styles.disabled,
-                  pressed && styles.pressed,
-                ]}
+                style={({ pressed }) => [styles.miniActionBtn, (controller.memoryActionBusy || disconnected) && styles.disabled, pressed && styles.pressed]}
                 testID="control-voice-memory-add-pin"
               >
                 <Ionicons
-                  color={controller.memoryPinOnAdd ? '#F59E0B' : (light ? '#64748B' : '#A0A0A0')}
+                  color={controller.memoryPinOnAdd ? '#E9B963' : (light ? '#64748B' : 'rgba(255,255,255,0.44)')}
                   name={controller.memoryPinOnAdd ? 'star' : 'star-outline'}
-                  size={14}
+                  size={13}
                 />
               </Pressable>
 
@@ -1467,9 +1140,9 @@ export function ControlVoiceChatPanel({
                   }
                 }}
                 placeholder="添加记忆…"
-                placeholderTextColor={light ? '#94A3B8' : '#707070'}
+                placeholderTextColor={light ? '#94A3B8' : 'rgba(255,255,255,0.36)'}
                 returnKeyType="done"
-                style={[styles.input, light && styles.inputLight]}
+                style={[styles.pillInput, light && styles.inkLight]}
                 testID="control-voice-memory-input"
                 value={controller.memoryDraft}
               />
@@ -1480,32 +1153,18 @@ export function ControlVoiceChatPanel({
                 accessibilityState={{ disabled: !canAddMemory }}
                 disabled={!canAddMemory}
                 onPress={() => controller.onAddMemory(controller.memoryDraft, effectiveMemoryRoomDraft, controller.memoryPinOnAdd)}
-                style={({ pressed }) => [
-                  styles.rememberBtn,
-                  !canAddMemory && styles.sendBtnDisabled,
-                  pressed && canAddMemory && styles.pressed,
-                ]}
+                style={({ pressed }) => [styles.primaryPillBtn, !canAddMemory && styles.disabled, pressed && canAddMemory && styles.pressed]}
                 testID="control-voice-memory-add"
               >
-                <Text style={styles.rememberBtnText}>记住</Text>
+                <Text style={styles.primaryPillText}>记住</Text>
               </Pressable>
             </View>
           ) : null}
 
           {controller.memoryHasSessionContext ? (
-            <View
-              style={[
-                styles.memoryFooter,
-                !controller.memorySummary && styles.memoryFooterEnd,
-                light && styles.memoryFooterLight,
-              ]}
-            >
+            <View style={styles.memoryFooter}>
               {controller.memorySummary ? (
-                <Text
-                  numberOfLines={1}
-                  style={[styles.summaryText, light && styles.summaryTextLight]}
-                  testID="control-voice-memory-summary"
-                >
+                <Text numberOfLines={1} style={[styles.summaryText, light && styles.mutedLight]} testID="control-voice-memory-summary">
                   {controller.memorySummary}
                 </Text>
               ) : null}
@@ -1514,60 +1173,42 @@ export function ControlVoiceChatPanel({
                 accessibilityRole="button"
                 disabled={controller.memoryActionBusy || disconnected}
                 onPress={controller.onClearMemorySession}
-                style={({ pressed }) => [
-                  styles.clearSessionBtn,
-                  light && styles.clearSessionBtnLight,
-                  (controller.memoryActionBusy || disconnected) && styles.disabled,
-                  pressed && styles.pressed,
-                ]}
+                style={({ pressed }) => [styles.softPillBtn, light && styles.softPillBtnLight, (controller.memoryActionBusy || disconnected) && styles.disabled, pressed && styles.pressed]}
                 testID="control-voice-memory-clear-session"
               >
-                <Text style={[styles.clearSessionText, light && styles.clearSessionTextLight]}>
-                  清空对话
-                </Text>
+                <Text style={[styles.softPillText, light && styles.mutedLight]}>清空对话</Text>
               </Pressable>
             </View>
           ) : null}
         </View>
       ) : activeTab === 'reminders' && modInfoReminders ? (
-        /* TAB 3: 提醒 */
+        /* SUBVIEW: 日程提醒 */
         <View style={styles.sectionWrap} testID="control-voice-reminders-view">
           {isXiaosuan ? (
-            <View
-              style={[styles.timerBar, light ? styles.memoryCardLight : styles.memoryCardDark]}
-              testID="control-voice-timer-bar"
-            >
+            <View style={[styles.glassRow, light && styles.glassRowLight]} testID="control-voice-timer-bar">
               {controller.activeTimer && controller.timerDisplayLabel ? (
                 <>
                   <View style={styles.timerReadoutWrap}>
                     <Ionicons
-                      color={controller.activeTimer.state === 'running' ? '#38BDF8' : '#F59E0B'}
+                      color={controller.activeTimer.state === 'running' ? '#63C795' : '#E9B963'}
                       name="timer-outline"
                       size={14}
                     />
-                    <Text
-                      style={[styles.timerReadoutText, light && styles.titleLight]}
-                      testID="control-voice-timer-readout"
-                    >
+                    <Text style={[styles.timerReadoutText, light && styles.inkLight]} testID="control-voice-timer-readout">
                       {controller.timerDisplayLabel}
                     </Text>
                   </View>
-                  <View style={styles.timerActions}>
+                  <View style={styles.rowActions}>
                     {controller.activeTimer.state === 'running' ? (
                       <Pressable
                         accessibilityLabel="暂停计时"
                         accessibilityRole="button"
                         disabled={controller.timerBusy || disconnected}
                         onPress={controller.onPauseTimer}
-                        style={({ pressed }) => [
-                          styles.reminderActionPill,
-                          light && styles.clearSessionBtnLight,
-                          (controller.timerBusy || disconnected) && styles.disabled,
-                          pressed && styles.pressed,
-                        ]}
+                        style={({ pressed }) => [styles.softPillBtn, light && styles.softPillBtnLight, (controller.timerBusy || disconnected) && styles.disabled, pressed && styles.pressed]}
                         testID="control-voice-timer-pause"
                       >
-                        <Text style={[styles.reminderActionText, light && styles.clearSessionTextLight]}>暂停</Text>
+                        <Text style={[styles.softPillText, light && styles.mutedLight]}>暂停</Text>
                       </Pressable>
                     ) : (
                       <Pressable
@@ -1575,14 +1216,10 @@ export function ControlVoiceChatPanel({
                         accessibilityRole="button"
                         disabled={controller.timerBusy || disconnected}
                         onPress={controller.onResumeTimer}
-                        style={({ pressed }) => [
-                          styles.timerPrimaryPill,
-                          (controller.timerBusy || disconnected) && styles.disabled,
-                          pressed && styles.pressed,
-                        ]}
+                        style={({ pressed }) => [styles.primaryPillBtn, (controller.timerBusy || disconnected) && styles.disabled, pressed && styles.pressed]}
                         testID="control-voice-timer-resume"
                       >
-                        <Text style={styles.timerPrimaryText}>继续</Text>
+                        <Text style={styles.primaryPillText}>继续</Text>
                       </Pressable>
                     )}
                     <Pressable
@@ -1590,53 +1227,39 @@ export function ControlVoiceChatPanel({
                       accessibilityRole="button"
                       disabled={controller.timerBusy || disconnected}
                       onPress={controller.onCancelTimer}
-                      style={({ pressed }) => [
-                        styles.reminderActionPill,
-                        light && styles.clearSessionBtnLight,
-                        (controller.timerBusy || disconnected) && styles.disabled,
-                        pressed && styles.pressed,
-                      ]}
+                      style={({ pressed }) => [styles.softPillBtn, light && styles.softPillBtnLight, (controller.timerBusy || disconnected) && styles.disabled, pressed && styles.pressed]}
                       testID="control-voice-timer-cancel"
                     >
-                      <Text style={[styles.reminderActionText, light && styles.clearSessionTextLight]}>结束</Text>
+                      <Text style={[styles.softPillText, light && styles.mutedLight]}>结束</Text>
                     </Pressable>
                   </View>
                 </>
               ) : (
                 <>
                   <View style={styles.timerReadoutWrap}>
-                    <Ionicons color={light ? '#2563EB' : '#D4D4D4'} name="timer-outline" size={14} />
-                    <Text style={[styles.timerTitle, light && styles.titleLight]}>番茄钟</Text>
+                    <Ionicons color={light ? '#334155' : 'rgba(255,255,255,0.72)'} name="timer-outline" size={14} />
+                    <Text style={[styles.timerTitle, light && styles.inkLight]}>番茄钟</Text>
                   </View>
-                  <View style={styles.timerActions}>
+                  <View style={styles.rowActions}>
                     <Pressable
                       accessibilityLabel="25分钟专注"
                       accessibilityRole="button"
                       disabled={controller.timerBusy || disconnected}
                       onPress={() => controller.onStartTimer({ kind: 'pomodoro', durationSec: 1500, label: '专注', autoQuiet: true })}
-                      style={({ pressed }) => [
-                        styles.timerPrimaryPill,
-                        (controller.timerBusy || disconnected) && styles.disabled,
-                        pressed && styles.pressed,
-                      ]}
+                      style={({ pressed }) => [styles.primaryPillBtn, (controller.timerBusy || disconnected) && styles.disabled, pressed && styles.pressed]}
                       testID="control-voice-timer-start-pomodoro"
                     >
-                      <Text style={styles.timerPrimaryText}>25分钟专注</Text>
+                      <Text style={styles.primaryPillText}>25分钟专注</Text>
                     </Pressable>
                     <Pressable
                       accessibilityLabel="5分钟倒计时"
                       accessibilityRole="button"
                       disabled={controller.timerBusy || disconnected}
                       onPress={() => controller.onStartTimer({ kind: 'countdown', durationSec: 300, label: '倒计时' })}
-                      style={({ pressed }) => [
-                        styles.reminderActionPill,
-                        light && styles.clearSessionBtnLight,
-                        (controller.timerBusy || disconnected) && styles.disabled,
-                        pressed && styles.pressed,
-                      ]}
+                      style={({ pressed }) => [styles.softPillBtn, light && styles.softPillBtnLight, (controller.timerBusy || disconnected) && styles.disabled, pressed && styles.pressed]}
                       testID="control-voice-timer-start-5m"
                     >
-                      <Text style={[styles.reminderActionText, light && styles.clearSessionTextLight]}>5分钟</Text>
+                      <Text style={[styles.softPillText, light && styles.mutedLight]}>5分钟</Text>
                     </Pressable>
                   </View>
                 </>
@@ -1645,10 +1268,11 @@ export function ControlVoiceChatPanel({
           ) : null}
 
           <ScrollView
-            contentContainerStyle={styles.filterRow}
+            contentContainerStyle={styles.chipRow}
             horizontal
             keyboardShouldPersistTaps="handled"
             showsHorizontalScrollIndicator={false}
+            style={styles.filterScroll}
             testID="control-voice-reminder-chips"
           >
             {REMINDER_QUICK_CHIPS.map(chip => {
@@ -1661,18 +1285,18 @@ export function ControlVoiceChatPanel({
                   accessibilityState={{ selected }}
                   onPress={() => controller.setReminderTimeDraft(chip.expr)}
                   style={({ pressed }) => [
-                    styles.filterChip,
-                    light && styles.filterChipLight,
-                    selected && (light ? styles.filterChipActiveLight : styles.filterChipActive),
+                    styles.softChip,
+                    light && styles.softChipLight,
+                    selected && (light ? styles.softChipActiveLight : styles.softChipActive),
                     pressed && styles.pressed,
                   ]}
                   testID={`control-voice-reminder-chip-${chip.expr}`}
                 >
                   <Text
                     style={[
-                      styles.filterChipText,
-                      light && styles.filterChipTextLight,
-                      selected && (light ? styles.filterChipTextActiveLight : styles.filterChipTextActive),
+                      styles.softChipText,
+                      light && styles.mutedLight,
+                      selected && (light ? styles.softChipActiveTextLight : styles.softChipActiveText),
                     ]}
                   >
                     {chip.label}
@@ -1683,10 +1307,11 @@ export function ControlVoiceChatPanel({
           </ScrollView>
 
           <ScrollView
-            contentContainerStyle={styles.filterRow}
+            contentContainerStyle={styles.chipRow}
             horizontal
             keyboardShouldPersistTaps="handled"
             showsHorizontalScrollIndicator={false}
+            style={styles.filterScroll}
             testID="control-voice-reminder-repeat-row"
           >
             {REMINDER_REPEAT_OPTIONS.map(opt => {
@@ -1699,18 +1324,18 @@ export function ControlVoiceChatPanel({
                   accessibilityState={{ selected }}
                   onPress={() => controller.setReminderRepeatDraft(opt.key)}
                   style={({ pressed }) => [
-                    styles.filterChip,
-                    light && styles.filterChipLight,
-                    selected && (light ? styles.filterChipActiveLight : styles.filterChipActive),
+                    styles.softChip,
+                    light && styles.softChipLight,
+                    selected && (light ? styles.softChipActiveLight : styles.softChipActive),
                     pressed && styles.pressed,
                   ]}
                   testID={`control-voice-reminder-repeat-${opt.key || 'once'}`}
                 >
                   <Text
                     style={[
-                      styles.filterChipText,
-                      light && styles.filterChipTextLight,
-                      selected && (light ? styles.filterChipTextActiveLight : styles.filterChipTextActive),
+                      styles.softChipText,
+                      light && styles.mutedLight,
+                      selected && (light ? styles.softChipActiveTextLight : styles.softChipActiveText),
                     ]}
                   >
                     {opt.label}
@@ -1723,26 +1348,24 @@ export function ControlVoiceChatPanel({
           <ScrollView
             contentContainerStyle={[
               styles.listContent,
-              (disconnected || controller.reminders.length === 0) && styles.messageContentEmpty,
+              (disconnected || controller.reminders.length === 0) && styles.emptyCenterContent,
             ]}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
-            style={[styles.listScroll, { maxHeight: listMaxHeight }]}
+            style={listStyle}
             testID="control-voice-reminders-list"
           >
             {disconnected ? (
               <View style={styles.emptyWrap}>
-                <Ionicons color={light ? '#737373' : '#6B6B6B'} name="cloud-offline-outline" size={18} />
-                <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>未连接</Text>
+                <Text style={[styles.emptyHint, light && styles.mutedLight]}>未连接</Text>
               </View>
             ) : controller.remindersLoading && controller.reminders.length === 0 ? (
               <View style={styles.emptyWrap}>
-                <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>加载中…</Text>
+                <Text style={[styles.emptyHint, light && styles.mutedLight]}>加载中…</Text>
               </View>
             ) : controller.reminders.length === 0 ? (
               <View style={styles.emptyWrap}>
-                <Ionicons color={light ? '#737373' : '#6B6B6B'} name="notifications-outline" size={18} />
-                <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>暂无提醒</Text>
+                <Text style={[styles.emptyHint, light && styles.mutedLight]}>暂无提醒</Text>
               </View>
             ) : (
               controller.reminders.map(item => {
@@ -1751,53 +1374,34 @@ export function ControlVoiceChatPanel({
                 return (
                   <View
                     key={item.id}
-                    style={[
-                      styles.memoryCard,
-                      light ? styles.memoryCardLight : styles.memoryCardDark,
-                    ]}
+                    style={[styles.glassRow, light && styles.glassRowLight]}
                     testID={`control-voice-reminder-item-${item.id}`}
                   >
-                    <View style={styles.memoryCardBody}>
-                      <View style={[styles.roomTag, light ? styles.reminderTimeTagLight : styles.reminderTimeTag]}>
-                        <Text style={[styles.roomTagText, light ? styles.reminderTimeTextLight : styles.reminderTimeText]}>
-                          {formatReminderTimeLabel(item)}
-                        </Text>
+                    <View style={styles.rowBody}>
+                      <View style={[styles.roomTag, styles.reminderTimeTag]}>
+                        <Text style={styles.reminderTimeText}>{formatReminderTimeLabel(item)}</Text>
                       </View>
                       {repeatLabel ? (
                         <View
-                          style={[styles.roomTag, light ? styles.roomTagEpisodicLight : styles.roomTagEpisodic]}
+                          style={[styles.roomTag, light && styles.softChipLight]}
                           testID={`control-voice-reminder-repeat-badge-${item.id}`}
                         >
-                          <Text style={[styles.roomTagText, light ? styles.roomTagTextEpisodicLight : styles.roomTagTextEpisodic]}>
-                            {repeatLabel}
-                          </Text>
+                          <Text style={[styles.roomTagText, light && styles.mutedLight]}>{repeatLabel}</Text>
                         </View>
                       ) : null}
-                      <Text
-                        style={[
-                          styles.memoryCardText,
-                          light ? styles.bubbleTextLight : styles.bubbleTextDark,
-                        ]}
-                      >
-                        {item.content}
-                      </Text>
+                      <Text style={[styles.rowText, light && styles.inkLight]}>{item.content}</Text>
                     </View>
-                    <View style={styles.memoryCardActions}>
+                    <View style={styles.rowActions}>
                       <Pressable
                         accessibilityLabel="延后10分钟"
                         accessibilityRole="button"
                         accessibilityState={{ disabled: itemBusy }}
                         disabled={itemBusy}
                         onPress={() => controller.onSnoozeReminder(item.id, 10)}
-                        style={({ pressed }) => [
-                          styles.reminderActionPill,
-                          light && styles.clearSessionBtnLight,
-                          itemBusy && styles.disabled,
-                          pressed && styles.pressed,
-                        ]}
+                        style={({ pressed }) => [styles.softPillBtn, light && styles.softPillBtnLight, itemBusy && styles.disabled, pressed && styles.pressed]}
                         testID={`control-voice-reminder-snooze-${item.id}`}
                       >
-                        <Text style={[styles.reminderActionText, light && styles.clearSessionTextLight]}>延后</Text>
+                        <Text style={[styles.softPillText, light && styles.mutedLight]}>延后</Text>
                       </Pressable>
                       <Pressable
                         accessibilityLabel="删除提醒"
@@ -1805,14 +1409,10 @@ export function ControlVoiceChatPanel({
                         accessibilityState={{ disabled: itemBusy }}
                         disabled={itemBusy}
                         onPress={() => controller.onDeleteReminder(item.id)}
-                        style={({ pressed }) => [
-                          styles.cardActionBtn,
-                          itemBusy && styles.disabled,
-                          pressed && styles.pressed,
-                        ]}
+                        style={({ pressed }) => [styles.miniActionBtn, itemBusy && styles.disabled, pressed && styles.pressed]}
                         testID={`control-voice-reminder-delete-${item.id}`}
                       >
-                        <Ionicons color={light ? '#DC2626' : '#F87171'} name="trash-outline" size={14} />
+                        <Ionicons color="#EF6B6E" name="trash-outline" size={13} />
                       </Pressable>
                     </View>
                   </View>
@@ -1827,15 +1427,15 @@ export function ControlVoiceChatPanel({
             </Text>
           ) : null}
 
-          <View style={styles.composerRow} testID="control-voice-reminder-add-bar">
+          <View style={[styles.pillComposer, light && styles.recessedLight]} testID="control-voice-reminder-add-bar">
             <TextInput
               accessibilityLabel="提醒时间"
               editable={!disconnected && !controller.remindersActionBusy}
               maxLength={32}
               onChangeText={controller.setReminderTimeDraft}
               placeholder="时间"
-              placeholderTextColor={light ? '#94A3B8' : '#707070'}
-              style={[styles.reminderTimeInput, light && styles.inputLight]}
+              placeholderTextColor={light ? '#94A3B8' : 'rgba(255,255,255,0.36)'}
+              style={[styles.reminderTimeInput, light && styles.inkLight]}
               testID="control-voice-reminder-time-input"
               value={controller.reminderTimeDraft}
             />
@@ -1854,9 +1454,9 @@ export function ControlVoiceChatPanel({
                 }
               }}
               placeholder="提醒事项…"
-              placeholderTextColor={light ? '#94A3B8' : '#707070'}
+              placeholderTextColor={light ? '#94A3B8' : 'rgba(255,255,255,0.36)'}
               returnKeyType="done"
-              style={[styles.input, light && styles.inputLight]}
+              style={[styles.pillInput, light && styles.inkLight]}
               testID="control-voice-reminder-content-input"
               value={controller.reminderContentDraft}
             />
@@ -1870,312 +1470,83 @@ export function ControlVoiceChatPanel({
                 controller.reminderTimeDraft,
                 controller.reminderRepeatDraft,
               )}
-              style={({ pressed }) => [
-                styles.rememberBtn,
-                !canAddReminder && styles.sendBtnDisabled,
-                pressed && canAddReminder && styles.pressed,
-              ]}
+              style={({ pressed }) => [styles.primaryPillBtn, !canAddReminder && styles.disabled, pressed && canAddReminder && styles.pressed]}
               testID="control-voice-reminder-add"
             >
-              <Text style={styles.rememberBtnText}>添加</Text>
+              <Text style={styles.primaryPillText}>添加</Text>
             </Pressable>
           </View>
         </View>
-      ) : activeTab === 'moments' && (modVisionNav || modCompanion) ? (
-        /* TAB 4: 时光 (陪伴 · 相册 · 日记) */
-        <View style={styles.sectionWrap} testID="control-voice-moments-view">
-          {modCompanion ? (
-            <View
-              style={[styles.companionStrip, light ? styles.memoryCardLight : styles.memoryCardDark]}
-              testID="control-voice-companion-strip"
-            >
-              <View style={styles.companionLeft}>
-                <Ionicons color={light ? '#E11D48' : '#FB7185'} name="heart" size={13} />
-                <Text
-                  style={[styles.companionDaysText, light && styles.titleLight]}
-                  testID="control-voice-companion-days"
+      ) : isOffline && controller.messages.length === 0 ? (
+        /* CLEAN OFFLINE STATE */
+        <View style={styles.offlineCenter} testID="control-voice-empty-state">
+          {renderMiniBotHead({
+            offline: true,
+            listening: false,
+            thinking: false,
+            speaking: false,
+            emotion: 'sleepy',
+            light,
+          })}
+          <Text style={[styles.offlineTitle, light && styles.inkLight]}>
+            {disconnected ? '未连接' : '未就绪'}
+          </Text>
+          <Pressable
+            accessibilityLabel="重试连接"
+            accessibilityRole="button"
+            onPress={controller.onRetryConnect}
+            style={({ pressed }) => [styles.retryPillBtn, light && styles.softPillBtnLight, pressed && styles.pressed]}
+            testID="control-voice-retry"
+          >
+            <Text style={[styles.retryPillText, light && styles.inkLight]}>重试</Text>
+          </Pressable>
+        </View>
+      ) : (
+        /* MAIN CHAT VIEW */
+        <View style={styles.chatBodyWrap}>
+          {/* Live Motion Progress Strip */}
+          {activeMove && activeMoveReadout ? (
+            <View style={styles.moveStrip} testID="control-voice-move-bar">
+              <View style={styles.moveStripTop}>
+                <View style={styles.moveStripLeft}>
+                  <View style={styles.movePulseDot} />
+                  <Text numberOfLines={1} style={styles.moveStripLabel} testID="control-voice-move-readout">
+                    {activeMoveReadout}
+                  </Text>
+                </View>
+                <Pressable
+                  accessibilityLabel="刹停"
+                  accessibilityRole="button"
+                  onPress={controller.onBrakeMove}
+                  style={({ pressed }) => [styles.moveBrakeBtn, pressed && styles.pressed]}
+                  testID="control-voice-move-brake"
                 >
-                  {`陪伴第${controller.companion?.daysTogether ?? 1}天`}
-                </Text>
-                {controller.companion?.speakerTier ? (
-                  <View
-                    style={[styles.roomTag, light ? styles.roomTagUserLight : styles.roomTagUser]}
-                    testID="control-voice-companion-tier"
-                  >
-                    <Text style={[styles.roomTagText, light ? styles.roomTagTextUserLight : styles.roomTagTextUser]}>
-                      {controller.companion.speakerTier}
-                    </Text>
-                  </View>
-                ) : null}
+                  <Text style={styles.moveBrakeText}>刹停</Text>
+                </Pressable>
               </View>
-              <View
-                style={[styles.roomTag, light ? styles.roomTagKnowledgeLight : styles.roomTagKnowledge]}
-                testID="control-voice-companion-mood"
-              >
-                <Text style={[styles.roomTagText, light ? styles.roomTagTextKnowledgeLight : styles.roomTagTextKnowledge]}>
-                  {controller.companion?.moodLabel ?? '安心'}
-                </Text>
+              <View style={styles.moveTrack}>
+                <View style={[styles.moveFill, { width: `${Math.max(6, Math.round(activeMove.progress * 100))}%` }]} />
               </View>
             </View>
           ) : null}
 
-          <ScrollView
-            contentContainerStyle={styles.momentsContent}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            style={[styles.listScroll, { maxHeight: listMaxHeight + 36 }]}
-            testID="control-voice-moments-scroll"
-          >
-            {modVisionNav && selectedPhoto ? (
-              <View
-                style={[styles.photoPreviewModal, light ? styles.memoryCardLight : styles.photoPreviewDark]}
-                testID="control-voice-photo-preview"
-              >
-                <Image
-                  resizeMode="cover"
-                  source={{ uri: selectedPhoto.url }}
-                  style={styles.photoPreviewImage}
-                  testID="control-voice-photo-preview-image"
-                />
-                {selectedPhoto.caption ? (
-                  <Text style={[styles.photoPreviewCaption, light ? styles.bubbleTextLight : styles.bubbleTextDark]}>
-                    {selectedPhoto.caption}
-                  </Text>
-                ) : null}
-                <View style={styles.photoPreviewMetaRow}>
-                  <View style={styles.photoPreviewTags}>
-                    {formatPhotoTimeLabel(selectedPhoto) ? (
-                      <Text style={[styles.emptyMiniHint, light && styles.emptyHintLight]}>
-                        {formatPhotoTimeLabel(selectedPhoto)}
-                      </Text>
-                    ) : null}
-                    {selectedPhoto.speakerId ? (
-                      <View style={[styles.roomTag, light ? styles.roomTagUserLight : styles.roomTagUser]}>
-                        <Text style={[styles.roomTagText, light ? styles.roomTagTextUserLight : styles.roomTagTextUser]}>
-                          {selectedPhoto.speakerId}
-                        </Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <View style={styles.photoPreviewActions}>
-                    <Pressable
-                      accessibilityLabel="删除照片"
-                      accessibilityRole="button"
-                      disabled={controller.photoBusyId === selectedPhoto.id || disconnected}
-                      onPress={() => controller.onDeletePhoto(selectedPhoto.id)}
-                      style={({ pressed }) => [styles.photoDeletePill, pressed && styles.pressed]}
-                      testID="control-voice-photo-preview-delete"
-                    >
-                      <Text style={styles.photoDeleteText}>删除</Text>
-                    </Pressable>
-                    <Pressable
-                      accessibilityLabel="关闭预览"
-                      accessibilityRole="button"
-                      onPress={() => controller.setSelectedPhotoId(null)}
-                      style={({ pressed }) => [
-                        styles.reminderActionPill,
-                        light && styles.clearSessionBtnLight,
-                        pressed && styles.pressed,
-                      ]}
-                      testID="control-voice-photo-preview-close"
-                    >
-                      <Text style={[styles.reminderActionText, light && styles.clearSessionTextLight]}>关闭</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              </View>
-            ) : null}
-
-            {/* 相册 */}
-            {modVisionNav ? (
-              <View style={styles.momentsSection} testID="control-voice-photos-section">
-                <View style={styles.momentsHeaderRow}>
-                  <Text style={[styles.momentsSectionTitle, light && styles.titleLight]}>相册</Text>
-                  <Pressable
-                    accessibilityLabel="拍照"
-                    accessibilityRole="button"
-                    disabled={disconnected || controller.photoCapturing}
-                    onPress={controller.onCapturePhoto}
-                    style={({ pressed }) => [
-                      styles.timerPrimaryPill,
-                      (disconnected || controller.photoCapturing) && styles.disabled,
-                      pressed && styles.pressed,
-                    ]}
-                    testID="control-voice-moments-capture"
-                  >
-                    <Ionicons color="#FFFFFF" name="camera-outline" size={12} />
-                    <Text style={styles.timerPrimaryText}>{controller.photoCapturing ? '拍照中…' : '拍照'}</Text>
-                  </Pressable>
-                </View>
-
-                {controller.photosError ? (
-                  <Text numberOfLines={1} style={styles.errorText} testID="control-voice-photos-error">
-                    {controller.photosError}
-                  </Text>
-                ) : null}
-
-                {disconnected ? (
-                  <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>未连接</Text>
-                ) : controller.photosLoading && controller.photos.length === 0 ? (
-                  <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>加载中…</Text>
-                ) : controller.photos.length === 0 ? (
-                  <Text style={[styles.emptyHint, light && styles.emptyHintLight]} testID="control-voice-photos-empty">
-                    暂无照片
-                  </Text>
-                ) : (
-                  <View style={styles.photoGrid} testID="control-voice-photo-grid">
-                    {controller.photos.map(photo => (
-                      <Pressable
-                        key={photo.id}
-                        accessibilityLabel={photo.caption || '查看照片'}
-                        accessibilityRole="button"
-                        onPress={() => controller.setSelectedPhotoId(photo.id)}
-                        style={({ pressed }) => [
-                          styles.photoTile,
-                          light ? styles.memoryCardLight : styles.memoryCardDark,
-                          pressed && styles.pressed,
-                        ]}
-                        testID={`control-voice-photo-item-${photo.id}`}
-                      >
-                        <Image
-                          resizeMode="cover"
-                          source={{ uri: photo.url }}
-                          style={styles.photoThumb}
-                        />
-                        <Text
-                          numberOfLines={1}
-                          style={[styles.photoTileCaption, light ? styles.bubbleTextLight : styles.bubbleTextDark]}
-                        >
-                          {photo.caption || formatPhotoTimeLabel(photo) || '照片'}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                )}
-              </View>
-            ) : null}
-
-            {/* 日记 */}
-            {modCompanion ? (
-              <View style={styles.momentsSection} testID="control-voice-diaries-section">
-                <View style={styles.momentsHeaderRow}>
-                  <Text style={[styles.momentsSectionTitle, light && styles.titleLight]}>日记</Text>
-                  <Pressable
-                    accessibilityLabel="写日记"
-                    accessibilityRole="button"
-                    disabled={disconnected || controller.diaryGenerating}
-                    onPress={() => controller.onGenerateDiary(true)}
-                    style={({ pressed }) => [
-                      styles.reminderActionPill,
-                      light && styles.clearSessionBtnLight,
-                      (disconnected || controller.diaryGenerating) && styles.disabled,
-                      pressed && styles.pressed,
-                    ]}
-                    testID="control-voice-diary-generate"
-                  >
-                    <Text style={[styles.reminderActionText, light && styles.clearSessionTextLight]}>
-                      {controller.diaryGenerating ? '生成中…' : '写日记'}
-                    </Text>
-                  </Pressable>
-                </View>
-
-                {controller.diariesError ? (
-                  <Text numberOfLines={1} style={styles.errorText} testID="control-voice-diaries-error">
-                    {controller.diariesError}
-                  </Text>
-                ) : null}
-
-                {disconnected ? (
-                  <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>未连接</Text>
-                ) : controller.diariesLoading && controller.diaries.length === 0 ? (
-                  <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>加载中…</Text>
-                ) : controller.diaries.length === 0 ? (
-                  <Text style={[styles.emptyHint, light && styles.emptyHintLight]} testID="control-voice-diaries-empty">
-                    暂无日记
-                  </Text>
-                ) : (
-                  <View style={styles.listContent}>
-                    {controller.diaries.map(diary => {
-                      const reading = controller.diaryReadingDate === diary.date;
-                      return (
-                        <View
-                          key={diary.date}
-                          style={[styles.diaryCard, light ? styles.memoryCardLight : styles.memoryCardDark]}
-                          testID={`control-voice-diary-item-${diary.date}`}
-                        >
-                          <View style={styles.diaryCardHeader}>
-                            <View style={styles.diaryCardMeta}>
-                              <Text style={[styles.diaryDateText, light && styles.titleLight]}>{diary.date}</Text>
-                              <View style={[styles.roomTag, light ? styles.roomTagKnowledgeLight : styles.roomTagKnowledge]}>
-                                <Text style={[styles.roomTagText, light ? styles.roomTagTextKnowledgeLight : styles.roomTagTextKnowledge]}>
-                                  {diary.moodLabel}
-                                </Text>
-                              </View>
-                            </View>
-                            <Pressable
-                              accessibilityLabel="朗读日记"
-                              accessibilityRole="button"
-                              disabled={disconnected || Boolean(controller.diaryReadingDate)}
-                              onPress={() => controller.onReadDiary(diary.date)}
-                              style={({ pressed }) => [
-                                styles.reminderActionPill,
-                                light && styles.clearSessionBtnLight,
-                                (disconnected || Boolean(controller.diaryReadingDate)) && styles.disabled,
-                                pressed && styles.pressed,
-                              ]}
-                              testID={`control-voice-diary-read-${diary.date}`}
-                            >
-                              <Text style={[styles.reminderActionText, light && styles.clearSessionTextLight]}>
-                                {reading ? '朗读中' : '朗读'}
-                              </Text>
-                            </Pressable>
-                          </View>
-                          <Text style={[styles.diaryBodyText, light ? styles.bubbleTextLight : styles.bubbleTextDark]}>
-                            {diary.text}
-                          </Text>
-                        </View>
-                      );
-                    })}
-                  </View>
-                )}
-              </View>
-            ) : null}
-          </ScrollView>
-        </View>
-      ) : (
-        /* TAB 1: 对话 */
-        <>
+          {/* Borderless Continuous Glass Message Stream */}
           <ScrollView
             ref={node => { scrollNode = node; }}
             contentContainerStyle={[
               styles.messageContent,
-              controller.messages.length === 0 && controller.pendingApprovals.length === 0 && styles.messageContentEmpty,
+              controller.messages.length === 0 && controller.pendingApprovals.length === 0 && styles.emptyCenterContent,
             ]}
             keyboardShouldPersistTaps="handled"
             onContentSizeChange={() => { scrollNode?.scrollToEnd({ animated: true }); }}
             showsVerticalScrollIndicator={false}
-            style={[styles.messageScroll, { maxHeight }]}
+            style={listStyle}
             testID="control-voice-messages"
           >
             {controller.messages.length === 0 && controller.pendingApprovals.length === 0 ? (
               <View style={styles.emptyWrap} testID="control-voice-empty-state">
-                <Ionicons
-                  color={light ? '#737373' : '#6B6B6B'}
-                  name={
-                    disconnected || controller.phase === 'unavailable'
-                      ? 'cloud-offline-outline'
-                      : 'chatbubble-ellipses-outline'
-                  }
-                  size={18}
-                />
-                <Text style={[styles.emptyHint, light && styles.emptyHintLight]}>
-                  {disconnected
-                    ? '未连接'
-                    : controller.phase === 'unavailable'
-                      ? '未就绪'
-                      : controller.speechSupported
-                        ? '说点什么'
-                        : '输入消息'}
+                <Text style={[styles.emptyHint, light && styles.mutedLight]}>
+                  {controller.speechSupported || isXiaosuan ? '按住左下角直接说，或在此输入' : '输入消息'}
                 </Text>
               </View>
             ) : null}
@@ -2184,8 +1555,8 @@ export function ControlVoiceChatPanel({
               if (message.role === 'tool') {
                 return (
                   <View key={message.id} style={styles.toolRow}>
-                    <Ionicons color={light ? '#2563EB' : '#C8C8C8'} name="flash-outline" size={12} />
-                    <Text numberOfLines={1} style={[styles.toolText, light && styles.toolTextLight]}>
+                    <View style={styles.toolDot} />
+                    <Text numberOfLines={1} style={[styles.toolText, light && styles.mutedLight]}>
                       {message.toolLabel ?? '执行操作'}
                     </Text>
                   </View>
@@ -2201,12 +1572,8 @@ export function ControlVoiceChatPanel({
                 >
                   <View
                     style={[
-                      styles.bubble,
-                      isUser
-                        ? styles.bubbleUser
-                        : light
-                          ? styles.bubbleAssistantLight
-                          : styles.bubbleAssistantDark,
+                      isUser ? styles.bubbleUser : styles.bubbleAssistant,
+                      isUser && light && styles.bubbleUserLight,
                     ]}
                   >
                     {!isUser && message.tools && message.tools.length > 0 ? (
@@ -2214,13 +1581,11 @@ export function ControlVoiceChatPanel({
                         {message.tools.map((toolLabel, idx) => (
                           <View
                             key={`${message.id}-tool-${idx}`}
-                            style={[styles.inlineToolChip, light && styles.inlineToolChipLight]}
+                            style={[styles.inlineToolChip, light && styles.softChipLight]}
                             testID={`control-voice-tool-chip-${message.id}-${idx}`}
                           >
-                            <Ionicons color={light ? '#2563EB' : '#C8C8C8'} name="flash-outline" size={10} />
-                            <Text style={[styles.inlineToolText, light && styles.inlineToolTextLight]}>
-                              {toolLabel}
-                            </Text>
+                            <View style={styles.toolDot} />
+                            <Text style={[styles.inlineToolText, light && styles.mutedLight]}>{toolLabel}</Text>
                           </View>
                         ))}
                       </View>
@@ -2233,11 +1598,9 @@ export function ControlVoiceChatPanel({
                             styles.sourceBadge,
                             message.source === 'broadcast'
                               ? styles.sourceBadgeBroadcast
-                              : isUser
-                                ? styles.sourceBadgeUser
-                                : message.source === 'reminder'
-                                  ? styles.sourceBadgeReminder
-                                  : (light ? styles.sourceBadgeAssistantLight : styles.sourceBadgeAssistant),
+                              : message.source === 'reminder'
+                                ? styles.sourceBadgeReminder
+                                : styles.sourceBadgeSoft,
                           ]}
                           testID={`control-voice-source-${message.id}`}
                         >
@@ -2246,11 +1609,9 @@ export function ControlVoiceChatPanel({
                               styles.sourceBadgeText,
                               message.source === 'broadcast'
                                 ? styles.sourceBadgeTextBroadcast
-                                : isUser
-                                  ? styles.sourceBadgeTextUser
-                                  : message.source === 'reminder'
-                                    ? styles.sourceBadgeTextReminder
-                                    : (light ? styles.sourceBadgeTextLight : styles.sourceBadgeTextDark),
+                                : message.source === 'reminder'
+                                  ? styles.sourceBadgeTextReminder
+                                  : styles.sourceBadgeTextSoft,
                             ]}
                           >
                             {sourceBadge}
@@ -2258,19 +1619,8 @@ export function ControlVoiceChatPanel({
                         </View>
                       ) : null}
                       {message.speakerId ? (
-                        <View
-                          style={[
-                            styles.sourceBadge,
-                            isUser ? styles.sourceBadgeUser : (light ? styles.roomTagUserLight : styles.roomTagUser),
-                          ]}
-                          testID={`control-voice-speaker-${message.id}`}
-                        >
-                          <Text
-                            style={[
-                              styles.sourceBadgeText,
-                              isUser ? styles.sourceBadgeTextUser : (light ? styles.roomTagTextUserLight : styles.roomTagTextUser),
-                            ]}
-                          >
+                        <View style={[styles.sourceBadge, styles.sourceBadgeSoft]} testID={`control-voice-speaker-${message.id}`}>
+                          <Text style={[styles.sourceBadgeText, styles.sourceBadgeTextSoft]}>
                             {message.speakerId}
                           </Text>
                         </View>
@@ -2279,10 +1629,8 @@ export function ControlVoiceChatPanel({
                         style={[
                           styles.bubbleText,
                           isUser
-                            ? styles.bubbleTextUser
-                            : light
-                              ? styles.bubbleTextLight
-                              : styles.bubbleTextDark,
+                            ? (light ? styles.inkLight : styles.bubbleTextUser)
+                            : (light ? styles.inkLight : styles.bubbleTextAssistant),
                         ]}
                       >
                         {message.text}
@@ -2297,9 +1645,9 @@ export function ControlVoiceChatPanel({
                             accessibilityRole="button"
                             disabled={controller.busy}
                             onPress={() => controller.onSubmit(choice)}
-                            style={({ pressed }) => [styles.choiceBtn, pressed && styles.pressed]}
+                            style={({ pressed }) => [styles.softChip, light && styles.softChipLight, pressed && styles.pressed]}
                           >
-                            <Text style={styles.choiceBtnText}>{choice}</Text>
+                            <Text style={[styles.softChipText, light && styles.inkLight]}>{choice}</Text>
                           </Pressable>
                         ))}
                       </View>
@@ -2314,35 +1662,35 @@ export function ControlVoiceChatPanel({
               return (
                 <View
                   key={approval.approvalId}
-                  style={[styles.approvalCard, light && styles.approvalCardLight]}
+                  style={[styles.approvalCard, light && styles.glassRowLight]}
                   testID={`control-voice-approval-${approval.approvalId}`}
                 >
                   <View style={styles.approvalInfo}>
-                    <Ionicons color="#F59E0B" name="shield-checkmark-outline" size={15} />
-                    <Text numberOfLines={1} style={[styles.approvalTitle, light && styles.titleLight]}>
+                    <Ionicons color="#E9B963" name="shield-checkmark-outline" size={14} />
+                    <Text numberOfLines={1} style={[styles.approvalTitle, light && styles.inkLight]}>
                       {approval.summaryText}
                     </Text>
                   </View>
-                  <View style={styles.approvalBtns}>
+                  <View style={styles.rowActions}>
                     <Pressable
                       accessibilityLabel="拒绝"
                       accessibilityRole="button"
                       disabled={deciding}
                       onPress={() => controller.onDecideApproval(approval.approvalId, false)}
-                      style={({ pressed }) => [styles.rejectBtn, deciding && styles.disabled, pressed && styles.pressed]}
+                      style={({ pressed }) => [styles.softPillBtn, light && styles.softPillBtnLight, deciding && styles.disabled, pressed && styles.pressed]}
                       testID={`control-voice-reject-${approval.approvalId}`}
                     >
-                      <Text style={styles.rejectBtnText}>拒绝</Text>
+                      <Text style={[styles.softPillText, light && styles.mutedLight]}>拒绝</Text>
                     </Pressable>
                     <Pressable
                       accessibilityLabel="允许"
                       accessibilityRole="button"
                       disabled={deciding}
                       onPress={() => controller.onDecideApproval(approval.approvalId, true)}
-                      style={({ pressed }) => [styles.approveBtn, deciding && styles.disabled, pressed && styles.pressed]}
+                      style={({ pressed }) => [styles.primaryPillBtn, deciding && styles.disabled, pressed && styles.pressed]}
                       testID={`control-voice-approve-${approval.approvalId}`}
                     >
-                      <Text style={styles.approveBtnText}>允许</Text>
+                      <Text style={styles.primaryPillText}>允许</Text>
                     </Pressable>
                   </View>
                 </View>
@@ -2356,1739 +1704,1300 @@ export function ControlVoiceChatPanel({
             </Text>
           ) : null}
 
-          {/* Expandable Scene / Combo Sub-Bar */}
-          {!disconnected && showQuickScenes && controller.quickGroup === 'scenes' ? (
-            <ScrollView
-              contentContainerStyle={styles.quickRailContent}
-              horizontal
-              keyboardShouldPersistTaps="handled"
-              showsHorizontalScrollIndicator={false}
-              style={styles.quickRail}
-              testID="control-voice-scene-bar"
-            >
-              {controller.sceneOptions.map(scene => (
-                <Pressable
-                  key={scene.id}
-                  accessibilityLabel={`情景 ${scene.label}`}
-                  accessibilityRole="button"
-                  disabled={controller.actionRailBusy}
-                  onPress={() => controller.onRunScene(scene.id)}
-                  style={({ pressed }) => [
-                    styles.quickActionChip,
-                    light && styles.filterChipActiveLight,
-                    controller.actionRailBusy && styles.disabled,
-                    pressed && styles.pressed,
-                  ]}
-                  testID={`control-voice-scene-${scene.id}`}
-                >
-                  <Text style={[styles.quickChipText, light && styles.quickChipTextLight]}>{scene.label}</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          ) : null}
-
-          {!disconnected && showQuickCombos && controller.quickGroup === 'combos' ? (
-            <ScrollView
-              contentContainerStyle={styles.quickRailContent}
-              horizontal
-              keyboardShouldPersistTaps="handled"
-              showsHorizontalScrollIndicator={false}
-              style={styles.quickRail}
-              testID="control-voice-combo-bar"
-            >
-              {controller.comboOptions.map(combo => {
-                const playing = controller.activeComboId === combo.id;
-                return (
-                  <Pressable
-                    key={combo.id}
-                    accessibilityLabel={`才艺 ${combo.label}`}
-                    accessibilityRole="button"
-                    disabled={controller.actionRailBusy}
-                    onPress={() => controller.onPlayCombo(combo.id)}
-                    style={({ pressed }) => [
-                      styles.quickActionChip,
-                      light && styles.filterChipActiveLight,
-                      playing && (light ? styles.quietPillActiveLight : styles.quietPillActive),
-                      controller.actionRailBusy && styles.disabled,
-                      pressed && styles.pressed,
-                    ]}
-                    testID={`control-voice-combo-${combo.id}`}
-                  >
-                    <Text
-                      style={[
-                        styles.quickChipText,
-                        light && styles.quickChipTextLight,
-                        playing && styles.quietPillTextActive,
-                      ]}
-                    >
-                      {combo.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-              <Pressable
-                accessibilityLabel="停止表演"
-                accessibilityRole="button"
-                onPress={controller.onStopCombo}
-                style={({ pressed }) => [styles.comboStopChip, pressed && styles.pressed]}
-                testID="control-voice-combo-stop"
-              >
-                <Text style={styles.comboStopText}>停止</Text>
-              </Pressable>
-            </ScrollView>
-          ) : null}
-
-          {/* Persistent Compact Quick-Action Rail (dynamically shows only enabled actions) */}
-          {!disconnected && hasQuickRail ? (
-            <ScrollView
-              contentContainerStyle={styles.quickRailContent}
-              horizontal
-              keyboardShouldPersistTaps="handled"
-              showsHorizontalScrollIndicator={false}
-              style={styles.quickRail}
+          {/* Quick Actions Upward Popover (+ -> 传话 · 早报 · 动态快捷指令) */}
+          {showQuickPopover && hasQuickActions ? (
+            <View
+              style={[
+                styles.popover,
+                styles.quickPopoverPos,
+                light ? styles.popoverLight : styles.popoverDark,
+                !light && WEB_GLASS_POPOVER,
+              ]}
               testID="control-voice-quick-rail"
             >
-              {showQuickScenes ? (
+              {isXiaosuan ? (
                 <Pressable
-                  accessibilityLabel="情景"
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded: controller.quickGroup === 'scenes' }}
-                  onPress={() => controller.setQuickGroup(controller.quickGroup === 'scenes' ? 'default' : 'scenes')}
+                  accessibilityLabel={controller.broadcastMode ? '关闭传话模式' : '开启传话模式'}
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: controller.broadcastMode, disabled: disconnected || controller.busy }}
+                  disabled={disconnected || controller.busy}
+                  onPress={() => {
+                    controller.onToggleBroadcastMode();
+                    controller.setOpenPopover('none');
+                  }}
                   style={({ pressed }) => [
-                    styles.quickChip,
-                    light && styles.quickChipLight,
-                    controller.quickGroup === 'scenes' && (light ? styles.filterChipActiveLight : styles.filterChipActive),
+                    styles.popoverRow,
+                    controller.broadcastMode && styles.popoverRowAmber,
                     pressed && styles.pressed,
                   ]}
-                  testID="control-voice-quick-scenes"
+                  testID="control-voice-broadcast-toggle"
                 >
-                  <Text style={[styles.quickChipText, light && styles.quickChipTextLight]}>情景</Text>
+                  <View style={styles.popoverRowLeft}>
+                    <Ionicons
+                      color={controller.broadcastMode ? '#E9B963' : (light ? '#475569' : 'rgba(255,255,255,0.68)')}
+                      name="megaphone-outline"
+                      size={14}
+                    />
+                    <Text style={[styles.popoverRowText, light && styles.inkLight, controller.broadcastMode && styles.capToggleAmberText]}>
+                      {controller.broadcastMode ? '退出传话' : '传话播报'}
+                    </Text>
+                  </View>
                 </Pressable>
               ) : null}
+
               {showQuickBriefing ? (
                 <Pressable
                   accessibilityLabel="早报"
                   accessibilityRole="button"
                   disabled={controller.actionRailBusy}
-                  onPress={controller.onRunBriefing}
-                  style={({ pressed }) => [
-                    styles.quickChip,
-                    light && styles.quickChipLight,
-                    controller.actionRailBusy && styles.disabled,
-                    pressed && styles.pressed,
-                  ]}
+                  onPress={() => {
+                    controller.onRunBriefing();
+                    controller.setOpenPopover('none');
+                  }}
+                  style={({ pressed }) => [styles.popoverRow, controller.actionRailBusy && styles.disabled, pressed && styles.pressed]}
                   testID="control-voice-quick-briefing"
                 >
-                  <Text style={[styles.quickChipText, light && styles.quickChipTextLight]}>早报</Text>
-                </Pressable>
-              ) : null}
-              {showQuickPhoto ? (
-                <Pressable
-                  accessibilityLabel="拍照"
-                  accessibilityRole="button"
-                  disabled={controller.photoCapturing}
-                  onPress={controller.onCapturePhoto}
-                  style={({ pressed }) => [
-                    styles.quickChip,
-                    light && styles.quickChipLight,
-                    controller.photoCapturing && styles.disabled,
-                    pressed && styles.pressed,
-                  ]}
-                  testID="control-voice-quick-photo"
-                >
-                  <Text style={[styles.quickChipText, light && styles.quickChipTextLight]}>拍照</Text>
-                </Pressable>
-              ) : null}
-              {showQuickCombos ? (
-                <Pressable
-                  accessibilityLabel="才艺"
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded: controller.quickGroup === 'combos' }}
-                  onPress={() => controller.setQuickGroup(controller.quickGroup === 'combos' ? 'default' : 'combos')}
-                  style={({ pressed }) => [
-                    styles.quickChip,
-                    light && styles.quickChipLight,
-                    (controller.quickGroup === 'combos' || Boolean(controller.activeComboId))
-                      && (light ? styles.quietPillActiveLight : styles.quietPillActive),
-                    pressed && styles.pressed,
-                  ]}
-                  testID="control-voice-quick-combos"
-                >
-                  <Text
-                    style={[
-                      styles.quickChipText,
-                      light && styles.quickChipTextLight,
-                      Boolean(controller.activeComboId) && styles.quietPillTextActive,
-                    ]}
-                  >
-                    才艺
-                  </Text>
+                  <View style={styles.popoverRowLeft}>
+                    <Ionicons color={light ? '#475569' : 'rgba(255,255,255,0.68)'} name="sunny-outline" size={14} />
+                    <Text style={[styles.popoverRowText, light && styles.inkLight]}>今日早报</Text>
+                  </View>
                 </Pressable>
               ) : null}
 
-              {quickPrompts.map(prompt => (
-                <Pressable
-                  key={prompt}
-                  accessibilityLabel={prompt}
-                  accessibilityRole="button"
-                  disabled={controller.busy}
-                  onPress={() => controller.onSubmit(prompt)}
-                  style={({ pressed }) => [
-                    styles.quickChip,
-                    light && styles.quickChipLight,
-                    controller.busy && styles.disabled,
-                    pressed && styles.pressed,
-                  ]}
-                  testID={`control-voice-quick-${prompt}`}
-                >
-                  <Text style={[styles.quickChipText, light && styles.quickChipTextLight]}>{prompt}</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
+              {quickPrompts.length > 0 ? (
+                <View style={styles.quickPopoverChips}>
+                  {quickPrompts.map(prompt => (
+                    <Pressable
+                      key={prompt}
+                      accessibilityLabel={prompt}
+                      accessibilityRole="button"
+                      disabled={controller.busy}
+                      onPress={() => {
+                        controller.onSubmit(prompt);
+                        controller.setOpenPopover('none');
+                      }}
+                      style={({ pressed }) => [
+                        styles.softChip,
+                        light && styles.softChipLight,
+                        controller.busy && styles.disabled,
+                        pressed && styles.pressed,
+                      ]}
+                      testID={`control-voice-quick-${prompt}`}
+                    >
+                      <Text style={[styles.softChipText, light && styles.inkLight]}>{prompt}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
+            </View>
           ) : null}
 
-          <View style={styles.composerRow}>
-            {isXiaosuan ? (
+          {/* Walk Safety Lock Upward Popover */}
+          {showWalkPopover ? (
+            <View
+              style={[
+                styles.popover,
+                styles.walkPopoverPos,
+                light ? styles.popoverLight : styles.popoverDark,
+                !light && WEB_GLASS_POPOVER,
+              ]}
+              testID="control-voice-walk-popover"
+            >
               <Pressable
-                accessibilityLabel={controller.broadcastMode ? '切换对话' : '切换传话'}
+                accessibilityLabel={modVoiceWalk ? '锁定语音走动' : '解锁语音走动'}
                 accessibilityRole="switch"
-                accessibilityState={{ checked: controller.broadcastMode, disabled: disconnected || controller.busy }}
-                disabled={disconnected || controller.busy}
-                onPress={controller.onToggleBroadcastMode}
-                style={({ pressed }) => [
-                  styles.broadcastToggleBtn,
-                  light && styles.roomSelectBtnLight,
-                  controller.broadcastMode && styles.broadcastToggleActive,
-                  (disconnected || controller.busy) && styles.disabled,
-                  pressed && styles.pressed,
-                ]}
-                testID="control-voice-broadcast-toggle"
-              >
-                <Text
-                  style={[
-                    styles.broadcastToggleText,
-                    light && styles.roomSelectTextLight,
-                    controller.broadcastMode && styles.broadcastToggleTextActive,
-                  ]}
-                >
-                  传话
-                </Text>
-              </Pressable>
-            ) : null}
-
-            {controller.speechSupported ? (
-              <Pressable
-                accessibilityLabel={controller.listening ? '结束说话' : '点击说话'}
-                accessibilityRole="button"
-                accessibilityState={{
-                  disabled: disconnected || controller.busy,
-                  selected: controller.listening,
+                accessibilityState={{ checked: modVoiceWalk, disabled: controller.capabilitiesBusy || disconnected }}
+                disabled={controller.capabilitiesBusy || disconnected}
+                onPress={() => {
+                  controller.setCapabilityEnabled('voice_walk', !modVoiceWalk);
+                  controller.setOpenPopover('none');
                 }}
-                disabled={disconnected || controller.busy}
-                onPress={controller.onToggleListening}
                 style={({ pressed }) => [
-                  styles.micBtn,
-                  light && styles.micBtnLight,
-                  controller.listening && styles.micBtnListening,
-                  (disconnected || controller.busy) && styles.disabled,
+                  styles.popoverRow,
+                  modVoiceWalk && styles.popoverRowAmber,
                   pressed && styles.pressed,
                 ]}
-                testID="control-voice-mic-btn"
+                testID="control-voice-walk-quick-toggle"
               >
-                <Ionicons
-                  color={controller.listening ? '#FFFFFF' : (light ? '#FFFFFF' : '#F2F2F2')}
-                  name={controller.listening ? 'radio-button-on' : 'mic'}
-                  size={16}
-                />
-                <Text style={[styles.micBtnText, !controller.listening && !light && styles.micBtnTextDark]}>
-                  {controller.listening ? '完成' : '说话'}
-                </Text>
+                <View style={styles.popoverRowLeft}>
+                  <Ionicons
+                    color={modVoiceWalk ? '#E9B963' : '#63C795'}
+                    name={modVoiceWalk ? 'lock-closed-outline' : 'lock-open-outline'}
+                    size={14}
+                  />
+                  <Text style={[styles.popoverRowText, light && styles.inkLight]}>
+                    {modVoiceWalk ? '立即锁定走动' : '临时允许走动'}
+                  </Text>
+                </View>
               </Pressable>
-            ) : null}
+            </View>
+          ) : null}
 
-            <TextInput
-              accessibilityLabel={controller.broadcastMode ? '输入传话' : '输入消息'}
-              editable={!disconnected && !controller.busy}
-              maxLength={1000}
-              onChangeText={controller.setDraft}
-              onSubmitEditing={() => {
-                if (canSend) controller.onSubmit();
-              }}
-              placeholder={controller.listening ? '聆听中…' : controller.broadcastMode ? '输入传话…' : '输入消息…'}
-              placeholderTextColor={light ? '#94A3B8' : '#707070'}
-              returnKeyType="send"
-              style={[styles.input, light && styles.inputLight]}
-              testID="control-voice-input"
-              value={controller.draft}
-            />
+          {/* Floating Recessed Pill Composer + Quiet Micro-Row */}
+          <View style={styles.composerWrap}>
+            <View style={[styles.pillComposer, light && styles.recessedLight]}>
+              {controller.broadcastMode && isXiaosuan ? (
+                <Pressable
+                  accessibilityLabel="退出传话"
+                  accessibilityRole="button"
+                  onPress={controller.onToggleBroadcastMode}
+                  style={({ pressed }) => [styles.broadcastInlineTag, pressed && styles.pressed]}
+                  testID="control-voice-broadcast-active-tag"
+                >
+                  <Text style={styles.broadcastInlineTagText}>传话</Text>
+                </Pressable>
+              ) : null}
 
-            {controller.canStop ? (
-              <Pressable
-                accessibilityLabel="停止"
-                accessibilityRole="button"
-                onPress={controller.onCancelTurn}
-                style={({ pressed }) => [styles.stopTurnBtn, pressed && styles.pressed]}
-                testID="control-voice-cancel-turn"
-              >
-                <Ionicons color="#FFFFFF" name="stop" size={15} />
-              </Pressable>
-            ) : (
-              <Pressable
-                accessibilityLabel={controller.broadcastMode ? '传话' : '发送'}
-                accessibilityRole="button"
-                accessibilityState={{ disabled: !canSend }}
-                disabled={!canSend}
-                onPress={() => controller.onSubmit()}
-                style={({ pressed }) => [
-                  styles.sendBtn,
-                  light && styles.sendBtnLight,
-                  controller.broadcastMode && styles.broadcastSendBtn,
-                  !canSend && (light ? styles.sendBtnDisabledLight : styles.sendBtnDisabled),
-                  pressed && canSend && styles.pressed,
-                ]}
-                testID="control-voice-send-btn"
-              >
-                <Ionicons
-                  color={controller.broadcastMode ? '#FFFFFF' : !canSend ? (light ? '#FFFFFF' : '#707070') : (light ? '#FFFFFF' : '#141414')}
-                  name={controller.broadcastMode ? 'megaphone-outline' : 'arrow-up'}
-                  size={15}
-                />
-              </Pressable>
-            )}
+              <TextInput
+                accessibilityLabel={controller.broadcastMode ? '输入传话' : '与小算对话'}
+                editable={!disconnected && !controller.busy}
+                maxLength={1000}
+                onChangeText={controller.setDraft}
+                onSubmitEditing={() => {
+                  if (canSend) controller.onSubmit();
+                }}
+                placeholder={
+                  controller.listening
+                    ? '聆听中…'
+                    : controller.broadcastMode
+                      ? '输入传话…'
+                      : isXiaosuan
+                        ? '与小算对话…'
+                        : '输入消息…'
+                }
+                placeholderTextColor={light ? '#94A3B8' : 'rgba(255,255,255,0.38)'}
+                returnKeyType="send"
+                style={[styles.pillInput, light && styles.inkLight]}
+                testID="control-voice-input"
+                value={controller.draft}
+              />
+
+              {showInlineMic ? (
+                <Pressable
+                  accessibilityLabel={controller.listening ? '结束说话' : '语音输入'}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: disconnected || controller.busy, selected: controller.listening }}
+                  disabled={disconnected || controller.busy}
+                  onPress={controller.onToggleListening}
+                  style={({ pressed }) => [
+                    styles.inlineMicBtn,
+                    controller.listening && styles.inlineMicBtnActive,
+                    (disconnected || controller.busy) && styles.disabled,
+                    pressed && styles.pressed,
+                  ]}
+                  testID="control-voice-mic-btn"
+                >
+                  <Ionicons
+                    color={controller.listening ? '#FFFFFF' : (light ? '#475569' : 'rgba(255,255,255,0.68)')}
+                    name={controller.listening ? 'radio-button-on' : 'mic-outline'}
+                    size={15}
+                  />
+                </Pressable>
+              ) : null}
+
+              {controller.canStop ? (
+                <Pressable
+                  accessibilityLabel="停止"
+                  accessibilityRole="button"
+                  onPress={controller.onCancelTurn}
+                  style={({ pressed }) => [styles.stopCircleBtn, pressed && styles.pressed]}
+                  testID="control-voice-stop-btn"
+                >
+                  <Ionicons color="#FFFFFF" name="stop" size={13} />
+                </Pressable>
+              ) : (
+                <Pressable
+                  accessibilityLabel={controller.broadcastMode ? '传话' : '发送'}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: !canSend }}
+                  disabled={!canSend}
+                  onPress={() => controller.onSubmit()}
+                  style={({ pressed }) => [
+                    styles.sendCircleBtn,
+                    controller.broadcastMode && styles.sendCircleBroadcast,
+                    !canSend && styles.sendCircleDisabled,
+                    pressed && canSend && styles.pressed,
+                  ]}
+                  testID="control-voice-send-btn"
+                >
+                  <Ionicons
+                    color={controller.broadcastMode ? '#FFFFFF' : !canSend ? 'rgba(255,255,255,0.35)' : '#121318'}
+                    name={controller.broadcastMode ? 'megaphone-outline' : 'arrow-up'}
+                    size={14}
+                  />
+                </Pressable>
+              )}
+            </View>
+
+            {/* Quiet Micro-Row: [+] [🛡 走动已锁 ▾] ....... [🌙] */}
+            <View style={styles.microBar}>
+              <View style={styles.microLeft}>
+                {hasQuickActions && !disconnected ? (
+                  <Pressable
+                    accessibilityLabel="快捷操作"
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: showQuickPopover }}
+                    onPress={() => controller.togglePopover('quick')}
+                    style={({ pressed }) => [
+                      styles.microGhostBtn,
+                      showQuickPopover && (light ? styles.ghostBtnActiveLight : styles.ghostBtnActive),
+                      pressed && styles.pressed,
+                    ]}
+                    testID="control-voice-quick-toggle"
+                  >
+                    <Ionicons
+                      color={showQuickPopover ? (light ? '#0F172A' : '#FFFFFF') : (light ? '#475569' : 'rgba(255,255,255,0.58)')}
+                      name="add"
+                      size={16}
+                    />
+                  </Pressable>
+                ) : null}
+
+                {capsSupported && modRobotControl ? (
+                  <Pressable
+                    accessibilityLabel={modVoiceWalk ? '走动已开' : '走动已锁'}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: showWalkPopover }}
+                    disabled={disconnected}
+                    onPress={() => controller.togglePopover('walk')}
+                    style={({ pressed }) => [
+                      styles.walkShieldBtn,
+                      modVoiceWalk && styles.walkShieldActive,
+                      disconnected && styles.disabled,
+                      pressed && styles.pressed,
+                    ]}
+                    testID="control-voice-walk-shield"
+                  >
+                    <Ionicons
+                      color={modVoiceWalk ? '#E9B963' : '#63C795'}
+                      name={modVoiceWalk ? 'shield-outline' : 'shield-checkmark-outline'}
+                      size={12}
+                    />
+                    <Text
+                      style={[
+                        styles.walkShieldText,
+                        light && styles.mutedLight,
+                        modVoiceWalk && styles.walkShieldTextActive,
+                      ]}
+                    >
+                      {modVoiceWalk ? '走动已开' : '走动已锁'}
+                    </Text>
+                    <Ionicons
+                      color={modVoiceWalk ? '#E9B963' : (light ? '#64748B' : 'rgba(255,255,255,0.40)')}
+                      name="chevron-down"
+                      size={11}
+                    />
+                  </Pressable>
+                ) : null}
+              </View>
+
+              {isXiaosuan ? (
+                <Pressable
+                  accessibilityLabel={controller.quietMode ? '关闭轻声模式' : '开启轻声模式'}
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: controller.quietMode, disabled: disconnected || controller.hardwareBusy }}
+                  disabled={disconnected || controller.hardwareBusy}
+                  onPress={controller.onToggleQuietMode}
+                  style={({ pressed }) => [
+                    styles.microGhostBtn,
+                    controller.quietMode && styles.quietIconActive,
+                    (disconnected || controller.hardwareBusy) && styles.disabled,
+                    pressed && styles.pressed,
+                  ]}
+                  testID="control-voice-quiet-toggle"
+                >
+                  <Ionicons
+                    color={controller.quietMode ? '#E9B963' : (light ? '#475569' : 'rgba(255,255,255,0.52)')}
+                    name={controller.quietMode ? 'moon' : 'moon-outline'}
+                    size={14}
+                  />
+                </Pressable>
+              ) : null}
+            </View>
           </View>
-        </>
+        </View>
       )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    borderRadius: 16,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 7,
+  shell: {
+    position: 'relative',
+    overflow: 'visible',
   },
-  cardDark: {
-    backgroundColor: 'rgba(20, 20, 20, 0.95)',
+  shellWing: {
+    flex: 1,
+    borderTopLeftRadius: 0,
+    borderBottomLeftRadius: 0,
+    borderTopRightRadius: 22,
+    borderBottomRightRadius: 22,
+    backgroundColor: 'rgba(14, 15, 18, 0.44)',
+    borderTopWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
+    borderLeftWidth: 0,
     borderColor: 'rgba(255, 255, 255, 0.09)',
+    paddingTop: 10,
+    paddingBottom: 10,
+    paddingHorizontal: 14,
   },
-  cardLight: {
+  shellCardDark: {
+    borderRadius: 18,
+    backgroundColor: 'rgba(16, 17, 21, 0.88)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    paddingTop: 10,
+    paddingBottom: 10,
+    paddingHorizontal: 14,
+  },
+  shellCardLight: {
+    borderRadius: 18,
     backgroundColor: 'rgba(255, 255, 255, 0.96)',
-    borderColor: 'rgba(15, 23, 42, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(15, 23, 42, 0.10)',
+    paddingTop: 10,
+    paddingBottom: 10,
+    paddingHorizontal: 14,
   },
+
+  /* Header */
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 6,
+    gap: 8,
+    paddingBottom: 6,
   },
-  titleRow: {
+  titleCluster: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     flexShrink: 1,
     minWidth: 0,
   },
-  title: {
-    fontSize: 13.5,
-    lineHeight: 18,
-    fontWeight: '600',
-    color: '#F2F2F2',
-  },
-  titleLight: {
-    color: '#0F172A',
-  },
-  statusBadge: {
+  subviewHeaderLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
+    gap: 6,
+    flexShrink: 1,
+  },
+  ghostBackBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+    borderRadius: 10,
+  },
+  subviewTitle: {
+    fontSize: 13.5,
+    fontWeight: '600',
+    color: '#F4F4F6',
+  },
+  roleTriggerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 3,
+    paddingLeft: 2,
+    paddingRight: 7,
     borderRadius: 999,
-    backgroundColor: '#222222',
+    flexShrink: 1,
+    minWidth: 0,
   },
-  statusBadgeLight: {
-    backgroundColor: 'rgba(15, 23, 42, 0.06)',
-  },
-  statusBadgeLive: {
-    backgroundColor: '#2A2A2A',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.20)',
-  },
-  statusBadgeLiveLight: {
-    backgroundColor: 'rgba(59, 110, 246, 0.10)',
-    borderWidth: 1,
-    borderColor: 'rgba(59, 110, 246, 0.25)',
-  },
-  statusDotHalo: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+  miniBotHead: {
+    width: 22,
+    height: 20,
+    borderTopLeftRadius: 10,
+    borderTopRightRadius: 10,
+    borderBottomLeftRadius: 8,
+    borderBottomRightRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  statusDot: {
+  miniBotEyesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4.5,
+  },
+  brandName: {
+    fontSize: 13.5,
+    lineHeight: 18,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    flexShrink: 0,
+  },
+  headerDividerDot: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.28)',
+  },
+  roleLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: 'rgba(255, 255, 255, 0.66)',
+    fontWeight: '500',
+    flexShrink: 1,
+  },
+  overrideDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#E9B963',
+  },
+  whisperStatusWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flexShrink: 0,
+  },
+  statusDotCore: {
     width: 6,
     height: 6,
     borderRadius: 3,
   },
-  statusText: {
+  whisperStatusText: {
     fontSize: 11,
     lineHeight: 14,
-    color: '#C8C8C8',
+    color: 'rgba(255, 255, 255, 0.56)',
     fontWeight: '500',
   },
-  statusTextLight: {
-    color: '#475569',
-  },
-  emotionTag: {
-    fontSize: 10.5,
-    lineHeight: 14,
-    color: '#D4D4D4',
-    fontWeight: '600',
-    paddingLeft: 3,
-  },
-  emotionTagLight: {
-    color: '#1D4ED8',
-  },
-  headerActions: {
+  headerRightIcons: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 2,
+    flexShrink: 0,
   },
-  iconBtn: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+  ghostIconBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#242424',
+    position: 'relative',
   },
-  iconBtnLight: {
-    backgroundColor: 'rgba(15, 23, 42, 0.06)',
+  ghostBtnActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
   },
-  iconBtnActive: {
-    backgroundColor: '#2A2A2A',
+  ghostBtnActiveLight: {
+    backgroundColor: 'rgba(15, 23, 42, 0.08)',
+  },
+  ghostBtnLight: {
+    backgroundColor: 'transparent',
+  },
+  moreAlertDot: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#E9B963',
+  },
+
+  /* Popovers */
+  popover: {
+    position: 'absolute',
+    zIndex: 45,
+    borderRadius: 14,
+    padding: 5,
+    gap: 2,
+    minWidth: 152,
+  },
+  popoverDark: {
+    backgroundColor: 'rgba(18, 19, 24, 0.92)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.22)',
+    borderColor: 'rgba(255, 255, 255, 0.10)',
   },
-  iconBtnActiveLight: {
-    backgroundColor: 'rgba(59, 110, 246, 0.14)',
+  popoverLight: {
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: 'rgba(59, 110, 246, 0.32)',
+    borderColor: 'rgba(15, 23, 42, 0.10)',
   },
-  actionPillBtn: {
-    height: 26,
-    paddingHorizontal: 7,
-    borderRadius: 13,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 3,
-    backgroundColor: '#242424',
+  rolePopoverPos: {
+    top: 42,
+    left: 14,
+    width: 162,
   },
-  actionPillText: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: '500',
-    color: '#C8C8C8',
+  morePopoverPos: {
+    top: 42,
+    right: 14,
+    width: 168,
   },
-  actionPillTextLight: {
-    color: '#334155',
+  quickPopoverPos: {
+    bottom: 86,
+    left: 0,
+    right: 0,
   },
-  stopPillBtn: {
-    height: 26,
-    paddingHorizontal: 8,
-    borderRadius: 13,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 3,
-    backgroundColor: '#DC2626',
+  walkPopoverPos: {
+    bottom: 34,
+    left: 28,
+    width: 164,
   },
-  stopPillText: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  quietPillActive: {
-    backgroundColor: 'rgba(245, 158, 11, 0.22)',
-    borderWidth: 1,
-    borderColor: 'rgba(251, 191, 36, 0.45)',
-  },
-  quietPillActiveLight: {
-    backgroundColor: 'rgba(245, 158, 11, 0.14)',
-    borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.35)',
-  },
-  quietPillTextActive: {
-    color: '#FBBF24',
-    fontWeight: '600',
-  },
-  styleDrawer: {
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-    gap: 6,
-  },
-  styleDrawerDark: {
-    backgroundColor: '#1A1A1A',
-    borderColor: 'rgba(255, 255, 255, 0.09)',
-  },
-  styleDrawerLight: {
-    backgroundColor: '#F8FAFC',
-    borderColor: '#E2E8F0',
-  },
-  styleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  styleLabel: {
-    width: 26,
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '600',
-    color: '#A0A0A0',
-  },
-  styleLabelLight: {
-    color: '#64748B',
-  },
-  styleChipsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  styleChip: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: '#222222',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.09)',
-  },
-  styleChipText: {
-    fontSize: 11,
-    lineHeight: 14,
-    color: '#C8C8C8',
-    fontWeight: '500',
-  },
-  tabBarRow: {
+  popoverRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 6,
-  },
-  segmentedTrack: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1A1A1A',
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
     borderRadius: 10,
-    padding: 2,
-    gap: 2,
   },
-  segmentedTrackLight: {
-    backgroundColor: '#F1F5F9',
-  },
-  tabBtn: {
-    flex: 1,
-    height: 26,
-    borderRadius: 8,
+  popoverRowLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
+    gap: 8,
   },
-  tabBtnActive: {
-    backgroundColor: '#323232',
+  popoverRowActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.10)',
   },
-  tabBtnActiveLight: {
-    backgroundColor: '#FFFFFF',
+  popoverRowActiveLight: {
+    backgroundColor: 'rgba(15, 23, 42, 0.06)',
   },
-  tabText: {
-    fontSize: 12,
+  popoverRowAmber: {
+    backgroundColor: 'rgba(233, 185, 99, 0.16)',
+  },
+  popoverRowText: {
+    fontSize: 12.5,
     lineHeight: 16,
+    color: 'rgba(255, 255, 255, 0.88)',
     fontWeight: '500',
-    color: '#A0A0A0',
   },
-  tabTextLight: {
-    color: '#64748B',
-  },
-  tabTextActive: {
-    color: '#F2F2F2',
+  popoverRowTextActive: {
+    color: '#FFFFFF',
     fontWeight: '600',
   },
-  tabTextActiveLight: {
-    color: '#1D4ED8',
-    fontWeight: '600',
-  },
-  tabBadge: {
-    minWidth: 16,
-    height: 16,
-    borderRadius: 8,
-    paddingHorizontal: 4,
+  popoverCountPill: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 5,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#333333',
   },
-  tabBadgeAccent: {
-    backgroundColor: '#4A4A4A',
+  popoverCountText: {
+    fontSize: 10.5,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.86)',
   },
-  tabBadgeText: {
-    fontSize: 10,
-    lineHeight: 13,
+  popoverCountAmber: {
+    backgroundColor: 'rgba(233, 185, 99, 0.22)',
+  },
+  popoverCountAmberText: {
+    fontSize: 10.5,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: '#E9B963',
   },
+  popoverSep: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    marginVertical: 2,
+    marginHorizontal: 6,
+  },
+  popoverSepLight: {
+    backgroundColor: 'rgba(15, 23, 42, 0.08)',
+  },
+  quickPopoverChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    paddingHorizontal: 6,
+    paddingTop: 4,
+    paddingBottom: 4,
+  },
+
+  /* Notice & Offline */
   noticePill: {
     alignSelf: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
     borderRadius: 999,
-    backgroundColor: 'rgba(34, 197, 94, 0.18)',
-    borderWidth: 1,
-    borderColor: 'rgba(74, 222, 128, 0.35)',
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    marginBottom: 4,
   },
   noticePillLight: {
-    backgroundColor: 'rgba(34, 197, 94, 0.12)',
-    borderColor: 'rgba(22, 163, 74, 0.3)',
+    backgroundColor: 'rgba(15, 23, 42, 0.07)',
   },
   noticeText: {
     fontSize: 11,
-    lineHeight: 15,
+    lineHeight: 14,
+    color: '#F4F4F6',
+    fontWeight: '500',
+  },
+  offlineCenter: {
+    flex: 1,
+    minHeight: 150,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  offlineTitle: {
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.68)',
+    fontWeight: '500',
+  },
+  retryPillBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255, 255, 255, 0.14)',
+  },
+  retryPillText: {
+    fontSize: 12.5,
     fontWeight: '600',
-    color: '#86EFAC',
+    color: '#FFFFFF',
   },
-  noticeTextLight: {
-    color: '#15803D',
-  },
-  sectionWrap: {
+
+  /* Chat Body & Active Move Strip */
+  chatBodyWrap: {
+    flex: 1,
+    position: 'relative',
+    justifyContent: 'space-between',
     gap: 6,
   },
-  searchRow: {
+  moveStrip: {
+    borderRadius: 12,
+    backgroundColor: 'rgba(233, 185, 99, 0.14)',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    gap: 5,
+  },
+  moveStripTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  moveStripLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    height: 30,
-    borderRadius: 10,
-    paddingHorizontal: 9,
-    backgroundColor: '#1A1A1A',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.09)',
+    flexShrink: 1,
   },
-  searchRowLight: {
-    backgroundColor: '#F8FAFC',
-    borderColor: '#CBD5E1',
+  movePulseDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#E9B963',
+  },
+  moveStripLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FDE68A',
+    fontVariant: ['tabular-nums'],
+  },
+  moveBrakeBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: 'rgba(239, 107, 110, 0.24)',
+  },
+  moveBrakeText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#FCA5A5',
+  },
+  moveTrack: {
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    overflow: 'hidden',
+  },
+  moveFill: {
+    height: '100%',
+    borderRadius: 2,
+    backgroundColor: '#E9B963',
+  },
+
+  wingScroll: {
+    flex: 1,
+  },
+  cardScroll: {
+    flexGrow: 0,
+  },
+  messageContent: {
+    gap: 10,
+    paddingVertical: 4,
+  },
+  emptyCenterContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
+  emptyWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+  },
+  emptyHint: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: 'rgba(255, 255, 255, 0.42)',
+    textAlign: 'center',
+  },
+  bubbleRow: {
+    width: '100%',
+  },
+  bubbleRowUser: {
+    alignItems: 'flex-end',
+  },
+  bubbleRowAssistant: {
+    alignItems: 'flex-start',
+  },
+  bubbleUser: {
+    maxWidth: '84%',
+    borderTopLeftRadius: 15,
+    borderTopRightRadius: 15,
+    borderBottomLeftRadius: 15,
+    borderBottomRightRadius: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    backgroundColor: 'rgba(255, 255, 255, 0.13)',
+  },
+  bubbleUserLight: {
+    backgroundColor: 'rgba(15, 23, 42, 0.08)',
+  },
+  bubbleAssistant: {
+    maxWidth: '94%',
+    paddingHorizontal: 2,
+    paddingVertical: 2,
+    gap: 5,
+  },
+  bubbleBodyLine: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 5,
+  },
+  bubbleText: {
+    fontSize: 13,
+    lineHeight: 19.5,
+  },
+  bubbleTextUser: {
+    color: '#F8F8FA',
+  },
+  bubbleTextAssistant: {
+    color: 'rgba(255, 255, 255, 0.94)',
+  },
+  inlineToolRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 5,
+  },
+  inlineToolChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  inlineToolText: {
+    fontSize: 11,
+    lineHeight: 14,
+    color: 'rgba(255, 255, 255, 0.72)',
+    fontWeight: '500',
+  },
+  toolRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 2,
+  },
+  toolDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#63C795',
+  },
+  toolText: {
+    fontSize: 11.5,
+    color: 'rgba(255, 255, 255, 0.62)',
+  },
+  sourceBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 999,
+  },
+  sourceBadgeSoft: {
+    backgroundColor: 'rgba(255, 255, 255, 0.14)',
+  },
+  sourceBadgeBroadcast: {
+    backgroundColor: 'rgba(233, 185, 99, 0.24)',
+  },
+  sourceBadgeReminder: {
+    backgroundColor: 'rgba(99, 199, 149, 0.22)',
+  },
+  sourceBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  sourceBadgeTextSoft: {
+    color: 'rgba(255, 255, 255, 0.86)',
+  },
+  sourceBadgeTextBroadcast: {
+    color: '#FDE68A',
+  },
+  sourceBadgeTextReminder: {
+    color: '#A7F3D0',
+  },
+  choiceRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 4,
+  },
+  approvalCard: {
+    borderRadius: 13,
+    backgroundColor: 'rgba(233, 185, 99, 0.12)',
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    gap: 8,
+  },
+  approvalInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  approvalTitle: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    flexShrink: 1,
+  },
+
+  /* Composer & Micro Row */
+  composerWrap: {
+    gap: 6,
+    paddingTop: 2,
+  },
+  pillComposer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.085)',
+    paddingLeft: 12,
+    paddingRight: 5,
+    paddingVertical: 4,
+    minHeight: 38,
+  },
+  recessedLight: {
+    backgroundColor: 'rgba(15, 23, 42, 0.06)',
+  },
+  pillInput: {
+    flex: 1,
+    fontSize: 12.5,
+    lineHeight: 17,
+    color: '#FFFFFF',
+    paddingVertical: 4,
+    minWidth: 40,
+  },
+  broadcastInlineTag: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: 'rgba(233, 185, 99, 0.24)',
+  },
+  broadcastInlineTagText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#FDE68A',
+  },
+  inlineMicBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inlineMicBtnActive: {
+    backgroundColor: '#63C795',
+  },
+  sendCircleBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F4F4F6',
+  },
+  sendCircleBroadcast: {
+    backgroundColor: '#D97706',
+  },
+  sendCircleDisabled: {
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  stopCircleBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EF6B6E',
+  },
+  microBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 2,
+  },
+  microLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  microGhostBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quietIconActive: {
+    backgroundColor: 'rgba(233, 185, 99, 0.16)',
+  },
+  walkShieldBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  walkShieldActive: {
+    backgroundColor: 'rgba(233, 185, 99, 0.16)',
+  },
+  walkShieldText: {
+    fontSize: 11.5,
+    lineHeight: 15,
+    color: 'rgba(255, 255, 255, 0.62)',
+    fontWeight: '500',
+  },
+  walkShieldTextActive: {
+    color: '#FDE68A',
+    fontWeight: '600',
+  },
+
+  /* Subviews (Memory, Reminders, Config) */
+  sectionWrap: {
+    flex: 1,
+    gap: 7,
+  },
+  subviewContent: {
+    gap: 12,
+    paddingBottom: 6,
+  },
+  configBlock: {
+    gap: 7,
+  },
+  configSectionHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  configSectionTitle: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.50)',
+    paddingHorizontal: 2,
+  },
+  capList: {
+    gap: 6,
+  },
+  capRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.065)',
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+  },
+  capSubRow: {
+    marginLeft: 12,
+  },
+  capNameWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  capName: {
+    fontSize: 12.5,
+    fontWeight: '500',
+    color: '#F4F4F6',
+  },
+  capToggleChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255, 255, 255, 0.10)',
+  },
+  capToggleGreen: {
+    backgroundColor: 'rgba(99, 199, 149, 0.22)',
+  },
+  capToggleAmber: {
+    backgroundColor: 'rgba(233, 185, 99, 0.22)',
+  },
+  capToggleText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.68)',
+  },
+  capToggleGreenText: {
+    color: '#A7F3D0',
+  },
+  capToggleAmberText: {
+    color: '#FDE68A',
+  },
+  capStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+  },
+  capStatusText: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.45)',
+    fontWeight: '500',
+  },
+  styleCard: {
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.065)',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 6,
+  },
+  styleRowLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.52)',
+  },
+  recessedSearch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+    paddingHorizontal: 10,
+    height: 32,
   },
   searchInput: {
     flex: 1,
-    minWidth: 0,
     fontSize: 12,
-    color: '#F2F2F2',
-    paddingVertical: 0,
-  },
-  searchInputLight: {
-    color: '#0F172A',
+    color: '#FFFFFF',
+    paddingVertical: 2,
   },
   clearSearchBtn: {
     padding: 2,
   },
-  filterRow: {
+  filterScroll: {
+    flexGrow: 0,
+  },
+  chipRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    paddingVertical: 1,
+    gap: 6,
   },
-  filterChip: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+  softChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4.5,
     borderRadius: 999,
-    backgroundColor: '#222222',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.09)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
-  filterChipLight: {
-    backgroundColor: '#F1F5F9',
-    borderColor: '#E2E8F0',
+  softChipLight: {
+    backgroundColor: 'rgba(15, 23, 42, 0.06)',
   },
-  filterChipActive: {
-    backgroundColor: '#323232',
-    borderColor: 'rgba(255, 255, 255, 0.24)',
+  softChipActive: {
+    backgroundColor: '#F4F4F6',
   },
-  filterChipActiveLight: {
-    backgroundColor: 'rgba(59, 110, 246, 0.12)',
-    borderColor: 'rgba(59, 110, 246, 0.35)',
+  softChipActiveLight: {
+    backgroundColor: '#1E293B',
   },
-  filterChipText: {
-    fontSize: 11,
+  softChipText: {
+    fontSize: 11.5,
     lineHeight: 15,
-    color: '#C8C8C8',
+    color: 'rgba(255, 255, 255, 0.78)',
     fontWeight: '500',
   },
-  filterChipTextLight: {
-    color: '#475569',
-  },
-  filterChipTextActive: {
-    color: '#F2F2F2',
+  softChipActiveText: {
+    color: '#121318',
     fontWeight: '600',
   },
-  filterChipTextActiveLight: {
-    color: '#1D4ED8',
+  softChipActiveTextLight: {
+    color: '#FFFFFF',
     fontWeight: '600',
-  },
-  listScroll: {
-    minHeight: 64,
   },
   listContent: {
     gap: 6,
     paddingVertical: 2,
   },
-  memoryCard: {
+  glassRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 6,
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-    borderRadius: 11,
-    borderWidth: 1,
+    gap: 8,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.065)',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
-  memoryCardEdit: {
-    gap: 6,
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-    borderRadius: 11,
-    borderWidth: 1,
+  glassRowLight: {
+    backgroundColor: 'rgba(15, 23, 42, 0.05)',
   },
-  memoryCardDark: {
-    backgroundColor: '#1A1A1A',
-    borderColor: 'rgba(255, 255, 255, 0.09)',
+  glassRowEdit: {
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.09)',
+    padding: 9,
+    gap: 7,
   },
-  memoryCardLight: {
-    backgroundColor: '#F8FAFC',
-    borderColor: '#E2E8F0',
-  },
-  memoryCardBody: {
+  rowBody: {
     flex: 1,
-    minWidth: 0,
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+    alignItems: 'center',
     gap: 6,
   },
-  memoryCardText: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 17,
+  rowText: {
+    fontSize: 12.5,
+    lineHeight: 17.5,
+    color: 'rgba(255, 255, 255, 0.90)',
+    flexShrink: 1,
   },
-  memoryCardActions: {
+  rowActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: 4,
+    flexShrink: 0,
   },
-  cardActionBtn: {
+  miniActionBtn: {
     width: 24,
     height: 24,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  roomTag: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.10)',
+  },
+  roomTagText: {
+    fontSize: 10.5,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.72)',
+  },
+  reminderTimeTag: {
+    backgroundColor: 'rgba(99, 199, 149, 0.18)',
+  },
+  reminderTimeText: {
+    fontSize: 10.5,
+    fontWeight: '600',
+    color: '#A7F3D0',
+  },
   editTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  roomSelectMini: {
-    height: 28,
-    paddingHorizontal: 7,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#262626',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-  },
   editInput: {
     flex: 1,
-    minWidth: 0,
-    height: 28,
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 0,
-    fontSize: 12,
-    color: '#F2F2F2',
-    backgroundColor: '#262626',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    fontSize: 12.5,
+    color: '#FFFFFF',
+    paddingVertical: 4,
   },
   editBtnRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: 6,
   },
-  roomTag: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    marginTop: 1,
-  },
-  roomTagText: {
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: '600',
-  },
-  roomTagUser: {
-    backgroundColor: 'rgba(59, 130, 246, 0.22)',
-  },
-  roomTagUserLight: {
-    backgroundColor: 'rgba(59, 130, 246, 0.12)',
-  },
-  roomTagTextUser: {
-    color: '#93C5FD',
-  },
-  roomTagTextUserLight: {
-    color: '#1D4ED8',
-  },
-  roomTagKnowledge: {
-    backgroundColor: 'rgba(16, 185, 129, 0.22)',
-  },
-  roomTagKnowledgeLight: {
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
-  },
-  roomTagTextKnowledge: {
-    color: '#6EE7B7',
-  },
-  roomTagTextKnowledgeLight: {
-    color: '#047857',
-  },
-  roomTagEpisodic: {
-    backgroundColor: 'rgba(245, 158, 11, 0.22)',
-  },
-  roomTagEpisodicLight: {
-    backgroundColor: 'rgba(245, 158, 11, 0.14)',
-  },
-  roomTagTextEpisodic: {
-    color: '#FCD34D',
-  },
-  roomTagTextEpisodicLight: {
-    color: '#B45309',
-  },
-  roomTagBehavior: {
-    backgroundColor: 'rgba(168, 85, 247, 0.22)',
-  },
-  roomTagBehaviorLight: {
-    backgroundColor: 'rgba(168, 85, 247, 0.12)',
-  },
-  roomTagTextBehavior: {
-    color: '#D8B4FE',
-  },
-  roomTagTextBehaviorLight: {
-    color: '#7E22CE',
-  },
-  reminderTimeTag: {
-    backgroundColor: '#2A2A2A',
-  },
-  reminderTimeTagLight: {
-    backgroundColor: 'rgba(59, 110, 246, 0.12)',
-  },
-  reminderTimeText: {
-    color: '#D4D4D4',
-  },
-  reminderTimeTextLight: {
-    color: '#1D4ED8',
-  },
-  reminderActionPill: {
+  inlineTagBtn: {
     paddingHorizontal: 7,
     paddingVertical: 3,
-    borderRadius: 7,
-    backgroundColor: '#2A2A2A',
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.10)',
   },
-  reminderActionText: {
-    fontSize: 10.5,
-    lineHeight: 14,
-    fontWeight: '500',
-    color: '#C8C8C8',
-  },
-  roomSelectBtn: {
-    height: 32,
-    paddingHorizontal: 7,
-    borderRadius: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    backgroundColor: '#222222',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.10)',
-  },
-  roomSelectBtnLight: {
-    backgroundColor: '#F1F5F9',
-    borderColor: '#CBD5E1',
-  },
-  roomSelectText: {
+  inlineTagText: {
     fontSize: 11,
-    lineHeight: 14,
     fontWeight: '600',
-    color: '#F2F2F2',
-  },
-  roomSelectTextLight: {
-    color: '#334155',
-  },
-  pinAddBtn: {
-    width: 30,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#222222',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.10)',
-  },
-  pinAddBtnActive: {
-    backgroundColor: 'rgba(245, 158, 11, 0.22)',
-    borderColor: 'rgba(251, 191, 36, 0.45)',
+    color: 'rgba(255, 255, 255, 0.78)',
   },
   reminderTimeInput: {
-    width: 78,
-    height: 32,
-    borderRadius: 16,
-    paddingHorizontal: 9,
-    paddingVertical: 0,
-    fontSize: 11.5,
-    color: '#F2F2F2',
-    backgroundColor: '#222222',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.10)',
-  },
-  rememberBtn: {
-    height: 32,
-    paddingHorizontal: 11,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#323232',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.16)',
-  },
-  rememberBtnText: {
+    width: 68,
     fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '600',
     color: '#FFFFFF',
+    paddingVertical: 4,
+  },
+  softPillBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4.5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255, 255, 255, 0.10)',
+  },
+  softPillBtnLight: {
+    backgroundColor: 'rgba(15, 23, 42, 0.08)',
+  },
+  softPillText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.78)',
+  },
+  primaryPillBtn: {
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: '#F4F4F6',
+  },
+  primaryPillText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#121318',
   },
   memoryFooter: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 8,
-    paddingTop: 4,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.09)',
-  },
-  memoryFooterEnd: {
-    justifyContent: 'flex-end',
-  },
-  memoryFooterLight: {
-    borderTopColor: '#E2E8F0',
+    paddingTop: 2,
   },
   summaryText: {
     flex: 1,
-    minWidth: 0,
     fontSize: 11,
-    lineHeight: 15,
-    color: '#A0A0A0',
-  },
-  summaryTextLight: {
-    color: '#64748B',
-  },
-  clearSessionBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: '#2A2A2A',
-  },
-  clearSessionBtnLight: {
-    backgroundColor: '#F1F5F9',
-  },
-  clearSessionText: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '500',
-    color: '#C8C8C8',
-  },
-  clearSessionTextLight: {
-    color: '#475569',
-  },
-  messageScroll: {
-    minHeight: 64,
-  },
-  messageContent: {
-    gap: 6,
-    paddingVertical: 2,
-  },
-  messageContentEmpty: {
-    flexGrow: 1,
-    justifyContent: 'center',
-  },
-  emptyWrap: {
-    minHeight: 60,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 8,
-  },
-  emptyHint: {
-    fontSize: 12,
-    lineHeight: 16,
-    color: '#9A9A9A',
-    fontWeight: '500',
-  },
-  emptyHintLight: {
-    color: '#64748B',
-  },
-  quickRail: {
-    flexGrow: 0,
-  },
-  quickRailContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingVertical: 1,
-  },
-  quickChip: {
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: '#242424',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-  },
-  quickChipLight: {
-    backgroundColor: 'rgba(59, 110, 246, 0.10)',
-    borderColor: 'rgba(59, 110, 246, 0.25)',
-  },
-  quickChipText: {
-    fontSize: 11.5,
-    lineHeight: 15,
-    color: '#D4D4D4',
-    fontWeight: '500',
-  },
-  quickChipTextLight: {
-    color: '#1D4ED8',
-  },
-  toolRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingVertical: 2,
-    paddingHorizontal: 4,
-  },
-  toolText: {
-    fontSize: 11.5,
-    lineHeight: 15,
-    color: '#C8C8C8',
-  },
-  toolTextLight: {
-    color: '#2563EB',
-  },
-  inlineToolRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 4,
-  },
-  inlineToolChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    backgroundColor: '#2A2A2A',
-  },
-  inlineToolChipLight: {
-    backgroundColor: 'rgba(59, 110, 246, 0.10)',
-  },
-  inlineToolText: {
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: '600',
-    color: '#D4D4D4',
-  },
-  inlineToolTextLight: {
-    color: '#2563EB',
-  },
-  bubbleRow: {
-    flexDirection: 'row',
-  },
-  bubbleRowUser: {
-    justifyContent: 'flex-end',
-  },
-  bubbleRowAssistant: {
-    justifyContent: 'flex-start',
-  },
-  bubble: {
-    maxWidth: '86%',
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    gap: 5,
-  },
-  bubbleBodyLine: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 5,
-    flexWrap: 'wrap',
-  },
-  sourceBadge: {
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 5,
-    marginTop: 2,
-  },
-  sourceBadgeUser: {
-    backgroundColor: 'rgba(255, 255, 255, 0.22)',
-  },
-  sourceBadgeAssistant: {
-    backgroundColor: '#333333',
-  },
-  sourceBadgeAssistantLight: {
-    backgroundColor: '#E2E8F0',
-  },
-  sourceBadgeReminder: {
-    backgroundColor: 'rgba(245, 158, 11, 0.26)',
-  },
-  sourceBadgeText: {
-    fontSize: 9.5,
-    lineHeight: 13,
-    fontWeight: '600',
-  },
-  sourceBadgeTextUser: {
-    color: '#FFFFFF',
-  },
-  sourceBadgeTextDark: {
-    color: '#C8C8C8',
-  },
-  sourceBadgeTextLight: {
-    color: '#475569',
-  },
-  sourceBadgeTextReminder: {
-    color: '#FCD34D',
-  },
-  bubbleUser: {
-    backgroundColor: '#323232',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
-  },
-  bubbleAssistantDark: {
-    backgroundColor: '#222222',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.09)',
-  },
-  bubbleAssistantLight: {
-    backgroundColor: '#F1F5F9',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  bubbleText: {
-    fontSize: 12.5,
-    lineHeight: 18,
-    flexShrink: 1,
-  },
-  bubbleTextUser: {
-    color: '#FFFFFF',
-  },
-  bubbleTextDark: {
-    color: '#F2F2F2',
-  },
-  bubbleTextLight: {
-    color: '#0F172A',
-  },
-  choiceRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 5,
-  },
-  choiceBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: '#2A2A2A',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
-  },
-  choiceBtnText: {
-    fontSize: 11.5,
-    lineHeight: 15,
-    color: '#F2F2F2',
-    fontWeight: '500',
-  },
-  approvalCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 11,
-    backgroundColor: 'rgba(245, 158, 11, 0.14)',
-    borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.35)',
-  },
-  approvalCardLight: {
-    backgroundColor: 'rgba(245, 158, 11, 0.10)',
-  },
-  approvalInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flex: 1,
-    minWidth: 0,
-  },
-  approvalTitle: {
-    fontSize: 12,
-    lineHeight: 16,
-    color: '#FDE68A',
-    fontWeight: '500',
-    flexShrink: 1,
-  },
-  approvalBtns: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  rejectBtn: {
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: '#333333',
-  },
-  rejectBtnText: {
-    fontSize: 11.5,
-    lineHeight: 15,
-    color: '#F2F2F2',
-    fontWeight: '500',
-  },
-  approveBtn: {
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: '#323232',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.18)',
-  },
-  approveBtnText: {
-    fontSize: 11.5,
-    lineHeight: 15,
-    color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  errorText: {
-    fontSize: 11.5,
-    lineHeight: 15,
-    color: '#FCA5A5',
-  },
-  composerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  micBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    height: 32,
-    paddingHorizontal: 9,
-    borderRadius: 16,
-    backgroundColor: '#2A2A2A',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.16)',
-  },
-  micBtnLight: {
-    backgroundColor: '#2563EB',
-    borderColor: '#2563EB',
-  },
-  micBtnListening: {
-    backgroundColor: '#EF4444',
-    borderColor: '#EF4444',
-  },
-  micBtnText: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  micBtnTextDark: {
-    color: '#F2F2F2',
-  },
-  input: {
-    flex: 1,
-    minWidth: 0,
-    height: 32,
-    borderRadius: 16,
-    paddingHorizontal: 11,
-    paddingVertical: 0,
-    fontSize: 12.5,
-    color: '#F2F2F2',
-    backgroundColor: '#222222',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.10)',
-  },
-  inputLight: {
-    color: '#0F172A',
-    backgroundColor: '#F8FAFC',
-    borderColor: '#CBD5E1',
-  },
-  sendBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F2F2F2',
-  },
-  sendBtnLight: {
-    backgroundColor: '#2563EB',
-  },
-  sendBtnDisabled: {
-    backgroundColor: '#2A2A2A',
-  },
-  sendBtnDisabledLight: {
-    backgroundColor: '#CBD5E1',
-  },
-  stopTurnBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#E53935',
-  },
-  disabled: {
-    opacity: 0.45,
-  },
-  pressed: {
-    opacity: 0.72,
-  },
-  styleLabelWide: {
-    width: 46,
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '600',
-    color: '#A0A0A0',
-  },
-  emptyMiniHint: {
-    fontSize: 11,
-    lineHeight: 15,
-    color: '#A0A0A0',
-  },
-  speakerSection: {
-    gap: 5,
-    paddingTop: 2,
-  },
-  speakerChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingLeft: 8,
-    paddingRight: 5,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: '#222222',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.10)',
-  },
-  speakerDelBtn: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  speakerEnrollRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingLeft: 52,
-  },
-  speakerInput: {
-    flex: 1,
-    minWidth: 0,
-    height: 26,
-    borderRadius: 13,
-    paddingHorizontal: 9,
-    paddingVertical: 0,
-    fontSize: 11.5,
-    color: '#F2F2F2',
-    backgroundColor: '#222222',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.10)',
-  },
-  speakerEnrollBtn: {
-    height: 26,
-    paddingHorizontal: 10,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#323232',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.16)',
-  },
-  speakerEnrollText: {
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  timerBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-    borderRadius: 11,
-    borderWidth: 1,
+    color: 'rgba(255, 255, 255, 0.50)',
   },
   timerReadoutWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    flexShrink: 1,
+    gap: 6,
   },
   timerTitle: {
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 12.5,
     fontWeight: '600',
-    color: '#F2F2F2',
+    color: '#F4F4F6',
   },
   timerReadoutText: {
-    fontSize: 12.5,
-    lineHeight: 16,
+    fontSize: 13,
     fontWeight: '700',
-    color: '#F2F2F2',
-  },
-  timerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  timerPrimaryPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 7,
-    backgroundColor: '#323232',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.16)',
-  },
-  timerPrimaryText: {
-    fontSize: 10.5,
-    lineHeight: 14,
-    fontWeight: '600',
     color: '#FFFFFF',
+    fontVariant: ['tabular-nums'],
   },
-  companionStrip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 11,
-    borderWidth: 1,
-  },
-  companionLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flexShrink: 1,
-  },
-  companionDaysText: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '600',
-    color: '#F2F2F2',
-  },
-  momentsContent: {
-    gap: 10,
-    paddingVertical: 2,
-  },
-  momentsSection: {
-    gap: 6,
-  },
-  momentsHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 6,
-  },
-  momentsSectionTitle: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '600',
-    color: '#F2F2F2',
-  },
-  photoGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 6,
-  },
-  photoTile: {
-    width: '48.5%',
-    borderRadius: 10,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  photoThumb: {
-    width: '100%',
-    height: 76,
-    backgroundColor: '#1A1A1A',
-  },
-  photoTileCaption: {
-    fontSize: 11,
-    lineHeight: 15,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
-  },
-  photoPreviewModal: {
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: 8,
-    gap: 6,
-  },
-  photoPreviewDark: {
-    backgroundColor: 'rgba(20, 20, 20, 0.96)',
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-  },
-  photoPreviewImage: {
-    width: '100%',
-    height: 140,
-    borderRadius: 8,
-    backgroundColor: '#1A1A1A',
-  },
-  photoPreviewCaption: {
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  photoPreviewMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 6,
-  },
-  photoPreviewTags: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flexShrink: 1,
-  },
-  photoPreviewActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  photoDeletePill: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 7,
-    backgroundColor: 'rgba(220, 38, 38, 0.22)',
-  },
-  photoDeleteText: {
-    fontSize: 10.5,
-    lineHeight: 14,
-    fontWeight: '600',
+  errorText: {
+    fontSize: 11.5,
     color: '#FCA5A5',
+    paddingHorizontal: 4,
   },
-  diaryCard: {
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-    borderRadius: 11,
-    borderWidth: 1,
-    gap: 5,
+  inkLight: {
+    color: '#0F172A',
   },
-  diaryCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 6,
+  mutedLight: {
+    color: '#475569',
   },
-  diaryCardMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+  disabled: {
+    opacity: 0.42,
   },
-  diaryDateText: {
-    fontSize: 11.5,
-    lineHeight: 15,
-    fontWeight: '600',
-    color: '#F2F2F2',
-  },
-  diaryBodyText: {
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  sourceBadgeBroadcast: {
-    backgroundColor: 'rgba(245, 158, 11, 0.28)',
-  },
-  sourceBadgeTextBroadcast: {
-    color: '#FEF3C7',
-  },
-  quickActionChip: {
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: 'rgba(34, 197, 94, 0.16)',
-    borderWidth: 1,
-    borderColor: 'rgba(74, 222, 128, 0.32)',
-  },
-  comboStopChip: {
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: 'rgba(220, 38, 38, 0.22)',
-    borderWidth: 1,
-    borderColor: 'rgba(248, 113, 113, 0.4)',
-  },
-  comboStopText: {
-    fontSize: 11.5,
-    lineHeight: 15,
-    fontWeight: '600',
-    color: '#FCA5A5',
-  },
-  broadcastToggleBtn: {
-    height: 32,
-    paddingHorizontal: 9,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#222222',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.10)',
-  },
-  broadcastToggleActive: {
-    backgroundColor: 'rgba(245, 158, 11, 0.26)',
-    borderColor: 'rgba(251, 191, 36, 0.55)',
-  },
-  broadcastToggleText: {
-    fontSize: 11.5,
-    lineHeight: 15,
-    fontWeight: '600',
-    color: '#C8C8C8',
-  },
-  broadcastToggleTextActive: {
-    color: '#FDE68A',
-  },
-  broadcastSendBtn: {
-    backgroundColor: '#D97706',
-  },
-  overrideDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: '#F2F2F2',
-  },
-  drawerTabTrack: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1A1A1A',
-    borderRadius: 8,
-    padding: 2,
-    gap: 2,
-  },
-  drawerTabBtn: {
-    flex: 1,
-    height: 24,
-    borderRadius: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-  },
-  styleDrawerSection: {
-    gap: 6,
-  },
-  capList: {
-    gap: 5,
-  },
-  capRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-    paddingVertical: 1,
-  },
-  capSubRow: {
-    paddingLeft: 10,
-  },
-  capNameWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  capName: {
-    fontSize: 11.5,
-    lineHeight: 15,
-    fontWeight: '500',
-    color: '#F2F2F2',
-  },
-  capSwitchBtn: {
-    minWidth: 44,
-    paddingHorizontal: 9,
-    paddingVertical: 3,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#222222',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.09)',
-  },
-  capSafetyBtnActive: {
-    backgroundColor: 'rgba(245, 158, 11, 0.22)',
-    borderColor: 'rgba(251, 191, 36, 0.50)',
-  },
-  capSafetyBtnActiveLight: {
-    backgroundColor: 'rgba(245, 158, 11, 0.14)',
-    borderColor: 'rgba(245, 158, 11, 0.38)',
-  },
-  capSafetyTextActive: {
-    color: '#FCD34D',
-    fontWeight: '600',
-  },
-  capSafetyTextActiveLight: {
-    color: '#B45309',
-    fontWeight: '600',
-  },
-  capStatusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: '#2A2A2A',
-  },
-  capStatusBadgeLight: {
-    backgroundColor: '#E2E8F0',
-  },
-  capStatusText: {
-    fontSize: 10.5,
-    lineHeight: 14,
-    fontWeight: '500',
-    color: '#A0A0A0',
-  },
-  capStatusTextLight: {
-    color: '#64748B',
-  },
-  capFooterRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    paddingTop: 2,
-  },
-  tabBarRowEnd: {
-    justifyContent: 'flex-end',
+  pressed: {
+    opacity: 0.74,
   },
 });
