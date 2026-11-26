@@ -15,7 +15,9 @@ import { RobotRecoveryControls } from '../components/RobotRecoveryControls';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { DosoWordmark, PostureGlyph, normalizeSettingsCategory, renderControlSettings, controlHudColors, controlSettingsColors, type ControlSettingsCategory, type ControlSettingsSnapshot, type ControlSettingsSubview } from '../components/ControlReferenceUi';
-import { checkAndroidApkUpdate } from '../features/app-update/androidApkUpdater';
+import { formatAppUpdateStatus, type AndroidApkReleaseInfo } from '../features/app-update/androidApkUpdater';
+import { formatInstalledAppVersionLabel } from '../features/app-update/appVersion';
+import { checkAndPromptAppUpdate, openApkDownload } from '../features/app-update/promptAppUpdate';
 import {
   applyForwardDirection,
   applyJoystickSensitivity,
@@ -297,6 +299,7 @@ export function ControlScreen({
   const [connectionTipsOpen, setConnectionTipsOpen] = useState(false);
   const [appUpdateBusy, setAppUpdateBusy] = useState(false);
   const [appUpdateStatusLabel, setAppUpdateStatusLabel] = useState<string | null>(null);
+  const [availableAppUpdate, setAvailableAppUpdate] = useState<AndroidApkReleaseInfo | null>(null);
   const [autoRecord, setAutoRecord] = useState(false);
   const [soundVolumePercent, setSoundVolumePercent] = useState(80);
   const [voiceBroadcastEnabled, setVoiceBroadcastEnabled] = useState(true);
@@ -2507,24 +2510,30 @@ export function ControlScreen({
           updateControlPrefs({ accentTone: next });
         },
         hotspotScanPulse,
+        appVersionLabel: formatInstalledAppVersionLabel(),
         appUpdateBusy,
         appUpdateStatusLabel,
+        appUpdateActionLabel: availableAppUpdate ? formatAppUpdateStatus(availableAppUpdate).actionLabel : null,
+        onDownloadAppUpdate: availableAppUpdate ? () => {
+          void openApkDownload(availableAppUpdate).catch(() => {
+            if (mountedRef.current) setAppUpdateStatusLabel('下载失败');
+          });
+        } : undefined,
         onCheckAppUpdate: () => {
           if (appUpdateBusy) return;
-          const baseUrl = typeof process !== 'undefined' && process.env?.EXPO_PUBLIC_OTA_BASE_URL
-            ? process.env.EXPO_PUBLIC_OTA_BASE_URL
-            : 'https://api-test.dosorobotics.com/ota';
           setAppUpdateBusy(true);
           setAppUpdateStatusLabel(null);
-          void checkAndroidApkUpdate({ baseUrl, currentVersionCode: 1 })
-            .then(info => {
-              if (!mountedRef.current) return;
-              if (info?.updateAvailable) {
-                setAppUpdateStatusLabel(`新版本 v${info.versionName}`);
-              } else {
-                setAppUpdateStatusLabel('已是最新版本');
-              }
-            })
+          void checkAndPromptAppUpdate({
+            onStatus: label => {
+              if (mountedRef.current) setAppUpdateStatusLabel(label);
+            },
+            onAvailable: info => {
+              if (mountedRef.current) setAvailableAppUpdate(info);
+            },
+            onDownloadError: () => {
+              if (mountedRef.current) setAppUpdateStatusLabel('下载失败');
+            },
+          })
             .catch(() => {
               if (mountedRef.current) setAppUpdateStatusLabel('检查失败');
             })

@@ -257,7 +257,17 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
   };
   const dependencies = {
     '../features/control/useControlRobotVideo': { useControlRobotVideo: () => ({}) },
-    '../features/app-update/androidApkUpdater': { checkAndroidApkUpdate: async () => null },
+    '../features/app-update/androidApkUpdater': {
+      checkAndroidApkUpdate: async () => null,
+      formatAppUpdateStatus: () => ({ statusLabel: '已是最新', actionLabel: '下载更新' }),
+    },
+    '../features/app-update/appVersion': {
+      formatInstalledAppVersionLabel: () => 'v0.1.0',
+    },
+    '../features/app-update/promptAppUpdate': {
+      checkAndPromptAppUpdate: async () => { },
+      openApkDownload: async () => { },
+    },
     '../features/control/useKeepScreenAwake': { useKeepScreenAwake: active => { keepAwakeCalls.push(Boolean(active)); } },
     '../utils/haptics': { triggerControlHaptic: kind => { hapticCalls.push(kind); } },
     '../features/video/controlMediaModel': controlMediaModelModule.exports,

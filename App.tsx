@@ -8,6 +8,7 @@ import { images } from './src/assets';
 import { AppToast, ToastNotice } from './src/components/AppToast';
 import { RobotMainNav, ROBOT_MAIN_NAV_LANDSCAPE_SPACE, type RobotMainTab } from './src/components/BottomNav';
 import { LandscapeGuard } from './src/components/LandscapeGuard';
+import { checkAndPromptAppUpdate } from './src/features/app-update/promptAppUpdate';
 import { useBrainstemControl } from './src/features/control/useBrainstemControl';
 import { useBrainstemTelemetry } from './src/features/control/useBrainstemTelemetry';
 import { useG20Input } from './src/features/control/useG20Input';
@@ -21,6 +22,7 @@ import { BleDiscoveryScreen } from './src/screens/BleDiscoveryScreen';
 import { ControlScreen } from './src/screens/ControlScreen';
 import { DataPrivacyScreen } from './src/screens/DataPrivacyScreen';
 import { DeviceUnavailableScreen } from './src/screens/DeviceUnavailableScreen';
+import { FirmwareUpdateScreen } from './src/screens/FirmwareUpdateScreen';
 import { JointStatusScreen } from './src/screens/JointStatusScreen';
 import { ProfileHub as ProfileScreen } from './src/screens/ProfileScreen';
 import { RobotConnectionScreen } from './src/screens/RobotConnectionScreen';
@@ -92,6 +94,7 @@ export default function App() {
   }, []);
   const [notice, setNotice] = useState<ToastNotice | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const appUpdateCheckBusy = useRef(false);
 
   const workspaceTab: RobotMainTab = stage === 'control' ? 'control' : stage === 'joint-status' ? 'status' : 'settings';
   const isRobotWorkspace = stage === 'control' || stage === 'joint-status' || stage === 'main';
@@ -107,6 +110,27 @@ export default function App() {
     setNotice({ title, message, tone });
     noticeTimer.current = durationMs === null ? null : setTimeout(() => setNotice(null), durationMs);
   }, []);
+
+  const handleCheckAppUpdate = useCallback(() => {
+    if (appUpdateCheckBusy.current) return;
+    appUpdateCheckBusy.current = true;
+    void checkAndPromptAppUpdate({
+      onDownloadError: () => {
+        notify('应用更新', '下载失败', 'error');
+      },
+    })
+      .then(info => {
+        if (!info?.updateAvailable) {
+          notify('应用更新', '已是最新', 'info');
+        }
+      })
+      .catch(() => {
+        notify('应用更新', '检查失败', 'error');
+      })
+      .finally(() => {
+        appUpdateCheckBusy.current = false;
+      });
+  }, [notify]);
 
   useEffect(() => () => {
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
@@ -601,8 +625,7 @@ export default function App() {
         ) : null}
 
         {stage === 'firmware-update' ? (
-          <DeviceUnavailableScreen
-            capability="firmware"
+          <FirmwareUpdateScreen
             deviceName={workspaceDeviceName}
             onBack={returnToDeviceSettings}
           />
@@ -820,13 +843,14 @@ export default function App() {
                           deviceType={workspaceDeviceType}
                           firmwareVersion={workspaceRobotVersion}
                           lastSyncLabel={workspaceLastSync}
-                          canOpenFirmwareUpdate={false}
+                          canOpenFirmwareUpdate
                           canOpenProvisioning={false}
                           onConnect={() => setRobotConnectionVisible(true)}
                           onDisconnect={() => { void handleDisconnectRobot(); }}
                           onOpenBleDiscovery={() => setStage('ble-discovery')}
                           onOpenFirmwareUpdate={() => setStage('firmware-update')}
                           onOpenProvisioning={() => setStage('provisioning')}
+                          onCheckUpdate={handleCheckAppUpdate}
                           onRetry={() => notify('状态同步', '连接设备后自动同步实时状态', 'info')}
                           onToggleAlerts={() => setAlertsEnabled(current => !current)}
                           runtimeHours={null}
