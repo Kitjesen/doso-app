@@ -270,6 +270,7 @@ const styles = StyleSheet.create({
   collapsedRoot: {
     alignItems: 'center',
     bottom: 6,
+    elevation: 4,
     gap: 4,
     left: '50%',
     position: 'absolute',
@@ -280,6 +281,7 @@ const styles = StyleSheet.create({
   expandedRoot: {
     alignItems: 'center',
     bottom: 62,
+    elevation: 7,
     left: 0,
     position: 'absolute',
     right: 0,
@@ -298,8 +300,8 @@ const styles = StyleSheet.create({
   expandedTelemetryRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    flexWrap: 'nowrap',
-    gap: 7,
+    flexWrap: 'wrap',
+    gap: 6,
     justifyContent: 'center',
   },
   barDivider: {

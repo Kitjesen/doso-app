@@ -255,7 +255,13 @@ export function ProfileHub(props: Props & { initialDeviceOpen?: boolean }) {
           <Text style={hubStyles.ver}>DOSO Robotics · v{appVersion}</Text>
         </View>
       </ScrollView>
-      <Modal visible={panel !== null} transparent animationType="slide" onRequestClose={() => setPanel(null)}>
+      <Modal
+        visible={panel !== null}
+        transparent
+        animationType="slide"
+        supportedOrientations={['landscape-left', 'landscape-right']}
+        onRequestClose={() => setPanel(null)}
+      >
         <View style={hubStyles.backdrop}>
           <ControlPanelMotion style={hubStyles.sheet}>
             <View style={hubStyles.panelHeading}>

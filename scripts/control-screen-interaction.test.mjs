@@ -4358,3 +4358,241 @@ test('Settings ScrollView exposes Android scroll props, non-flexGrow content, E-
   assert.ok(screen.find('control-hud-stop'));
   screen.unmount();
 });
+
+test('Multi-size phone screens adapt cleanly without overflow and enforce monotonic Android elevation + zIndex layers', async () => {
+  const flat = style => Object.assign({}, ...(Array.isArray(style) ? style.flat(Infinity) : [style]));
+  const viewports = [
+    { name: 'small-phone-600x340', width: 600, height: 340, insets: { top: 0, right: 16, bottom: 12, left: 28 } },
+    { name: 'se-phone-667x375', width: 667, height: 375, insets: { top: 0, right: 0, bottom: 16, left: 0 } },
+    { name: 'android-20-9-780x360', width: 780, height: 360, insets: { top: 24, right: 20, bottom: 16, left: 44 } },
+    { name: 'iphone-844x390', width: 844, height: 390, insets: { top: 0, right: 47, bottom: 21, left: 47 } },
+    { name: 'g20-960x540', width: 960, height: 540, insets: { top: 0, right: 0, bottom: 0, left: 0 } },
+    { name: 'tablet-1280x720', width: 1280, height: 720, insets: { top: 0, right: 0, bottom: 0, left: 0 } },
+  ];
+
+  for (const vp of viewports) {
+    const effW = vp.width - vp.insets.left - vp.insets.right;
+    const effH = vp.height - vp.insets.top - vp.insets.bottom;
+    const screen = mount({
+      landscapeDocksExpanded: false,
+      dev: false,
+      dimensions: { width: vp.width, height: vp.height, fontScale: 1 },
+      previewSafeInsets: vp.insets,
+      connected: true,
+      speedMode: 'normal',
+      onChangeSpeedMode: async () => {},
+      runtimeState: {
+        controlLink: 'connected',
+        controlAuthority: 'held',
+        controlOwner: 'this-device',
+        motorState: 'enabled',
+        posture: 'standing',
+        faultStatus: 'clear',
+        battery: { voltageV: 53.2 },
+      },
+      operationReadiness: {
+        stand: { ready: true },
+        sit: { ready: true },
+        stop: { ready: true },
+        enableMotor: { ready: true },
+        disableMotor: { ready: true },
+        playGesture: { ready: true },
+      },
+      operationCallbacks: {
+        stand() {},
+        sit() {},
+        stop() {},
+        enableMotor() {},
+        disableMotor() {},
+        playGesture() {},
+      },
+      onListGestures: async () => [{ name: 'wave', description: '挥手', durationMs: 2000 }],
+      workspaceSettings: {
+        themePreference: 'dark',
+        onChangeTheme() {},
+        alertsEnabled: true,
+        onToggleAlerts() {},
+        connection: {
+          host: '192.168.66.13',
+          port: 13145,
+          connected: true,
+          readonlyConnected: false,
+          onConnectControl: async () => true,
+          onDisconnect: async () => {},
+        },
+      },
+    });
+    await screen.settle();
+
+    // 1. Top status bar band is height-bounded (not full-screen) and keeps E-Stop at zIndex 24 / elevation 24.
+    const statusBarStyle = flat(screen.find('control-hud-status-bar').props.style);
+    assert.equal(statusBarStyle.zIndex, 24, `${vp.name}: status bar zIndex`);
+    assert.equal(statusBarStyle.elevation, 24, `${vp.name}: status bar elevation`);
+    assert.equal(statusBarStyle.bottom, undefined, `${vp.name}: status bar must NOT span bottom: 0`);
+    assert.ok(statusBarStyle.height > 0 && statusBarStyle.height < effH * 0.35, `${vp.name}: status bar height bounded`);
+
+    // 2. Bottom docks stay mounted across every phone width and compact camera rail hides text only on ultra-narrow (<640dp).
+    assert.ok(screen.find('control-hud-primary-card'), `${vp.name}: primary dock`);
+    assert.ok(screen.find('control-hud-camera-rail'), `${vp.name}: camera rail`);
+    assert.ok(screen.find('control-hud-photo-capture'), `${vp.name}: capture button`);
+    assert.ok(screen.find('control-hud-voice-toggle'), `${vp.name}: voice bot orb`);
+
+    // 3. Flush-left voice wing fits inside viewport, hides/disables sticks behind it, and never collides with Row 4 speed sign on short/compact phones.
+    screen.find('control-hud-voice-toggle').props.onPress();
+    screen.render();
+    const wingStyle = flat(screen.find('control-hud-voice-wing').props.style);
+    assert.equal(wingStyle.zIndex, 10, `${vp.name}: voice wing zIndex`);
+    assert.equal(wingStyle.elevation, 10, `${vp.name}: voice wing elevation`);
+    assert.ok(wingStyle.width <= effW, `${vp.name}: voice wing width ${wingStyle.width} <= ${effW}`);
+    assert.ok(wingStyle.top + wingStyle.bottom < effH - 80, `${vp.name}: voice wing keeps >=80dp vertical room`);
+    assert.equal(screen.find('control-immersive-sticks').props.pointerEvents, 'none', `${vp.name}: sticks yield pointerEvents behind voice wing`);
+    assert.equal(flat(screen.find('control-immersive-sticks').props.style).opacity, 0, `${vp.name}: sticks hide visually behind translucent voice wing`);
+    if (effW < 900 || effH < 460) {
+      assert.equal(screen.find('control-hud-speed-limit-toggle'), undefined, `${vp.name}: speed sign folds cleanly while voice wing is open`);
+    }
+    screen.find('control-hud-voice-toggle').props.onPress();
+    screen.render();
+
+    // 4. Action Studio modal fits inside viewport width, hides dual-camera PiP, & elevates above voice wing.
+    screen.find('control-hud-camera-count-toggle').props.onPress();
+    screen.render();
+    assert.ok(screen.find('control-hud-pip-window'), `${vp.name}: PiP mounts in normal driving mode`);
+    screen.find('control-hud-category-action').props.onPress();
+    screen.render();
+    const actionDockStyle = flat(screen.find('control-hud-action-dock').props.style);
+    assert.ok(actionDockStyle.width <= effW, `${vp.name}: action modal width ${actionDockStyle.width} <= ${effW}`);
+    assert.equal(screen.find('control-hud-pip-window'), undefined, `${vp.name}: PiP yields cleanly while action studio is open`);
+    screen.find('control-hud-category-action').props.onPress();
+    screen.find('control-hud-camera-count-toggle').props.onPress();
+    screen.render();
+
+    // 5. Status Bento Card fits inside viewport and elevates cleanly above action modal (13 > 11).
+    screen.find('control-hud-open-status').props.onPress();
+    screen.render();
+    const statusOverlayStyle = flat(screen.find('control-status-overlay').props.style);
+    const bentoStyle = flat(screen.find('status-bento-card').props.style);
+    assert.equal(statusOverlayStyle.zIndex, 13, `${vp.name}: status overlay zIndex`);
+    assert.equal(statusOverlayStyle.elevation, 13, `${vp.name}: status overlay elevation`);
+    assert.ok(bentoStyle.width <= effW, `${vp.name}: status bento width ${bentoStyle.width} <= ${effW}`);
+    assert.ok(bentoStyle.maxHeight <= effH, `${vp.name}: status bento maxHeight ${bentoStyle.maxHeight} <= ${effH}`);
+    screen.find('control-hud-open-status').props.onPress();
+    screen.render();
+
+    // 6. Settings modal never overflows narrow phone width and elevates above Status (15/16 > 13).
+    screen.find('control-hud-settings').props.onPress();
+    screen.render();
+    const settingsStyle = flat(screen.find('control-settings-menu').props.style);
+    assert.equal(settingsStyle.zIndex, 16, `${vp.name}: settings zIndex`);
+    assert.equal(settingsStyle.elevation, 16, `${vp.name}: settings elevation`);
+    assert.ok(settingsStyle.top >= 36, `${vp.name}: settings sits below top-right E-Stop band`);
+    const settingsShell = screen.find('control-settings-menu').props.children;
+    const shellStyle = flat(settingsShell.props.style);
+    assert.ok(shellStyle.maxWidth <= effW, `${vp.name}: settings shell maxWidth ${shellStyle.maxWidth} <= ${effW}`);
+    screen.find('control-close-settings').props.onPress();
+    screen.render();
+
+    // 7. Confirmation modal elevates above Settings & Toast (20 > 18 > 16) yet stays below E-Stop (24).
+    screen.find('control-hud-motor-power').props.onPress();
+    screen.render();
+    const confirmOverlay = screen.find('control-immersive-confirm-overlay');
+    assert.ok(confirmOverlay, `${vp.name}: confirmation overlay mounts`);
+    const confirmOverlayStyle = flat(confirmOverlay.props.style);
+    assert.equal(confirmOverlayStyle.zIndex, 20, `${vp.name}: confirm overlay zIndex`);
+    assert.equal(confirmOverlayStyle.elevation, 20, `${vp.name}: confirm overlay elevation`);
+    assert.ok(confirmOverlayStyle.zIndex < statusBarStyle.zIndex, `${vp.name}: E-Stop remains above confirmation`);
+
+    // 8. JSX child order inside control-landscape-safe matches monotonic zIndex/elevation
+    //    (sticks first, topStatusBarLayer with E-Stop very last so Android/Web touch hit-testing never drops E-Stop or HUD taps).
+    const safeChildren = screen.find('control-landscape-safe').props.children.flat(Infinity).filter(n => n && typeof n === 'object');
+    const safeIds = safeChildren.map(n => n.props?.testID).filter(Boolean);
+    const sticksIdx = safeIds.indexOf('control-immersive-sticks');
+    const docksIdx = safeIds.indexOf('control-hud-left-controls');
+    const statusBarIdx = safeIds.indexOf('control-hud-status-bar');
+    assert.ok(sticksIdx >= 0 && docksIdx > sticksIdx, `${vp.name}: sticks render before bottom docks`);
+    assert.equal(statusBarIdx, safeIds.length - 1, `${vp.name}: top status bar / E-Stop renders LAST in JSX`);
+    assert.equal(screen.find('control-immersive-sticks').props.pointerEvents, 'none', `${vp.name}: sticks yield pointerEvents during confirmation`);
+    screen.unmount();
+  }
+});
+
+test('E-Stop remains re-triggerable after accepted status and triggers immediate voice/local stop while voice walk is active', async () => {
+  let stopCalls = 0;
+  let resolveFirstStop;
+  const screen = mount({
+    landscapeDocksExpanded: false,
+    dev: false,
+    dimensions: { width: 780, height: 360, fontScale: 1 },
+    connected: true,
+    runtimeState: {
+      controlLink: 'connected',
+      controlAuthority: 'not-held',
+      motorState: 'enabled',
+      posture: 'standing',
+    },
+    operationReadiness: {
+      stop: { ready: true },
+    },
+    operationCallbacks: {
+      stop: () => {
+        stopCalls += 1;
+        if (stopCalls === 1) return new Promise(resolve => { resolveFirstStop = resolve; });
+        return Promise.resolve();
+      },
+    },
+  });
+  await screen.settle();
+
+  // First tap dispatches E-Stop even when controlAuthority is not-held.
+  assert.equal(screen.find('control-hud-stop').props.disabled, false);
+  screen.find('control-hud-stop').props.onPress();
+  screen.render();
+  assert.equal(stopCalls, 1);
+
+  // Once accepted (awaiting telemetry poll), E-Stop MUST remain enabled and re-triggerable.
+  resolveFirstStop();
+  await screen.settle();
+  assert.equal(screen.find('control-hud-stop').props.disabled, false);
+  screen.find('control-hud-stop').props.onPress();
+  await screen.settle();
+  assert.equal(stopCalls, 2);
+  screen.unmount();
+});
+
+test('compact connected HUD folds secondary top-bar signal badges and hides expanded dashboard while voice wing is open', async () => {
+  const flat = style => Object.assign({}, ...(Array.isArray(style) ? style : [style]));
+  const screen = mount({
+    landscapeDocksExpanded: true,
+    dev: false,
+    dimensions: { width: 600, height: 340, fontScale: 1 },
+    connected: true,
+    runtimeState: {
+      controlLink: 'connected',
+      motorState: 'enabled',
+      posture: 'standing',
+      cellular: { connected: true, networkLabel: '5G', bars: 3, source: 'controller' },
+      signal: { qualityPercent: 86, latencyMs: 14, source: 'controller' },
+      robotLinkLatencyMs: 14,
+    },
+  });
+  await screen.settle();
+
+  // Ultra-narrow (<640dp) hides secondary signal badges so top-right never collides with top-left gear/battery row.
+  assert.equal(screen.find('control-hud-cellular'), undefined);
+  assert.equal(screen.find('control-hud-wifi-signal'), undefined);
+  assert.equal(screen.find('control-hud-robot-signal'), undefined);
+  assert.ok(screen.find('control-hud-open-status'));
+  assert.ok(screen.find('control-hud-settings'));
+  assert.ok(screen.find('control-hud-stop'));
+
+  // Opening Voice Wing while expanded diagnostics bar is open hides dashboardOverlay cleanly.
+  assert.ok(screen.find('control-hud-dashboard-expanded'));
+  screen.find('control-hud-voice-toggle').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-hud-voice-wing'));
+  assert.equal(screen.find('control-immersive-sticks').props.pointerEvents, 'none');
+  const safeChildren = screen.find('control-landscape-safe').props.children.flat(Infinity).filter(n => n && typeof n === 'object');
+  const dashWrapper = safeChildren.find(n => flat(n.props?.style).zIndex === 7 && n.props?.pointerEvents === 'none');
+  assert.ok(dashWrapper, 'expanded diagnostics overlay yields pointerEvents and hides behind voice wing');
+  assert.equal(flat(dashWrapper.props.style).opacity, 0);
+  screen.unmount();
+});

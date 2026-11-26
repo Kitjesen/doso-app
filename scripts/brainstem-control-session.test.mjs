@@ -1985,3 +1985,24 @@ test('listGestures waits for in-flight readDone, retries up to 3x on busy, and t
     f4.session.dispose();
   }
 });
+
+test('operationReadiness.stop stays ready whenever connected without a stick lease, and emergencyStop forces transport.interrupt', async () => {
+  const f = fixture();
+  try {
+    await f.session.connect(endpoint, 'doso-g20@robot');
+    f.set({ fsmKind: 'standing', motorOutputEnabled: true, grpcLeaseActive: false });
+    await f.session.refresh();
+    assert.equal(f.session.state.leaseActive, false);
+    assert.equal(f.session.operationReadiness.stop.ready, true);
+
+    // Idle internal interrupt() stays a no-op when no local lease/motion exists.
+    await f.session.interrupt();
+    assert.equal(f.calls.filter(c => c[0] === 'interrupt').length, 0);
+
+    // Explicit emergencyStop() ALWAYS dispatches interrupt over transport while connected.
+    await f.session.emergencyStop();
+    assert.equal(f.calls.filter(c => c[0] === 'interrupt').length, 1);
+  } finally {
+    f.session.dispose();
+  }
+});

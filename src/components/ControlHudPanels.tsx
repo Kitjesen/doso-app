@@ -404,14 +404,20 @@ export function GestureDeckPanel({
   const isSettings = variant === 'settings';
   const isLight = isSettings && surfaceTone === 'light';
   const accent = resolveAccent(accentTone);
-  const compactHud = !isSettings && maxListHeight <= 176;
+  const stackedHud = !isSettings && typeof deckWidth === 'number' && deckWidth > 0 && deckWidth < 430;
+  const compactHud = !isSettings && (maxListHeight <= 176 || (typeof deckWidth === 'number' && deckWidth > 0 && deckWidth < 500));
+  const useBannerInspector = isSettings || stackedHud;
+  const narrowInspectorWidth = !useBannerInspector && typeof deckWidth === 'number' && deckWidth > 0 && deckWidth < 500
+    ? Math.max(148, Math.round(deckWidth * 0.34))
+    : undefined;
 
   const inspectorNode = selected ? (
     <View
       style={[
         styles.gestureInspector,
         compactHud && styles.gestureInspectorCompact,
-        isSettings && styles.gestureInspectorBanner,
+        narrowInspectorWidth ? { width: narrowInspectorWidth } : null,
+        useBannerInspector && styles.gestureInspectorBanner,
         isLight && styles.gestureInspectorLight,
       ]}
       testID={`${prefix}-inspector`}
@@ -421,7 +427,8 @@ export function GestureDeckPanel({
           style={[
             styles.gesturePreviewFrame,
             compactHud && styles.gesturePreviewFrameCompact,
-            isSettings && styles.gesturePreviewFrameBanner,
+            !useBannerInspector && maxListHeight < 136 && styles.gesturePreviewFrameShort,
+            useBannerInspector && styles.gesturePreviewFrameBanner,
             isLight && styles.gesturePreviewFrameLight,
           ]}
           testID={`${prefix}-preview-box`}
@@ -443,7 +450,7 @@ export function GestureDeckPanel({
         </View>
       ) : null}
 
-      <View style={[styles.gestureInspectorMetaCol, isSettings && styles.gestureInspectorBannerRight]}>
+      <View style={[styles.gestureInspectorMetaCol, useBannerInspector && styles.gestureInspectorBannerRight]}>
         <View style={styles.gestureInspectorMeta}>
           <Text
             numberOfLines={1}
@@ -651,7 +658,13 @@ export function GestureDeckPanel({
           </View>
         </View>
       ) : (
-        <View style={[styles.gestureTwoColStudio, { maxHeight: Math.max(196, maxListHeight + 36) }]}>
+        <View
+          style={[
+            styles.gestureTwoColStudio,
+            stackedHud && styles.gestureStackedStudio,
+            { maxHeight: Math.max(148, maxListHeight + (stackedHud ? 104 : 36)) },
+          ]}
+        >
           {/* Left Column: GIF Studio Preview + Selected Title + Safe Primary CTA */}
           {inspectorNode}
 
@@ -1190,7 +1203,7 @@ const styles = StyleSheet.create({
   /* 2-Column Borderless Frosted Charcoal Action Studio */
   gestureDeckRoot: {
     gap: 10,
-    minWidth: 320,
+    minWidth: 260,
     width: 600,
     maxWidth: '100%',
   },
@@ -1226,6 +1239,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
   },
+  gestureStackedStudio: {
+    flexDirection: 'column',
+    gap: 8,
+  },
   gestureRightStudioCol: {
     flex: 1,
     gap: 8,
@@ -1243,6 +1260,8 @@ const styles = StyleSheet.create({
   gestureCatTrack: {
     flex: 1,
     flexGrow: 1,
+    minWidth: 0,
+    overflow: 'hidden',
   },
   gestureCatScroll: {
     alignItems: 'center',
@@ -1304,7 +1323,7 @@ const styles = StyleSheet.create({
   gestureGridCellHud: {
     flexBasis: '47%',
     flexGrow: 1,
-    minWidth: 108,
+    minWidth: 92,
   },
   gestureGridCellSettings: {
     flexBasis: '31%',
@@ -1393,6 +1412,9 @@ const styles = StyleSheet.create({
   },
   gesturePreviewFrameCompact: {
     height: 92,
+  },
+  gesturePreviewFrameShort: {
+    height: 70,
   },
   gesturePreviewFrameBanner: {
     flexShrink: 0,

@@ -162,6 +162,7 @@ export function ControlVoiceChatPanel({
   let scrollNode: ScrollView | null = null;
   const light = surfaceTone === 'light';
   const isWing = variant === 'wing' && !light;
+  const compactWing = isWing && typeof maxHeight === 'number' && maxHeight < 250;
   const activeTab = controller.activeTab;
   const isXiaosuan = controller.isXiaosuanMode;
   const disconnected = controller.phase === 'disconnected';
@@ -294,12 +295,13 @@ export function ControlVoiceChatPanel({
       style={[
         styles.shell,
         isWing ? styles.shellWing : (light ? styles.shellCardLight : styles.shellCardDark),
+        compactWing && styles.shellWingCompact,
         isWing && WEB_GLASS_WING,
       ]}
       testID="control-hud-voice-panel"
     >
       {/* Minimal Header: Left [Bot + Name + Role ▾] or [← Back + Title] | Right ONLY [···] [×] */}
-      <View style={styles.header}>
+      <View style={[styles.header, compactWing && styles.headerCompact]}>
         {isSubview ? (
           <View style={styles.subviewHeaderLeft}>
             <Pressable
@@ -2028,6 +2030,7 @@ const styles = StyleSheet.create({
   },
   shellWing: {
     flex: 1,
+    minHeight: 0,
     borderTopLeftRadius: 0,
     borderBottomLeftRadius: 0,
     borderTopRightRadius: 22,
@@ -2041,6 +2044,13 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 10,
     paddingHorizontal: 14,
+  },
+  shellWingCompact: {
+    borderTopRightRadius: 18,
+    borderBottomRightRadius: 18,
+    paddingTop: 7,
+    paddingBottom: 6,
+    paddingHorizontal: 10,
   },
   shellCardDark: {
     borderRadius: 18,
@@ -2068,6 +2078,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 8,
     paddingBottom: 6,
+  },
+  headerCompact: {
+    paddingBottom: 3,
   },
   titleCluster: {
     flexDirection: 'row',
@@ -2198,11 +2211,13 @@ const styles = StyleSheet.create({
   /* Popovers */
   popover: {
     position: 'absolute',
+    elevation: 24,
     zIndex: 45,
     borderRadius: 14,
     padding: 5,
     gap: 2,
-    minWidth: 152,
+    minWidth: 144,
+    maxWidth: '92%',
   },
   popoverDark: {
     backgroundColor: 'rgba(18, 19, 24, 0.92)',

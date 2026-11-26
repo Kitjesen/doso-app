@@ -13,6 +13,7 @@ import {
   type GestureResponderEvent,
   type LayoutChangeEvent,
   type StyleProp,
+  type ViewProps,
   type ViewStyle,
 } from 'react-native';
 
@@ -103,7 +104,7 @@ export function FsdSegmentedControl<T extends string>({
       damping: 22,
       stiffness: 340,
       mass: 0.72,
-      useNativeDriver: true,
+      useNativeDriver: Platform?.OS !== 'web',
     }).start();
   }, [pillWidth, reduced, selectedIndex, translateX]);
 
@@ -217,7 +218,7 @@ export function FsdSwitch({
       damping: 20,
       stiffness: 360,
       mass: 0.65,
-      useNativeDriver: true,
+      useNativeDriver: Platform?.OS !== 'web',
     }).start();
   }, [isOn, progress, reduced]);
 
@@ -237,12 +238,12 @@ export function FsdSwitch({
       onPress={onPress}
       onPressIn={() => {
         if (!disabled && onPress && !reduced && typeof Animated.spring === 'function') {
-          Animated.spring(pressScale, { toValue: 0.94, damping: 18, stiffness: 420, useNativeDriver: true }).start();
+          Animated.spring(pressScale, { toValue: 0.94, damping: 18, stiffness: 420, useNativeDriver: Platform?.OS !== 'web' }).start();
         }
       }}
       onPressOut={() => {
         if (!reduced && typeof Animated.spring === 'function') {
-          Animated.spring(pressScale, { toValue: 1, damping: 16, stiffness: 320, useNativeDriver: true }).start();
+          Animated.spring(pressScale, { toValue: 1, damping: 16, stiffness: 320, useNativeDriver: Platform?.OS !== 'web' }).start();
         }
       }}
       style={[
@@ -351,7 +352,7 @@ export function FsdDetentSlider({
           if (Math.abs(g.dx) > Math.abs(g.dy) * 1.15 && Math.abs(g.dx) > 4) {
             isHorizontalDragRef.current = true;
             if (typeof Animated.spring === 'function') {
-              Animated.spring(thumbScale, { toValue: 1.18, damping: 18, stiffness: 360, useNativeDriver: true }).start();
+              Animated.spring(thumbScale, { toValue: 1.18, damping: 18, stiffness: 360, useNativeDriver: Platform?.OS !== 'web' }).start();
             }
           } else {
             return;
@@ -361,7 +362,7 @@ export function FsdDetentSlider({
       },
       onPanResponderRelease: (evt, g) => {
         if (typeof Animated.spring === 'function') {
-          Animated.spring(thumbScale, { toValue: 1, damping: 18, stiffness: 320, useNativeDriver: true }).start();
+          Animated.spring(thumbScale, { toValue: 1, damping: 18, stiffness: 320, useNativeDriver: Platform?.OS !== 'web' }).start();
         }
         const isTap = Math.abs(g.dx) < 8 && Math.abs(g.dy) < 8;
         if (isHorizontalDragRef.current || isTap) {
@@ -371,7 +372,7 @@ export function FsdDetentSlider({
       },
       onPanResponderTerminate: () => {
         if (typeof Animated.spring === 'function') {
-          Animated.spring(thumbScale, { toValue: 1, damping: 18, stiffness: 320, useNativeDriver: true }).start();
+          Animated.spring(thumbScale, { toValue: 1, damping: 18, stiffness: 320, useNativeDriver: Platform?.OS !== 'web' }).start();
         }
         if (isHorizontalDragRef.current) {
           onCompleteRef.current?.(lastValueRef.current);
@@ -422,6 +423,7 @@ export function FsdDetentSlider({
  */
 export function FsdSheetMotion({
   children,
+  pointerEvents,
   style,
   testID,
   onTouchStart,
@@ -430,6 +432,7 @@ export function FsdSheetMotion({
   onTouchCancel,
 }: {
   children: ReactNode;
+  pointerEvents?: ViewProps['pointerEvents'];
   style?: StyleProp<ViewStyle>;
   testID?: string;
   onTouchStart?: (event: GestureResponderEvent) => void;
@@ -439,6 +442,7 @@ export function FsdSheetMotion({
 }) {
   const reduced = useReducedMotion();
   const progress = useRef(new Animated.Value(reduced ? 1 : 0)).current;
+  const nativeDriver = Platform?.OS !== 'web';
 
   useEffect(() => {
     if (reduced || typeof Animated.spring !== 'function') {
@@ -451,9 +455,9 @@ export function FsdSheetMotion({
       damping: 24,
       stiffness: 300,
       mass: 0.78,
-      useNativeDriver: true,
+      useNativeDriver: nativeDriver,
     }).start();
-  }, [progress, reduced]);
+  }, [nativeDriver, progress, reduced]);
 
   const translateY = typeof progress.interpolate === 'function'
     ? progress.interpolate({ inputRange: [0, 1], outputRange: [12, 0] })
@@ -468,6 +472,7 @@ export function FsdSheetMotion({
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
       onTouchCancel={onTouchCancel}
+      pointerEvents={pointerEvents}
       style={[style, { opacity: progress, transform: [{ translateY }, { scale }] }]}
       testID={testID}
     >
@@ -490,6 +495,7 @@ export function FsdTabReveal({
 }) {
   const reduced = useReducedMotion();
   const progress = useRef(new Animated.Value(reduced ? 1 : 0)).current;
+  const nativeDriver = Platform?.OS !== 'web';
 
   useEffect(() => {
     if (reduced || typeof Animated.timing !== 'function') {
@@ -501,9 +507,9 @@ export function FsdTabReveal({
       toValue: 1,
       duration: 180,
       easing: Easing?.out ? Easing.out(Easing.quad) : undefined,
-      useNativeDriver: true,
+      useNativeDriver: nativeDriver,
     }).start();
-  }, [progress, reduced]);
+  }, [nativeDriver, progress, reduced]);
 
   const translateY = typeof progress.interpolate === 'function'
     ? progress.interpolate({ inputRange: [0, 1], outputRange: [6, 0] })
@@ -545,7 +551,7 @@ export function FsdRadarPulse({
         toValue: 1,
         duration: 1800,
         easing: Easing?.out ? Easing.out(Easing.quad) : undefined,
-        useNativeDriver: true,
+        useNativeDriver: Platform?.OS !== 'web',
       }),
     );
     const anim2 = Animated.loop(
@@ -555,7 +561,7 @@ export function FsdRadarPulse({
           toValue: 1,
           duration: 1800,
           easing: Easing?.out ? Easing.out(Easing.quad) : undefined,
-          useNativeDriver: true,
+          useNativeDriver: Platform?.OS !== 'web',
         }),
       ]),
     );
