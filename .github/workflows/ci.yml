@@ -75,11 +75,19 @@ jobs:
             scripts/video-media-capture.test.mjs \
             scripts/dev-loopback-sim-video.test.mjs \
             scripts/joint-status-screen.test.mjs \
-            scripts/direct-robot-connection-wiring.test.mjs
+            scripts/direct-robot-connection-wiring.test.mjs \
+            scripts/android-apk-updater.test.mjs \
+            scripts/g20-input-model.test.mjs \
+            scripts/g20-input-invariants.test.mjs
           node --test \
             scripts/control-joystick.test.mjs \
             scripts/control-slider.test.mjs \
             scripts/control-video-surface.test.mjs \
             scripts/control-operations-wiring.test.mjs \
+            scripts/control-haptics-wakelock.test.mjs \
+            scripts/control-hud-alerts-scenes-gifs.test.mjs \
+            scripts/fsd-settings-scroll-slider.test.mjs \
+            scripts/status-bento-card.test.mjs \
+            scripts/metro-config.test.mjs \
             scripts/bounded-command.test.mjs \
             tools/ble-provisioning-sim/protocol.test.mjs

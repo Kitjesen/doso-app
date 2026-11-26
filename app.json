@@ -60,25 +60,8 @@
     "plugins": [
       "./plugins/withRobotWifiPermissions",
       "expo-font",
-      [
-        "expo-image-picker",
-        {
-          "photosPermission": "允许 DOSO 选择照片用作头像",
-          "microphonePermission": false
-        }
-      ],
-      [
-        "expo-camera",
-        {
-          "cameraPermission": "允许 DOSO 使用相机扫描机器人二维码",
-          "microphonePermission": false,
-          "recordAudioAndroid": false
-        }
-      ],
       "expo-secure-store",
-      "expo-apple-authentication",
       "./plugins/withLocalSupabaseCleartext",
-      "expo-web-browser",
       [
         "react-native-ble-manager",
         {
@@ -106,6 +89,7 @@
       "./plugins/withPinnedWebRtcAndroid",
       "./plugins/withReceiveOnlyWebRtc",
       "./plugins/withLandscapeOrientation",
+      "./plugins/withFastAndroidBuild",
       "./plugins/withLocalAcceptance"
     ],
     "extra": {
