@@ -613,7 +613,7 @@ export function ControlScreen({
   // while extra-large system fontScale (>1.35) preserves the scrollable accessibility layout.
   const landscapeImmersiveStage = layout.useColumns || (
     isLandscape
-    && effectiveViewportWidth >= 480
+    && effectiveViewportWidth >= 440
     && Number.isFinite(fontScale)
     && fontScale <= 1.35
   );

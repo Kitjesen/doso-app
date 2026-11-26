@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
-import { Animated, Image, Pressable, ScrollView, StyleSheet, View, type LayoutChangeEvent, type ViewStyle } from 'react-native';
+import { Animated, Image, Platform, Pressable, ScrollView, StyleSheet, View, type LayoutChangeEvent, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Text } from './AppText';
@@ -227,7 +227,7 @@ function StandbySceneBackdrop({ scene }: { scene: StandbySceneId }) {
       Animated.timing(fade, {
         toValue: 1,
         duration: 300,
-        useNativeDriver: true,
+        useNativeDriver: Platform?.OS !== 'web',
       }).start(({ finished }) => {
         if (finished) setPrevScene(null);
       });
@@ -688,7 +688,7 @@ export function controlLandscapeHud({
   const edgeTop = shortStage ? 6 : compactStage ? 8 : sp(12);
   const edgeBottom = shortStage ? 6 : compactStage ? 8 : sp(12);
   const topBarClearance = edgeTop + sp(36);
-  const orbSize = ultraNarrowStage ? 36 : narrowStage ? 38 : compactStage ? 40 : sp(46);
+  const orbSize = effectiveStageW < 590 ? 34 : ultraNarrowStage ? 36 : narrowStage ? 38 : compactStage ? 40 : sp(46);
   const bottomBarClearance = edgeBottom + Math.max(orbSize, sp(38)) + sp(8);
 
   const isBlueAccent = accentTone === 'fsdBlue';
@@ -736,7 +736,7 @@ export function controlLandscapeHud({
   const dockPadX = ultraNarrowStage ? 4 : narrowStage ? 5 : compactStage ? 6 : sp(10);
   const camPadX = ultraNarrowStage ? 5 : narrowStage ? 4 : compactStage ? 5 : sp(7);
   const showCameraLabels = !ultraNarrowStage;
-  const topCenterGuardX = Math.max(edgeX, Math.round(effectiveStageW * 0.24));
+  const topCenterGuardX = Math.max(edgeX, Math.round(effectiveStageW * (effectiveStageW < 590 ? 0.20 : 0.24)));
 
   const faults = collectHudFaults({ runtimeState, sessionError, recoveryError });
   const alertBanner = deriveHudAlertBanner({ faults, joints, voltageV, batteryPercent });
@@ -1939,7 +1939,7 @@ export function controlLandscapeHud({
             pointerEvents="box-none"
             style={[
               styles.topRightCluster,
-              { gap: ultraNarrowStage ? 6 : narrowStage ? 7 : compactStage ? 9 : sp(12), right: edgeX, top: edgeTop },
+              { gap: ultraNarrowStage ? 5 : narrowStage ? 7 : compactStage ? 9 : sp(12), right: edgeX, top: edgeTop },
             ]}
             testID="control-telemetry"
           >
@@ -1961,7 +1961,7 @@ export function controlLandscapeHud({
                 testID="control-hud-connection-dot"
               />
               <Ionicons color={connection === 'connected' ? EMERALD_INK : INK} name="wifi-outline" size={sp(13)} />
-              <Text numberOfLines={1} style={[styles.bareTextStrong, { fontSize: fBody, lineHeight: fBodyLine, maxWidth: ultraNarrowStage ? 58 : narrowStage ? 74 : compactStage ? 92 : 124 }]}>
+              <Text numberOfLines={1} style={[styles.bareTextStrong, { fontSize: fBody, lineHeight: fBodyLine, maxWidth: effectiveStageW < 590 ? 64 : ultraNarrowStage ? 78 : narrowStage ? 84 : compactStage ? 96 : 124 }]}>
                 {wifiHeaderLabel}
               </Text>
               {connection !== 'disconnected' && !ultraNarrowStage ? (

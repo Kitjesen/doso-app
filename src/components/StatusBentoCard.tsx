@@ -993,7 +993,13 @@ export function StatusBentoCard({
       ) : null}
 
       {selectedMotor && !floating ? (
-        <Modal animationType="fade" transparent onRequestClose={() => setSelectedMotor(null)} testID="joint-status-detail-modal">
+        <Modal
+          animationType="fade"
+          transparent
+          supportedOrientations={['landscape-left', 'landscape-right']}
+          onRequestClose={() => setSelectedMotor(null)}
+          testID="joint-status-detail-modal"
+        >
           <View style={styles.modalBackdrop}>
             {detailInnerCard}
           </View>

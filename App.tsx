@@ -7,6 +7,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { images } from './src/assets';
 import { AppToast, ToastNotice } from './src/components/AppToast';
 import { RobotMainNav, ROBOT_MAIN_NAV_LANDSCAPE_SPACE, type RobotMainTab } from './src/components/BottomNav';
+import { LandscapeGuard } from './src/components/LandscapeGuard';
 import { useBrainstemControl } from './src/features/control/useBrainstemControl';
 import { useBrainstemTelemetry } from './src/features/control/useBrainstemTelemetry';
 import { useG20Input } from './src/features/control/useG20Input';
@@ -67,7 +68,7 @@ export default function App() {
   const { colors: appColors, isDark } = useAppTheme();
   const { height: viewportHeight, width: viewportWidth } = useWindowDimensions();
   const isLandscape = viewportWidth > viewportHeight;
-  const [webStageMode, setWebStageMode] = useState<'g20-16-9' | 'fill'>('g20-16-9');
+  const [webStageMode, setWebStageMode] = useState<'g20-16-9' | 'fill'>('fill');
   const TARGET_STAGE_ASPECT = 16 / 9;
   const useWebTargetStage = Platform.OS === 'web' && webStageMode === 'g20-16-9' && viewportWidth >= 640 && viewportHeight >= 360;
   const webStageWidth = useWebTargetStage ? Math.min(viewportWidth, Math.round(viewportHeight * TARGET_STAGE_ASPECT)) : viewportWidth;
@@ -75,6 +76,7 @@ export default function App() {
   const webTargetStage = useWebTargetStage ? { width: webStageWidth, height: webStageHeight } : undefined;
   const webHasLetterbox = Boolean(useWebTargetStage && (Math.abs(viewportWidth - webStageWidth) > 8 || Math.abs(viewportHeight - webStageHeight) > 8));
   const effectiveIsLandscape = webTargetStage ? webTargetStage.width > webTargetStage.height : isLandscape;
+  const portraitGuardActive = viewportWidth > 0 && viewportHeight > 0 && !effectiveIsLandscape;
 
   const [stage, setStage] = useState<AppStage>('control');
   const [openSettingsSignal, setOpenSettingsSignal] = useState(0);
@@ -162,9 +164,9 @@ export default function App() {
   }, [rememberedControl.connection, controlEndpoint, robotConnectionVisible, setControlEndpoint]);
 
   useEffect(() => {
-    if (isRobotWorkspace) return;
+    if (isRobotWorkspace && !portraitGuardActive) return;
     void brainstemControl.interrupt();
-  }, [isRobotWorkspace, brainstemControl.interrupt]);
+  }, [isRobotWorkspace, portraitGuardActive, brainstemControl.interrupt]);
 
   const directTelemetry = useBrainstemTelemetry({
     ownerKey: WORKSPACE_OWNER_KEY,
@@ -483,6 +485,15 @@ export default function App() {
     || '待同步';
   const workspaceLastSync = statusObservation?.observedAt ? lastSeenLabel(statusObservation.observedAt) : '尚未同步';
 
+  if (portraitGuardActive) {
+    return (
+      <SafeAreaProvider>
+        <StatusBar style="light" />
+        <LandscapeGuard />
+      </SafeAreaProvider>
+    );
+  }
+
   if (videoViewing && videoRouteActive && videoViewing.ownerKey === WORKSPACE_OWNER_KEY) {
     return (
       <SafeAreaProvider>
@@ -780,7 +791,6 @@ export default function App() {
                     operationReadiness={brainstemControl.operationReadiness}
                     manualControlBlockedReason={brainstemControl.touchBlockedReason ?? undefined}
                     onNotifications={() => notify('状态提醒', '设备异常将在界面实时提示', 'info')}
-                    robotImage={images.thunderHero}
                     robotName={workspaceDeviceName}
                     robotType={brainstemControl.state.connected ? '已连接' : statusObservation ? '只读连接' : '未连接'}
                     videoProbeHost={lanVideoOrigin && isBrainstemLanAvailable() ? directEndpoint?.host ?? null : null}
@@ -838,7 +848,7 @@ export default function App() {
           animationType="slide"
           onRequestClose={closeDataPrivacy}
           presentationStyle="fullScreen"
-          supportedOrientations={['portrait', 'landscape-left', 'landscape-right']}
+          supportedOrientations={['landscape-left', 'landscape-right']}
           visible={dataPrivacyVisible}
         >
           <DataPrivacyScreen onBack={closeDataPrivacy} />

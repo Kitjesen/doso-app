@@ -105,6 +105,7 @@
       "./plugins/withLegacyBleLocationPermissions",
       "./plugins/withPinnedWebRtcAndroid",
       "./plugins/withReceiveOnlyWebRtc",
+      "./plugins/withLandscapeOrientation",
       "./plugins/withLocalAcceptance"
     ],
     "extra": {
