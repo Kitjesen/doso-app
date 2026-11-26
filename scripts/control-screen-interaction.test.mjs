@@ -4437,7 +4437,7 @@ test('Multi-size phone screens adapt cleanly without overflow and enforce monoto
     assert.ok(screen.find('control-hud-photo-capture'), `${vp.name}: capture button`);
     assert.ok(screen.find('control-hud-voice-toggle'), `${vp.name}: voice bot orb`);
 
-    // 3. Flush-left voice wing fits inside viewport and never collides with Row 4 speed sign on short/compact phones.
+    // 3. Flush-left voice wing fits inside viewport, hides/disables sticks behind it, and never collides with Row 4 speed sign on short/compact phones.
     screen.find('control-hud-voice-toggle').props.onPress();
     screen.render();
     const wingStyle = flat(screen.find('control-hud-voice-wing').props.style);
@@ -4445,18 +4445,25 @@ test('Multi-size phone screens adapt cleanly without overflow and enforce monoto
     assert.equal(wingStyle.elevation, 10, `${vp.name}: voice wing elevation`);
     assert.ok(wingStyle.width <= effW, `${vp.name}: voice wing width ${wingStyle.width} <= ${effW}`);
     assert.ok(wingStyle.top + wingStyle.bottom < effH - 80, `${vp.name}: voice wing keeps >=80dp vertical room`);
+    assert.equal(screen.find('control-immersive-sticks').props.pointerEvents, 'none', `${vp.name}: sticks yield pointerEvents behind voice wing`);
+    assert.equal(flat(screen.find('control-immersive-sticks').props.style).opacity, 0, `${vp.name}: sticks hide visually behind translucent voice wing`);
     if (effW < 900 || effH < 460) {
       assert.equal(screen.find('control-hud-speed-limit-toggle'), undefined, `${vp.name}: speed sign folds cleanly while voice wing is open`);
     }
     screen.find('control-hud-voice-toggle').props.onPress();
     screen.render();
 
-    // 4. Action Studio modal fits inside viewport width & elevation > voice wing.
+    // 4. Action Studio modal fits inside viewport width, hides dual-camera PiP, & elevates above voice wing.
+    screen.find('control-hud-camera-count-toggle').props.onPress();
+    screen.render();
+    assert.ok(screen.find('control-hud-pip-window'), `${vp.name}: PiP mounts in normal driving mode`);
     screen.find('control-hud-category-action').props.onPress();
     screen.render();
     const actionDockStyle = flat(screen.find('control-hud-action-dock').props.style);
     assert.ok(actionDockStyle.width <= effW, `${vp.name}: action modal width ${actionDockStyle.width} <= ${effW}`);
+    assert.equal(screen.find('control-hud-pip-window'), undefined, `${vp.name}: PiP yields cleanly while action studio is open`);
     screen.find('control-hud-category-action').props.onPress();
+    screen.find('control-hud-camera-count-toggle').props.onPress();
     screen.render();
 
     // 5. Status Bento Card fits inside viewport and elevates cleanly above action modal (13 > 11).
@@ -4548,5 +4555,44 @@ test('E-Stop remains re-triggerable after accepted status and triggers immediate
   screen.find('control-hud-stop').props.onPress();
   await screen.settle();
   assert.equal(stopCalls, 2);
+  screen.unmount();
+});
+
+test('compact connected HUD folds secondary top-bar signal badges and hides expanded dashboard while voice wing is open', async () => {
+  const flat = style => Object.assign({}, ...(Array.isArray(style) ? style : [style]));
+  const screen = mount({
+    landscapeDocksExpanded: true,
+    dev: false,
+    dimensions: { width: 600, height: 340, fontScale: 1 },
+    connected: true,
+    runtimeState: {
+      controlLink: 'connected',
+      motorState: 'enabled',
+      posture: 'standing',
+      cellular: { connected: true, networkLabel: '5G', bars: 3, source: 'controller' },
+      signal: { qualityPercent: 86, latencyMs: 14, source: 'controller' },
+      robotLinkLatencyMs: 14,
+    },
+  });
+  await screen.settle();
+
+  // Ultra-narrow (<640dp) hides secondary signal badges so top-right never collides with top-left gear/battery row.
+  assert.equal(screen.find('control-hud-cellular'), undefined);
+  assert.equal(screen.find('control-hud-wifi-signal'), undefined);
+  assert.equal(screen.find('control-hud-robot-signal'), undefined);
+  assert.ok(screen.find('control-hud-open-status'));
+  assert.ok(screen.find('control-hud-settings'));
+  assert.ok(screen.find('control-hud-stop'));
+
+  // Opening Voice Wing while expanded diagnostics bar is open hides dashboardOverlay cleanly.
+  assert.ok(screen.find('control-hud-dashboard-expanded'));
+  screen.find('control-hud-voice-toggle').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-hud-voice-wing'));
+  assert.equal(screen.find('control-immersive-sticks').props.pointerEvents, 'none');
+  const safeChildren = screen.find('control-landscape-safe').props.children.flat(Infinity).filter(n => n && typeof n === 'object');
+  const dashWrapper = safeChildren.find(n => flat(n.props?.style).zIndex === 7 && n.props?.pointerEvents === 'none');
+  assert.ok(dashWrapper, 'expanded diagnostics overlay yields pointerEvents and hides behind voice wing');
+  assert.equal(flat(dashWrapper.props.style).opacity, 0);
   screen.unmount();
 });

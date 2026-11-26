@@ -725,7 +725,7 @@ export function controlLandscapeHud({
     Math.min(effectiveStageH >= 620 ? 234 : effectiveStageH >= 500 ? 194 : 154, availableActionH - sp(92)),
   );
   const voiceWingCompactTelemetry = Boolean(voiceChatOpen && voiceChatPanel) && (shortStage || compactStage);
-  const voiceWingTop = voiceWingCompactTelemetry ? edgeTop + sp(84) : edgeTop + sp(128);
+  const voiceWingTop = voiceWingCompactTelemetry ? edgeTop + sp(84) : edgeTop + sp(136);
   const voiceWingBottom = bottomBarClearance;
   const voiceWingWidth = Math.min(
     340,
@@ -757,6 +757,7 @@ export function controlLandscapeHud({
     ];
   const hasVoiceOverlay = Boolean(voiceChatOpen && voiceChatPanel);
   const anyFloatingPanel = (faultPanelOpen && faults.length > 0) || jointParamsOpen || jointTempOpen || bodyHeightPanelOpen || Boolean(recovery);
+  const hideSticksForOverlay = Boolean(settingsMenu || statusCardOpen || leftCategory === 'action' || hasVoiceOverlay || anyFloatingPanel || !joystick);
   const suppressEmptyVideo = anyFloatingPanel || hasVoiceOverlay || leftCategory !== 'policy' || Boolean(settingsMenu) || statusCardOpen;
 
   const activeHeightBadgeText = bodyHeight?.active && bodyHeight.supported
@@ -835,8 +836,8 @@ export function controlLandscapeHud({
         {/* Joystick Touch Layer (rendered FIRST at zIndex 3 / elevation 3 so capture never steals HUD/modal taps) */}
         <View
           onLayout={onStickFrameLayout}
-          pointerEvents={settingsMenu || statusCardOpen || leftCategory === 'action' || Boolean(confirmation) || !joystick ? 'none' : 'box-none'}
-          style={[styles.stickFrame, stickFrameStyle, (settingsMenu || statusCardOpen || leftCategory === 'action' || !joystick) ? styles.hiddenStickFrame : null]}
+          pointerEvents={hideSticksForOverlay || Boolean(confirmation) ? 'none' : 'box-none'}
+          style={[styles.stickFrame, stickFrameStyle, hideSticksForOverlay ? styles.hiddenStickFrame : null]}
           testID="control-immersive-sticks"
         >
           {joystick}
@@ -878,7 +879,7 @@ export function controlLandscapeHud({
         ) : null}
 
         {/* Optional Upper-Right Dual Camera / Depth PiP Window */}
-        {dualCameraEnabled && !settingsMenu && !statusCardOpen ? (
+        {dualCameraEnabled && !settingsMenu && !statusCardOpen && leftCategory !== 'action' && !(narrowStage && anyFloatingPanel) ? (
           <Pressable
             accessibilityLabel={`切换${depthActive ? '深度图' : showMainFront ? '后视角' : '前视角'}画面`}
             accessibilityRole="button"
@@ -1324,13 +1325,14 @@ export function controlLandscapeHud({
         ) : null}
 
         {/* Top-Left Vertical Spatial Telemetry Column (Own HUD layer at zIndex 7 / elevation 7 so modals & voice wing NEVER sit underneath it) */}
-        {!settingsMenu && !statusCardOpen && leftCategory !== 'action' ? (
+        {!settingsMenu && !statusCardOpen && leftCategory !== 'action' && !(narrowStage && anyFloatingPanel) ? (
           <View
             pointerEvents="box-none"
             style={[
               styles.leftTelemetryCol,
               { left: edgeX, top: edgeTop, gap: voiceWingCompactTelemetry ? sp(2) : sp(4), maxWidth: Math.round(effectiveStageW * 0.46) },
             ]}
+            testID="control-hud-left-telemetry"
           >
             {/* Row 1: Posture Gear Rail (停 坐 站 行) + Inline Compact Battery Bar */}
             <View style={[styles.gearBatteryRow, { gap: sp(10) }]}>
@@ -1509,8 +1511,8 @@ export function controlLandscapeHud({
         {/* Expanded 1-Row Diagnostics Bar Floating Cleanly Above Bottom 3-Card Dock */}
         {docksExpanded && !settingsMenu && !statusCardOpen ? (
           <View
-            pointerEvents={leftCategory !== 'policy' || anyFloatingPanel ? 'none' : 'box-none'}
-            style={[styles.dashboardOverlay, (leftCategory !== 'policy' || anyFloatingPanel) ? styles.hiddenBehindPopover : null]}
+            pointerEvents={leftCategory !== 'policy' || anyFloatingPanel || hasVoiceOverlay ? 'none' : 'box-none'}
+            style={[styles.dashboardOverlay, (leftCategory !== 'policy' || anyFloatingPanel || hasVoiceOverlay) ? styles.hiddenBehindPopover : null]}
           >
             {ControlHudDashboard({
               expanded: true,
@@ -1540,7 +1542,7 @@ export function controlLandscapeHud({
         ) : null}
 
         {/* Centered Borderless Frosted Charcoal 2-Column Action Studio Modal (and fallback posture popover) */}
-        {!settingsMenu && !statusCardOpen && leftCategory === 'posture' ? (
+        {!settingsMenu && !statusCardOpen && !hasVoiceOverlay && !anyFloatingPanel && leftCategory === 'posture' ? (
           <View pointerEvents="box-none" style={[styles.popoverOverlay, { bottom: bottomBarClearance }]}>
             <View style={[styles.drawerPopover, { borderRadius: sp(12), maxWidth: Math.min(sp(420), effectiveStageW - edgeX * 2), paddingHorizontal: sp(10), paddingVertical: sp(8) }]}>
               <View style={[styles.drawerWrap, { gap: sp(6) }]} testID="control-hud-posture-dock">
@@ -1662,7 +1664,7 @@ export function controlLandscapeHud({
         ) : null}
 
         {/* Floating Speed Limit Adjuster Popover (zIndex 9 / elevation 9, bounded inside viewport) */}
-        {speedLimitExpanded && !settingsMenu && !statusCardOpen ? (
+        {speedLimitExpanded && !settingsMenu && !statusCardOpen && !hasVoiceOverlay && !anyFloatingPanel && leftCategory === 'policy' ? (
           <View
             style={[
               styles.speedBarFloating,
@@ -1672,7 +1674,7 @@ export function controlLandscapeHud({
                 left: edgeX,
                 maxWidth: effectiveStageW - edgeX * 2,
                 paddingHorizontal: sp(12),
-                top: Math.min(effectiveStageH - bottomBarClearance - sp(40), edgeTop + sp(142)),
+                top: Math.min(effectiveStageH - bottomBarClearance - sp(40), edgeTop + (shortStage ? sp(132) : sp(142))),
               },
             ]}
             testID="control-hud-speed-limit-bar"
@@ -1939,7 +1941,7 @@ export function controlLandscapeHud({
             pointerEvents="box-none"
             style={[
               styles.topRightCluster,
-              { gap: ultraNarrowStage ? 5 : narrowStage ? 7 : compactStage ? 9 : sp(12), right: edgeX, top: edgeTop },
+              { gap: ultraNarrowStage ? 5 : narrowStage ? 7 : compactStage ? 9 : sp(12), maxWidth: effectiveStageW - edgeX * 2, right: edgeX, top: edgeTop },
             ]}
             testID="control-telemetry"
           >
@@ -2000,21 +2002,21 @@ export function controlLandscapeHud({
               </Pressable>
             ) : null}
 
-            {signals.cellularVisible && !(narrowStage && (settingsMenu || statusCardOpen)) ? (
+            {signals.cellularVisible && !narrowStage ? (
               <View accessible accessibilityLabel={`移动数据 ${signals.cellularText}`} style={[styles.telemetryItem, { gap: sp(3) }]} testID="control-hud-cellular">
                 <Ionicons color={INK} name="cellular" size={sp(13)} />
                 <Text numberOfLines={1} style={[styles.bareText, { fontSize: fMeta, lineHeight: fMetaLine }]}>{signals.cellularText}</Text>
               </View>
             ) : null}
 
-            {signals.robotVisible && !(narrowStage && (settingsMenu || statusCardOpen)) ? (
+            {signals.robotVisible && !ultraNarrowStage && !(narrowStage && (settingsMenu || statusCardOpen)) ? (
               <View accessible accessibilityLabel={`机器人信号 ${signals.robotText}`} style={[styles.telemetryItem, { gap: sp(3) }]} testID="control-hud-robot-signal">
                 <Ionicons color={INK} name="hardware-chip-outline" size={sp(13)} />
                 <Text numberOfLines={1} style={[styles.bareText, { fontSize: fMeta, lineHeight: fMetaLine }]}>{signals.robotText}</Text>
               </View>
             ) : null}
 
-            {signals.wifiVisible && !(narrowStage && (settingsMenu || statusCardOpen)) ? (
+            {signals.wifiVisible && !narrowStage ? (
               <View accessible accessibilityLabel={`WiFi ${signals.wifiText}`} style={[styles.telemetryItem, { gap: sp(3) }]} testID="control-hud-wifi-signal">
                 <Ionicons color={EMERALD_INK} name="wifi" size={sp(13)} />
                 <Text numberOfLines={1} style={[styles.bareText, { fontSize: fMeta, lineHeight: fMetaLine }]}>

@@ -2295,6 +2295,10 @@ export function ControlScreen({
           setStatusCardOpen(false);
           setLeftCategory('policy');
           setBodyHeightPanelOpen(false);
+          setJointTempOpen(false);
+          setJointParamsOpen(false);
+          setFaultPanelOpen(false);
+          voiceChat.setOpen(false);
         }
         return next;
       }),
