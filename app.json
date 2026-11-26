@@ -23,7 +23,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.doso.robot",
-      "versionCode": 55,
+      "versionCode": 56,
       "intentFilters": [
         {
           "action": "VIEW",
