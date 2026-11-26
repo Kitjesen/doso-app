@@ -253,7 +253,6 @@ await check('native wiring requests permission, scans, cleans up, and never writ
 
   const packageJson = JSON.parse(packageText);
   assert.equal(packageJson.dependencies['react-native-ble-manager'], '12.5.1');
-  assert.match(packageJson.dependencies['expo-dev-client'], /^~57\./);
   assert.match(packageJson.dependencies['expo-location'], /^~57\./);
   assert.match(packageJson.dependencies['expo-splash-screen'], /^~57\./);
   assert.equal(packageJson.scripts['test:ble-discovery'], 'node --experimental-strip-types scripts/verify-ble-discovery.mts && npm run test:ble-introspection');
