@@ -314,7 +314,7 @@ export function FirmwareUpdateScreen({ deviceName, initialDeviceId, onBack }: Pr
 
             {inspection?.isAdmin && partitioned.adminHardwareReleases.length > 0 ? (
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>底层固件</Text>
+                <Text style={styles.cardTitle}>管理员版本</Text>
                 {partitioned.adminHardwareReleases.map((rel) => (
                   <View key={rel.releaseId} style={styles.adminRow}>
                     <View style={styles.adminInfo}>
