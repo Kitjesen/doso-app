@@ -774,3 +774,87 @@ test('configured floating pair accepts either half, anchors on press and never j
  pair.props.onResponderEnd(event({touches:[],changedTouches:[start]}));runtime.render();
  assert.deepEqual(plain(runtime.leftChanges.at(-1)),{x:0,y:0});runtime.unmount();
 });
+
+test('reserveCenterForBackdrop hit zone tracks page coordinates and never flips top drag to bottom on Android', () => {
+  const layout = { usable: true, left: disc(160, 120, 420), right: disc(160, 840, 420) };
+  const runtime = createRuntime({
+    layout,
+    floating: true,
+    reserveCenterForBackdrop: true,
+    touchAreaWidth: 960,
+    touchAreaHeight: 540,
+  }, 'pair', 'android');
+  const leftHit = runtime.find('drive-hit');
+  // leftHitLeft = 120 - 90 = 30, leftHitTop = 420 - 90 = 330
+  // Finger presses center of left disc: page=(120, 420), local inside left-hit=(90, 90)
+  const start = touch(601, 120, 420, 90, 90);
+  assert.equal(leftHit.props.onStartShouldSetResponder(event({ touches: [start] })), true);
+  leftHit.props.onResponderGrant(event({ touches: [start] }));
+  runtime.render();
+  // Drag halfway up inside left-hit: page=(120, 380), local=(90, 50)
+  runtime.find('drive-hit').props.onResponderMove(event({ touches: [touch(601, 120, 380, 90, 50)] }));
+  assert.ok(runtime.leftChanges.at(-1).y < 0, 'dragging up emits negative Y');
+  // Drag past top edge of left-hit: page=(120, 290), Android Fabric re-targets locationY to screen space (+290 instead of -40)!
+  const pastTopEdge = touch(601, 120, 290, 120, 290);
+  runtime.find('drive-hit').props.onResponderMove(event({ touches: [pastTopEdge] }));
+  assert.deepEqual(plain(runtime.leftChanges.at(-1)), { x: 0, y: -1 }, 'crossing top rim stays clamped at top (-1) instead of flipping to +1');
+  // Simultaneous second thumb on right disc while left-hit owns responder still resolves to right stick via page origin
+  const rightJoin = touch(602, 840, 420, 90, 90);
+  runtime.find('drive-hit').props.onResponderStart(event({ touches: [pastTopEdge, rightJoin], changedTouches: [rightJoin] }));
+  runtime.render();
+  assert.equal(runtime.rightActiveChanges.at(-1), true);
+  runtime.find('drive-hit').props.onResponderMove(event({ touches: [pastTopEdge, touch(602, 920, 420, 920, 420)] }));
+  assert.deepEqual(plain(runtime.rightChanges.at(-1)), { x: 1, y: 0 });
+  runtime.find('drive-hit').props.onResponderEnd(event({ touches: [], changedTouches: [pastTopEdge, rightJoin] }));
+  assert.deepEqual(plain(runtime.leftChanges.at(-1)), { x: 0, y: 0 });
+  assert.deepEqual(plain(runtime.rightChanges.at(-1)), { x: 0, y: 0 });
+  runtime.unmount();
+});
+
+test('reserveCenterForBackdrop supports Android split multi-touch across left/right hit zones and bottom rim taps', () => {
+  const layout = { usable: true, left: disc(160, 120, 460), right: disc(160, 840, 460) };
+  const runtime = createRuntime({
+    layout,
+    floating: true,
+    reserveCenterForBackdrop: true,
+    touchAreaWidth: 960,
+    touchAreaHeight: 540,
+  }, 'pair', 'android');
+  const pair = runtime.find('control-joystick-pair');
+  assert.equal(pair.props.onMoveShouldSetResponderCapture, undefined, 'parent does not compete with hit zones');
+
+  // Bottom rim tap slightly past pairHeight (y = 548 inside enlarged 1.12x hit circle) still acquires left stick
+  const leftStart = touch(701, 120, 548, 90, 178);
+  runtime.find('drive-hit').props.onResponderGrant(event({ touches: [leftStart] }));
+  runtime.render();
+  assert.equal(runtime.leftActiveChanges.at(-1), true);
+
+  // Android split multi-touch: second thumb lands on right-hit via onTouchStart (responder denied by left-hit)
+  const rightStart = touch(702, 840, 460, 90, 90);
+  runtime.find('turn-hit').props.onTouchStart(event({ touches: [rightStart], changedTouches: [rightStart] }));
+  runtime.render();
+  assert.equal(runtime.rightActiveChanges.at(-1), true);
+
+  // Split moves: left-hit only carries [leftMove], right-hit only carries [rightMove] -> neither kills the other!
+  const leftMove = touch(701, 120, 440, 90, 70);
+  runtime.find('drive-hit').props.onTouchMove(event({ touches: [leftMove] }));
+  assert.deepEqual(plain(runtime.leftChanges.at(-1)), { x: 0, y: -1 });
+  assert.equal(runtime.rightActiveChanges.at(-1), true);
+
+  const rightMove = touch(702, 920, 460, 170, 90);
+  runtime.find('turn-hit').props.onTouchMove(event({ touches: [rightMove] }));
+  assert.deepEqual(plain(runtime.rightChanges.at(-1)), { x: 1, y: 0 });
+  assert.deepEqual(plain(runtime.leftChanges.at(-1)), { x: 0, y: -1 }, 'right move never clears held left stick');
+
+  // Lifting right thumb clears only right stick; left stays active until lifted
+  runtime.find('turn-hit').props.onTouchEnd(event({ touches: [], changedTouches: [rightMove] }));
+  runtime.render();
+  assert.deepEqual(plain(runtime.rightChanges.at(-1)), { x: 0, y: 0 });
+  assert.equal(runtime.rightActiveChanges.at(-1), false);
+  assert.equal(runtime.leftActiveChanges.at(-1), true);
+  assert.deepEqual(plain(runtime.leftChanges.at(-1)), { x: 0, y: -1 });
+
+  runtime.find('drive-hit').props.onResponderEnd(event({ touches: [], changedTouches: [leftMove] }));
+  assert.deepEqual(plain(runtime.leftChanges.at(-1)), { x: 0, y: 0 });
+  runtime.unmount();
+});

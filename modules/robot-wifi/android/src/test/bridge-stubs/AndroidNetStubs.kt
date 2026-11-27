@@ -1,6 +1,12 @@
 package android.net
 
+import java.net.InetAddress
+
 class Network(val id: String = "net")
+
+class LinkAddress(val address: InetAddress)
+
+class LinkProperties(val linkAddresses: List<LinkAddress> = emptyList())
 
 class NetworkCapabilities(
   private val transports: Set<Int> = emptySet(),
@@ -38,11 +44,14 @@ class ConnectivityManager {
   var activeNetwork: Network? = null
   var allNetworks: Array<Network> = emptyArray()
   val capabilitiesByNetwork = mutableMapOf<Network, NetworkCapabilities>()
+  val linkPropertiesByNetwork = mutableMapOf<Network, LinkProperties>()
   var lastCallback: NetworkCallback? = null
   var boundNetwork: Network? = null
   var unregisteredCallbacks = 0
 
   fun getNetworkCapabilities(network: Network): NetworkCapabilities? = capabilitiesByNetwork[network]
+
+  fun getLinkProperties(network: Network): LinkProperties? = linkPropertiesByNetwork[network]
 
   fun requestNetwork(request: NetworkRequest, callback: NetworkCallback, timeoutMs: Int) {
     lastCallback = callback

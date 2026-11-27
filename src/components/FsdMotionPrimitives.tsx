@@ -307,6 +307,7 @@ export function FsdDetentSlider({
   onCompleteRef.current = onComplete;
   const startValueRef = useRef(value);
   const lastValueRef = useRef(value);
+  const originXRef = useRef<number | null>(null);
   const isHorizontalDragRef = useRef(false);
   const thumbScale = useRef(new Animated.Value(1)).current;
   const span = Math.max(0.0001, max - min);
@@ -319,10 +320,26 @@ export function FsdDetentSlider({
     return Number(Math.min(max, Math.max(min, snapped)).toFixed(4));
   };
 
-  const emitAtX = (locationX: number, done: boolean) => {
+  const resolveSliderX = (
+    evt: GestureResponderEvent | undefined,
+    g: { moveX?: number } | undefined,
+  ): number => {
+    const originX = originXRef.current;
+    const pageX = evt?.nativeEvent?.pageX;
+    if (originX !== null && typeof pageX === 'number' && Number.isFinite(pageX)
+      && (pageX !== 0 || g?.moveX === 0)) {
+      return pageX - originX;
+    }
+    if (originX !== null && typeof g?.moveX === 'number' && Number.isFinite(g.moveX) && g.moveX !== 0) {
+      return g.moveX - originX;
+    }
+    return evt?.nativeEvent?.locationX ?? 0;
+  };
+
+  const emitAtX = (localX: number, done: boolean) => {
     const w = trackWidthRef.current;
     if (disabled || w <= 0) return;
-    const next = quantize(min + (Math.max(0, Math.min(w, locationX)) / w) * span);
+    const next = quantize(min + (Math.max(0, Math.min(w, localX)) / w) * span);
     lastValueRef.current = next;
     onChangeRef.current(next);
     if (done) onCompleteRef.current?.(next);
@@ -340,11 +357,21 @@ export function FsdDetentSlider({
         !(Math.abs(g.dx) > Math.abs(g.dy) * 1.15 && Math.abs(g.dx) > 4)
         && (!isHorizontalDragRef.current || Math.abs(g.dy) > Math.abs(g.dx) * 1.1),
       onShouldBlockNativeResponder: () => false,
-      onPanResponderGrant: () => {
+      onPanResponderGrant: (evt, g) => {
         if (disabled) return;
         startValueRef.current = valueRef.current;
         lastValueRef.current = valueRef.current;
         isHorizontalDragRef.current = false;
+        const grantLoc = evt?.nativeEvent?.locationX;
+        const grantPage = evt?.nativeEvent?.pageX;
+        const pageSample = typeof grantPage === 'number' && Number.isFinite(grantPage) && grantPage !== 0
+          ? grantPage
+          : typeof g?.x0 === 'number' && Number.isFinite(g.x0) && g.x0 !== 0
+            ? g.x0
+            : null;
+        originXRef.current = typeof grantLoc === 'number' && Number.isFinite(grantLoc) && pageSample !== null
+          ? pageSample - grantLoc
+          : null;
       },
       onPanResponderMove: (evt, g) => {
         if (disabled) return;
@@ -358,7 +385,7 @@ export function FsdDetentSlider({
             return;
           }
         }
-        emitAtX(evt.nativeEvent.locationX, false);
+        emitAtX(resolveSliderX(evt, g), false);
       },
       onPanResponderRelease: (evt, g) => {
         if (typeof Animated.spring === 'function') {
@@ -366,8 +393,9 @@ export function FsdDetentSlider({
         }
         const isTap = Math.abs(g.dx) < 8 && Math.abs(g.dy) < 8;
         if (isHorizontalDragRef.current || isTap) {
-          emitAtX(evt.nativeEvent.locationX, true);
+          emitAtX(resolveSliderX(evt, g), true);
         }
+        originXRef.current = null;
         isHorizontalDragRef.current = false;
       },
       onPanResponderTerminate: () => {
@@ -377,6 +405,7 @@ export function FsdDetentSlider({
         if (isHorizontalDragRef.current) {
           onCompleteRef.current?.(lastValueRef.current);
         }
+        originXRef.current = null;
         isHorizontalDragRef.current = false;
       },
     });
@@ -401,8 +430,8 @@ export function FsdDetentSlider({
       testID={testID}
       {...panResponder.panHandlers}
     >
-      <View style={styles.sliderTrackBase}>
-        <View style={[styles.sliderTrackFill, { width: `${Math.round(ratio * 100)}%`, backgroundColor: fillColor }]} />
+      <View pointerEvents="none" style={styles.sliderTrackBase}>
+        <View pointerEvents="none" style={[styles.sliderTrackFill, { width: `${Math.round(ratio * 100)}%`, backgroundColor: fillColor }]} />
       </View>
       <Animated.View
         pointerEvents="none"

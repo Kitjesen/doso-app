@@ -177,3 +177,17 @@ test('native string pointer identifiers retain exact ownership without numeric c
   ui.track().props.onResponderRelease(event({ changed: [point('1', 243)], at: 1002 }));
   assert.deepEqual(ui.commits, [.75]); ui.unmount();
 });
+
+test('grant binds to the initiating changed touch rather than an unrelated held touch elsewhere on screen', () => {
+  const ui = runtime(); ui.layout();
+  const unrelatedHeld = point(99, 10, 10);
+  const sliderPress = point(2, 200, 100);
+  ui.track().props.onResponderGrant(event({ active: [unrelatedHeld, sliderPress], changed: [sliderPress], local: 100 }));
+  ui.render();
+  ui.track().props.onResponderMove(event({ active: [unrelatedHeld, point(2, 243, 1)], at: 1001, local: 1 }));
+  ui.render();
+  assert.deepEqual(ui.previews, [.75]);
+  ui.track().props.onResponderRelease(event({ active: [unrelatedHeld], changed: [point(2, 243)], at: 1002 }));
+  assert.deepEqual(ui.commits, [.75]);
+  ui.unmount();
+});

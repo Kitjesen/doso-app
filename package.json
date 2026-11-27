@@ -23,10 +23,14 @@
     "react-native-safe-area-context": "~5.7.0",
     "react-native-url-polyfill": "^4.0.0",
     "react-native-web": "^0.21.2",
-    "react-native-webrtc": "155.0.1"
+    "react-native-webrtc": "155.0.1",
+    "react-native-webview": "^13.16.1",
+    "three": "^0.174.0"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "@types/three": "^0.174.0",
+    "esbuild": "^0.28.2",
     "supabase": "^2.115.0",
     "typescript": "~6.0.3"
   },
@@ -113,6 +117,7 @@
     "email:verify": "node scripts/manage-auth-email-templates.mjs --remote",
     "email:sync": "node scripts/build-email-template-suite.mjs --check && node scripts/manage-auth-email-templates.mjs --sync",
     "typecheck": "tsc --noEmit",
+    "build:standby-3d": "node scripts/build-standby-3d-bundle.mjs",
     "export:web": "expo export --platform web --output-dir dist-web",
     "export:android": "expo export --platform android --output-dir dist-android"
   },

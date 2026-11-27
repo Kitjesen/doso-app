@@ -74,7 +74,7 @@ export type ControlSettingsCategory =
   | '机器人'
   | '安全'
   | '关于';
-export type ControlSettingsSubview = 'tabs' | 'layout' | 'input' | 'privacy';
+export type ControlSettingsSubview = 'tabs' | 'layout' | 'input' | 'privacy' | 'zeroing';
 
 export function normalizeSettingsCategory(category: ControlSettingsCategory): ControlSettingsTab {
   switch (category) {
@@ -112,6 +112,7 @@ export type InlineConnectionSettingsProps = Readonly<{
   lastSyncLabel?: string;
   firmwareVersion?: string;
   onConnectControl: () => void;
+  onQuickConnect?: (host: string, port: number) => void;
   onProbeReadOnly?: () => void;
   onDisconnect: () => void;
   onOpenAdvanced?: () => void;
@@ -233,6 +234,7 @@ type SettingsProps = {
   speedMode?: 'normal' | 'high' | 'unsupported' | null;
   onSelectSpeedMode?: (mode: 'normal' | 'high') => void;
   physicalInputReady?: boolean;
+  physicalInputStatusLabel?: string;
   onSelectInputSource?: (source: ControlInputSource) => void;
   primaryCamera?: 'front' | 'rear';
   onSwapCamera?: () => void;
@@ -293,6 +295,11 @@ type SettingsProps = {
   zeroReady?: boolean;
   zeroHint?: string;
   onSetZero?: () => void;
+  onOpenZeroingGuide?: () => void;
+  sitReadyForZeroing?: boolean;
+  onSitForZeroing?: () => void;
+  controlLeaseActiveForZeroing?: boolean;
+  onReleaseControlForZeroing?: () => void;
   clearFaultReady?: boolean;
   onClearMotorFault?: () => void;
   appVersionLabel?: string;
@@ -377,7 +384,7 @@ export function renderControlSettings(p: SettingsProps) {
   const hudScale = p.inHudOverlay ? (rawHudRatio < 1 ? Math.max(0.76, 0.28 + rawHudRatio * 0.72) : Math.min(1.18, 1 + (rawHudRatio - 1) * 0.20)) : 1;
   const horizontalMargin = ultraNarrow ? 6 : narrow ? 8 : 12;
   // Sit cleanly below top-right bare HUD so red E-Stop at top-right stays 100% unobstructed.
-  const topOffset = p.inHudOverlay ? Math.max(36, Math.round((short ? 42 : 48) * hudScale)) : Math.max(48, p.height * 0.11);
+  const topOffset = p.inHudOverlay ? Math.max(40, Math.round((short ? 46 : 50) * hudScale)) : Math.max(48, p.height * 0.11);
   const bottomOffset = p.inHudOverlay ? (short ? 6 : Math.round(10 * hudScale)) : Math.max(10, p.height * 0.03);
   const maxAvailableWidth = Math.max(280, p.width - horizontalMargin * 2);
   const shellMaxWidth = p.inHudOverlay
@@ -685,6 +692,103 @@ export function renderControlSettings(p: SettingsProps) {
         ))}
       </View>
     );
+  } else if (activeSubview === 'zeroing') {
+    const connectedOk = Boolean(observed);
+    const groundedOk = observed?.posture === 'sitting';
+    const controlFreeOk = Boolean(observed && !p.controlLeaseActiveForZeroing && observed.controlOwner !== 'robot-remote');
+    const zeroingSteps = [
+      { step: '1', title: '平稳放地并趴下', body: '将机器狗平放于水平地面，切至坐下/趴地状态，确认已释放控制权。' },
+      { step: '2', title: '摆正四腿零点姿态', body: '确认周围无人员及障碍物，将四条腿轻放至机械零点限位姿态。' },
+      { step: '3', title: '确认条件并执行标零', body: '下方三项前置条件全部就绪后，点击开始标零并二次确认。' },
+    ] as const;
+    const checks = [
+      { id: 'conn', label: '机器狗连接', ok: connectedOk, statusText: connectedOk ? '已连接' : '未连接' },
+      { id: 'posture', label: '坐下 / 趴地姿态', ok: groundedOk, statusText: groundedOk ? '已就绪' : '需先坐下' },
+      { id: 'lease', label: '释放控制权', ok: controlFreeOk, statusText: controlFreeOk ? '已释放' : '占用中' },
+    ] as const;
+    content = (
+      <View style={st.paneStack} testID="control-settings-subview-zeroing">
+        {group('操作步骤', (
+          <View style={st.zeroStepList}>
+            {zeroingSteps.map(item => (
+              <View key={item.step} style={st.zeroStepRow}>
+                <View style={[st.zeroStepBadge, { backgroundColor: accent.pillBg, borderColor: accent.pillBorder }]}>
+                  <Text style={[st.zeroStepNum, { color: accent.pillInk }]}>{item.step}</Text>
+                </View>
+                <View style={st.zeroStepCopy}>
+                  <Text style={text}>{item.title}</Text>
+                  <Text style={small}>{item.body}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        ))}
+
+        {group('前置条件检查', (
+          <View style={st.zeroCheckList}>
+            {checks.map(item => (
+              <View key={item.id} style={st.row}>
+                <View style={st.zeroCheckLeft}>
+                  <Ionicons
+                    color={item.ok ? c.green : '#F59E0B'}
+                    name={item.ok ? 'checkmark-circle' : 'alert-circle-outline'}
+                    size={16}
+                  />
+                  <Text numberOfLines={1} style={text}>{item.label}</Text>
+                </View>
+                <View style={st.inlineBtnGroup}>
+                  {item.id === 'posture' && !item.ok && p.sitReadyForZeroing && p.onSitForZeroing ? (
+                    <Pressable
+                      accessibilityLabel="执行坐下准备标零"
+                      accessibilityRole="button"
+                      onPress={p.onSitForZeroing}
+                      style={({ pressed }) => [st.inlineActionBtn, pressed && st.pressed]}
+                      testID="control-zeroing-quick-sit"
+                    >
+                      <Text numberOfLines={1} style={st.inlineActionText}>坐下</Text>
+                    </Pressable>
+                  ) : null}
+                  {item.id === 'lease' && !item.ok && p.controlLeaseActiveForZeroing && p.onReleaseControlForZeroing ? (
+                    <Pressable
+                      accessibilityLabel="释放控制权"
+                      accessibilityRole="button"
+                      onPress={p.onReleaseControlForZeroing}
+                      style={({ pressed }) => [st.inlineActionBtn, pressed && st.pressed]}
+                      testID="control-zeroing-quick-release"
+                    >
+                      <Text numberOfLines={1} style={st.inlineActionText}>释放</Text>
+                    </Pressable>
+                  ) : null}
+                  <Text numberOfLines={1} style={[small, { color: item.ok ? c.green : '#F59E0B', fontWeight: '600' }]}>
+                    {item.statusText}
+                  </Text>
+                </View>
+              </View>
+            ))}
+            <View style={st.zeroActionFooter}>
+              <Pressable
+                accessibilityLabel="开始电机标零"
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !observed || !p.zeroReady || !p.onSetZero }}
+                disabled={!observed || !p.zeroReady || !p.onSetZero}
+                onPress={p.onSetZero}
+                style={({ pressed }) => [
+                  st.zeroSubmitBtn,
+                  (!observed || !p.zeroReady || !p.onSetZero) && st.disabled,
+                  pressed && st.pressed,
+                ]}
+                testID="control-zeroing-guide-submit"
+              >
+                <Ionicons color="#FFFFFF" name="locate-outline" size={15} />
+                <Text numberOfLines={1} style={st.zeroSubmitText}>
+                  {observed && p.zeroReady ? '开始电机标零' : (p.zeroHint ?? '请先满足上方条件')}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        ))}
+      </View>
+    );
   } else if (activeSubview !== 'tabs' && p.subviewContent) {
     content = p.subviewContent;
   } else {
@@ -700,11 +804,24 @@ export function renderControlSettings(p: SettingsProps) {
                     inlineSeg(
                       [
                         { value: 'touch', label: '触屏摇杆', testID: 'control-setting-source-touch', accessibilityLabel: '使用屏幕虚拟摇杆' },
-                        { value: 'physical', label: 'G20 手柄', disabled: !p.physicalInputReady, testID: 'control-setting-source-physical', accessibilityLabel: '使用 G20 实体摇杆' },
+                        {
+                          value: 'physical',
+                          label: p.physicalInputReady ? 'G20 手柄' : 'G20 校准',
+                          disabled: !p.physicalInputReady && !p.onInput,
+                          testID: 'control-setting-source-physical',
+                          accessibilityLabel: p.physicalInputReady ? '使用 G20 实体摇杆' : '前往 G20 手柄校准',
+                        },
                       ],
                       p.inputSource,
-                      next => p.onSelectInputSource?.(next),
+                      next => {
+                        if (next === 'physical' && !p.physicalInputReady) {
+                          p.onInput?.();
+                          return;
+                        }
+                        p.onSelectInputSource?.(next);
+                      },
                     ),
+                    !p.physicalInputReady ? (p.physicalInputStatusLabel ?? (p.onInput ? '需先校准通道' : '未检测到手柄')) : '已校准可切换',
                   )
                 : null}
               {p.onToggleVirtualDiscControls
@@ -805,6 +922,7 @@ export function renderControlSettings(p: SettingsProps) {
               {postureLink()}
               {p.onActions ? link('control-open-action-deck', '动作库', p.onActions, p.gestures?.length ? `${p.gestures.length} 项` : undefined) : null}
               {modeLink()}
+              {p.onOpenZeroingGuide ? link('control-open-zeroing-shortcut', '电机标零与教程', p.onOpenZeroingGuide, p.zeroReady ? '可标零' : '查看步骤') : null}
             </>)}
           </View>
         );
@@ -1045,6 +1163,7 @@ export function renderControlSettings(p: SettingsProps) {
                       ic.onChangeHost(host);
                       ic.onChangePort(String(port));
                     }}
+                    onQuickConnect={ic.onQuickConnect}
                     surfaceTone="dark"
                     testID="control-settings-wifi-discovery"
                   />
@@ -1255,6 +1374,34 @@ export function renderControlSettings(p: SettingsProps) {
 
         content = (
           <View style={st.paneStack} testID="control-settings-page-机器狗维护">
+            {group('电机标零', (
+              <View style={st.zeroHeroBox} testID="control-settings-zeroing-card">
+                <View style={st.zeroHeroTop}>
+                  <View style={{ flex: 1, gap: 2, minWidth: 0 }}>
+                    <Text numberOfLines={1} style={[text, { fontWeight: '600' }]}>关节零点标定</Text>
+                    <Text numberOfLines={1} style={small}>
+                      {observed && p.zeroReady ? '条件已就绪，可执行标零' : (p.zeroHint ?? '需连接机器狗并保持坐下趴地')}
+                    </Text>
+                  </View>
+                </View>
+                <View style={st.zeroHeroActions}>
+                  {p.onOpenZeroingGuide ? (
+                    <Pressable
+                      accessibilityLabel="查看标零教程"
+                      accessibilityRole="button"
+                      onPress={p.onOpenZeroingGuide}
+                      style={({ pressed }) => [st.inlineActionBtn, { flex: 1, justifyContent: 'center' }, pressed && st.pressed]}
+                      testID="control-settings-zeroing-guide"
+                    >
+                      <Ionicons color={accent.ink} name="book-outline" size={14} />
+                      <Text numberOfLines={1} style={st.inlineActionText}>标零教程</Text>
+                    </Pressable>
+                  ) : null}
+                  {chip('control-settings-set-zero', '立即标零', p.onSetZero, { disabled: !observed || !p.zeroReady, hint: p.zeroHint, danger: true })}
+                </View>
+              </View>
+            ))}
+
             {group('机器人状态', <>
               {row('姿态 · 电机', value(postureLabel === motorLabel ? postureLabel : `${postureLabel} · ${motorLabel}`, observed?.motorState === 'enabled'))}
               {row('当前模式', value(policyLabel))}
@@ -1323,12 +1470,10 @@ export function renderControlSettings(p: SettingsProps) {
               {p.onOpenHudJointTemp ? link('control-settings-open-joint-temp', '关节温度浮窗', p.onOpenHudJointTemp) : null}
             </>)}
 
-            {group('标定与运动模式', <>
+            {group('故障与运动模式', <>
               <View style={st.chipWrap}>
-                {chip('control-settings-set-zero', '电机标零', p.onSetZero, { disabled: !observed || !p.zeroReady, hint: p.zeroHint, danger: true })}
                 {chip('control-settings-clear-fault', '清除故障', p.onClearMotorFault, { disabled: !observed || !p.clearFaultReady })}
               </View>
-              {blockedNote(p.zeroReady, p.zeroHint)}
               <View style={st.chipWrap} testID="control-settings-mode-list">
                 {livePolicies.length > 0 ? (
                   livePolicies.map(option =>
@@ -1815,9 +1960,10 @@ const st = StyleSheet.create({
     lineHeight: 16,
   },
 
-  /* Standby 1x3 Scene Picker */
+  /* Standby 2x2 Scene Picker */
   sceneGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
     paddingVertical: 8,
   },
@@ -1826,7 +1972,8 @@ const st = StyleSheet.create({
     borderColor: controlSettingsColors.line,
     borderRadius: 10,
     borderWidth: 1.5,
-    flex: 1,
+    flexBasis: '47%',
+    flexGrow: 1,
     overflow: 'hidden',
   },
   sceneThumbWrap: {
@@ -2074,6 +2221,83 @@ const st = StyleSheet.create({
     borderRadius: 3.5,
     height: 7,
     width: 7,
+  },
+
+  /* Motor Zeroing Card & Interactive Guide */
+  zeroHeroBox: {
+    gap: 10,
+    paddingVertical: 6,
+  },
+  zeroHeroTop: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'space-between',
+  },
+  zeroHeroActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  zeroStepList: {
+    gap: 10,
+    paddingVertical: 6,
+  },
+  zeroStepRow: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  zeroStepBadge: {
+    alignItems: 'center',
+    borderColor: controlSettingsColors.line,
+    borderRadius: 12,
+    borderWidth: 1,
+    height: 24,
+    justifyContent: 'center',
+    marginTop: 1,
+    width: 24,
+  },
+  zeroStepNum: {
+    color: controlSettingsColors.ink,
+    fontSize: 12,
+    fontVariant: ['tabular-nums'],
+    fontWeight: '700',
+  },
+  zeroStepCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  zeroCheckList: {
+    gap: 2,
+  },
+  zeroCheckLeft: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: 8,
+    minWidth: 0,
+  },
+  zeroActionFooter: {
+    gap: 6,
+    paddingTop: 2,
+  },
+  zeroSubmitBtn: {
+    alignItems: 'center',
+    borderColor: controlSettingsColors.line,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    minHeight: 46,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  zeroSubmitText: {
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 19,
   },
 
   /* About & Privacy */

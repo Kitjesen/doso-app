@@ -1,5 +1,5 @@
 export type VideoQualityPreset = '流畅' | '标清' | '高清' | '超清';
-export type StandbySceneId = 'charcoal' | 'gallery' | 'hangar';
+export type StandbySceneId = 'forest' | 'charcoal' | 'gallery' | 'hangar';
 export type ControlAccentTone = 'graphite' | 'fsdBlue';
 
 export type ControlUserPreferences = Readonly<{
@@ -23,7 +23,7 @@ export type ControlUserPreferences = Readonly<{
 export const CONTROL_USER_PREFERENCES_KEY = 'doso.control.preferences.v1';
 
 const VALID_QUALITIES: readonly VideoQualityPreset[] = ['流畅', '标清', '高清', '超清'];
-const VALID_STANDBY_SCENES: readonly StandbySceneId[] = ['charcoal', 'gallery', 'hangar'];
+const VALID_STANDBY_SCENES: readonly StandbySceneId[] = ['forest', 'charcoal', 'gallery', 'hangar'];
 const VALID_ACCENT_TONES: readonly ControlAccentTone[] = ['graphite', 'fsdBlue'];
 
 export function clampSensitivityPercent(value: unknown): number {
@@ -56,7 +56,7 @@ export function createDefaultControlPreferences(): ControlUserPreferences {
     autoRecord: false,
     soundVolumePercent: 80,
     voiceBroadcastEnabled: true,
-    standbyScene: 'charcoal',
+    standbyScene: 'forest',
     accentTone: 'graphite',
   };
 }
@@ -207,13 +207,40 @@ export async function estimateClientStorageGb(): Promise<Readonly<{ usedGb: numb
   return null;
 }
 
+export type NativeControlFeedbackCue = Readonly<{
+  speak?: (text: string, volume: number) => Promise<boolean>;
+  tone?: (volume: number) => Promise<boolean>;
+}>;
+
 export function playControlFeedbackCue(
   text: string,
   volumePercent: number,
   voiceEnabled: boolean,
+  nativeCue?: NativeControlFeedbackCue,
 ): void {
   const vol = clampVolumePercent(volumePercent) / 100;
   if (vol <= 0) return;
+  if (nativeCue) {
+    if (voiceEnabled && typeof nativeCue.speak === 'function') {
+      void nativeCue.speak(text, vol)
+        .then(ok => {
+          if (!ok && typeof nativeCue.tone === 'function') {
+            return nativeCue.tone(vol);
+          }
+          return ok;
+        })
+        .catch(() => {
+          if (typeof nativeCue.tone === 'function') {
+            void nativeCue.tone(vol).catch(() => undefined);
+          }
+        });
+      return;
+    }
+    if (typeof nativeCue.tone === 'function') {
+      void nativeCue.tone(vol).catch(() => undefined);
+      return;
+    }
+  }
   try {
     const g = globalThis as {
       speechSynthesis?: { cancel?: () => void; speak?: (u: unknown) => void };

@@ -124,7 +124,8 @@ export function ControlSlider({ value, minimumValue, maximumValue, step = 0.01, 
   }, [show]);
   const onGrant = useCallback((event: GestureResponderEvent) => {
     if (!mounted.current || current.current.unavailable || gesture.current || widthRef.current <= THUMB_SIZE) return;
-    const owner = touches(event).find(item => validIdentifier(item.identifier) && Number.isFinite(item.pageX));
+    const isEligible = (item: Touch) => validIdentifier(item.identifier) && Number.isFinite(item.pageX);
+    const owner = touches(event, true).find(isEligible) ?? touches(event).find(isEligible);
     if (!owner) return;
     const local = Number.isFinite(owner.locationX) ? owner.locationX : event.nativeEvent.locationX;
     if (!Number.isFinite(local)) return;
