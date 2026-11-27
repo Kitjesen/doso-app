@@ -642,9 +642,45 @@ def _apply_robot_materials(
             ET.SubElement(asset, "material", {"name": name, **attrs})
 
 
+def _display_joint_offsets_match(worldbody: ET.Element) -> bool:
+    """The display prop hard-codes V4 link offsets; skip it when the loaded robot differs."""
+    robot_root = None
+    for body in worldbody.findall("body"):
+        if body.attrib.get("name") == "base_link":
+            robot_root = body
+            break
+    if robot_root is None:
+        return False
+    actual: dict[str, tuple[float, ...]] = {}
+
+    def walk(node: ET.Element) -> None:
+        for child in node.findall("body"):
+            name = child.attrib.get("name")
+            try:
+                values = tuple(float(v) for v in child.attrib.get("pos", "0 0 0").split())
+            except ValueError:
+                return
+            if name and len(values) == 3:
+                actual[name] = values
+            walk(child)
+
+    walk(robot_root)
+    for row in V4_DISPLAY_JOINTS:
+        for name, expected in ((row[1], row[2]), (row[7], row[8]), (row[13], row[14])):
+            got = actual.get(name)
+            if got is None:
+                return False
+            want = tuple(float(v) for v in expected.split())
+            if any(abs(a - b) > 0.005 for a, b in zip(got, want)):
+                return False
+    return True
+
+
 def _add_display_thunder_v4(worldbody: ET.Element, asset: ET.Element) -> None:
     mesh_names = {m.attrib.get("name") for m in asset.findall("mesh")}
     if "base_link_visual" not in mesh_names:
+        return
+    if not _display_joint_offsets_match(worldbody):
         return
     disp = ET.SubElement(
         worldbody,
@@ -677,7 +713,7 @@ def _add_display_thunder_v4(worldbody: ET.Element, asset: ET.Element) -> None:
 def _populate_proving_ground(worldbody: ET.Element, asset: ET.Element) -> None:
     ET.SubElement(worldbody, "geom", {"name": "ground", "type": "plane", "size": "80 80 0.1", "material": "pg_asphalt", "group": "0", "condim": "4", "conaffinity": "15", "friction": "1.0 0.02 0.0002"})
     ET.SubElement(worldbody, "geom", {"name": "main_road_apron", "type": "box", "pos": "2.0 0 0.002", "size": "18.0 1.4 0.002", "material": "pg_asphalt", "group": "0", "contype": "0", "conaffinity": "0"})
-    ET.SubElement(worldbody, "geom", {"name": "concrete_test_pad", "pos": "4.8 0 0.003", "size": "4.2 4.6 0.003", "material": "pg_concrete", "group": "0", "contype": "0", "conaffinity": "0"})
+    ET.SubElement(worldbody, "geom", {"name": "concrete_test_pad", "type": "box", "pos": "4.8 0 0.003", "size": "4.2 4.6 0.003", "material": "pg_concrete", "group": "0", "contype": "0", "conaffinity": "0"})
 
     for i, x_pos in enumerate((-6.0, -4.2, -2.4, -0.6, 4.4, 6.4, 8.4)):
         ET.SubElement(worldbody, "geom", {"name": f"lane_dash_{i}", "type": "box", "pos": f"{x_pos} 0 0.005", "size": "0.55 0.045 0.003", "material": "pg_road_yellow", "contype": "0", "conaffinity": "0"})
