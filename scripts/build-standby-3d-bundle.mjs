@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gzipSync } from 'node:zlib';
 import * as esbuild from 'esbuild';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -31,12 +32,13 @@ await esbuild.build({
   legalComments: 'none',
 });
 
-// 2. Wrap GLB binary as an offline WebView-local script (never loaded into RN/Hermes JS bundle!)
+// 2. Gzip + Base64 wrap Meshopt GLB into an ultra-lean offline WebView script (decoded via native C++ DecompressionStream!)
 const glbBytes = readFileSync(glbPath);
+const glbGzBytes = gzipSync(glbBytes, { level: 9 });
 const modelDataOutPath = resolve(outDir, 'model-data.js');
 writeFileSync(
   modelDataOutPath,
-  `window.__DOSO_STANDBY_GLB_B64__=${JSON.stringify(glbBytes.toString('base64'))};\n`,
+  `window.__DOSO_STANDBY_GLB_GZ_B64__=${JSON.stringify(glbGzBytes.toString('base64'))};\n`,
   'utf8',
 );
 

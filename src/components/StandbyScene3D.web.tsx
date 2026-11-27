@@ -10,6 +10,10 @@ import {
   mountStandby3dScene,
   type Standby3dController,
 } from './standby3d/standby3dScene';
+import {
+  getStandbyDriveInput,
+  subscribeStandbyDriveInput,
+} from './standby3d/standbyDriveBus';
 import type { StandbyScene3DProps } from './StandbyScene3D';
 
 const STANDBY_GLB_ASSET = require('../../assets/models/thunder-r50-standby.glb') as string | { uri?: string; default?: string };
@@ -169,12 +173,23 @@ export function StandbyScene3D({
   }, [bodyHeightM]);
 
   useEffect(() => {
+    if (!driveInput) return;
     controllerRef.current?.setDriveInput(
-      driveInput?.driveX ?? 0,
-      driveInput?.driveY ?? 0,
-      driveInput?.turnX ?? 0,
+      driveInput.driveX,
+      driveInput.driveY,
+      driveInput.turnX,
     );
   }, [driveInput?.driveX, driveInput?.driveY, driveInput?.turnX]);
+
+  useEffect(() => {
+    const initial = getStandbyDriveInput();
+    if (initial.driveX !== 0 || initial.driveY !== 0 || initial.turnX !== 0) {
+      controllerRef.current?.setDriveInput(initial.driveX, initial.driveY, initial.turnX);
+    }
+    return subscribeStandbyDriveInput(sample => {
+      controllerRef.current?.setDriveInput(sample.driveX, sample.driveY, sample.turnX);
+    });
+  }, []);
 
   return (
     <View

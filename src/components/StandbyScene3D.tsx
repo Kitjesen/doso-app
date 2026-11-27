@@ -6,6 +6,10 @@ import {
   normalizeStandbyScene,
   type StandbySceneId,
 } from './standbyScenes';
+import {
+  getStandbyDriveInput,
+  subscribeStandbyDriveInput,
+} from './standby3d/standbyDriveBus';
 import type { ControlAccentTone } from '../features/control/controlPreferences';
 
 export type StandbyDriveInput = Readonly<{
@@ -142,6 +146,49 @@ export function StandbyScene3D({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const lastDriveRef = useRef<string>('');
+  const lastDriveSentAtRef = useRef<number>(0);
+  const trailingDriveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingDriveRef = useRef<{ dx: number; dy: number; tx: number } | null>(null);
+
+  const sendDriveToWebView = (dx: number, dy: number, tx: number, forceImmediate = false) => {
+    if (!webViewRef.current?.injectJavaScript) return;
+    const safeDx = Number.isFinite(dx) ? dx : 0;
+    const safeDy = Number.isFinite(dy) ? dy : 0;
+    const safeTx = Number.isFinite(tx) ? tx : 0;
+    const isZero = Math.abs(safeDx) < 0.001 && Math.abs(safeDy) < 0.001 && Math.abs(safeTx) < 0.001;
+    const sig = isZero ? '0,0,0' : `${safeDx.toFixed(3)},${safeDy.toFixed(3)},${safeTx.toFixed(3)}`;
+    if (sig === lastDriveRef.current) return;
+
+    const now = Date.now();
+    const minIntervalMs = Platform?.OS === 'android' ? 33 : 16;
+    const elapsed = now - lastDriveSentAtRef.current;
+
+    if (forceImmediate || isZero || elapsed >= minIntervalMs) {
+      if (trailingDriveTimerRef.current) {
+        clearTimeout(trailingDriveTimerRef.current);
+        trailingDriveTimerRef.current = null;
+      }
+      pendingDriveRef.current = null;
+      lastDriveRef.current = sig;
+      lastDriveSentAtRef.current = now;
+      webViewRef.current.injectJavaScript(
+        `window.__dosoStandby3d&&window.__dosoStandby3d.setDriveInput(${sig});true;`,
+      );
+      return;
+    }
+
+    pendingDriveRef.current = { dx: safeDx, dy: safeDy, tx: safeTx };
+    if (!trailingDriveTimerRef.current) {
+      trailingDriveTimerRef.current = setTimeout(() => {
+        trailingDriveTimerRef.current = null;
+        const queued = pendingDriveRef.current;
+        pendingDriveRef.current = null;
+        if (queued) {
+          sendDriveToWebView(queued.dx, queued.dy, queued.tx, true);
+        }
+      }, Math.max(8, minIntervalMs - elapsed));
+    }
+  };
 
   useEffect(() => {
     if (!ready) return;
@@ -196,17 +243,30 @@ export function StandbyScene3D({
   }, [bodyHeightM, ready]);
 
   useEffect(() => {
-    if (!ready || !webViewRef.current?.injectJavaScript) return;
-    const dx = Number.isFinite(driveInput?.driveX) ? Number(driveInput?.driveX) : 0;
-    const dy = Number.isFinite(driveInput?.driveY) ? Number(driveInput?.driveY) : 0;
-    const tx = Number.isFinite(driveInput?.turnX) ? Number(driveInput?.turnX) : 0;
-    const sig = `${dx.toFixed(3)},${dy.toFixed(3)},${tx.toFixed(3)}`;
-    if (sig === lastDriveRef.current) return;
-    lastDriveRef.current = sig;
-    webViewRef.current.injectJavaScript(
-      `window.__dosoStandby3d&&window.__dosoStandby3d.setDriveInput(${sig});true;`,
-    );
+    if (!ready) return;
+    if (driveInput) {
+      sendDriveToWebView(driveInput.driveX, driveInput.driveY, driveInput.turnX);
+    }
   }, [driveInput?.driveX, driveInput?.driveY, driveInput?.turnX, ready]);
+
+  useEffect(() => {
+    if (!ready) return;
+    const initial = getStandbyDriveInput();
+    if (initial.driveX !== 0 || initial.driveY !== 0 || initial.turnX !== 0) {
+      sendDriveToWebView(initial.driveX, initial.driveY, initial.turnX, true);
+    }
+    const unsubscribe = subscribeStandbyDriveInput(sample => {
+      sendDriveToWebView(sample.driveX, sample.driveY, sample.turnX);
+    });
+    return () => {
+      unsubscribe();
+      if (trailingDriveTimerRef.current) {
+        clearTimeout(trailingDriveTimerRef.current);
+        trailingDriveTimerRef.current = null;
+      }
+      pendingDriveRef.current = null;
+    };
+  }, [ready]);
 
   const handleMessage = (event: { nativeEvent?: { data?: string } }) => {
     try {
