@@ -1,6 +1,35 @@
 import type { authenticate } from "../_shared/auth.ts";
 import { handle, HttpError, json } from "../_shared/http.ts";
-import { readBoundedJson, record, uuid } from "../remote-state/handler.ts";
+
+function record(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function uuid(value: unknown): value is string {
+  return typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+      .test(value);
+}
+
+async function readBoundedJson(
+  request: Request,
+  maxBytes: number,
+): Promise<Record<string, unknown>> {
+  const raw = await request.text();
+  if (new TextEncoder().encode(raw).byteLength > maxBytes) {
+    throw new HttpError(413, "payload_too_large", "Request body is too large.");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new HttpError(400, "invalid_json", "Request body must be valid JSON.");
+  }
+  if (!record(parsed)) {
+    throw new HttpError(400, "invalid_json", "Request body must be a JSON object.");
+  }
+  return parsed;
+}
 
 export interface OtaReleaseSummary {
   releaseId: string;
@@ -29,7 +58,14 @@ const SAFE_ID_RE = /^[A-Za-z0-9._-]{1,128}$/;
 export function isAdminOnlyRelease(release: {
   artifactType?: unknown;
   component?: unknown;
+  channel?: unknown;
 }): boolean {
+  const channel = typeof release.channel === "string"
+    ? release.channel.trim().toLowerCase()
+    : "";
+  if (channel !== "stable") {
+    return true;
+  }
   if (release.artifactType !== "component_release") return false;
   if (typeof release.component !== "string") return false;
   const comp = release.component.trim().toLowerCase();
@@ -458,7 +494,7 @@ export async function handleFirmwareOta(
         throw new HttpError(
           403,
           "firmware_admin_only",
-          "Hardware firmware updates require administrator access.",
+          "This firmware release requires administrator access.",
         );
       }
 

@@ -28,6 +28,17 @@ const SAMPLE_RELEASES = [
     artifactType: "component_release",
     component: "fw-bms",
   },
+  {
+    releaseId: "rel-qa-brainstem-1",
+    version: "0.0.4",
+    sequence: 12,
+    channel: "qa",
+    model: "THUNDER 01",
+    hardwareRevision: "rdk-s100p",
+    artifactSizeBytes: 4_100_000,
+    artifactSha256: "c".repeat(64),
+    artifactType: "brainstem_release",
+  },
 ];
 
 function mockAuth(role: "user" | "admin", owned = true) {
@@ -92,16 +103,19 @@ const mockFetch: typeof fetch = async (input) => {
   return new Response("not found", { status: 404 });
 };
 
-Deno.test("isAdminOnlyRelease gates hardware firmware components", () => {
-  assertEquals(isAdminOnlyRelease({ artifactType: "release_bundle" }), false);
-  assertEquals(isAdminOnlyRelease({ artifactType: "policy_package" }), false);
-  assertEquals(isAdminOnlyRelease({ artifactType: "component_release", component: "voice" }), false);
-  assertEquals(isAdminOnlyRelease({ artifactType: "component_release", component: "fw-esp32" }), true);
-  assertEquals(isAdminOnlyRelease({ artifactType: "component_release", component: "fw-bms" }), true);
-  assertEquals(isAdminOnlyRelease({ artifactType: "component_release", component: "ota" }), true);
+Deno.test("isAdminOnlyRelease gates hardware firmware components and non-stable channels", () => {
+  assertEquals(isAdminOnlyRelease({ artifactType: "release_bundle", channel: "stable" }), false);
+  assertEquals(isAdminOnlyRelease({ artifactType: "policy_package", channel: "stable" }), false);
+  assertEquals(isAdminOnlyRelease({ artifactType: "component_release", component: "voice", channel: "stable" }), false);
+  assertEquals(isAdminOnlyRelease({ artifactType: "brainstem_release", channel: "qa" }), true);
+  assertEquals(isAdminOnlyRelease({ artifactType: "brainstem_release", channel: "dev" }), true);
+  assertEquals(isAdminOnlyRelease({ artifactType: "release_bundle" }), true);
+  assertEquals(isAdminOnlyRelease({ artifactType: "component_release", component: "fw-esp32", channel: "stable" }), true);
+  assertEquals(isAdminOnlyRelease({ artifactType: "component_release", component: "fw-bms", channel: "stable" }), true);
+  assertEquals(isAdminOnlyRelease({ artifactType: "component_release", component: "ota", channel: "stable" }), true);
 });
 
-Deno.test("regular user sees bundle only and is blocked from starting fw-bms", async () => {
+Deno.test("regular user sees stable bundle only and is blocked from starting fw-bms or qa releases", async () => {
   const inspectResp = await handleFirmwareOta(
     new Request("https://api-test.dosorobotics.com/functions/v1/firmware-ota", {
       method: "POST",
@@ -130,9 +144,25 @@ Deno.test("regular user sees bundle only and is blocked from starting fw-bms", a
   assertEquals(startResp.status, 403);
   const errBody = await startResp.json();
   assertEquals(errBody.error.code, "firmware_admin_only");
+
+  const startQaResp = await handleFirmwareOta(
+    new Request("https://api-test.dosorobotics.com/functions/v1/firmware-ota", {
+      method: "POST",
+      body: JSON.stringify({
+        action: "start",
+        deviceId: DEVICE_ID,
+        releaseId: "rel-qa-brainstem-1",
+        idempotencyKey: "k-qa-1",
+      }),
+    }),
+    { authenticate: mockAuth("user"), env: mockEnv, fetch: mockFetch },
+  );
+  assertEquals(startQaResp.status, 403);
+  const errQaBody = await startQaResp.json();
+  assertEquals(errQaBody.error.code, "firmware_admin_only");
 });
 
-Deno.test("admin sees and can start fw-bms hardware release", async () => {
+Deno.test("admin sees stable, qa, and hardware releases and can start fw-bms", async () => {
   const inspectResp = await handleFirmwareOta(
     new Request("https://api-test.dosorobotics.com/functions/v1/firmware-ota", {
       method: "POST",
@@ -143,7 +173,7 @@ Deno.test("admin sees and can start fw-bms hardware release", async () => {
   assertEquals(inspectResp.status, 200);
   const inspectBody = await inspectResp.json();
   assertEquals(inspectBody.isAdmin, true);
-  assertEquals(inspectBody.releases.length, 2);
+  assertEquals(inspectBody.releases.length, 3);
 
   const startResp = await handleFirmwareOta(
     new Request("https://api-test.dosorobotics.com/functions/v1/firmware-ota", {
