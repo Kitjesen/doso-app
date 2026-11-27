@@ -240,6 +240,32 @@ function JoystickVisual({
   const glassTickInset = Math.max(5, Math.round(size * 0.038));
   const glassYawStemLen = Math.max(10, Math.round(size * 0.085));
   const glassYawChevron = Math.max(6, Math.round(size * 0.042));
+  const glassMag = glass && active ? Math.min(1, Math.hypot(value.x, value.y)) : 0;
+  const glassUp = glass && active && axis === 'xy' ? Math.max(0, -value.y) : 0;
+  const glassDown = glass && active && axis === 'xy' ? Math.max(0, value.y) : 0;
+  const glassLeft = glass && active ? Math.max(0, -value.x) : 0;
+  const glassRight = glass && active ? Math.max(0, value.x) : 0;
+  const glassTickMetrics = (weight: number) => {
+    const lit = weight > 0.15;
+    const alpha = lit ? Math.min(1, 0.36 + weight * 0.64) : active ? 0.24 : 0.36;
+    const length = glassTickLen + (lit ? Math.round(weight * glassTickLen * 0.75) : 0);
+    const thickness = weight > 0.4 ? Math.max(2, Math.round(glassStroke * 1.8)) : glassStroke;
+    return { color: `rgba(255,255,255,${alpha.toFixed(2)})`, length, thickness };
+  };
+  const glassYawMetrics = (weight: number) => {
+    const lit = weight > 0.15;
+    const alpha = lit ? Math.min(1, 0.42 + weight * 0.58) : active ? 0.26 : 0.62;
+    const thickness = weight > 0.3 ? Math.max(2, Math.round(glassStroke * 1.6)) : glassStroke;
+    const stemLength = glassYawStemLen + (lit ? Math.round(weight * 4) : 0);
+    const chevronSize = glassYawChevron + (lit ? Math.round(weight * 1.5) : 0);
+    return { color: `rgba(255,255,255,${alpha.toFixed(2)})`, thickness, stemLength, chevronSize };
+  };
+  const tickL = glassTickMetrics(glassLeft);
+  const tickR = glassTickMetrics(glassRight);
+  const tickU = glassTickMetrics(glassUp);
+  const tickD = glassTickMetrics(glassDown);
+  const yawL = glassYawMetrics(glassLeft);
+  const yawR = glassYawMetrics(glassRight);
   const floatingStyle: StyleProp<ViewStyle> = floating && anchor
     ? { left: anchor.x - radius, position: 'absolute', top: anchor.y - radius }
     : undefined;
@@ -269,8 +295,8 @@ function JoystickVisual({
             width: size,
             height: size,
             borderRadius: radius,
-            backgroundColor: !showVisuals ? 'transparent' : glass ? (active ? 'rgba(32,32,32,0.34)' : 'rgba(20,20,20,0.18)') : dial ? isDark ? 'rgba(220,220,220,0.16)' : 'rgba(230,230,230,0.52)' : variant === 'cross' ? 'transparent' : trackColor,
-            borderColor: !showVisuals ? 'transparent' : glass ? 'rgba(255,255,255,0.38)' : dial || variant === 'cross' ? 'transparent' : trackBorderColor,
+            backgroundColor: !showVisuals ? 'transparent' : glass ? (active ? 'rgba(24,26,28,0.28)' : 'rgba(20,20,20,0.18)') : dial ? isDark ? 'rgba(220,220,220,0.16)' : 'rgba(230,230,230,0.52)' : variant === 'cross' ? 'transparent' : trackColor,
+            borderColor: !showVisuals ? 'transparent' : glass ? (active ? `rgba(255,255,255,${(0.42 + glassMag * 0.16).toFixed(2)})` : 'rgba(255,255,255,0.36)') : dial || variant === 'cross' ? 'transparent' : trackBorderColor,
             borderWidth: !showVisuals ? 0 : glass ? glassStroke : dial || variant === 'cross' ? 0 : StyleSheet.hairlineWidth,
             opacity: disabled ? 0.8 : 1,
           },
@@ -282,7 +308,13 @@ function JoystickVisual({
             pointerEvents="none"
             style={[
               styles.glassInnerRing,
-              { width: size * 0.64, height: size * 0.64, borderRadius: size * 0.32, borderWidth: glassStroke },
+              {
+                width: size * 0.64,
+                height: size * 0.64,
+                borderRadius: size * 0.32,
+                borderWidth: glassStroke,
+                borderColor: active ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.18)',
+              },
             ]}
           />
         ) : null}
@@ -296,16 +328,16 @@ function JoystickVisual({
             borderWidth: Math.max(1.5, size * 0.007), borderTopColor: appearance.action
           }]} /> : null}
           {glass ? <>
-            <View pointerEvents="none" style={[styles.glassTickH, { left: glassTickInset, width: glassTickLen, height: glassStroke }]} />
-            <View pointerEvents="none" style={[styles.glassTickH, { right: glassTickInset, width: glassTickLen, height: glassStroke }]} />
-            <View pointerEvents="none" style={[styles.glassTickV, { top: glassTickInset, width: glassStroke, height: glassTickLen }]} />
-            <View pointerEvents="none" style={[styles.glassTickV, { bottom: glassTickInset, width: glassStroke, height: glassTickLen }]} />
+            <View testID={`${testID}-tick-left`} pointerEvents="none" style={[styles.glassTickH, { left: glassTickInset, width: tickL.length, height: tickL.thickness, borderRadius: tickL.thickness / 2, backgroundColor: tickL.color }]} />
+            <View testID={`${testID}-tick-right`} pointerEvents="none" style={[styles.glassTickH, { right: glassTickInset, width: tickR.length, height: tickR.thickness, borderRadius: tickR.thickness / 2, backgroundColor: tickR.color }]} />
+            <View testID={`${testID}-tick-up`} pointerEvents="none" style={[styles.glassTickV, { top: glassTickInset, width: tickU.thickness, height: tickU.length, borderRadius: tickU.thickness / 2, backgroundColor: tickU.color }]} />
+            <View testID={`${testID}-tick-down`} pointerEvents="none" style={[styles.glassTickV, { bottom: glassTickInset, width: tickD.thickness, height: tickD.length, borderRadius: tickD.thickness / 2, backgroundColor: tickD.color }]} />
           </> : null}
           {glass && axis === 'x' ? <>
-            <View pointerEvents="none" style={[styles.glassYawStem, styles.glassYawStemLeft, { width: glassYawStemLen, height: glassStroke }]} />
-            <View pointerEvents="none" style={[styles.glassYawStem, styles.glassYawStemRight, { width: glassYawStemLen, height: glassStroke }]} />
-            <View pointerEvents="none" style={[styles.dialDirection, styles.dialDirectionLeft, { borderColor: 'rgba(255,255,255,0.65)', width: glassYawChevron, height: glassYawChevron, borderTopWidth: glassStroke, borderRightWidth: glassStroke }]} />
-            <View pointerEvents="none" style={[styles.dialDirection, styles.dialDirectionRight, { borderColor: 'rgba(255,255,255,0.65)', width: glassYawChevron, height: glassYawChevron, borderTopWidth: glassStroke, borderRightWidth: glassStroke }]} />
+            <View testID={`${testID}-yaw-left-stem`} pointerEvents="none" style={[styles.glassYawStem, styles.glassYawStemLeft, { width: yawL.stemLength, height: yawL.thickness, borderRadius: yawL.thickness / 2, backgroundColor: yawL.color }]} />
+            <View testID={`${testID}-yaw-right-stem`} pointerEvents="none" style={[styles.glassYawStem, styles.glassYawStemRight, { width: yawR.stemLength, height: yawR.thickness, borderRadius: yawR.thickness / 2, backgroundColor: yawR.color }]} />
+            <View testID={`${testID}-yaw-left-chevron`} pointerEvents="none" style={[styles.dialDirection, styles.dialDirectionLeft, { borderColor: yawL.color, width: yawL.chevronSize, height: yawL.chevronSize, borderTopWidth: yawL.thickness, borderRightWidth: yawL.thickness }]} />
+            <View testID={`${testID}-yaw-right-chevron`} pointerEvents="none" style={[styles.dialDirection, styles.dialDirectionRight, { borderColor: yawR.color, width: yawR.chevronSize, height: yawR.chevronSize, borderTopWidth: yawR.thickness, borderRightWidth: yawR.thickness }]} />
           </> : null}
           {!glass ? <>
             <View style={[styles.dialDirection, styles.dialDirectionLeft, { borderColor: dialDirectionColor }]} />
@@ -328,9 +360,9 @@ function JoystickVisual({
               width: knobSize,
               height: knobSize,
               borderRadius: knobSize / 2,
-              backgroundColor: glass ? (active ? 'rgba(242,242,242,0.36)' : 'rgba(242,242,242,0.12)') : dial ? active ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.76)' : knobColor,
-              borderColor: glass ? 'rgba(255,255,255,0.56)' : dial ? 'rgba(255,255,255,0.7)' : active ? appearance.blueInk : appearance.border,
-              borderWidth: glass ? 1 : dial ? 0.5 : StyleSheet.hairlineWidth,
+              backgroundColor: glass ? (active ? `rgba(255,255,255,${(0.32 + glassMag * 0.22).toFixed(2)})` : 'rgba(242,242,242,0.12)') : dial ? active ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.76)' : knobColor,
+              borderColor: glass ? (active ? `rgba(255,255,255,${(0.76 + glassMag * 0.20).toFixed(2)})` : 'rgba(255,255,255,0.54)') : dial ? 'rgba(255,255,255,0.7)' : active ? appearance.blueInk : appearance.border,
+              borderWidth: glass ? (active ? Math.max(1.5, Math.round(glassStroke * 1.4 * 10) / 10) : glassStroke) : dial ? 0.5 : StyleSheet.hairlineWidth,
               transform: [
                 { translateX: thumbX },
                 { translateY: thumbY },
@@ -339,7 +371,7 @@ function JoystickVisual({
           ]}
         >
           {!dial ? <View style={[styles.thumbRing, { borderColor: active ? 'rgba(255,255,255,0.42)' : colors.line }]} /> : null}
-          {dial && active ? <Text testID={`${testID}-value`} style={[styles.dialValue, { color: '#214F71' }]}>{Math.round(Math.min(1, Math.hypot(value.x, value.y)) * 100)}%</Text>
+          {!glass && dial && active ? <Text testID={`${testID}-value`} style={[styles.dialValue, { color: '#214F71' }]}>{Math.round(Math.min(1, Math.hypot(value.x, value.y)) * 100)}%</Text>
             : !dial ? <View style={[styles.thumbCenter, { backgroundColor: active ? '#FFFFFF' : appearance.blueInk }]} /> : null}
         </View> : null}
       </View>
