@@ -840,7 +840,7 @@ export function StatusBentoCard({
     </View>
   );
 
-  const cardShellWidth = floating ? Math.min(656, effectiveWidth) : undefined;
+  const cardShellWidth = floating ? Math.min(720, effectiveWidth) : undefined;
   const cardShellMaxHeight = floating && typeof maxHeight === 'number' ? maxHeight : undefined;
 
   return (
@@ -928,7 +928,8 @@ export function StatusBentoCard({
         <ScrollView
           bounces={false}
           contentContainerStyle={styles.floatingBodyScroll}
-          showsVerticalScrollIndicator={false}
+          nestedScrollEnabled
+          showsVerticalScrollIndicator
         >
           {bentoColumns}
         </ScrollView>
@@ -1473,33 +1474,33 @@ const styles = StyleSheet.create({
   },
   matrixColLabel: {
     flex: 1,
-    fontSize: 9.5,
-    fontWeight: '500',
-    lineHeight: 12,
+    fontSize: 10.5,
+    fontWeight: '600',
+    lineHeight: 14,
     textAlign: 'center',
   },
   matrixRows: {
-    gap: 4,
+    gap: 5,
   },
   matrixRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 4,
+    gap: 5,
   },
   matrixLegLabel: {
-    fontSize: 10.5,
+    fontSize: 11.5,
     fontWeight: '600',
-    lineHeight: 14,
+    lineHeight: 15,
   },
   matrixCell: {
     alignItems: 'center',
-    borderRadius: 7,
+    borderRadius: 8,
     borderWidth: 1,
     flex: 1,
-    height: 30,
+    height: 36,
     justifyContent: 'center',
     minWidth: 0,
-    paddingHorizontal: 5,
+    paddingHorizontal: 6,
   },
   matrixCellOffline: {
     alignItems: 'center',
@@ -1508,22 +1509,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   cellOfflineDash: {
-    fontSize: 10.5,
+    fontSize: 11,
     fontVariant: ['tabular-nums'],
     fontWeight: '500',
-    lineHeight: 13,
+    lineHeight: 14,
   },
   matrixCellLive: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 3,
+    gap: 4,
     justifyContent: 'space-between',
     width: '100%',
   },
   cellDot: {
-    borderRadius: 2.5,
-    height: 5,
-    width: 5,
+    borderRadius: 3,
+    height: 6,
+    width: 6,
   },
   runningDotOnly: {
     borderRadius: 4,
@@ -1531,20 +1532,20 @@ const styles = StyleSheet.create({
     width: 8,
   },
   cellTemp: {
-    fontSize: 10.5,
+    fontSize: 11.5,
     fontVariant: ['tabular-nums'],
     fontWeight: '700',
-    lineHeight: 13,
+    lineHeight: 15,
   },
   cellPos: {
-    fontSize: 9,
+    fontSize: 10,
     fontVariant: ['tabular-nums'],
-    lineHeight: 11,
+    lineHeight: 13,
   },
   cellStateText: {
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: '600',
-    lineHeight: 13,
+    lineHeight: 14,
   },
 
   /* Bottom 6-Column Strip */
@@ -1553,25 +1554,25 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     flexDirection: 'row',
-    height: 38,
+    height: 44,
     justifyContent: 'space-between',
     paddingHorizontal: 10,
   },
   stripCell: {
     flex: 1,
-    gap: 1,
+    gap: 2,
     minWidth: 0,
   },
   stripLabel: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '500',
-    lineHeight: 11,
+    lineHeight: 13,
   },
   stripValue: {
-    fontSize: 11,
+    fontSize: 12,
     fontVariant: ['tabular-nums'],
     fontWeight: '600',
-    lineHeight: 14,
+    lineHeight: 15,
   },
 
   /* Standalone Empty & Collapsible Full Motor List */

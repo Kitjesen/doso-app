@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
-import { Animated, Image, Platform, Pressable, ScrollView, StyleSheet, View, type LayoutChangeEvent, type ViewStyle } from 'react-native';
+import { Animated, Platform, Pressable, ScrollView, StyleSheet, View, type LayoutChangeEvent, type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Text } from './AppText';
@@ -10,7 +10,8 @@ import type {
 import type { ControlAccentTone, StandbySceneId } from '../features/control/controlPreferences';
 import { ControlHudDashboard } from './ControlHudDashboard';
 import { BodyHeightPanel, FaultListPanel, GestureDeckPanel, JointParametersPanel, JointTemperaturePanel } from './ControlHudPanels';
-import { getStandbySceneAsset, normalizeStandbyScene } from './standbyScenes';
+import { normalizeStandbyScene } from './standbyScenes';
+import { StandbyScene3D, type StandbyDriveInput } from './StandbyScene3D';
 import {
   collectHudFaults,
   HUD_BASIC_ACTIONS,
@@ -208,57 +209,9 @@ export type ControlLandscapeHudProps = Readonly<{
   safeInsets?: LandscapeSafeInsets;
   previewSafeAreaGuides?: boolean;
   standbyScene?: StandbySceneId;
+  standbyDriveInput?: StandbyDriveInput | null;
   accentTone?: ControlAccentTone;
 }>;
-
-function StandbySceneBackdrop({ scene }: { scene: StandbySceneId }) {
-  const normalized = normalizeStandbyScene(scene);
-  const [prevScene, setPrevScene] = useState<StandbySceneId | null>(null);
-  const activeRef = useRef<StandbySceneId>(normalized);
-  const fade = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    if (normalized === activeRef.current) return;
-    const outgoing = activeRef.current;
-    activeRef.current = normalized;
-    setPrevScene(outgoing);
-    fade.setValue(0);
-    if (typeof Animated.timing === 'function') {
-      Animated.timing(fade, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: Platform?.OS !== 'web',
-      }).start(({ finished }) => {
-        if (finished) setPrevScene(null);
-      });
-    } else {
-      fade.setValue(1);
-      setPrevScene(null);
-    }
-  }, [fade, normalized]);
-
-  return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      {prevScene ? (
-        <Image
-          accessibilityIgnoresInvertColors
-          resizeMode="cover"
-          source={getStandbySceneAsset(prevScene)}
-          style={[StyleSheet.absoluteFill, styles.standbySceneImg]}
-        />
-      ) : null}
-      <Animated.View style={[StyleSheet.absoluteFill, styles.standbySceneImg, { opacity: fade }]}>
-        <Image
-          accessibilityIgnoresInvertColors
-          resizeMode="cover"
-          source={getStandbySceneAsset(normalized)}
-          style={[StyleSheet.absoluteFill, styles.standbySceneImg]}
-        />
-      </Animated.View>
-      <View pointerEvents="none" style={styles.standbySceneTint} />
-    </View>
-  );
-}
 
 function SafeAreaGuides({ insets }: { insets: LandscapeSafeInsets }) {
   return (
@@ -649,7 +602,8 @@ export function controlLandscapeHud({
   recovery,
   safeInsets,
   previewSafeAreaGuides,
-  standbyScene = 'charcoal',
+  standbyScene = 'forest',
+  standbyDriveInput = null,
   accentTone = 'graphite',
 }: ControlLandscapeHudProps) {
   const connection = connectionState ?? (connectionLabel === '已连接' ? 'connected' : connectionLabel.includes('只读') ? 'readonly' : 'disconnected');
@@ -659,6 +613,7 @@ export function controlLandscapeHud({
   const activeMainFeed = showMainFront ? (hasFrontVideo ? video : null) : (hasRearVideo ? rearVideo : null);
   const activeMainFeedReceiving = showMainFront ? videoReceiving : rearVideoReceiving;
   const secondaryPipFeed = showMainFront ? (hasRearVideo ? rearVideo : null) : (hasFrontVideo ? video : null);
+  const secondaryPipReceiving = showMainFront ? rearVideoReceiving : videoReceiving;
   const insets = {
     top: Math.max(0, safeInsets?.top ?? 0),
     right: Math.max(0, safeInsets?.right ?? 0),
@@ -717,15 +672,17 @@ export function controlLandscapeHud({
   const actionModalTop = topBarClearance + sp(4);
   const actionModalBottom = bottomBarClearance;
   const availableActionH = Math.max(148, effectiveStageH - actionModalTop - actionModalBottom);
-  const feedbackMaxW = Math.min(320, Math.max(180, Math.round(effectiveStageW * 0.38)));
-  const topToastTop = topBarClearance + (speedLimitExpanded ? sp(40) : sp(4));
+  const topBarHeight = topBarClearance + sp(4);
+  const noticeStackTop = topBarClearance + sp(8);
   // Keep gesture grid cleanly inside the available vertical band across 360dp..720dp+ viewports.
   const gestureMaxListHeight = Math.max(
     108,
     Math.min(effectiveStageH >= 620 ? 234 : effectiveStageH >= 500 ? 194 : 154, availableActionH - sp(92)),
   );
   const voiceWingCompactTelemetry = Boolean(voiceChatOpen && voiceChatPanel) && (shortStage || compactStage);
-  const voiceWingTop = voiceWingCompactTelemetry ? edgeTop + sp(84) : edgeTop + sp(136);
+  const voiceWingTop = voiceWingCompactTelemetry
+    ? Math.max(92, edgeTop + sp(104))
+    : Math.max(138, edgeTop + sp(142));
   const voiceWingBottom = bottomBarClearance;
   const voiceWingWidth = Math.min(
     340,
@@ -736,7 +693,6 @@ export function controlLandscapeHud({
   const dockPadX = ultraNarrowStage ? 4 : narrowStage ? 5 : compactStage ? 6 : sp(10);
   const camPadX = ultraNarrowStage ? 5 : narrowStage ? 4 : compactStage ? 5 : sp(7);
   const showCameraLabels = !ultraNarrowStage;
-  const topCenterGuardX = Math.max(edgeX, Math.round(effectiveStageW * (effectiveStageW < 590 ? 0.20 : 0.24)));
 
   const faults = collectHudFaults({ runtimeState, sessionError, recoveryError });
   const alertBanner = deriveHudAlertBanner({ faults, joints, voltageV, batteryPercent });
@@ -757,8 +713,43 @@ export function controlLandscapeHud({
     ];
   const hasVoiceOverlay = Boolean(voiceChatOpen && voiceChatPanel);
   const anyFloatingPanel = (faultPanelOpen && faults.length > 0) || jointParamsOpen || jointTempOpen || bodyHeightPanelOpen || Boolean(recovery);
-  const hideSticksForOverlay = Boolean(settingsMenu || statusCardOpen || leftCategory === 'action' || hasVoiceOverlay || anyFloatingPanel || !joystick);
+  const centerModalOpen = Boolean(settingsMenu || statusCardOpen || leftCategory === 'action' || anyFloatingPanel);
+  const leftTelemetryVisible = !settingsMenu && !statusCardOpen && leftCategory !== 'action' && !(narrowStage && anyFloatingPanel);
+  const pipVisible = dualCameraEnabled && !settingsMenu && !statusCardOpen && leftCategory !== 'action' && !(narrowStage && anyFloatingPanel);
+  const hideSticksForOverlay = Boolean(centerModalOpen || hasVoiceOverlay || !joystick);
   const suppressEmptyVideo = anyFloatingPanel || hasVoiceOverlay || leftCategory !== 'policy' || Boolean(settingsMenu) || statusCardOpen;
+  const showAlertBanner = Boolean(alertBanner && !centerModalOpen && !confirmation && leftCategory === 'policy');
+  const duplicateFaultFeedback = Boolean(
+    showAlertBanner
+    && alertBanner?.kind === 'fault'
+    && feedback
+    && (feedback === alertBanner.text || feedback === '设备故障，请检查设备状态' || feedback === '请检查电机故障'),
+  );
+  const visibleFeedback = duplicateFaultFeedback ? null : feedback;
+  const noticeLeftObstacle = hasVoiceOverlay
+    ? voiceWingWidth + sp(8)
+    : leftTelemetryVisible
+      ? Math.min(228, Math.round(effectiveStageW * (ultraNarrowStage ? 0.34 : 0.30)))
+      : edgeX;
+  const noticeRightObstacle = pipVisible ? edgeX + pipW + sp(8) : edgeX;
+  const symmetricNoticeHalf = Math.max(
+    0,
+    Math.min(effectiveStageW / 2 - noticeLeftObstacle, effectiveStageW / 2 - noticeRightObstacle),
+  );
+  const noticeLaneLeft = symmetricNoticeHalf >= 110
+    ? Math.max(edgeX, Math.round(effectiveStageW / 2 - symmetricNoticeHalf))
+    : Math.max(edgeX, noticeLeftObstacle);
+  const noticeLaneRight = symmetricNoticeHalf >= 110
+    ? Math.max(edgeX, Math.round(effectiveStageW / 2 - symmetricNoticeHalf))
+    : Math.max(edgeX, noticeRightObstacle);
+  const noticeLaneAvailW = Math.max(160, effectiveStageW - noticeLaneLeft - noticeLaneRight);
+  const feedbackMaxW = Math.min(320, Math.max(160, Math.min(noticeLaneAvailW, Math.round(effectiveStageW * 0.42))));
+  const alertBannerMaxW = Math.min(268, Math.max(160, noticeLaneAvailW));
+  const leftRow1Reserve = leftTelemetryVisible ? (ultraNarrowStage ? 142 : narrowStage ? 156 : 172) : 0;
+  const speedBarTop = Math.min(
+    effectiveStageH - bottomBarClearance - sp(40),
+    edgeTop + (shortStage ? 126 : compactStage ? 136 : sp(150)),
+  );
 
   const activeHeightBadgeText = bodyHeight?.active && bodyHeight.supported
     && typeof bodyHeight.currentHeightM === 'number' && Number.isFinite(bodyHeight.currentHeightM) && bodyHeight.currentHeightM > 0
@@ -808,12 +799,29 @@ export function controlLandscapeHud({
     ? robotName
     : '机器狗 Wi-Fi';
 
+  const standby3dInteractive = !activeMainFeedReceiving
+    && !settingsMenu
+    && !statusCardOpen
+    && !confirmation
+    && leftCategory !== 'action';
+  const standbyBodyHeightM = bodyHeightDraftM ?? bodyHeight?.currentHeightM ?? null;
+
   return (
     <View style={styles.root} testID="control-landscape-hud" pointerEvents="box-none">
       <View pointerEvents="none" style={styles.backdrop} testID="control-video-backdrop" />
       {!activeMainFeedReceiving ? (
-        <View pointerEvents="none" style={styles.standbySceneLayer} testID={`control-hud-standby-scene-${normalizeStandbyScene(standbyScene)}`}>
-          <StandbySceneBackdrop scene={standbyScene} />
+        <View
+          pointerEvents={standby3dInteractive ? 'auto' : 'none'}
+          style={styles.standbySceneLayer}
+          testID={`control-hud-standby-scene-${normalizeStandbyScene(standbyScene)}`}
+        >
+          <StandbyScene3D
+            accentTone={accentTone}
+            bodyHeightM={standbyBodyHeightM}
+            driveInput={standbyDriveInput}
+            interactive={standby3dInteractive}
+            scene={standbyScene}
+          />
         </View>
       ) : null}
       {activeMainFeed ? (
@@ -842,31 +850,6 @@ export function controlLandscapeHud({
         >
           {joystick}
         </View>
-        {/* Subtle non-blocking video status badge (never covers the 3D standby robot silhouette) */}
-        {!activeMainFeedReceiving ? (
-          <View
-            pointerEvents="none"
-            style={[
-              styles.emptyVideo,
-              { paddingHorizontal: topCenterGuardX, top: edgeTop + sp(4) },
-              suppressEmptyVideo && styles.emptyVideoHidden,
-            ]}
-            testID={showMainFront ? 'control-hud-video-empty' : 'control-hud-rear-video-empty'}
-            accessibilityLiveRegion="polite"
-          >
-            <View style={[styles.emptyChip, { borderRadius: sp(8), paddingHorizontal: sp(10), paddingVertical: sp(4) }]}>
-              <Text numberOfLines={1} style={[styles.emptyTitle, { fontSize: fMeta, lineHeight: fMetaLine }]}>
-                {showMainFront
-                  ? activeMainFeed
-                    ? '连接画面中'
-                    : (connection === 'disconnected' ? '未连接' : '等待画面')
-                  : activeMainFeed
-                    ? '连接画面中'
-                    : '无后视画面'}
-              </Text>
-            </View>
-          </View>
-        ) : null}
 
         {pointCloud && !settingsMenu && !statusCardOpen ? (
           <View
@@ -889,20 +872,36 @@ export function controlLandscapeHud({
           >
             {depthActive && depthPreview ? (
               <View pointerEvents="none" style={StyleSheet.absoluteFill}>{depthPreview}</View>
-            ) : secondaryPipFeed ? (
-              <View pointerEvents="none" style={StyleSheet.absoluteFill}>{secondaryPipFeed}</View>
             ) : (
-              <View pointerEvents="none" style={[styles.pipPlaceholder, { gap: sp(4) }]} testID="control-hud-pip-placeholder">
-                <Ionicons color={MUTED} name="videocam-off-outline" size={sp(18)} />
-              </View>
+              <>
+                {secondaryPipFeed ? (
+                  <View pointerEvents="none" style={[StyleSheet.absoluteFill, !secondaryPipReceiving && styles.mediaBuffering]}>
+                    {secondaryPipFeed}
+                  </View>
+                ) : null}
+                {!secondaryPipReceiving ? (
+                  <View pointerEvents="none" style={[styles.pipPlaceholder, { gap: sp(4) }]} testID="control-hud-pip-placeholder">
+                    <Ionicons color={MUTED} name="videocam-off-outline" size={sp(16)} />
+                  </View>
+                ) : null}
+              </>
             )}
-            <View pointerEvents="none" style={[styles.pipHeaderRow, { left: sp(8), top: sp(8) }]}>
-              <View style={[styles.pipBadge, { borderRadius: sp(6), paddingHorizontal: sp(7), paddingVertical: sp(2) }]}>
+            <View pointerEvents="none" style={[styles.pipHeaderRow, { left: sp(6), top: sp(6) }]}>
+              <View style={[styles.pipBadge, { borderRadius: sp(6), paddingHorizontal: sp(6), paddingVertical: sp(2) }]}>
                 <Text numberOfLines={1} style={[styles.pipBadgeText, { fontSize: fMeta, lineHeight: fMetaLine }]}>
                   {depthActive ? '深度图 ⇄' : showMainFront ? (hasDedicatedRearCamera === false ? '副视窗 ⇄' : '后广角 ⇄') : '前视角 ⇄'}
                 </Text>
               </View>
             </View>
+            {!depthActive && !secondaryPipReceiving ? (
+              <View pointerEvents="none" style={[styles.pipFooterRow, { bottom: sp(5), right: sp(6) }]}>
+                <View style={[styles.pipBadge, { borderRadius: sp(5), paddingHorizontal: sp(5), paddingVertical: sp(1.5) }]}>
+                  <Text numberOfLines={1} style={[styles.pipFooterText, { fontSize: Math.max(9, sp(9.5)), lineHeight: sp(12) }]}>
+                    {secondaryPipFeed ? '连接中' : '未连接'}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
           </Pressable>
         ) : null}
 
@@ -1595,75 +1594,7 @@ export function controlLandscapeHud({
           </View>
         ) : null}
 
-        {/* Proactive Non-Blocking Top-Center Alert Pill (Fault > Overheat > Low Battery) */}
-        {alertBanner && !settingsMenu && !statusCardOpen && leftCategory === 'policy' && !anyFloatingPanel ? (
-          <View
-            pointerEvents="box-none"
-            style={[
-              styles.alertBannerLane,
-              {
-                paddingHorizontal: topCenterGuardX,
-                top: !activeMainFeedReceiving && !suppressEmptyVideo ? edgeTop + sp(30) : edgeTop + sp(4),
-              },
-            ]}
-          >
-            <View
-              style={[
-                styles.alertBannerPill,
-                alertBanner.severity === 'critical' ? styles.alertBannerCritical : styles.alertBannerWarning,
-                { borderRadius: sp(10), gap: sp(6), maxWidth: Math.min(268, Math.round(effectiveStageW * 0.44)), paddingHorizontal: sp(10), paddingVertical: sp(4) },
-              ]}
-              testID="control-hud-alert-banner"
-            >
-              <Pressable
-                accessibilityLabel={`${alertBanner.text}，查看设备状态`}
-                accessibilityRole="button"
-                onPress={onToggleStatusCard ?? onOpenJointStatus}
-                style={({ pressed }) => [styles.alertBannerMain, { gap: sp(5) }, pressed && styles.pressed]}
-                testID="control-hud-alert-open-status"
-              >
-                <View
-                  style={[
-                    styles.alertBannerDot,
-                    { backgroundColor: alertBanner.severity === 'critical' ? RED_ESTOP : '#F59E0B' },
-                  ]}
-                />
-                <Text
-                  numberOfLines={1}
-                  style={[
-                    styles.alertBannerText,
-                    {
-                      color: alertBanner.severity === 'critical' ? '#FCA5A5' : '#F59E0B',
-                      fontSize: fMeta,
-                      lineHeight: fMetaLine,
-                    },
-                  ]}
-                >
-                  {alertBanner.text}
-                </Text>
-              </Pressable>
-              {alertBanner.canClearFault && clearFaultReady && onClearFault ? (
-                <Pressable
-                  accessibilityLabel="清除故障"
-                  accessibilityRole="button"
-                  onPress={onClearFault}
-                  style={({ pressed }) => [
-                    styles.alertClearBtn,
-                    { borderRadius: sp(6), paddingHorizontal: sp(7), paddingVertical: sp(1.5) },
-                    pressed && styles.pressed,
-                  ]}
-                  testID="control-hud-alert-clear"
-                >
-                  <Text numberOfLines={1} style={[styles.alertClearText, { fontSize: Math.max(10, sp(10.5)), lineHeight: sp(14) }]}>
-                    清除
-                  </Text>
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-        ) : null}
-
-        {/* Floating Speed Limit Adjuster Popover (zIndex 9 / elevation 9, bounded inside viewport) */}
+        {/* Floating Speed Limit Adjuster Popover (zIndex 9 / elevation 9, bounded strictly below Row 4 speed sign) */}
         {speedLimitExpanded && !settingsMenu && !statusCardOpen && !hasVoiceOverlay && !anyFloatingPanel && leftCategory === 'policy' ? (
           <View
             style={[
@@ -1674,7 +1605,7 @@ export function controlLandscapeHud({
                 left: edgeX,
                 maxWidth: effectiveStageW - edgeX * 2,
                 paddingHorizontal: sp(12),
-                top: Math.min(effectiveStageH - bottomBarClearance - sp(40), edgeTop + (shortStage ? sp(132) : sp(142))),
+                top: speedBarTop,
               },
             ]}
             testID="control-hud-speed-limit-bar"
@@ -1748,7 +1679,7 @@ export function controlLandscapeHud({
 
         {/* Floating Joint Params / Joint Temp / Body Height / Faults / Recovery */}
         {anyFloatingPanel && !settingsMenu && !statusCardOpen ? (
-          <View pointerEvents="box-none" style={[styles.floatingPanelsOverlay, { bottom: bottomBarClearance, top: topBarClearance + (feedback ? sp(34) : 0) + (hudNotice ? sp(34) : 0), transform: [{ translateX: -Math.round(overlayW / 2) }], width: overlayW }]} testID="control-hud-overlay-stack">
+          <View pointerEvents="box-none" style={[styles.floatingPanelsOverlay, { bottom: bottomBarClearance, top: topBarClearance + sp(4), transform: [{ translateX: -Math.round(overlayW / 2) }], width: overlayW }]} testID="control-hud-overlay-stack">
             <ScrollView
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.floatingPanelsContent}
@@ -1920,28 +1851,177 @@ export function controlLandscapeHud({
             {settingsMenu}
           </View>
         ) : null}
-        {feedback || hudNotice ? (
-          <View pointerEvents="none" style={[styles.toastLane, { gap: sp(6), top: topToastTop }]}>
-            {feedback ? (
-              <View pointerEvents="none" style={[styles.feedback, { borderRadius: sp(10), maxWidth: feedbackMaxW, paddingHorizontal: sp(14), paddingVertical: sp(6) }]} testID="control-operation-feedback">
-                <Text numberOfLines={2} style={[styles.feedbackText, { fontSize: fBody, lineHeight: fBodyLine }]}>{feedback}</Text>
+        {/* Unified Non-Overlapping Notification Corridor:
+            - Driving HUD: single flex column strictly below topBarClearance & horizontally clear of left telemetry / voice wing / right PiP.
+            - Modal / Floating Panel Open: active transient toasts anchor cleanly at bottom-center without obscuring modal headers or jumping panels. */}
+        {!centerModalOpen ? (
+          (showAlertBanner || (visibleFeedback && !confirmation) || (hudNotice && !confirmation) || !activeMainFeedReceiving) ? (
+            <View
+              pointerEvents="box-none"
+              style={[
+                styles.toastLane,
+                {
+                  gap: sp(5),
+                  left: noticeLaneLeft,
+                  right: noticeLaneRight,
+                  top: noticeStackTop,
+                },
+              ]}
+              testID="control-hud-notice-stack"
+            >
+              {showAlertBanner && alertBanner ? (
+                <View
+                  style={[
+                    styles.alertBannerPill,
+                    alertBanner.severity === 'critical' ? styles.alertBannerCritical : styles.alertBannerWarning,
+                    { borderRadius: sp(10), gap: sp(6), maxWidth: alertBannerMaxW, paddingHorizontal: sp(10), paddingVertical: sp(4) },
+                  ]}
+                  testID="control-hud-alert-banner"
+                >
+                  <Pressable
+                    accessibilityLabel={`${alertBanner.text}，查看设备状态`}
+                    accessibilityRole="button"
+                    onPress={onToggleStatusCard ?? onOpenJointStatus}
+                    style={({ pressed }) => [styles.alertBannerMain, { gap: sp(5) }, pressed && styles.pressed]}
+                    testID="control-hud-alert-open-status"
+                  >
+                    <View
+                      style={[
+                        styles.alertBannerDot,
+                        { backgroundColor: alertBanner.severity === 'critical' ? RED_ESTOP : '#F59E0B' },
+                      ]}
+                    />
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.alertBannerText,
+                        {
+                          color: alertBanner.severity === 'critical' ? '#FCA5A5' : '#F59E0B',
+                          fontSize: fMeta,
+                          lineHeight: fMetaLine,
+                        },
+                      ]}
+                    >
+                      {alertBanner.text}
+                    </Text>
+                  </Pressable>
+                  {alertBanner.canClearFault && clearFaultReady && onClearFault ? (
+                    <Pressable
+                      accessibilityLabel="清除故障"
+                      accessibilityRole="button"
+                      onPress={onClearFault}
+                      style={({ pressed }) => [
+                        styles.alertClearBtn,
+                        { borderRadius: sp(6), paddingHorizontal: sp(7), paddingVertical: sp(1.5) },
+                        pressed && styles.pressed,
+                      ]}
+                      testID="control-hud-alert-clear"
+                    >
+                      <Text numberOfLines={1} style={[styles.alertClearText, { fontSize: Math.max(10, sp(10.5)), lineHeight: sp(14) }]}>
+                        清除
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : null}
+              {visibleFeedback && !confirmation ? (
+                <View pointerEvents="none" style={[styles.feedback, { borderRadius: sp(10), maxWidth: feedbackMaxW, paddingHorizontal: sp(14), paddingVertical: sp(6) }]} testID="control-operation-feedback">
+                  <Text numberOfLines={2} style={[styles.feedbackText, { fontSize: fBody, lineHeight: fBodyLine }]}>{visibleFeedback}</Text>
+                </View>
+              ) : null}
+              {hudNotice && !confirmation ? (
+                <View pointerEvents="none" style={[styles.feedback, { borderRadius: sp(10), maxWidth: feedbackMaxW, paddingHorizontal: sp(14), paddingVertical: sp(6) }]} testID="control-hud-notice">
+                  <Text numberOfLines={2} style={[styles.feedbackText, { fontSize: fBody, lineHeight: fBodyLine }]}>{hudNotice}</Text>
+                </View>
+              ) : null}
+              {!activeMainFeedReceiving ? (
+                <View
+                  pointerEvents="none"
+                  style={[
+                    styles.emptyVideoInline,
+                    styles.emptyVideoHidden,
+                  ]}
+                  testID={showMainFront ? 'control-hud-video-empty' : 'control-hud-rear-video-empty'}
+                  accessibilityLiveRegion="polite"
+                >
+                  <View style={[styles.emptyChip, { borderRadius: sp(8), paddingHorizontal: sp(10), paddingVertical: sp(3.5) }]}>
+                    <Text numberOfLines={1} style={[styles.emptyTitle, { fontSize: fMeta, lineHeight: fMetaLine }]}>
+                      {showMainFront
+                        ? activeMainFeed
+                          ? '连接画面中'
+                          : (connection === 'disconnected' ? '未连接' : '等待画面')
+                        : activeMainFeed
+                          ? '连接画面中'
+                          : '无后视画面'}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+            </View>
+          ) : null
+        ) : (
+          <>
+            {!activeMainFeedReceiving ? (
+              <View
+                pointerEvents="none"
+                style={styles.emptyVideoHidden}
+                testID={showMainFront ? 'control-hud-video-empty' : 'control-hud-rear-video-empty'}
+                accessibilityLiveRegion="polite"
+              >
+                <View style={styles.emptyChip}>
+                  <Text numberOfLines={1} style={styles.emptyTitle}>
+                    {showMainFront
+                      ? activeMainFeed
+                        ? '连接画面中'
+                        : (connection === 'disconnected' ? '未连接' : '等待画面')
+                      : activeMainFeed
+                        ? '连接画面中'
+                        : '无后视画面'}
+                  </Text>
+                </View>
               </View>
             ) : null}
-            {hudNotice ? (
-              <View pointerEvents="none" style={[styles.feedback, { borderRadius: sp(10), maxWidth: feedbackMaxW, paddingHorizontal: sp(14), paddingVertical: sp(6) }]} testID="control-hud-notice">
-                <Text numberOfLines={2} style={[styles.feedbackText, { fontSize: fBody, lineHeight: fBodyLine }]}>{hudNotice}</Text>
+            {(visibleFeedback || hudNotice) && !confirmation ? (
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.toastLaneBottom,
+                  {
+                    bottom: settingsMenu ? (shortStage ? 10 : sp(16)) : bottomBarClearance + sp(6),
+                    gap: sp(5),
+                    left: edgeX,
+                    right: edgeX,
+                  },
+                ]}
+                testID="control-hud-notice-stack"
+              >
+                {visibleFeedback ? (
+                  <View pointerEvents="none" style={[styles.feedback, { borderRadius: sp(10), maxWidth: Math.min(340, effectiveStageW - edgeX * 2), paddingHorizontal: sp(14), paddingVertical: sp(6) }]} testID="control-operation-feedback">
+                    <Text numberOfLines={2} style={[styles.feedbackText, { fontSize: fBody, lineHeight: fBodyLine }]}>{visibleFeedback}</Text>
+                  </View>
+                ) : null}
+                {hudNotice ? (
+                  <View pointerEvents="none" style={[styles.feedback, { borderRadius: sp(10), maxWidth: Math.min(340, effectiveStageW - edgeX * 2), paddingHorizontal: sp(14), paddingVertical: sp(6) }]} testID="control-hud-notice">
+                    <Text numberOfLines={2} style={[styles.feedbackText, { fontSize: fBody, lineHeight: fBodyLine }]}>{hudNotice}</Text>
+                  </View>
+                ) : null}
               </View>
             ) : null}
-          </View>
-        ) : null}
+          </>
+        )}
         {confirmation}
         {/* Top-Right Bare Floating HUD Band (rendered LAST at zIndex 24 / elevation 24, height-bounded to top strip so E-Stop is ALWAYS unobstructed & tappable) */}
-        <View pointerEvents="box-none" style={[styles.topStatusBarLayer, { height: topBarClearance + sp(14) }]} testID="control-hud-status-bar">
+        <View pointerEvents="box-none" style={[styles.topStatusBarLayer, { height: topBarHeight }]} testID="control-hud-status-bar">
           <View
             pointerEvents="box-none"
             style={[
               styles.topRightCluster,
-              { gap: ultraNarrowStage ? 5 : narrowStage ? 7 : compactStage ? 9 : sp(12), maxWidth: effectiveStageW - edgeX * 2, right: edgeX, top: edgeTop },
+              {
+                gap: ultraNarrowStage ? 4 : narrowStage ? 6 : compactStage ? 7 : sp(11),
+                maxWidth: Math.max(200, effectiveStageW - edgeX * 2 - leftRow1Reserve),
+                right: edgeX,
+                top: edgeTop,
+              },
             ]}
             testID="control-telemetry"
           >
@@ -1966,7 +2046,7 @@ export function controlLandscapeHud({
               <Text numberOfLines={1} style={[styles.bareTextStrong, { fontSize: fBody, lineHeight: fBodyLine, maxWidth: effectiveStageW < 590 ? 64 : ultraNarrowStage ? 78 : narrowStage ? 84 : compactStage ? 96 : 124 }]}>
                 {wifiHeaderLabel}
               </Text>
-              {connection !== 'disconnected' && !ultraNarrowStage ? (
+              {connection !== 'disconnected' && !ultraNarrowStage && !(narrowStage && (recordingActive || faults.length > 0)) ? (
                 <Text numberOfLines={1} style={[styles.bareTextMuted, { fontSize: fMeta, lineHeight: fMetaLine }]}>
                   {connectionLabel}
                 </Text>
@@ -2032,19 +2112,56 @@ export function controlLandscapeHud({
               </View>
             ) : null}
 
-            {/* Bare Floating Live Power & Thermal Telemetry (e.g. 55.4V · 36°C) — toggles floating Status Bento Card */}
+            {/* Prominent Frosted Status Card Trigger (状态 · 55.4V · 36°C ▾) — toggles floating Status Bento Card */}
             <Pressable
-              accessibilityLabel={`机器人状态 ${statusMetricText}`}
+              accessibilityLabel={`设备状态 ${statusMetricText}`}
               accessibilityRole="button"
               accessibilityState={{ expanded: statusCardOpen }}
               onPress={onToggleStatusCard ?? onOpenJointStatus ?? onBack}
-              style={({ pressed }) => [styles.bareTopItem, { gap: sp(4), minHeight: sp(28) }, pressed && styles.pressed]}
+              style={({ pressed }) => [
+                styles.statusEntryPill,
+                {
+                  borderRadius: sp(14),
+                  gap: sp(4),
+                  minHeight: sp(28),
+                  paddingHorizontal: ultraNarrowStage ? sp(7) : sp(9),
+                  paddingVertical: sp(3),
+                },
+                statusCardOpen && { backgroundColor: activeItemBg, borderColor: activeBadgeBorder },
+                pressed && styles.pressed,
+              ]}
               testID="control-hud-open-status"
             >
-              <Ionicons color={statusCardOpen ? activeIconTint : INK} name="pulse-outline" size={sp(13)} />
-              <Text numberOfLines={1} style={[styles.bareText, { fontSize: fBody, lineHeight: fBodyLine }, statusCardOpen && { color: activeIconTint, fontWeight: '600' }]}>
-                {ultraNarrowStage && voltageDisplayText ? voltageDisplayText : statusMetricText}
+              <View
+                style={[
+                  styles.statusEntryDot,
+                  {
+                    backgroundColor: faults.length > 0
+                      ? RED_ESTOP
+                      : connection === 'connected'
+                        ? EMERALD_DOT
+                        : connection === 'readonly'
+                          ? '#F59E0B'
+                          : '#7A7D85',
+                  },
+                ]}
+              />
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.statusEntryLabel,
+                  { fontSize: fMeta, lineHeight: fMetaLine },
+                  statusCardOpen && { color: activeIconTint },
+                ]}
+              >
+                状态
               </Text>
+              {statusMetricText !== '状态' ? (
+                <Text numberOfLines={1} style={[styles.bareText, { fontSize: fMeta, lineHeight: fMetaLine }, statusCardOpen && { color: activeIconTint, fontWeight: '600' }]}>
+                  {ultraNarrowStage && voltageDisplayText ? voltageDisplayText : statusMetricText}
+                </Text>
+              ) : null}
+              <Ionicons color={statusCardOpen ? activeIconTint : MUTED} name={statusCardOpen ? 'chevron-up' : 'chevron-down'} size={sp(12)} />
             </Pressable>
 
             {/* Bare Floating Settings Trigger */}
@@ -2098,8 +2215,6 @@ const styles = StyleSheet.create({
   root: { backgroundColor: 'transparent', flex: 1, overflow: 'hidden' },
   backdrop: { ...StyleSheet.absoluteFill, backgroundColor: 'transparent' },
   standbySceneLayer: { ...StyleSheet.absoluteFill, backgroundColor: '#121212', overflow: 'hidden' },
-  standbySceneImg: { height: '100%', width: '100%' },
-  standbySceneTint: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(12, 12, 12, 0.14)' },
   media: { ...StyleSheet.absoluteFill },
   mediaBuffering: { opacity: 0 },
   topScrimSoft: { backgroundColor: 'rgba(12, 12, 12, 0.16)', left: 0, position: 'absolute', right: 0, top: 0, zIndex: 1 },
@@ -2196,6 +2311,19 @@ const styles = StyleSheet.create({
   /* Top-Right Bare Floating HUD (Zero dark/red pill boxes) */
   topRightCluster: { alignItems: 'center', elevation: 24, flexDirection: 'row', gap: 12, position: 'absolute', right: 16, top: 12, zIndex: 24 },
   bareTopItem: { alignItems: 'center', flexDirection: 'row', gap: 5 },
+  statusEntryPill: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(28, 28, 28, 0.78)',
+    borderColor: 'rgba(255, 255, 255, 0.22)',
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 4,
+    justifyContent: 'center',
+  },
+  statusEntryDot: { borderRadius: 3, height: 6, width: 6 },
+  statusEntryLabel: { color: '#FFFFFF', fontWeight: '600', ...TEXT_SHADOW },
   bareText: { color: '#F2F2F2', fontVariant: ['tabular-nums'], fontWeight: '500', ...TEXT_SHADOW },
   bareTextStrong: { color: '#FFFFFF', fontWeight: '600', ...TEXT_SHADOW },
   bareTextMuted: { color: 'rgba(242, 242, 242, 0.72)', fontWeight: '500', ...TEXT_SHADOW },
@@ -2256,15 +2384,14 @@ const styles = StyleSheet.create({
   speedBarValue: { color: '#F2F2F2', fontSize: 12, fontVariant: ['tabular-nums'], fontWeight: '600', minWidth: 36, textAlign: 'right' },
 
   /* Non-blocking Video Status Chip & Proactive Alert Pill */
-  emptyVideo: { alignItems: 'center', elevation: 4, left: 0, position: 'absolute', right: 0, zIndex: 4 },
-  emptyVideoHidden: { opacity: 0 },
+  emptyVideoInline: { alignItems: 'center' },
+  emptyVideoHidden: { height: 0, opacity: 0, overflow: 'hidden' },
   emptyChip: {
     backgroundColor: 'rgba(22, 22, 22, 0.56)',
     borderColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1,
   },
   emptyTitle: { color: 'rgba(242, 242, 242, 0.78)', fontWeight: '500', textAlign: 'center' },
-  alertBannerLane: { alignItems: 'center', elevation: 8, left: 0, position: 'absolute', right: 0, zIndex: 8 },
   alertBannerPill: {
     alignItems: 'center',
     backgroundColor: 'rgba(22, 22, 22, 0.92)',
@@ -2307,8 +2434,10 @@ const styles = StyleSheet.create({
   },
   pipPlaceholder: { alignItems: 'center', flex: 1, gap: 4, justifyContent: 'center' },
   pipHeaderRow: { left: 8, position: 'absolute', top: 8 },
+  pipFooterRow: { bottom: 6, position: 'absolute', right: 6 },
   pipBadge: { backgroundColor: 'rgba(18, 18, 18, 0.78)', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
   pipBadgeText: { color: '#F2F2F2', fontSize: 10.5, fontWeight: '600' },
+  pipFooterText: { color: 'rgba(242, 242, 242, 0.78)', fontSize: 9.5, fontWeight: '500' },
 
   /* Action Studio Modal & Posture Popover */
   actionModalBackdrop: { backgroundColor: 'rgba(12, 12, 12, 0.36)', bottom: 0, elevation: 10, left: 0, position: 'absolute', right: 0, top: 0, zIndex: 10 },
@@ -2526,7 +2655,8 @@ const styles = StyleSheet.create({
   floatingPanelsScroll: { maxHeight: '100%' },
   floatingPanelsContent: { gap: 8, paddingBottom: 8 },
   disabled: { opacity: 0.48 },
-  toastLane: { alignItems: 'center', elevation: 18, gap: 6, left: 0, position: 'absolute', right: 0, top: 52, zIndex: 18 },
+  toastLane: { alignItems: 'center', elevation: 18, gap: 5, left: 0, position: 'absolute', right: 0, top: 44, zIndex: 18 },
+  toastLaneBottom: { alignItems: 'center', bottom: 56, elevation: 18, gap: 5, left: 0, position: 'absolute', right: 0, zIndex: 18 },
   feedback: { alignItems: 'center', alignSelf: 'center', backgroundColor: DOCK_BG, borderColor: DOCK_BORDER, borderRadius: 10, borderWidth: 1, maxWidth: 320, paddingHorizontal: 14, paddingVertical: 6 },
   feedbackText: { color: INK, fontSize: 12, textAlign: 'center' },
   pressed: { opacity: 0.72 },

@@ -164,25 +164,28 @@ test('deriveHudAlertBanner enforces priority: fault > motor overheat >=65C > low
   }), null);
 });
 
-test('standbyScenes locks exactly 3 charcoal/gallery/hangar scenes with real on-disk assets', () => {
+test('standbyScenes locks 4 forest/charcoal/gallery/hangar scenes with real on-disk assets', () => {
   const scenes = loadStandbyScenes();
   assert.deepEqual(
     JSON.parse(JSON.stringify(scenes.STANDBY_SCENES.map(s => [s.id, s.label]))),
     [
+      ['forest', '迷雾森林'],
       ['charcoal', '炭灰影棚'],
       ['gallery', '建筑展厅'],
       ['hangar', '星际舱室'],
     ],
   );
+  assert.equal(scenes.normalizeStandbyScene('forest'), 'forest');
+  assert.equal(scenes.normalizeStandbyScene('charcoal'), 'charcoal');
   assert.equal(scenes.normalizeStandbyScene('gallery'), 'gallery');
   assert.equal(scenes.normalizeStandbyScene('hangar'), 'hangar');
-  assert.equal(scenes.normalizeStandbyScene('aurora'), 'charcoal');
-  assert.equal(scenes.normalizeStandbyScene('dusk'), 'charcoal');
-  assert.equal(scenes.normalizeStandbyScene('rain'), 'charcoal');
-  assert.equal(scenes.normalizeStandbyScene(undefined), 'charcoal');
-  assert.equal(scenes.getStandbySceneSpec('unknown').id, 'charcoal');
+  assert.equal(scenes.normalizeStandbyScene('aurora'), 'forest');
+  assert.equal(scenes.normalizeStandbyScene('dusk'), 'forest');
+  assert.equal(scenes.normalizeStandbyScene('rain'), 'forest');
+  assert.equal(scenes.normalizeStandbyScene(undefined), 'forest');
+  assert.equal(scenes.getStandbySceneSpec('unknown').id, 'forest');
 
-  assert.equal(scenes.requiredPaths.length, 3);
+  assert.equal(scenes.requiredPaths.length, 4);
   for (const rel of scenes.requiredPaths) {
     const abs = resolve(rootDir, 'src/components', rel);
     assert.equal(existsSync(abs), true, `missing standby scene file: ${abs}`);

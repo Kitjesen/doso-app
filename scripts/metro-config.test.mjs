@@ -35,6 +35,6 @@ test('production transforms keep deterministic cacheVersion per EXPO_PUBLIC_* en
   assert.notEqual(first.cacheVersion, changed.cacheVersion, 'changed EXPO_PUBLIC_* values must invalidate Metro cache');
   assert.equal(load('development').cacheVersion, 'expo');
   assert.equal(load(undefined).cacheVersion, 'expo');
-  assert.deepEqual(first.resolver.assetExts, ['otf', 'png']);
+  assert.deepEqual(first.resolver.assetExts, ['otf', 'png', 'glb', 'hdr']);
   assert.doesNotMatch(first.cacheVersion, /SUPABASE|publishable|dosorobotics/);
 });

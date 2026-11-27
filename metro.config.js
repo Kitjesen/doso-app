@@ -3,6 +3,14 @@ const { getDefaultConfig } = require('expo/metro-config');
 
 const config = getDefaultConfig(__dirname);
 
+if (config.resolver && Array.isArray(config.resolver.assetExts)) {
+  for (const ext of ['glb', 'hdr']) {
+    if (!config.resolver.assetExts.includes(ext)) {
+      config.resolver.assetExts.push(ext);
+    }
+  }
+}
+
 // Keep Metro transform cache warm across repeated builds while still
 // invalidating automatically whenever any EXPO_PUBLIC_* config changes.
 if (process.env.NODE_ENV === 'production') {

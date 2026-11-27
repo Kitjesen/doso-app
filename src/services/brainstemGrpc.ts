@@ -702,6 +702,7 @@ type VoiceNativeBridge = {
   recognizeVoiceOnce?: () => Promise<string>;
   speakVoiceText?: (text: string, volume: number) => Promise<boolean>;
   stopVoiceSpeech?: () => Promise<void> | void;
+  playFeedbackTone?: (volume: number) => Promise<boolean>;
 };
 
 export async function isNativeVoiceInputAvailable(): Promise<boolean> {
@@ -749,4 +750,18 @@ export function stopNativeVoiceSpeech(): void {
   } catch {
     /* Ignore. */
   }
+}
+
+export async function playNativeFeedbackTone(volume01: number): Promise<boolean> {
+  if (Platform.OS !== 'android') return false;
+  try {
+    const mod = requireOptionalNativeModule<VoiceNativeBridge>('DosoBrainstemGrpc');
+    if (mod && typeof mod.playFeedbackTone === 'function') {
+      const clamped = Number.isFinite(volume01) ? Math.max(0, Math.min(1, volume01)) : 0.8;
+      return Boolean(await mod.playFeedbackTone(clamped));
+    }
+  } catch {
+    /* Ignore native tone errors. */
+  }
+  return false;
 }

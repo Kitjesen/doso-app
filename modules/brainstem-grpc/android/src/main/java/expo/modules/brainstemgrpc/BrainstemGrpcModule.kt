@@ -12,6 +12,8 @@ import android.os.SystemClock
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import android.net.ConnectivityManager
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiInfo
@@ -215,6 +217,18 @@ class BrainstemGrpcModule : Module() {
     AsyncFunction("stopVoiceSpeech") {
       pendingVoiceUtterance = null
       runCatching { voiceTts?.stop() }
+    }.runOnQueue(Queues.MAIN)
+
+    AsyncFunction("playFeedbackTone") { volume: Double ->
+      if (synchronized(lock) { destroyed || paused }) return@AsyncFunction false
+      val pct = (volume.coerceIn(0.0, 1.0) * 100.0).toInt().coerceIn(0, 100)
+      if (pct <= 0) return@AsyncFunction false
+      runCatching {
+        val tone = ToneGenerator(AudioManager.STREAM_MUSIC, pct)
+        val started = tone.startTone(ToneGenerator.TONE_PROP_BEEP, 140)
+        timer.schedule({ runCatching { tone.release() } }, 260, TimeUnit.MILLISECONDS)
+        started
+      }.getOrDefault(false)
     }.runOnQueue(Queues.MAIN)
 
     AsyncFunction("getLocalClientIdentity") { host: String, port: Int, robotId: String, promise: Promise ->

@@ -95,9 +95,9 @@ export function DepthSnapshotView({ host, active, size = 124, defaultExpanded = 
 
   if (fillContainer) {
     return (
-      <View style={StyleSheet.absoluteFill} testID="control-hud-depth">
+      <View style={[StyleSheet.absoluteFill, styles.fillContainer]} testID="control-hud-depth">
         {active && endpoint ? <DepthPreview key={endpoint} endpoint={endpoint} />
-          : <Text style={styles.status}>{active ? '深度图暂不可用' : '已暂停'}</Text>}
+          : <Text style={[styles.status, styles.fillStatus]}>{active ? '深度图未就绪' : '已暂停'}</Text>}
       </View>
     );
   }
@@ -177,8 +177,10 @@ const styles = StyleSheet.create({
   controlText: { color: '#F6F7F8', fontSize: 12, fontWeight: '600' },
   frame: { backgroundColor: 'rgba(28, 28, 27, 0.86)', borderColor: 'rgba(232, 232, 230, 0.18)', borderRadius: 14, borderWidth: 1, overflow: 'hidden' },
   preview: { flex: 1, justifyContent: 'flex-end', overflow: 'hidden' },
+  fillContainer: { justifyContent: 'flex-end', overflow: 'hidden' },
   hidden: { opacity: 0 },
   status: { alignSelf: 'flex-start', backgroundColor: 'rgba(28, 28, 27, 0.78)', color: '#E8E8E6', fontSize: 11, paddingHorizontal: 5, paddingVertical: 2 },
+  fillStatus: { borderRadius: 5, fontSize: 10, margin: 4 },
   controls: { borderTopColor: 'rgba(232, 232, 230, 0.18)', borderTopWidth: 1, flexDirection: 'row' },
   control: { alignItems: 'center', flex: 1, justifyContent: 'center', minHeight: 44, minWidth: 44 },
   selected: { backgroundColor: 'rgba(232, 232, 230, 0.22)' },

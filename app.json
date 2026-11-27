@@ -89,6 +89,7 @@
       "./plugins/withPinnedWebRtcAndroid",
       "./plugins/withReceiveOnlyWebRtc",
       "./plugins/withLandscapeOrientation",
+      "./plugins/withStandby3dAssets",
       "./plugins/withFastAndroidBuild",
       "./plugins/withLocalAcceptance"
     ],

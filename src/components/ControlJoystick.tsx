@@ -50,6 +50,8 @@ export type ControlJoystickPairProps = {
   showLabels?: boolean;
   gap?: number;
   floating?: boolean;
+  /** When true, only the left/right disc zones claim touches so open center canvas passes through to interactive 3D backdrop. */
+  reserveCenterForBackdrop?: boolean;
   /** Keep the touch target and accessibility surface while optionally suppressing the painted dial. */
   showVisuals?: boolean;
   touchAreaWidth?: number;
@@ -60,6 +62,10 @@ export type ControlJoystickPairProps = {
   disabled: boolean;
   resetKey: number;
   onCancel?: () => void;
+  /** Optional hint callback when the user taps a disabled joystick disc (never claims motion). */
+  onBlockedPress?: () => void;
+  /** Pure local visual thumb mirror (e.g. offline 3D sandbox driving); never dispatches robot commands. */
+  onVisualChange?: (left: JoystickVector, right: JoystickVector) => void;
   left: ControlJoystickPairSide;
   right: ControlJoystickPairSide;
 };
@@ -340,6 +346,7 @@ export function ControlJoystickPair({
   showLabels = true,
   gap = 24,
   floating = false,
+  reserveCenterForBackdrop = false,
   showVisuals = true,
   touchAreaWidth,
   touchAreaHeight,
@@ -349,6 +356,8 @@ export function ControlJoystickPair({
   disabled,
   resetKey,
   onCancel,
+  onBlockedPress,
+  onVisualChange,
   left: leftDefinition,
   right: rightDefinition,
 }: ControlJoystickPairProps) {
@@ -375,6 +384,11 @@ export function ControlJoystickPair({
     && geometryRef.current.generation === geometryGeneration, [geometryGeneration]);
   const left = usePairChannel(leftDefinition, geometryCurrent);
   const right = usePairChannel(rightDefinition, geometryCurrent);
+  const onVisualChangeRef = useRef(onVisualChange);
+  onVisualChangeRef.current = onVisualChange;
+  useEffect(() => {
+    onVisualChangeRef.current?.(left.value, right.value);
+  }, [left.value, right.value]);
   const retiredOwners = useRef(new Set<number>());
 
   const anchorForTouch = useCallback((touch: TouchWithLocalPosition, side: 'left' | 'right') => {
@@ -508,10 +522,39 @@ export function ControlJoystickPair({
     if (didTouchEnd(changed, remaining, right.ownerRef.current)) right.release();
   }, [geometryCurrent, left, right]);
 
+  const offsetTouchEvent = useCallback((event: GestureResponderEvent, dx: number, dy: number): GestureResponderEvent => {
+    const shiftList = (list: readonly TouchWithLocalPosition[] | undefined) => (list ?? []).map(t => ({
+      ...t,
+      locationX: Number.isFinite(t.locationX) ? (t.locationX as number) + dx : t.locationX,
+      locationY: Number.isFinite(t.locationY) ? (t.locationY as number) + dy : t.locationY,
+    }));
+    const ne = event.nativeEvent;
+    return {
+      ...event,
+      nativeEvent: {
+        ...ne,
+        locationX: Number.isFinite(ne.locationX) ? ne.locationX + dx : ne.locationX,
+        locationY: Number.isFinite(ne.locationY) ? ne.locationY + dy : ne.locationY,
+        touches: shiftList(responderTouches(event)) as unknown as GestureResponderEvent['nativeEvent']['touches'],
+        changedTouches: shiftList(changedResponderTouches(event)) as unknown as GestureResponderEvent['nativeEvent']['changedTouches'],
+      },
+    };
+  }, []);
+
+  const leftDiscCenter = layout ? { x: layout.left.centerX, y: layout.left.centerY } : { x: radius, y: pairHeight / 2 };
+  const rightDiscCenter = layout ? { x: layout.right.centerX, y: layout.right.centerY } : { x: pairWidth - radius, y: pairHeight / 2 };
+  const leftHitR = Math.round(leftRadius * 1.12);
+  const rightHitR = Math.round(rightRadius * 1.12);
+  const leftHitLeft = Math.max(0, leftDiscCenter.x - leftHitR);
+  const leftHitTop = Math.max(0, leftDiscCenter.y - leftHitR);
+  const rightHitLeft = Math.max(0, rightDiscCenter.x - rightHitR);
+  const rightHitTop = Math.max(0, rightDiscCenter.y - rightHitR);
+
   return (
     <View
       testID="control-joystick-pair"
-      onStartShouldSetResponderCapture={canStart}
+      pointerEvents={inputDisabled ? (onBlockedPress ? 'box-none' : 'none') : reserveCenterForBackdrop ? 'box-none' : 'auto'}
+      onStartShouldSetResponderCapture={reserveCenterForBackdrop ? undefined : canStart}
       onStartShouldSetResponder={canStart}
       onMoveShouldSetResponderCapture={() => !inputDisabled && geometryCurrent() && (left.ownerRef.current !== null || right.ownerRef.current !== null)}
       onResponderGrant={claimNewTouches}
@@ -523,12 +566,92 @@ export function ControlJoystickPair({
       // ended identifiers; bubbling touch events keep the held channel live.
       onResponderRelease={handleEnd}
       onResponderTerminate={cancelBoth}
-      onTouchMove={Platform.OS === 'android' ? handleMove : undefined}
-      onTouchEnd={Platform.OS === 'android' ? handleEnd : undefined}
-      onTouchCancel={Platform.OS === 'android' ? cancelBoth : undefined}
+      onTouchMove={Platform.OS === 'android' && !reserveCenterForBackdrop ? handleMove : undefined}
+      onTouchEnd={Platform.OS === 'android' && !reserveCenterForBackdrop ? handleEnd : undefined}
+      onTouchCancel={Platform.OS === 'android' && !reserveCenterForBackdrop ? cancelBoth : undefined}
       onResponderTerminationRequest={() => false}
       style={[floating || layout ? styles.floatingPair : styles.pair, { gap: safeGap, height: pairHeight, width: pairWidth }]}
     >
+      {inputDisabled && onBlockedPress ? (
+        <>
+          <View
+            testID={`${leftDefinition.testID}-blocked-hit`}
+            pointerEvents="auto"
+            onStartShouldSetResponder={() => { onBlockedPress(); return false; }}
+            style={{
+              borderRadius: leftHitR,
+              height: leftHitR * 2,
+              left: leftHitLeft,
+              position: 'absolute',
+              top: leftHitTop,
+              width: leftHitR * 2,
+            }}
+          />
+          <View
+            testID={`${rightDefinition.testID}-blocked-hit`}
+            pointerEvents="auto"
+            onStartShouldSetResponder={() => { onBlockedPress(); return false; }}
+            style={{
+              borderRadius: rightHitR,
+              height: rightHitR * 2,
+              left: rightHitLeft,
+              position: 'absolute',
+              top: rightHitTop,
+              width: rightHitR * 2,
+            }}
+          />
+        </>
+      ) : null}
+      {reserveCenterForBackdrop && !inputDisabled ? (
+        <>
+          <View
+            testID={`${leftDefinition.testID}-hit`}
+            pointerEvents="auto"
+            onStartShouldSetResponder={e => canStart(offsetTouchEvent(e, leftHitLeft, leftHitTop))}
+            onResponderGrant={e => claimNewTouches(offsetTouchEvent(e, leftHitLeft, leftHitTop))}
+            onResponderStart={e => claimNewTouches(offsetTouchEvent(e, leftHitLeft, leftHitTop))}
+            onResponderMove={e => handleMove(offsetTouchEvent(e, leftHitLeft, leftHitTop))}
+            onResponderEnd={e => handleEnd(offsetTouchEvent(e, leftHitLeft, leftHitTop))}
+            onResponderRelease={e => handleEnd(offsetTouchEvent(e, leftHitLeft, leftHitTop))}
+            onResponderTerminate={cancelBoth}
+            onTouchMove={Platform.OS === 'android' ? e => handleMove(offsetTouchEvent(e, leftHitLeft, leftHitTop)) : undefined}
+            onTouchEnd={Platform.OS === 'android' ? e => handleEnd(offsetTouchEvent(e, leftHitLeft, leftHitTop)) : undefined}
+            onTouchCancel={Platform.OS === 'android' ? cancelBoth : undefined}
+            onResponderTerminationRequest={() => false}
+            style={{
+              borderRadius: leftHitR,
+              height: leftHitR * 2,
+              left: leftHitLeft,
+              position: 'absolute',
+              top: leftHitTop,
+              width: leftHitR * 2,
+            }}
+          />
+          <View
+            testID={`${rightDefinition.testID}-hit`}
+            pointerEvents="auto"
+            onStartShouldSetResponder={e => canStart(offsetTouchEvent(e, rightHitLeft, rightHitTop))}
+            onResponderGrant={e => claimNewTouches(offsetTouchEvent(e, rightHitLeft, rightHitTop))}
+            onResponderStart={e => claimNewTouches(offsetTouchEvent(e, rightHitLeft, rightHitTop))}
+            onResponderMove={e => handleMove(offsetTouchEvent(e, rightHitLeft, rightHitTop))}
+            onResponderEnd={e => handleEnd(offsetTouchEvent(e, rightHitLeft, rightHitTop))}
+            onResponderRelease={e => handleEnd(offsetTouchEvent(e, rightHitLeft, rightHitTop))}
+            onResponderTerminate={cancelBoth}
+            onTouchMove={Platform.OS === 'android' ? e => handleMove(offsetTouchEvent(e, rightHitLeft, rightHitTop)) : undefined}
+            onTouchEnd={Platform.OS === 'android' ? e => handleEnd(offsetTouchEvent(e, rightHitLeft, rightHitTop)) : undefined}
+            onTouchCancel={Platform.OS === 'android' ? cancelBoth : undefined}
+            onResponderTerminationRequest={() => false}
+            style={{
+              borderRadius: rightHitR,
+              height: rightHitR * 2,
+              left: rightHitLeft,
+              position: 'absolute',
+              top: rightHitTop,
+              width: rightHitR * 2,
+            }}
+          />
+        </>
+      ) : null}
       <JoystickVisual
         {...leftDefinition}
         robotControl={Boolean(leftDefinition.onSample)}

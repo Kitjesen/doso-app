@@ -23,9 +23,14 @@ import expo.modules.kotlin.Promise
 import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import java.io.IOException
 import java.net.Inet4Address
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.util.ArrayDeque
 import java.util.concurrent.Executor
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -59,6 +64,7 @@ class RobotWifiModule : Module() {
     var discoveryRegistered = false
     var timeoutRunnable: Runnable? = null
     var resolveRetryRunnable: Runnable? = null
+    var probeExecutor: ExecutorService? = null
     var resolveInFlight = false
     var finished = false
     val queuedServiceNames = LinkedHashSet<String>()
@@ -472,6 +478,8 @@ class RobotWifiModule : Module() {
       finishLanSession(session, errorCode = "discovery_failed", timedOut = false, deliver = true)
       return
     }
+
+    startLanSubnetProbe(context, session)
   }
 
   private fun stopLanDiscovery(deliverResult: Boolean) {
@@ -488,6 +496,7 @@ class RobotWifiModule : Module() {
     val listenerToStop: NsdManager.DiscoveryListener?
     val timeoutToCancel: Runnable?
     val retryToCancel: Runnable?
+    val probeToStop: ExecutorService?
     val callbacksToUnregister: List<Any>
     val robots: List<Map<String, Any?>>
 
@@ -508,6 +517,8 @@ class RobotWifiModule : Module() {
       session.timeoutRunnable = null
       retryToCancel = session.resolveRetryRunnable
       session.resolveRetryRunnable = null
+      probeToStop = session.probeExecutor
+      session.probeExecutor = null
       session.pendingResolves.clear()
       session.resolveInFlight = false
       callbacksToUnregister = session.serviceInfoCallbacks.toList()
@@ -517,6 +528,9 @@ class RobotWifiModule : Module() {
 
     if (timeoutToCancel != null) main.removeCallbacks(timeoutToCancel)
     if (retryToCancel != null) main.removeCallbacks(retryToCancel)
+    if (probeToStop != null) {
+      try { probeToStop.shutdownNow() } catch (_: RuntimeException) {}
+    }
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
       unregisterServiceInfoCallbacks(session.nsd, callbacksToUnregister)
@@ -712,6 +726,121 @@ class RobotWifiModule : Module() {
     return false
   }
 
+  private fun activeWifiIpv4(context: Context): String? {
+    val connectivity = try {
+      context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+    } catch (_: RuntimeException) {
+      null
+    } ?: return null
+    val networks = try {
+      wifiNetworksOf(connectivity)
+    } catch (_: RuntimeException) {
+      emptyList()
+    }
+    for (network in networks) {
+      val props = try {
+        connectivity.getLinkProperties(network)
+      } catch (_: RuntimeException) {
+        null
+      } ?: continue
+      for (linkAddress in props.linkAddresses) {
+        val address = linkAddress.address
+        if (address is Inet4Address) {
+          val host = address.hostAddress
+          if (isRfc1918Ipv4(host)) return host
+        }
+      }
+    }
+    return null
+  }
+
+  private fun startLanSubnetProbe(context: Context, session: LanDiscoverySession) {
+    val selfIp = activeWifiIpv4(context) ?: return
+    val parts = selfIp.split('.')
+    if (parts.size != 4) return
+    val selfLast = parts[3].toIntOrNull() ?: return
+    val prefix = "${parts[0]}.${parts[1]}.${parts[2]}"
+    val priority = intArrayOf(64, 13, 1, 50, 100)
+    val targets = ArrayList<String>(254)
+    val seen = HashSet<Int>(256)
+    seen.add(selfLast)
+    for (octet in priority) {
+      if (octet in 1..254 && seen.add(octet)) {
+        targets.add("$prefix.$octet")
+      }
+    }
+    for (octet in 1..254) {
+      if (seen.add(octet)) {
+        targets.add("$prefix.$octet")
+      }
+    }
+
+    val pool = Executors.newFixedThreadPool(LAN_PROBE_CONCURRENCY) { runnable ->
+      Thread(runnable, "doso-lan-probe").apply { isDaemon = true }
+    }
+    val attached = synchronized(lanLock) {
+      if (session.finished || destroyed) {
+        false
+      } else {
+        session.probeExecutor = pool
+        true
+      }
+    }
+    if (!attached) {
+      pool.shutdownNow()
+      return
+    }
+
+    for (candidateHost in targets) {
+      try {
+        pool.execute {
+          if (destroyed || synchronized(lanLock) { session.finished }) return@execute
+          val reachable = try {
+            Socket().use { socket ->
+              socket.connect(InetSocketAddress(candidateHost, LAN_PROBE_PORT), LAN_PROBE_TIMEOUT_MS)
+              true
+            }
+          } catch (_: IOException) {
+            false
+          } catch (_: RuntimeException) {
+            false
+          }
+          if (reachable) {
+            recordProbedLanRobot(session, candidateHost, LAN_PROBE_PORT)
+          }
+        }
+      } catch (_: RuntimeException) {
+        break
+      }
+    }
+    try {
+      pool.shutdown()
+    } catch (_: RuntimeException) {
+    }
+  }
+
+  private fun recordProbedLanRobot(session: LanDiscoverySession, host: String, port: Int) {
+    if (!isRfc1918Ipv4(host) || port !in 1..65535) return
+    val key = "$host:$port"
+    val record = mapOf<String, Any?>(
+      "host" to host,
+      "port" to port,
+      "serviceName" to "",
+      "robotId" to null,
+      "displayName" to null,
+      "apSsid" to null,
+      "videoPort" to null,
+      "transport" to null,
+      "version" to null,
+    )
+    synchronized(lanLock) {
+      if (session.finished || session.robotsByKey.size >= MAX_DISCOVERED_SERVICES) return
+      if (!session.robotsByKey.containsKey(key)) {
+        session.robotsByKey[key] = record
+      }
+    }
+  }
+
   private fun recordLanRobot(session: LanDiscoverySession, info: NsdServiceInfo) {
     val built = buildLanRobot(info) ?: return
     val (key, record) = built
@@ -862,5 +991,8 @@ class RobotWifiModule : Module() {
     private const val MAX_DISCOVERED_SERVICES = 32
     private const val MAX_ALREADY_ACTIVE_RETRIES = 2
     private const val RESOLVE_RETRY_DELAY_MS = 150L
+    private const val LAN_PROBE_PORT = 13145
+    private const val LAN_PROBE_TIMEOUT_MS = 280
+    private const val LAN_PROBE_CONCURRENCY = 32
   }
 }

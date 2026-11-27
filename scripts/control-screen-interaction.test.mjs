@@ -62,15 +62,16 @@ const gesturePreviewAssetsStub = {
   getGesturePreviewAsset: key => (typeof key === 'string' ? { uri: `asset://gestures/${key}.gif` } : undefined),
 };
 const standbyScenesStub = {
-  DEFAULT_STANDBY_SCENE: 'charcoal',
+  DEFAULT_STANDBY_SCENE: 'forest',
   STANDBY_SCENES: [
+    { id: 'forest', label: '迷雾森林', shortLabel: '森林', source: { uri: 'asset://scene/cockpit-standby-forest.jpg' } },
     { id: 'charcoal', label: '炭灰影棚', shortLabel: '影棚', source: { uri: 'asset://scene/cockpit-standby-charcoal.jpg' } },
     { id: 'gallery', label: '建筑展厅', shortLabel: '展厅', source: { uri: 'asset://scene/cockpit-standby-gallery.jpg' } },
     { id: 'hangar', label: '星际舱室', shortLabel: '舱室', source: { uri: 'asset://scene/cockpit-standby-hangar.jpg' } },
   ],
-  normalizeStandbyScene: v => (v === 'gallery' || v === 'hangar' ? v : 'charcoal'),
-  getStandbySceneSpec: v => standbyScenesStub.STANDBY_SCENES.find(s => s.id === (v === 'gallery' || v === 'hangar' ? v : 'charcoal')),
-  getStandbySceneAsset: v => ({ uri: `asset://scene/cockpit-standby-${v === 'gallery' || v === 'hangar' ? v : 'charcoal'}.jpg` }),
+  normalizeStandbyScene: v => (v === 'charcoal' || v === 'gallery' || v === 'hangar' || v === 'forest' ? v : 'forest'),
+  getStandbySceneSpec: v => standbyScenesStub.STANDBY_SCENES.find(s => s.id === (v === 'charcoal' || v === 'gallery' || v === 'hangar' || v === 'forest' ? v : 'forest')),
+  getStandbySceneAsset: v => ({ uri: `asset://scene/cockpit-standby-${v === 'charcoal' || v === 'gallery' || v === 'hangar' || v === 'forest' ? v : 'forest'}.jpg` }),
 };
 const hudAnimatedStub = {
   Value: class { setValue() { } interpolate() { return 0; } },
@@ -89,6 +90,7 @@ const hudComponentDependencies = {
   '../assets': gestureAssetsStub,
   './gesturePreviewAssets': gesturePreviewAssetsStub,
   './standbyScenes': standbyScenesStub,
+  './StandbyScene3D': { StandbyScene3D: 'StandbyScene3D' },
   './AppText': { Text: 'Text' },
   './ControlSlider': { ControlSlider: 'ControlSlider' },
   './controlHudModel': controlHudModelModule.exports,
@@ -172,6 +174,25 @@ const colors = {
   surface: '#F4F7FA', successText: '#2F6AA3',
 };
 
+const compiledReferenceUi = ts.transpileModule(readFileSync(new URL('../src/components/ControlReferenceUi.tsx', import.meta.url), 'utf8'), {
+  compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+const compiledMediaCaptureHook = ts.transpileModule(readFileSync(new URL('../src/features/video/useControlMediaCapture.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+const compiledLingtuVoiceService = ts.transpileModule(readFileSync(new URL('../src/services/lingtuVoiceChat.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+const compiledVoiceHook = ts.transpileModule(readFileSync(new URL('../src/features/control/useRobotVoiceChat.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+const compiledVoicePanel = ts.transpileModule(readFileSync(new URL('../src/components/ControlVoiceChatPanel.tsx', import.meta.url), 'utf8'), {
+  compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+const compiledStatusBento = ts.transpileModule(readFileSync(new URL('../src/components/StatusBentoCard.tsx', import.meta.url), 'utf8'), {
+  compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+
 // Executes the real ControlScreen state, handlers and lifecycle effects. The joystick
 // responder math and native layout have their own focused tests; this harness invokes
 // the real child props that ControlScreen supplies to the joystick pair.
@@ -185,6 +206,7 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
   const intervals = new Set();
   const keepAwakeCalls = [];
   const hapticCalls = [];
+  const audioCalls = [];
   let timerId = 0, now = 0, unmounted = false, lateUpdates = 0;
   let cursor = 0;
   let dirty = false;
@@ -327,14 +349,13 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
       },
       isNativeVoiceInputAvailable: async () => false,
       recognizeNativeVoiceOnce: async () => '',
-      speakNativeVoiceText: async () => false,
+      speakNativeVoiceText: async (text, volume) => { audioCalls.push({ kind: 'speak', text, volume }); return false; },
+      playNativeFeedbackTone: async volume => { audioCalls.push({ kind: 'tone', volume }); return true; },
       stopNativeVoiceSpeech: () => { },
     },
   };
   const referenceUi = { exports: {} };
-  vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/ControlReferenceUi.tsx', import.meta.url), 'utf8'), {
-    compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText, {
+  vm.runInNewContext(compiledReferenceUi, {
     module: referenceUi,
     exports: referenceUi.exports,
     require: name => name === './AppText'
@@ -354,9 +375,7 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
   dependencies['../components/ControlReferenceUi'] = referenceUi.exports;
 
   const mediaCaptureHookModule = { exports: {} };
-  vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/features/video/useControlMediaCapture.ts', import.meta.url), 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText, {
+  vm.runInNewContext(compiledMediaCaptureHook, {
     module: mediaCaptureHookModule,
     exports: mediaCaptureHookModule.exports,
     setTimeout(callback, delay) { const id = ++timerId; timers.set(id, { callback, due: now + delay }); return id; },
@@ -398,9 +417,7 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
   const schedClearInterval = id => { intervals.delete(id); timers.delete(id); };
 
   const lingtuVoiceServiceModule = { exports: {} };
-  vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/services/lingtuVoiceChat.ts', import.meta.url), 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText, {
+  vm.runInNewContext(compiledLingtuVoiceService, {
     module: lingtuVoiceServiceModule,
     exports: lingtuVoiceServiceModule.exports,
     __DEV__: dev,
@@ -419,9 +436,7 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
   });
 
   const voiceHookModule = { exports: {} };
-  vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/features/control/useRobotVoiceChat.ts', import.meta.url), 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText, {
+  vm.runInNewContext(compiledVoiceHook, {
     module: voiceHookModule,
     exports: voiceHookModule.exports,
     AbortController,
@@ -438,9 +453,7 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
   dependencies['../features/control/useRobotVoiceChat'] = voiceHookModule.exports;
 
   const voicePanelModule = { exports: {} };
-  vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/ControlVoiceChatPanel.tsx', import.meta.url), 'utf8'), {
-    compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText, {
+  vm.runInNewContext(compiledVoicePanel, {
     module: voicePanelModule,
     exports: voicePanelModule.exports,
     setTimeout: schedSetTimeout,
@@ -472,9 +485,7 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     },
   };
   const statusBentoModule = { exports: {} };
-  vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/StatusBentoCard.tsx', import.meta.url), 'utf8'), {
-    compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText, {
+  vm.runInNewContext(compiledStatusBento, {
     module: statusBentoModule,
     exports: statusBentoModule.exports,
     require(name) {
@@ -562,6 +573,7 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     get navigationCalls() { return navigationCalls; },
     get keepAwakeCalls() { return keepAwakeCalls; },
     get hapticCalls() { return hapticCalls; },
+    get audioCalls() { return audioCalls; },
     get copy() {
       return nodes.filter(node => node.type === 'copy').map(node => node.value).join(' ').replace(/\s+/g, ' ').trim();
     },
@@ -3793,7 +3805,7 @@ test('floating Status Bento B card stays on ControlScreen, toggles IMU callback,
 
   // Seamless standby-to-live-video handoff: connecting keeps 3D standby visible underneath with buffering media hidden (opacity 0).
   screen.render({ video: { id: 'cam-1', phase: 'connecting' }, videoSurface: 'plate' });
-  assert.ok(screen.find('control-hud-standby-scene-charcoal'));
+  assert.ok(screen.find('control-hud-standby-scene-forest'));
   assert.ok(screen.find('control-media-stage'));
   assert.equal(flat(screen.find('control-media-stage').props.style).opacity, 0);
   assert.ok(screen.find('control-hud-video-empty'));
@@ -3801,7 +3813,7 @@ test('floating Status Bento B card stays on ControlScreen, toggles IMU callback,
 
   // The moment first live frame arrives (phase === 'receiving'), standby yields cleanly and live video reveals.
   screen.render({ video: { id: 'cam-1', phase: 'receiving' }, videoSurface: 'plate' });
-  assert.equal(screen.find('control-hud-standby-scene-charcoal'), undefined);
+  assert.equal(screen.find('control-hud-standby-scene-forest'), undefined);
   assert.ok(screen.find('control-media-stage'));
   assert.notEqual(flat(screen.find('control-media-stage').props.style).opacity, 0);
   assert.equal(screen.find('control-hud-video-empty'), undefined);
@@ -4006,13 +4018,14 @@ test('proactive alert banner, physical auto-hide discs, unified openSettingsSign
   screen.unmount();
 });
 
-test('FSD matte charcoal 3-scene standby backdrop, 5-tab settings, hotspot radar, and 2-column Action Studio exclude fall recovery & jargon', async () => {
+test('FSD matte charcoal 4-scene standby backdrop (forest default), 5-tab settings, hotspot radar, and 2-column Action Studio exclude fall recovery & jargon', async () => {
   const defaults = controlPrefsModule.exports.createDefaultControlPreferences();
-  assert.equal(defaults.standbyScene, 'charcoal');
+  assert.equal(defaults.standbyScene, 'forest');
   assert.equal(defaults.accentTone, 'graphite');
+  assert.equal(controlPrefsModule.exports.normalizeControlPreferences({ standbyScene: 'charcoal' }).standbyScene, 'charcoal');
   assert.equal(controlPrefsModule.exports.normalizeControlPreferences({ standbyScene: 'gallery' }).standbyScene, 'gallery');
   assert.equal(controlPrefsModule.exports.normalizeControlPreferences({ standbyScene: 'hangar' }).standbyScene, 'hangar');
-  assert.equal(controlPrefsModule.exports.normalizeControlPreferences({ standbyScene: 'aurora' }).standbyScene, 'charcoal');
+  assert.equal(controlPrefsModule.exports.normalizeControlPreferences({ standbyScene: 'aurora' }).standbyScene, 'forest');
   assert.equal(controlPrefsModule.exports.normalizeControlPreferences({ accentTone: 'fsdBlue' }).accentTone, 'fsdBlue');
   assert.equal(controlPrefsModule.exports.normalizeControlPreferences({ accentTone: 'neon' }).accentTone, 'graphite');
 
@@ -4046,8 +4059,8 @@ test('FSD matte charcoal 3-scene standby backdrop, 5-tab settings, hotspot radar
   });
   await screen.settle();
 
-  // Default charcoal standby backdrop renders when live video is absent, and 摔倒恢复 is promoted directly onto center dock.
-  assert.ok(screen.find('control-hud-standby-scene-charcoal'));
+  // Default forest standby backdrop renders when live video is absent, and 摔倒恢复 is promoted directly onto center dock.
+  assert.ok(screen.find('control-hud-standby-scene-forest'));
   assert.ok(screen.find('control-hud-posture-recover'));
 
   // Action Studio excludes 摔倒恢复 and hides duration seconds + left telemetry.
@@ -4078,6 +4091,7 @@ test('FSD matte charcoal 3-scene standby backdrop, 5-tab settings, hotspot radar
 
   screen.find('control-settings-tab-图传与音频').props.onPress();
   screen.render();
+  assert.ok(screen.find('control-setting-scene-forest'));
   assert.ok(screen.find('control-setting-scene-charcoal'));
   assert.ok(screen.find('control-setting-scene-gallery'));
   assert.ok(screen.find('control-setting-scene-hangar'));
@@ -4604,5 +4618,406 @@ test('compact connected HUD folds secondary top-bar signal badges and hides expa
   const dashWrapper = safeChildren.find(n => flat(n.props?.style).zIndex === 7 && n.props?.pointerEvents === 'none');
   assert.ok(dashWrapper, 'expanded diagnostics overlay yields pointerEvents and hides behind voice wing');
   assert.equal(flat(dashWrapper.props.style).opacity, 0);
+  screen.unmount();
+});
+
+test('interactive 3D standby scene accepts open-stage drag while reserving joystick disc zones and yields to modals and live video', async () => {
+  const screen = mount({
+    landscapeDocksExpanded: false,
+    dev: false,
+    dimensions: { width: 844, height: 390, fontScale: 1 },
+    connected: false,
+  });
+  await screen.settle();
+
+  const standbyWrapper = screen.find('control-hud-standby-scene-forest');
+  assert.ok(standbyWrapper, 'renders standby scene layer when disconnected');
+  assert.equal(standbyWrapper.props.pointerEvents, 'auto');
+  const scene3d = standbyWrapper.props.children;
+  assert.equal(scene3d.type, 'StandbyScene3D');
+  assert.equal(scene3d.props.interactive, true);
+  assert.equal(scene3d.props.scene, 'forest');
+
+  // Trigger stick-frame layout so configuredJoystickLayout becomes usable, then verify center pass-through prop.
+  screen.find('control-immersive-sticks').props.onLayout({ nativeEvent: { layout: { width: 812, height: 240 } } });
+  screen.render();
+  const pairNode = screen.find('control-immersive-sticks').props.children;
+  assert.ok(pairNode, 'mounts ControlJoystickPair inside stickFrame');
+  assert.equal(pairNode.props.reserveCenterForBackdrop, true);
+
+  // Opening Settings disables 3D drag capture behind the modal without unmounting theme preview.
+  screen.find('control-hud-settings').props.onPress();
+  screen.render();
+  const standbyUnderModal = screen.find('control-hud-standby-scene-forest');
+  assert.ok(standbyUnderModal);
+  assert.equal(standbyUnderModal.props.pointerEvents, 'none');
+  assert.equal(standbyUnderModal.props.children.props.interactive, false);
+
+  // Closing Settings restores 3D interactivity.
+  screen.find('control-settings-background').props.onPress({ target: 'backdrop', currentTarget: 'backdrop' });
+  screen.render();
+  assert.equal(screen.find('control-hud-standby-scene-forest').props.pointerEvents, 'auto');
+  assert.equal(screen.find('control-hud-standby-scene-forest').props.children.props.interactive, true);
+
+  // Once live video receives frames, standby 3D unmounts completely and joystick claims full floating zones.
+  screen.render({ connected: true, video: { id: 'cam-1', phase: 'receiving' }, videoSurface: 'plate' });
+  assert.equal(screen.find('control-hud-standby-scene-forest'), undefined);
+  assert.equal(screen.find('control-immersive-sticks').props.children.props.reserveCenterForBackdrop, false);
+  screen.unmount();
+});
+
+test('G20 and landscape HUD keep notifications strictly below top bar, clear of side overlays, deduplicated, and modal-safe', async () => {
+  const flat = style => {
+    const resolved = typeof style === 'function' ? style({ pressed: false }) : style;
+    return Object.assign({}, ...(Array.isArray(resolved) ? resolved : [resolved]));
+  };
+  const hasDescendant = (node, targetTestId) => {
+    if (!node || typeof node !== 'object') return false;
+    if (node.props?.testID === targetTestId) return true;
+    const children = Array.isArray(node.props?.children) ? node.props.children.flat(Infinity) : [node.props?.children];
+    return children.some(child => hasDescendant(child, targetTestId));
+  };
+
+  const viewports = [
+    { name: 'G20-1920x1200@408dpi', width: 753, height: 447, navInset: 48 },
+    { name: 'narrow-640x360', width: 640, height: 360, navInset: 0 },
+    { name: 'wide-1024x576', width: 1024, height: 576, navInset: 0 },
+  ];
+
+  for (const vp of viewports) {
+    const effW = vp.width;
+    const clampedBottom = vp.navInset > 0 ? Math.min(4, vp.navInset) : 0;
+    const effH = vp.height - clampedBottom;
+    const fakeMediaAdapter = {
+      supported: true,
+      storageTargetLabel: '系统相册',
+      async capturePhoto() { throw new Error('no stream'); },
+      async startRecording() { throw new Error('no stream'); },
+    };
+    const screen = mount({
+      landscapeDocksExpanded: false,
+      dev: false,
+      dimensions: { width: vp.width, height: vp.height, fontScale: 1 },
+      navigationInset: async () => vp.navInset,
+      connected: true,
+      video: { id: 'front-live', phase: 'connecting' },
+      videoSurface: 'front-surface',
+      mediaCaptureAdapter: fakeMediaAdapter,
+      manualControlBlockedReason: '请先使能电机',
+      productionInput: {
+        ready: false,
+        touchReady: false,
+        onDrive() {},
+        onTurn() {},
+        onInterrupt() {},
+      },
+      runtimeState: {
+        controlLink: 'connected',
+        controlAuthority: 'not-held',
+        controlOwner: 'none',
+        motorState: 'disabled',
+        posture: 'sitting',
+        faultStatus: 'clear',
+        battery: { voltageV: 56.1 },
+        signal: { qualityPercent: 100, latencyMs: 12, source: 'controller' },
+        joints: [
+          { id: '0', label: '右前髋', source: 'device', online: true, temperatureC: 29 },
+        ],
+      },
+      operationReadiness: {
+        enableMotor: { ready: true },
+        disableMotor: { ready: false },
+        stop: { ready: true },
+        clearMotorFault: { ready: true },
+      },
+      operationCallbacks: {
+        enableMotor() {},
+        stop() {},
+        clearMotorFault() {},
+      },
+      onListGestures: async () => [{ name: 'wave', description: '挥手', durationMs: 2000 }],
+      workspaceSettings: {
+        themePreference: 'dark',
+        onChangeTheme() {},
+        alertsEnabled: true,
+        onToggleAlerts() {},
+        connection: {
+          host: '192.168.66.64',
+          port: 13145,
+          connected: true,
+          readonlyConnected: false,
+          onConnectControl: async () => true,
+          onDisconnect: async () => {},
+        },
+      },
+    });
+    await screen.settle();
+
+    // 1. Driving HUD: true fullscreen (SafeAreaView edges=[]), no 48dp bottom dead gap,
+    //    notice stack sits strictly below topStatusBarLayer, passive "请先使能电机" does NOT linger,
+    //    and redundant video empty text stays hidden over 3D standby.
+    const statusBarStyle = flat(screen.find('control-hud-status-bar').props.style);
+    const telemetryStyle = flat(screen.find('control-telemetry').props.style);
+    const noticeStack = screen.find('control-hud-notice-stack');
+    assert.ok(noticeStack, `${vp.name}: notice stack mounts in driving mode`);
+    const noticeStyle = flat(noticeStack.props.style);
+    assert.ok(noticeStyle.top >= statusBarStyle.height, `${vp.name}: notice stack top ${noticeStyle.top} >= statusBar height ${statusBarStyle.height}`);
+    assert.ok(noticeStyle.gap > 0, `${vp.name}: notice stack vertically separates stacked pills`);
+    assert.ok(noticeStyle.left >= Math.min(228, Math.round(effW * 0.30)) - 1, `${vp.name}: notice stack clears left telemetry column`);
+    assert.ok(telemetryStyle.maxWidth <= effW - 140, `${vp.name}: top-right cluster reserves left Row 1 width`);
+    assert.equal(screen.find('control-operation-feedback'), undefined, `${vp.name}: passive "请先使能电机" does not linger permanently on idle HUD`);
+    assert.ok(hasDescendant(noticeStack, 'control-hud-video-empty'), `${vp.name}: video empty marker remains mounted in notice stack`);
+    assert.equal(flat(screen.find('control-hud-video-empty').props.style).opacity, 0, `${vp.name}: redundant buffering pill stays hidden on 3D standby`);
+
+    // Touching a disabled joystick disc triggers a brief toast instead of permanent text.
+    assert.equal(typeof screen.pair.onBlockedPress, 'function', `${vp.name}: blocked joystick wires onBlockedPress`);
+    screen.pair.onBlockedPress();
+    screen.render();
+    assert.match(screen.find('control-hud-notice').props.children.props.children, /请先使能电机/);
+    screen.advance(3000);
+    assert.equal(screen.find('control-hud-notice'), undefined, `${vp.name}: blocked joystick notice auto-dismisses`);
+
+    // 2. Dual-camera PiP open: notice stack right corridor shifts clear of PiP window.
+    screen.find('control-hud-camera-count-toggle').props.onPress();
+    screen.render();
+    const pipStyle = flat(screen.find('control-hud-pip-window').props.style);
+    const noticeWithPipStyle = flat(screen.find('control-hud-notice-stack').props.style);
+    assert.ok(noticeWithPipStyle.right >= pipStyle.width + pipStyle.right, `${vp.name}: notice stack right ${noticeWithPipStyle.right} clears PiP ${pipStyle.width + pipStyle.right}`);
+    screen.find('control-hud-camera-count-toggle').props.onPress();
+    screen.render();
+
+    // 3. Speed limit popover clears Row 4 on G20/short stages.
+    screen.find('control-hud-speed-limit-toggle').props.onPress();
+    screen.render();
+    const speedBarStyle = flat(screen.find('control-hud-speed-limit-bar').props.style);
+    if (effH < 410) {
+      assert.ok(speedBarStyle.top >= 126, `${vp.name}: speed limit bar top ${speedBarStyle.top} clears Row 4`);
+    }
+    screen.find('control-hud-speed-limit-toggle').props.onPress();
+    screen.render();
+
+    // 4. Fault active: alertBanner replaces duplicate generic fault feedback and keeps empty video hidden.
+    screen.render({
+      runtimeState: {
+        controlLink: 'connected',
+        controlAuthority: 'not-held',
+        controlOwner: 'none',
+        motorState: 'disabled',
+        posture: 'sitting',
+        faultStatus: 'active',
+        faultSummary: '设备故障，请检查设备状态',
+        battery: { voltageV: 56.1 },
+      },
+    });
+    assert.ok(screen.find('control-hud-alert-banner'), `${vp.name}: fault alert banner mounts`);
+    assert.equal(screen.find('control-operation-feedback'), undefined, `${vp.name}: duplicate generic fault feedback is deduplicated`);
+    assert.equal(flat(screen.find('control-hud-video-empty').props.style).opacity, 0, `${vp.name}: buffering chip collapses under active alert`);
+    screen.render({
+      runtimeState: {
+        controlLink: 'connected',
+        controlAuthority: 'not-held',
+        controlOwner: 'none',
+        motorState: 'disabled',
+        posture: 'sitting',
+        faultStatus: 'clear',
+        battery: { voltageV: 56.1 },
+      },
+    });
+
+    // 5. Opening Settings, Status Bento, or Action Studio keeps HUD overlays cleanly separated.
+    screen.find('control-hud-settings').props.onPress();
+    screen.render();
+    assert.equal(screen.find('control-operation-feedback'), undefined, `${vp.name}: passive prompt suppressed under Settings`);
+    assert.ok(flat(screen.find('control-settings-menu').props.style).top >= 40, `${vp.name}: Settings clears top E-Stop`);
+    assert.equal(flat(screen.find('control-hud-video-empty').props.style).opacity, 0, `${vp.name}: buffering chip hidden under Settings`);
+    screen.find('control-close-settings').props.onPress();
+    screen.render();
+
+    screen.find('control-hud-open-status').props.onPress();
+    screen.render();
+    assert.equal(screen.find('control-operation-feedback'), undefined, `${vp.name}: passive prompt suppressed under Status Bento`);
+    screen.find('status-bento-close').props.onPress();
+    screen.render();
+
+    screen.find('control-hud-category-action').props.onPress();
+    screen.render();
+    assert.equal(screen.find('control-operation-feedback'), undefined, `${vp.name}: passive prompt suppressed under Action Studio`);
+    screen.find('control-hud-category-action').props.onPress();
+    screen.render();
+
+    // 6. Voice Wing: suppresses passive prompt, clears Row 3 on short stages, and shifts active hudNotice horizontally right.
+    screen.find('control-hud-voice-toggle').props.onPress();
+    screen.render();
+    const wingStyle = flat(screen.find('control-hud-voice-wing').props.style);
+    assert.equal(screen.find('control-operation-feedback'), undefined, `${vp.name}: passive prompt suppressed under Voice Wing`);
+    if (effH < 410) {
+      assert.ok(wingStyle.top >= 92, `${vp.name}: Voice Wing top ${wingStyle.top} clears Row 3`);
+    }
+    screen.find('control-hud-photo-capture').props.onPress();
+    await screen.settle();
+    const noticeDuringVoice = flat(screen.find('control-hud-notice-stack').props.style);
+    assert.ok(noticeDuringVoice.left >= wingStyle.width, `${vp.name}: active notice left ${noticeDuringVoice.left} clears Voice Wing ${wingStyle.width}`);
+    screen.advance(4500);
+    screen.find('control-hud-voice-toggle').props.onPress();
+    screen.render();
+
+    // 7. Floating panel (Body Height): suppresses passive prompt, anchors active hudNotice at bottom-center, and never shifts panel top.
+    screen.find('control-hud-category-posture').props.onPress();
+    screen.render();
+    screen.find('control-hud-posture-height').props.onPress();
+    screen.render();
+    const overlayStackBefore = flat(screen.find('control-hud-overlay-stack').props.style);
+    assert.equal(screen.find('control-operation-feedback'), undefined, `${vp.name}: passive prompt suppressed under BodyHeightPanel`);
+    screen.find('control-hud-photo-capture').props.onPress();
+    await screen.settle();
+    const noticeDuringPanel = flat(screen.find('control-hud-notice-stack').props.style);
+    const overlayStackAfter = flat(screen.find('control-hud-overlay-stack').props.style);
+    assert.equal(noticeDuringPanel.top, undefined, `${vp.name}: modal/panel notice does not anchor at top`);
+    assert.ok(noticeDuringPanel.bottom > 0, `${vp.name}: modal/panel notice anchors cleanly at bottom-center`);
+    assert.equal(overlayStackAfter.top, overlayStackBefore.top, `${vp.name}: floating panel top never jumps when hudNotice fires`);
+    screen.unmount();
+  }
+});
+
+test('G20 fullscreen, prominent status pill, zeroing tutorial, G20 switch, Android audio test, and quick-connect work end to end', async () => {
+  let g20Starts = 0;
+  const quickConnectCalls = [];
+  const sitCalls = [];
+  const setZeroCalls = [];
+  const hardware = physicalFixture();
+  hardware.controller.state = {
+    ...hardware.controller.state,
+    status: 'stopped',
+    reading: false,
+    calibrated: false,
+    sample: null,
+  };
+  const originalStart = hardware.controller.start;
+  hardware.controller.start = () => { g20Starts += 1; originalStart(); };
+
+  const screen = mount({
+    landscapeDocksExpanded: false,
+    dev: false,
+    dimensions: { width: 753, height: 471, fontScale: 1 },
+    navigationInset: async () => 48,
+    connected: true,
+    video: { id: 'front-live', phase: 'connecting' },
+    videoSurface: 'front-surface',
+    g20Controller: hardware.controller,
+    runtimeState: {
+      controlLink: 'connected',
+      controlAuthority: 'not-held',
+      controlOwner: 'none',
+      motorState: 'disabled',
+      posture: 'standing',
+      faultStatus: 'clear',
+      battery: { voltageV: 56.1 },
+      joints: [{ id: '0', label: '右前髋', source: 'device', online: true, temperatureC: 29 }],
+    },
+    operationReadiness: {
+      sit: { ready: true },
+      setZero: { ready: true },
+      stop: { ready: true },
+    },
+    operationCallbacks: {
+      sit() { sitCalls.push('sit'); },
+      setZero() { setZeroCalls.push('setZero'); },
+      stop() {},
+    },
+    workspaceSettings: {
+      themePreference: 'dark',
+      onChangeTheme() {},
+      alertsEnabled: true,
+      onToggleAlerts() {},
+      connection: {
+        host: '192.168.66.64',
+        port: 13145,
+        connected: true,
+        readonlyConnected: false,
+        onConnectControl: async (host, port) => { quickConnectCalls.push([host, port]); return true; },
+        onDisconnect: async () => {},
+      },
+    },
+  });
+  await screen.settle();
+
+  // 1. True fullscreen SafeAreaView (no top/bottom inset bars on landscape cameraHud) & prominent Status pill.
+  assert.deepEqual([...screen.safeArea.edges], []);
+  const statusPill = screen.find('control-hud-open-status');
+  assert.ok(statusPill, 'prominent status pill renders');
+  assert.match(screen.copy, /状态/);
+
+  // 2. Settings -> 操控: uncalibrated G20 button is tappable, opens 手柄校准, and auto-starts G20 reading via start().
+  screen.find('control-hud-settings').props.onPress();
+  screen.render();
+  const physicalBtn = screen.find('control-setting-source-physical');
+  assert.equal(physicalBtn.props.disabled, false, 'G20 button must not silently dead-click when uncalibrated');
+  physicalBtn.props.onPress();
+  screen.render();
+  assert.equal(g20Starts, 1, 'opening G20 calibration auto-starts real reading via start()');
+  assert.ok(screen.inputPanel, 'embedded G20InputPanel renders inside settings');
+  screen.inputPanel.onStart();
+  assert.equal(g20Starts, 2, 'G20InputPanel start button calls start() instead of read-only observe()');
+  screen.find('control-settings-subview-back').props.onPress();
+  screen.render();
+
+  // 3. Settings -> 图传与音频 -> 声音测试 invokes native TTS/tone + haptic + toast notice.
+  screen.find('control-settings-tab-图传与音频').props.onPress();
+  screen.render();
+  screen.find('control-setting-test-audio').props.onPress();
+  await screen.settle();
+  assert.ok(screen.audioCalls.length > 0, 'sound test invokes native audio bridge');
+  assert.ok(screen.hapticCalls.length > 0, 'sound test triggers haptic feedback');
+  assert.ok(screen.find('control-hud-notice'), 'sound test shows toast confirmation');
+
+  // 4. Settings -> 机器狗维护: elevated 电机标零 card + 3-step interactive 标零教程.
+  screen.find('control-settings-tab-机器狗维护').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-settings-zeroing-card'), 'elevated zeroing card renders in 机器狗维护');
+  screen.find('control-settings-zeroing-guide').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-settings-subview-zeroing'), 'zeroing tutorial subview opens');
+  assert.ok(screen.find('control-zeroing-quick-sit'), 'standing robot exposes quick-sit button inside zeroing guide');
+  screen.find('control-zeroing-quick-sit').props.onPress();
+  screen.render();
+  assert.equal(sitCalls.length, 1, 'quick-sit inside zeroing tutorial closes settings and dispatches sit');
+
+  // Once robot settles into sitting posture, re-open zeroing tutorial and submit -> safety confirmation dialog.
+  screen.render({
+    runtimeState: {
+      controlLink: 'connected',
+      controlAuthority: 'not-held',
+      controlOwner: 'none',
+      motorState: 'disabled',
+      posture: 'sitting',
+      faultStatus: 'clear',
+      battery: { voltageV: 56.1 },
+      joints: [{ id: '0', label: '右前髋', source: 'device', online: true, temperatureC: 29 }],
+    },
+  });
+  await screen.settle();
+  screen.find('control-hud-settings').props.onPress();
+  screen.render();
+  screen.find('control-settings-tab-机器狗维护').props.onPress();
+  screen.render();
+  screen.find('control-settings-zeroing-guide').props.onPress();
+  screen.render();
+  screen.find('control-zeroing-guide-submit').props.onPress();
+  screen.render();
+  assert.ok(screen.find('control-immersive-confirm'), 'zeroing tutorial submit goes through safety confirmation');
+
+  // 5. Settings -> 连接与设备: embedded WifiDiscoveryPanel receives onQuickConnect.
+  screen.find('control-immersive-confirm-overlay').props.children[0].props.onPress();
+  screen.render();
+  screen.find('control-hud-settings').props.onPress();
+  screen.render();
+  screen.find('control-settings-tab-连接与设备').props.onPress();
+  screen.render();
+  const discovery = screen.find('control-settings-wifi-discovery');
+  assert.equal(typeof discovery.props.onQuickConnect, 'function', 'embedded WifiDiscoveryPanel wires onQuickConnect');
+  discovery.props.onQuickConnect('192.168.66.64', 13145);
+  await screen.settle();
+  assert.deepEqual(quickConnectCalls, [['192.168.66.64', 13145]]);
+
   screen.unmount();
 });

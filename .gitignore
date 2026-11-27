@@ -79,3 +79,7 @@ yarn-error.*
 # raw source gesture renders & dense trajectory archives (compact UI previews live in assets/gestures/)
 /gesture/gifs/
 /gesture/trajectories/
+
+# local Poly Haven photogrammetry cache & large editable Blender/UE master scene files
+/.cache/
+/forest-studio/
