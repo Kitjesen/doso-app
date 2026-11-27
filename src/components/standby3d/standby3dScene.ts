@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { createForestSkyTexture, createForestWorld } from './forestWorld';
@@ -44,6 +45,7 @@ export type Standby3dController = Readonly<{
 export type Standby3dMountOptions = Readonly<{
   glbUrl?: string;
   glbBase64?: string;
+  glbGzipBase64?: string;
   forestKitUrl?: string;
   forestKitBase64?: string;
   forestSkyUrl?: string;
@@ -288,6 +290,11 @@ function wrapAngle(rad: number): number {
 }
 
 function decodeBase64ToArrayBuffer(base64: string): ArrayBuffer {
+  const fromBase64 = (Uint8Array as unknown as { fromBase64?: (input: string) => Uint8Array }).fromBase64;
+  if (typeof fromBase64 === 'function') {
+    const bytes = fromBase64(base64);
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  }
   const binary = atob(base64);
   const len = binary.length;
   const bytes = new Uint8Array(len);
@@ -295,6 +302,16 @@ function decodeBase64ToArrayBuffer(base64: string): ArrayBuffer {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes.buffer;
+}
+
+async function decodeGzipBase64ToArrayBuffer(base64: string): Promise<ArrayBuffer> {
+  const compressed = decodeBase64ToArrayBuffer(base64);
+  if (typeof DecompressionStream !== 'function') {
+    throw new Error('DecompressionStream unavailable');
+  }
+  const ds = new DecompressionStream('gzip');
+  const stream = new Blob([compressed]).stream().pipeThrough(ds);
+  return new Response(stream).arrayBuffer();
 }
 
 function sampleRampLocalHeight(lx: number, lz: number): number {
@@ -795,9 +812,9 @@ export function mountStandby3dScene(
 
   const renderer = new THREE.WebGLRenderer({
     canvas,
-    antialias: !lowPerf,
+    antialias: true,
     alpha: false,
-    powerPreference: lowPerf ? 'low-power' : 'high-performance',
+    powerPreference: lowPerf ? 'default' : 'high-performance',
   });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -805,7 +822,8 @@ export function mountStandby3dScene(
   if (!lowPerf) {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   }
-  renderer.setPixelRatio(lowPerf ? 1 : Math.min(typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1, 2));
+  const hostDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  renderer.setPixelRatio(lowPerf ? Math.min(hostDpr, 1.25) : Math.min(hostDpr, 2));
 
   const scene = new THREE.Scene();
   const initialPalette = THEME_PALETTES[sceneId];
@@ -819,7 +837,7 @@ export function mountStandby3dScene(
   let realForestSkyTex: THREE.Texture | null = null;
   scene.environment = studioEnvTex;
 
-  const camera = new THREE.PerspectiveCamera(34, 16 / 9, 0.08, 65);
+  const camera = new THREE.PerspectiveCamera(34, 16 / 9, 0.18, 65);
 
   // Subtle curved studio / atmospheric forest sky dome
   const skyGeo = new THREE.SphereGeometry(32, 36, 22);
@@ -862,7 +880,7 @@ export function mountStandby3dScene(
   let forestWorld: ReturnType<typeof createForestWorld> | null = null;
   const ensureForestWorld = () => {
     if (!forestWorld) {
-      forestWorld = createForestWorld();
+      forestWorld = createForestWorld({ lowPerf });
       scene.add(forestWorld.group);
     }
     return forestWorld;
@@ -1073,13 +1091,14 @@ export function mountStandby3dScene(
     pedestalMat.map = nextPedestal;
     pedestalMat.needsUpdate = true;
 
+    const effectiveEnvIntensity = isForest && !forestEnvTex ? 0.46 : palette.envIntensity;
     robotModelAnchor.traverse(obj => {
       if ((obj as THREE.Mesh).isMesh) {
         const mat = (obj as THREE.Mesh).material;
         const mats = Array.isArray(mat) ? mat : [mat];
         for (const m of mats) {
           if (m && 'envMapIntensity' in m) {
-            (m as THREE.MeshStandardMaterial).envMapIntensity = palette.envIntensity;
+            (m as THREE.MeshStandardMaterial).envMapIntensity = effectiveEnvIntensity;
           }
         }
       }
@@ -1399,8 +1418,9 @@ export function mountStandby3dScene(
     }
   };
 
-  // Load articulated 16-DOF robot GLB + photoreal Blender forest kit, 360° sky & HDRI IBL in parallel
+  // Load articulated 16-DOF robot GLB (Meshopt-compressed) + photoreal forest kit, 360° sky & HDRI IBL in parallel
   const loader = new GLTFLoader();
+  loader.setMeshoptDecoder(MeshoptDecoder);
   let robotLoaded = false;
   let pendingForestLoads = 0;
 
@@ -1543,7 +1563,13 @@ export function mountStandby3dScene(
     options.onError?.(msg);
   };
 
-  if (options.glbBase64) {
+  if (options.glbGzipBase64) {
+    void decodeGzipBase64ToArrayBuffer(options.glbGzipBase64)
+      .then(buffer => {
+        if (!disposed) loader.parse(buffer, '', handleModelLoaded, handleModelError);
+      })
+      .catch(err => handleModelError(err));
+  } else if (options.glbBase64) {
     try {
       const buffer = decodeBase64ToArrayBuffer(options.glbBase64);
       loader.parse(buffer, '', handleModelLoaded, handleModelError);

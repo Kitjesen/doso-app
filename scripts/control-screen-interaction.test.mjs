@@ -277,7 +277,22 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     StyleSheet: { create: value => value, absoluteFill: { position: 'absolute' }, hairlineWidth: 1 },
     useWindowDimensions: () => viewport,
   };
+  const standbyDriveEvents = [];
+  let standbyDriveCurrent = { driveX: 0, driveY: 0, turnX: 0 };
+  const standbyDriveBusStub = {
+    publishStandbyDriveInput: (driveX, driveY, turnX) => {
+      standbyDriveCurrent = { driveX, driveY, turnX };
+      standbyDriveEvents.push(standbyDriveCurrent);
+    },
+    resetStandbyDriveInput: () => {
+      standbyDriveCurrent = { driveX: 0, driveY: 0, turnX: 0 };
+      standbyDriveEvents.push(standbyDriveCurrent);
+    },
+    getStandbyDriveInput: () => standbyDriveCurrent,
+    subscribeStandbyDriveInput: () => () => { },
+  };
   const dependencies = {
+    '../components/standby3d/standbyDriveBus': standbyDriveBusStub,
     '../features/control/useControlRobotVideo': { useControlRobotVideo: () => ({}) },
     '../features/app-update/androidApkUpdater': {
       checkAndroidApkUpdate: async () => null,
@@ -304,6 +319,7 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     './ControlPanelMotion': { ControlPanelMotion: 'ControlPanelMotion' },
     'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 0, left: 0, right: 0, bottom: 0 }), SafeAreaView: 'SafeAreaView' },
     '../components/ControlJoystick': { ControlJoystickPair },
+    '../components/standby3d/standbyDriveBus': standbyDriveBusStub,
     '../components/ControlHudPanels': controlHudPanelsModule.exports,
     '../components/controlLandscapeHud': landscapeHudModule.exports,
     '../components/controlHudModel': controlHudModelModule.exports,
@@ -574,6 +590,7 @@ function mount({ dev = true, initialAppState = 'active', dimensions = { fontScal
     get keepAwakeCalls() { return keepAwakeCalls; },
     get hapticCalls() { return hapticCalls; },
     get audioCalls() { return audioCalls; },
+    get standbyDrive() { return standbyDriveCurrent; },
     get copy() {
       return nodes.filter(node => node.type === 'copy').map(node => node.value).join(' ').replace(/\s+/g, ' ').trim();
     },
@@ -4644,6 +4661,18 @@ test('interactive 3D standby scene accepts open-stage drag while reserving joyst
   const pairNode = screen.find('control-immersive-sticks').props.children;
   assert.ok(pairNode, 'mounts ControlJoystickPair inside stickFrame');
   assert.equal(pairNode.props.reserveCenterForBackdrop, true);
+
+  // Offline virtual joysticks drive the local 3D standby robot via the zero-re-render bus and brake to zero on release!
+  pairNode.props.left.onActiveChange(true);
+  pairNode.props.left.onChange({ x: 0.4, y: -0.8 });
+  assert.deepEqual(screen.standbyDrive, { driveX: 0.4, driveY: -0.8, turnX: 0 });
+  pairNode.props.right.onActiveChange(true);
+  pairNode.props.right.onChange({ x: 0.55, y: 0 });
+  assert.deepEqual(screen.standbyDrive, { driveX: 0.4, driveY: -0.8, turnX: 0.55 });
+  pairNode.props.left.onActiveChange(false);
+  assert.deepEqual(screen.standbyDrive, { driveX: 0, driveY: 0, turnX: 0.55 });
+  pairNode.props.right.onActiveChange(false);
+  assert.deepEqual(screen.standbyDrive, { driveX: 0, driveY: 0, turnX: 0 });
 
   // Opening Settings disables 3D drag capture behind the modal without unmounting theme preview.
   screen.find('control-hud-settings').props.onPress();

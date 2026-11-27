@@ -8,6 +8,7 @@ import {
 declare global {
   interface Window {
     __DOSO_STANDBY_GLB_B64__?: string;
+    __DOSO_STANDBY_GLB_GZ_B64__?: string;
     __DOSO_FOREST_KIT_B64__?: string;
     __DOSO_FOREST_SKY_URI__?: string;
     __DOSO_FOREST_HDR_B64__?: string;
@@ -80,7 +81,8 @@ function bootstrap() {
   try {
     const controller = mountStandby3dScene(canvas, {
       glbBase64: window.__DOSO_STANDBY_GLB_B64__,
-      glbUrl: window.__DOSO_STANDBY_GLB_B64__ ? undefined : './thunder-r50-standby.glb',
+      glbGzipBase64: window.__DOSO_STANDBY_GLB_GZ_B64__,
+      glbUrl: (window.__DOSO_STANDBY_GLB_B64__ || window.__DOSO_STANDBY_GLB_GZ_B64__) ? undefined : './thunder-r50-standby.glb',
       forestKitBase64: allowHeavyForestAssets ? window.__DOSO_FOREST_KIT_B64__ : undefined,
       forestSkyUrl: allowHeavyForestAssets ? window.__DOSO_FOREST_SKY_URI__ : undefined,
       forestHdrBase64: allowHeavyForestAssets ? window.__DOSO_FOREST_HDR_B64__ : undefined,
@@ -97,6 +99,7 @@ function bootstrap() {
     window.__dosoStandby3d = controller;
     // Free raw base64 strings after GLTFLoader/RGBELoader have consumed ArrayBuffers.
     delete window.__DOSO_STANDBY_GLB_B64__;
+    delete window.__DOSO_STANDBY_GLB_GZ_B64__;
     delete window.__DOSO_FOREST_KIT_B64__;
     delete window.__DOSO_FOREST_SKY_URI__;
     delete window.__DOSO_FOREST_HDR_B64__;

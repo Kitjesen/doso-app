@@ -1102,7 +1102,12 @@ function createTexturedFernClusterGeometry(): THREE.BufferGeometry {
 // Main Forest World Builder
 // ============================================================================
 
-export function createForestWorld(): ForestWorldHandle {
+export type ForestWorldOptions = Readonly<{
+  lowPerf?: boolean;
+}>;
+
+export function createForestWorld(options: ForestWorldOptions = {}): ForestWorldHandle {
+  const lowPerf = Boolean(options.lowPerf);
   const group = new THREE.Group();
   const colliders: ForestCollider[] = [];
   const disposables: Array<{ dispose: () => void }> = [];
@@ -1127,8 +1132,9 @@ export function createForestWorld(): ForestWorldHandle {
     forestPadTex, sunbeamTex, mistWispTex, glowSpriteTex,
   );
 
-  // 1. Continuous High-Resolution Sculpted Forest Terrain (Velvety fBM Soil + BumpMap + Biome Colors)
-  const terrainGeo = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, TERRAIN_SEGMENTS, TERRAIN_SEGMENTS);
+  // 1. Continuous Sculpted Forest Terrain (68x68 on Android lowPerf -> 4.5x fewer terrain tris!)
+  const terrainSegs = lowPerf ? 68 : TERRAIN_SEGMENTS;
+  const terrainGeo = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, terrainSegs, terrainSegs);
   terrainGeo.rotateX(-Math.PI / 2);
   const tPos = terrainGeo.attributes.position;
   const tCols = new Float32Array(tPos.count * 3);
@@ -1259,7 +1265,7 @@ export function createForestWorld(): ForestWorldHandle {
   disposables.push(plankMat, timberDarkMat, lanternGlassMat, lanternHaloMat);
 
   const plankCount = 22;
-  const plankGeo = new THREE.BoxGeometry(0.165, 0.048, BRIDGE_HALF_W * 2);
+  const plankGeo = new THREE.BoxGeometry(0.175, 0.052, BRIDGE_HALF_W * 2);
   disposables.push(plankGeo);
 
   for (let i = 0; i < plankCount; i += 1) {
@@ -1406,8 +1412,9 @@ export function createForestWorld(): ForestWorldHandle {
     }
   }
 
+  const maxTrees = lowPerf ? 52 : 96;
   let attempts = 0;
-  while (treeSpots.length < 96 && attempts < 1800) {
+  while (treeSpots.length < maxTrees && attempts < 1800) {
     attempts += 1;
     const isOuter = treeSpots.length >= 38;
     const minR = isOuter ? 10.8 : 4.4;
@@ -1607,7 +1614,8 @@ export function createForestWorld(): ForestWorldHandle {
 
   type FernEntry = { x: number; y: number; z: number; scale: number; yaw: number; phase: number };
   const fernEntries: FernEntry[] = [];
-  for (let i = 0; i < 360; i += 1) {
+  const maxFerns = lowPerf ? 130 : 360;
+  for (let i = 0; i < maxFerns; i += 1) {
     const ang = rand() * Math.PI * 2;
     const rad = 1.90 + Math.sqrt(rand()) * 12.2;
     const x = Math.cos(ang) * rad;
@@ -1793,7 +1801,7 @@ export function createForestWorld(): ForestWorldHandle {
   }
 
   // 13. Drifting Golden Forest Fireflies & Sun-Dusted Pollen Motes
-  const fireflyCount = 95;
+  const fireflyCount = lowPerf ? 36 : 95;
   const fireflyGeo = new THREE.BufferGeometry();
   const fireflyPositions = new Float32Array(fireflyCount * 3);
   const fireflySeeds = new Float32Array(fireflyCount * 4);
@@ -2251,49 +2259,52 @@ export function createForestWorld(): ForestWorldHandle {
       m.sprite.position.z = m.baseZ + Math.cos(tSec * 0.11 + m.phase) * 0.45;
     }
 
-    // Drifting fireflies & sunlit forest motes
-    const fAttr = fireflyGeo.attributes.position as THREE.BufferAttribute;
-    for (let i = 0; i < fireflyCount; i += 1) {
-      const bx = fireflySeeds[i * 4];
-      const by = fireflySeeds[i * 4 + 1];
-      const bz = fireflySeeds[i * 4 + 2];
-      const ph = fireflySeeds[i * 4 + 3];
-      fAttr.setXYZ(
-        i,
-        bx + Math.sin(tSec * 0.45 + ph) * 0.34,
-        by + Math.sin(tSec * 0.85 + ph * 1.7) * 0.20,
-        bz + Math.cos(tSec * 0.42 + ph * 1.3) * 0.34,
-      );
-    }
-    fAttr.needsUpdate = true;
+    // Skip per-frame CPU buffer/instance uploads on Android lowPerf to keep joystick driving locked smooth!
+    if (!lowPerf) {
+      // Drifting fireflies & sunlit forest motes
+      const fAttr = fireflyGeo.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < fireflyCount; i += 1) {
+        const bx = fireflySeeds[i * 4];
+        const by = fireflySeeds[i * 4 + 1];
+        const bz = fireflySeeds[i * 4 + 2];
+        const ph = fireflySeeds[i * 4 + 3];
+        fAttr.setXYZ(
+          i,
+          bx + Math.sin(tSec * 0.45 + ph) * 0.34,
+          by + Math.sin(tSec * 0.85 + ph * 1.7) * 0.20,
+          bz + Math.cos(tSec * 0.42 + ph * 1.3) * 0.34,
+        );
+      }
+      fAttr.needsUpdate = true;
 
-    // Gentle breeze swaying ferns & grass (throttled to every 2nd frame)
-    fernFrameSkip = (fernFrameSkip + 1) & 1;
-    if (fernFrameSkip === 0) {
-      if (photorealLoaded) {
-        for (const batch of photorealSwayBatches) {
-          for (let i = 0; i < batch.entries.length; i += 1) {
-            const f = batch.entries[i];
-            const sway = Math.sin(tSec * 1.5 + f.phase) * 0.04;
+      // Gentle breeze swaying ferns & grass (throttled to every 2nd frame)
+      fernFrameSkip = (fernFrameSkip + 1) & 1;
+      if (fernFrameSkip === 0) {
+        if (photorealLoaded) {
+          for (const batch of photorealSwayBatches) {
+            for (let i = 0; i < batch.entries.length; i += 1) {
+              const f = batch.entries[i];
+              const sway = Math.sin(tSec * 1.5 + f.phase) * 0.04;
+              dummy.position.set(f.x, f.y, f.z);
+              dummy.rotation.set(sway, f.yaw, sway * 0.6);
+              dummy.scale.setScalar(f.scale);
+              dummy.updateMatrix();
+              batch.inst.setMatrixAt(i, dummy.matrix);
+            }
+            batch.inst.instanceMatrix.needsUpdate = true;
+          }
+        } else {
+          for (let i = 0; i < fernEntries.length; i += 1) {
+            const f = fernEntries[i];
+            const sway = Math.sin(tSec * 1.6 + f.phase) * 0.05;
             dummy.position.set(f.x, f.y, f.z);
-            dummy.rotation.set(sway, f.yaw, sway * 0.6);
+            dummy.rotation.set(sway, f.yaw, sway * 0.65);
             dummy.scale.setScalar(f.scale);
             dummy.updateMatrix();
-            batch.inst.setMatrixAt(i, dummy.matrix);
+            fernInst.setMatrixAt(i, dummy.matrix);
           }
-          batch.inst.instanceMatrix.needsUpdate = true;
+          fernInst.instanceMatrix.needsUpdate = true;
         }
-      } else {
-        for (let i = 0; i < fernEntries.length; i += 1) {
-          const f = fernEntries[i];
-          const sway = Math.sin(tSec * 1.6 + f.phase) * 0.05;
-          dummy.position.set(f.x, f.y, f.z);
-          dummy.rotation.set(sway, f.yaw, sway * 0.65);
-          dummy.scale.setScalar(f.scale);
-          dummy.updateMatrix();
-          fernInst.setMatrixAt(i, dummy.matrix);
-        }
-        fernInst.instanceMatrix.needsUpdate = true;
       }
     }
 

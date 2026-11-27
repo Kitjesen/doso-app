@@ -41,6 +41,7 @@ import { AppState, type ImageSourcePropType, type LayoutChangeEvent, Pressable, 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ControlJoystickPair, type JoystickVector } from '../components/ControlJoystick';
+import { publishStandbyDriveInput, resetStandbyDriveInput } from '../components/standby3d/standbyDriveBus';
 import { ControlVideoSurface, type ControlVideoPresentation } from '../components/ControlVideoSurface';
 import { DepthSnapshotView } from '../components/DepthSnapshotView';
 import { ControlPanelMotion } from '../components/ControlPanelMotion';
@@ -293,7 +294,7 @@ export function ControlScreen({
   showVirtualDiscControlsRef.current = showVirtualDiscControls;
   const [lowLatencyMode, setLowLatencyMode] = useState(true);
   const [videoQuality, setVideoQuality] = useState<VideoQualityPreset>('高清');
-  const [standbyScene, setStandbyScene] = useState<StandbySceneId>('charcoal');
+  const [standbyScene, setStandbyScene] = useState<StandbySceneId>(() => createDefaultControlPreferences().standbyScene);
   const [accentTone, setAccentTone] = useState<ControlAccentTone>('graphite');
   const [hotspotScanPulse, setHotspotScanPulse] = useState(0);
   const [connectionTipsOpen, setConnectionTipsOpen] = useState(false);
@@ -826,13 +827,59 @@ export function ControlScreen({
   touchSnapshot.current = nextTouchSnapshot;
   touchAllowed.current = controlsEnabled && selectedInputSource === 'touch' && showVirtualDiscControls;
   const renderedTouchGeneration = touchGeneration.current;
+  const offlineStandbyDriveRef = useRef({ driveX: 0, driveY: 0, turnX: 0 });
+  const previewAvailableRef = useRef(false);
+  previewAvailableRef.current = previewAvailable;
+  const flushOfflineStandbyDrive = useCallback(() => {
+    const cur = offlineStandbyDriveRef.current;
+    publishStandbyDriveInput(cur.driveX, cur.driveY, cur.turnX);
+  }, []);
+  const clearOfflineStandbyDrive = useCallback(() => {
+    offlineStandbyDriveRef.current = { driveX: 0, driveY: 0, turnX: 0 };
+    resetStandbyDriveInput();
+  }, []);
   const previewTouchActive = (side: 'drive' | 'turn', active: boolean) => {
     if (!mountedRef.current || renderedTouchGeneration !== touchGeneration.current) return;
     (side === 'drive' ? setDriveActive : setTurnActive)(active);
+    if (!active) {
+      if (side === 'drive') {
+        offlineStandbyDriveRef.current.driveX = 0;
+        offlineStandbyDriveRef.current.driveY = 0;
+      } else {
+        offlineStandbyDriveRef.current.turnX = 0;
+      }
+      flushOfflineStandbyDrive();
+    }
   };
+  const handleOfflinePreviewDrive = useCallback((value: JoystickVector) => {
+    if (!mountedRef.current || renderedTouchGeneration !== touchGeneration.current || !previewAvailableRef.current) return;
+    const adjusted = scaleControlVector(
+      applyForwardDirection(applyJoystickSensitivity(value, sensitivityRef.current), forwardDirectionRef.current),
+      speedLimitRef.current,
+    );
+    offlineStandbyDriveRef.current.driveX = adjusted.x;
+    offlineStandbyDriveRef.current.driveY = adjusted.y;
+    flushOfflineStandbyDrive();
+  }, [flushOfflineStandbyDrive, renderedTouchGeneration]);
+  const handleOfflinePreviewTurn = useCallback((value: JoystickVector) => {
+    if (!mountedRef.current || renderedTouchGeneration !== touchGeneration.current || !previewAvailableRef.current) return;
+    const adjusted = scaleControlVector(
+      applyJoystickSensitivity(value, sensitivityRef.current),
+      speedLimitRef.current,
+    );
+    offlineStandbyDriveRef.current.turnX = adjusted.x;
+    flushOfflineStandbyDrive();
+  }, [flushOfflineStandbyDrive, renderedTouchGeneration]);
   const cancelPreview = () => {
+    clearOfflineStandbyDrive();
     if (mountedRef.current && renderedTouchGeneration === touchGeneration.current) resetControls();
   };
+  useEffect(() => {
+    if (!previewAvailable) clearOfflineStandbyDrive();
+  }, [clearOfflineStandbyDrive, previewAvailable]);
+  useEffect(() => () => {
+    clearOfflineStandbyDrive();
+  }, [clearOfflineStandbyDrive]);
   const heldTouchSides = useRef({ drive: false, turn: false });
   const touchActive = (side: 'drive' | 'turn', active: boolean) => {
     if (active && (!mountedRef.current || renderedTouchGeneration !== touchGeneration.current
@@ -1231,12 +1278,14 @@ export function ControlScreen({
           : latest.operationCallbacks?.[action]?.();
     });
   }, [closeSettingsMenu, revokeOperationIntent, startOperation, resetControls]);
-  const physicalContext = useRef({ observing: false, allowed: false, motion: false, generation: renderGeneration, runOperation, productionInput });
+  const physicalContext = useRef({ observing: false, allowed: false, motion: false, offlinePreview: false, generation: renderGeneration, runOperation, productionInput });
   const observingPhysical = selectedInputSource === 'physical' && physicalAvailable && !inputSettingsOpen && !joystickSettingsOpen && !gestureLibraryOpen && appActive && !leaving;
   physicalContext.current = {
     observing: observingPhysical,
     allowed: observingPhysical && !settingsMenuOpen && !statusCardOpen && !postureMenuOpen && !operationInFlight && !visibleConfirmation && !selectingPolicy,
-    motion: controlsEnabled, generation: renderGeneration, runOperation, productionInput
+    motion: controlsEnabled,
+    offlinePreview: previewAvailable,
+    generation: renderGeneration, runOperation, productionInput
   };
   g20Gate.current.setEnabled(observingPhysical, g20Controller?.captureFence);
   g20MotionGate.current.setEnabled(physicalContext.current.allowed && controlsEnabled, g20Controller?.captureFence);
@@ -1286,6 +1335,19 @@ export function ControlScreen({
           scaleControlVector(rawTurn, limit),
           sample.requestStartedAtMonotonicMs,
         );
+      } else if (context.offlinePreview && fresh && !context.motion) {
+        const limit = speedLimitRef.current;
+        const sens = sensitivityRef.current;
+        const rawDrive = scaleControlVector(
+          applyForwardDirection(applyJoystickSensitivity({ x: frame.vector.leftX, y: frame.vector.leftY }, sens), forwardDirectionRef.current),
+          limit,
+        );
+        const rawTurn = scaleControlVector(
+          applyJoystickSensitivity({ x: frame.vector.rightX, y: frame.vector.rightY }, sens),
+          limit,
+        );
+        offlineStandbyDriveRef.current = { driveX: rawDrive.x, driveY: rawDrive.y, turnX: rawTurn.x };
+        publishStandbyDriveInput(rawDrive.x, rawDrive.y, rawTurn.x);
       }
     });
   }, [g20Controller?.subscribe, interruptInput, revokeOperationIntent, resetControls]);
@@ -2162,8 +2224,8 @@ export function ControlScreen({
       </View>
     </View>
   );
-  const driveStickSpec = { axis: 'xy' as const, label: '速度', onActiveChange: offlinePreview ? (active: boolean) => previewTouchActive('drive', active) : (active: boolean) => touchActive('drive', active), onChange: offlinePreview ? ignoreLocalInput : productionInput || developmentInput ? handleDrive : ignoreLocalInput, onSample: !offlinePreview && productionInput ? handleDrive : undefined, testID: 'control-drive-stick' };
-  const turnStickSpec = { axis: 'x' as const, label: '转向', onActiveChange: offlinePreview ? (active: boolean) => previewTouchActive('turn', active) : (active: boolean) => touchActive('turn', active), onChange: offlinePreview ? ignoreLocalInput : productionInput || developmentInput ? handleTurn : ignoreLocalInput, onSample: !offlinePreview && productionInput ? handleTurn : undefined, testID: 'control-turn-stick' };
+  const driveStickSpec = { axis: 'xy' as const, label: '速度', onActiveChange: offlinePreview ? (active: boolean) => previewTouchActive('drive', active) : (active: boolean) => touchActive('drive', active), onChange: offlinePreview ? handleOfflinePreviewDrive : productionInput || developmentInput ? handleDrive : ignoreLocalInput, onSample: !offlinePreview && productionInput ? handleDrive : undefined, testID: 'control-drive-stick' };
+  const turnStickSpec = { axis: 'x' as const, label: '转向', onActiveChange: offlinePreview ? (active: boolean) => previewTouchActive('turn', active) : (active: boolean) => touchActive('turn', active), onChange: offlinePreview ? handleOfflinePreviewTurn : productionInput || developmentInput ? handleTurn : ignoreLocalInput, onSample: !offlinePreview && productionInput ? handleTurn : undefined, testID: 'control-turn-stick' };
   const hudSettingsVisible = settingsMenuOpen || joystickSettingsOpen || Boolean(inputSettingsOpen && g20Controller);
   const activeHudSubview: ControlSettingsSubview = joystickSettingsOpen ? 'layout' : inputSettingsOpen && g20Controller ? 'input' : settingsSubview;
   const showLandscapeRecovery = Boolean(cameraHud && recovery && (recoveryOperator.confirming || recoveryOperator.error || recoveryOperator.view.sessionActive));
@@ -2989,9 +3051,9 @@ export function ControlScreen({
         backdrop={glass.backdrop()}
         onCancel={offlinePreview ? cancelPreview : handleCancel}
         gap={immersiveJoystickGap}
-        left={{ axis: 'xy', label: '移动', onActiveChange: offlinePreview ? active => previewTouchActive('drive', active) : active => touchActive('drive', active), onChange: offlinePreview ? ignoreLocalInput : productionInput || developmentInput ? handleDrive : ignoreLocalInput, onSample: !offlinePreview && productionInput ? handleDrive : undefined, testID: 'control-drive-stick' }}
+        left={{ axis: 'xy', label: '移动', onActiveChange: offlinePreview ? active => previewTouchActive('drive', active) : active => touchActive('drive', active), onChange: offlinePreview ? handleOfflinePreviewDrive : productionInput || developmentInput ? handleDrive : ignoreLocalInput, onSample: !offlinePreview && productionInput ? handleDrive : undefined, testID: 'control-drive-stick' }}
         resetKey={resetKey}
-        right={{ axis: 'x', label: '转向', onActiveChange: offlinePreview ? active => previewTouchActive('turn', active) : active => touchActive('turn', active), onChange: offlinePreview ? ignoreLocalInput : productionInput || developmentInput ? handleTurn : ignoreLocalInput, onSample: !offlinePreview && productionInput ? handleTurn : undefined, testID: 'control-turn-stick' }}
+        right={{ axis: 'x', label: '转向', onActiveChange: offlinePreview ? active => previewTouchActive('turn', active) : active => touchActive('turn', active), onChange: offlinePreview ? handleOfflinePreviewTurn : productionInput || developmentInput ? handleTurn : ignoreLocalInput, onSample: !offlinePreview && productionInput ? handleTurn : undefined, testID: 'control-turn-stick' }}
         showLabels={false}
         size={immersiveJoystickSize}
         layout={configuredJoystickLayout}
