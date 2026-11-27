@@ -119,6 +119,11 @@ function hasFiniteLocalPosition(touch: TouchWithLocalPosition) {
   return Number.isFinite(touch.locationX) && Number.isFinite(touch.locationY);
 }
 
+function hasValidPagePosition(touch: TouchWithLocalPosition) {
+  return Number.isFinite(touch.pageX) && Number.isFinite(touch.pageY)
+    && (touch.pageX !== 0 || touch.pageY !== 0);
+}
+
 function usePairChannel(definition: ControlJoystickPairSide, sampleGuard?: () => boolean) {
   const [value, setValue] = useState<JoystickVector>(NEUTRAL_JOYSTICK_VECTOR);
   const [active, setActiveState] = useState(false);
@@ -126,6 +131,7 @@ function usePairChannel(definition: ControlJoystickPairSide, sampleGuard?: () =>
   const valueRef = useRef<JoystickVector>(NEUTRAL_JOYSTICK_VECTOR);
   const activeRef = useRef(false);
   const anchorRef = useRef<Readonly<{ x: number; y: number }> | null>(null);
+  const pageAnchorRef = useRef<Readonly<{ x: number; y: number }> | null>(null);
   const ownerRef = useRef<number | null>(null);
   const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onChangeRef = useRef(definition.onChange);
@@ -170,6 +176,7 @@ function usePairChannel(definition: ControlJoystickPairSide, sampleGuard?: () =>
   const release = useCallback(() => {
     cancelPulse();
     ownerRef.current = null;
+    pageAnchorRef.current = null;
     setAnchor(null);
     setActive(false);
     emit(NEUTRAL_JOYSTICK_VECTOR);
@@ -184,7 +191,7 @@ function usePairChannel(definition: ControlJoystickPairSide, sampleGuard?: () =>
     pulseTimerRef.current = setTimeout(release, ACCESSIBILITY_PULSE_MS);
   }, [cancelPulse, emit, release, setActive]);
 
-  return { active, anchor, anchorRef, cancelPulse, emit, ownerRef, pulse, release, setActive, setAnchor, value };
+  return { active, anchor, anchorRef, cancelPulse, emit, ownerRef, pageAnchorRef, pulse, release, setActive, setAnchor, value };
 }
 
 function JoystickVisual({
@@ -390,16 +397,19 @@ export function ControlJoystickPair({
     onVisualChangeRef.current?.(left.value, right.value);
   }, [left.value, right.value]);
   const retiredOwners = useRef(new Set<number>());
+  // Tracks the ControlJoystickPair container origin in screen (page) coordinates while a gesture is active.
+  // Using pageX/pageY after touch-down prevents Android Fabric locationX/locationY re-targeting jumps
+  // when a finger drags outside a nested hit zone (e.g. above the top edge of the left stick).
+  const pairPageOriginRef = useRef<Readonly<{ x: number; y: number }> | null>(null);
 
-  const anchorForTouch = useCallback((touch: TouchWithLocalPosition, side: 'left' | 'right') => {
+  const anchorForTouch = useCallback((localX: number, localY: number, side: 'left' | 'right') => {
     if (layout && !floating) return { x: layout[side].centerX, y: layout[side].centerY };
-    const localX = Number(touch.locationX);
-    const localY = Number(touch.locationY);
     if (floating) return { x: localX, y: localY };
     return { x: side === 'left' ? radius : rightStart + radius, y: radius };
   }, [floating, layout, radius, rightStart]);
 
   const releaseBoth = useCallback(() => {
+    pairPageOriginRef.current = null;
     left.release();
     right.release();
   }, [left.release, right.release]);
@@ -434,6 +444,16 @@ export function ControlJoystickPair({
 
   useEffect(() => releaseBoth, [releaseBoth]);
 
+  const resolveTouchPairPosition = useCallback((touch: TouchWithLocalPosition): Readonly<{ x: number; y: number }> | null => {
+    const origin = pairPageOriginRef.current;
+    if (origin && Number.isFinite(touch.pageX) && Number.isFinite(touch.pageY)
+      && (touch.pageX !== 0 || touch.pageY !== 0)) {
+      return { x: touch.pageX - origin.x, y: touch.pageY - origin.y };
+    }
+    if (!hasFiniteLocalPosition(touch)) return null;
+    return { x: touch.locationX as number, y: touch.locationY as number };
+  }, []);
+
   const updateChannel = useCallback((
     channel: ReturnType<typeof usePairChannel>,
     definition: ControlJoystickPairSide,
@@ -441,6 +461,18 @@ export function ControlJoystickPair({
     anchor: Readonly<{ x: number; y: number }>,
     sideRadius: number,
   ) => {
+    const pageAnchor = channel.pageAnchorRef.current;
+    if (pageAnchor) {
+      if (!Number.isFinite(touch.pageX) || !Number.isFinite(touch.pageY)) return channel.release();
+      channel.emit(projectJoystickInput(
+        touch.pageX - pageAnchor.x,
+        touch.pageY - pageAnchor.y,
+        sideRadius,
+        definition.axis,
+        DEADZONE,
+      ));
+      return;
+    }
     if (!hasFiniteLocalPosition(touch)) return channel.release();
     channel.emit(projectJoystickInput(
       (touch.locationX as number) - anchor.x,
@@ -451,76 +483,122 @@ export function ControlJoystickPair({
     ));
   }, []);
 
-  const touchSide = useCallback((touch: TouchWithLocalPosition): 'left' | 'right' | undefined => {
-    if (!hasFiniteLocalPosition(touch)) return;
-    const x = Number(touch.locationX), y = Number(touch.locationY);
-    if (y < 0 || y > pairHeight) return;
+  const touchSideAt = useCallback((x: number, y: number, allowHitRim = false): 'left' | 'right' | undefined => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const hitOverflow = allowHitRim ? Math.max(16, Math.round(Math.max(leftRadius, rightRadius) * 0.2)) : 0;
+    if (y < -hitOverflow || y > pairHeight + hitOverflow) return;
     if (layout && !floating) {
       const side = x < floatingBoundary ? 'left' : 'right';
       const disc = layout[side];
-      if (x < 0 || x > pairWidth || Math.hypot(x - disc.centerX, y - disc.centerY) > disc.size / 2) return;
+      if (x < -hitOverflow || x > pairWidth + hitOverflow || Math.hypot(x - disc.centerX, y - disc.centerY) > disc.size / 2 + hitOverflow) return;
       return side;
     }
-    if (floating ? x >= 0 && x < floatingBoundary : x >= 0 && x <= size) return 'left';
-    if (floating ? x >= floatingBoundary && x <= pairWidth : x >= rightStart && x <= rightStart + size) return 'right';
-  }, [floating, floatingBoundary, layout, pairHeight, pairWidth, rightStart, size]);
+    if (floating ? x >= -hitOverflow && x < floatingBoundary : x >= 0 && x <= size) return 'left';
+    if (floating ? x >= floatingBoundary && x <= pairWidth + hitOverflow : x >= rightStart && x <= rightStart + size) return 'right';
+  }, [floating, floatingBoundary, layout, leftRadius, pairHeight, pairWidth, rightRadius, rightStart, size]);
 
-  const canStart = useCallback((event?: GestureResponderEvent) => {
+  const touchSide = useCallback((touch: TouchWithLocalPosition, allowHitRim = false): 'left' | 'right' | undefined => {
+    const pos = resolveTouchPairPosition(touch);
+    if (!pos) return;
+    return touchSideAt(pos.x, pos.y, allowHitRim);
+  }, [resolveTouchPairPosition, touchSideAt]);
+
+  const canStartForHit = useCallback((event: GestureResponderEvent | undefined, allowHitRim: boolean) => {
     if (inputDisabled || !geometryCurrent()) return false;
     if (!layout) return true;
     if (!event) return false;
     return changedResponderTouches(event).some(touch => {
       if (retiredOwners.current.has(touch.identifier)) return false;
-      const side = touchSide(touch);
+      const side = touchSide(touch, allowHitRim);
       return side === 'left' ? left.ownerRef.current === null : side === 'right' && right.ownerRef.current === null;
     });
   }, [geometryCurrent, inputDisabled, layout, left.ownerRef, right.ownerRef, touchSide]);
 
-  const claimNewTouches = useCallback((event: GestureResponderEvent) => {
+  const canStart = useCallback((event?: GestureResponderEvent) => canStartForHit(event, false), [canStartForHit]);
+
+  const claimTouches = useCallback((event: GestureResponderEvent, allowHitRim = false) => {
     if (inputDisabled || !geometryCurrent()) return;
     const changed = changedResponderTouches(event);
     for (const touch of changed) {
       if (retiredOwners.current.has(touch.identifier)) continue;
       if (left.ownerRef.current === touch.identifier || right.ownerRef.current === touch.identifier) continue;
-      const side = touchSide(touch);
+      const useStoredOrigin = pairPageOriginRef.current !== null && (left.ownerRef.current !== null || right.ownerRef.current !== null);
+      if (!useStoredOrigin) {
+        pairPageOriginRef.current = null;
+      }
+      const pos = resolveTouchPairPosition(touch);
+      if (!pos) continue;
+      const side = touchSideAt(pos.x, pos.y, allowHitRim);
       if (side === 'left' && left.ownerRef.current === null) {
+        const nextAnchor = anchorForTouch(pos.x, pos.y, 'left');
+        if (!pairPageOriginRef.current && hasValidPagePosition(touch)) {
+          pairPageOriginRef.current = { x: touch.pageX - pos.x, y: touch.pageY - pos.y };
+        }
         left.cancelPulse();
         left.ownerRef.current = touch.identifier;
-        left.setAnchor(anchorForTouch(touch, 'left'));
+        left.pageAnchorRef.current = hasValidPagePosition(touch)
+          ? { x: touch.pageX + (nextAnchor.x - pos.x), y: touch.pageY + (nextAnchor.y - pos.y) }
+          : null;
+        left.setAnchor(nextAnchor);
         left.setActive(true);
-        updateChannel(left, leftDefinition, touch, left.anchorRef.current ?? { x: radius, y: radius }, leftRadius);
+        updateChannel(left, leftDefinition, touch, nextAnchor, leftRadius);
       } else if (side === 'right' && right.ownerRef.current === null) {
+        const nextAnchor = anchorForTouch(pos.x, pos.y, 'right');
+        if (!pairPageOriginRef.current && hasValidPagePosition(touch)) {
+          pairPageOriginRef.current = { x: touch.pageX - pos.x, y: touch.pageY - pos.y };
+        }
         right.cancelPulse();
         right.ownerRef.current = touch.identifier;
-        right.setAnchor(anchorForTouch(touch, 'right'));
+        right.pageAnchorRef.current = hasValidPagePosition(touch)
+          ? { x: touch.pageX + (nextAnchor.x - pos.x), y: touch.pageY + (nextAnchor.y - pos.y) }
+          : null;
+        right.setAnchor(nextAnchor);
         right.setActive(true);
-        updateChannel(right, rightDefinition, touch, right.anchorRef.current ?? { x: rightStart + radius, y: radius }, rightRadius);
+        updateChannel(right, rightDefinition, touch, nextAnchor, rightRadius);
       }
     }
-  }, [anchorForTouch, geometryCurrent, inputDisabled, left, leftDefinition, leftRadius, radius, right, rightDefinition, rightRadius, rightStart, touchSide, updateChannel]);
+  }, [anchorForTouch, geometryCurrent, inputDisabled, left, leftDefinition, leftRadius, resolveTouchPairPosition, right, rightDefinition, rightRadius, touchSideAt, updateChannel]);
 
-  const handleMove = useCallback((event: GestureResponderEvent) => {
+  const claimNewTouches = useCallback((event: GestureResponderEvent) => claimTouches(event, false), [claimTouches]);
+
+  const handleSideMove = useCallback((scopedSide: 'left' | 'right' | null, event: GestureResponderEvent) => {
     if (!geometryCurrent()) return;
     if (inputDisabled) return releaseBoth();
     const touches = responderTouches(event);
     const leftTouch = selectTouchByIdentifier(touches, left.ownerRef.current) as TouchWithLocalPosition | undefined;
     const rightTouch = selectTouchByIdentifier(touches, right.ownerRef.current) as TouchWithLocalPosition | undefined;
     if (leftTouch) updateChannel(left, leftDefinition, leftTouch, left.anchorRef.current ?? { x: radius, y: radius }, leftRadius);
-    else if (left.ownerRef.current !== null) left.release();
+    else if (left.ownerRef.current !== null && (scopedSide === null || scopedSide === 'left')) left.release();
     if (rightTouch) updateChannel(right, rightDefinition, rightTouch, right.anchorRef.current ?? { x: rightStart + radius, y: radius }, rightRadius);
-    else if (right.ownerRef.current !== null) right.release();
+    else if (right.ownerRef.current !== null && (scopedSide === null || scopedSide === 'right')) right.release();
+    if (left.ownerRef.current === null && right.ownerRef.current === null) {
+      pairPageOriginRef.current = null;
+    }
   }, [geometryCurrent, inputDisabled, left, leftDefinition, leftRadius, radius, releaseBoth, right, rightDefinition, rightRadius, rightStart, updateChannel]);
 
-  const handleEnd = useCallback((event: GestureResponderEvent) => {
+  const handleMove = useCallback((event: GestureResponderEvent) => handleSideMove(null, event), [handleSideMove]);
+
+  const handleSideEnd = useCallback((scopedSide: 'left' | 'right' | null, event: GestureResponderEvent) => {
     const changed = changedResponderTouches(event);
     const remaining = responderTouches(event);
     for (const owner of retiredOwners.current) {
       if (didTouchEnd(changed, remaining, owner)) retiredOwners.current.delete(owner);
     }
     if (!geometryCurrent()) return;
-    if (didTouchEnd(changed, remaining, left.ownerRef.current)) left.release();
-    if (didTouchEnd(changed, remaining, right.ownerRef.current)) right.release();
+    const leftEnded = scopedSide === 'right'
+      ? Boolean(selectTouchByIdentifier(changed, left.ownerRef.current))
+      : didTouchEnd(changed, remaining, left.ownerRef.current);
+    const rightEnded = scopedSide === 'left'
+      ? Boolean(selectTouchByIdentifier(changed, right.ownerRef.current))
+      : didTouchEnd(changed, remaining, right.ownerRef.current);
+    if (leftEnded) left.release();
+    if (rightEnded) right.release();
+    if (left.ownerRef.current === null && right.ownerRef.current === null) {
+      pairPageOriginRef.current = null;
+    }
   }, [geometryCurrent, left, right]);
+
+  const handleEnd = useCallback((event: GestureResponderEvent) => handleSideEnd(null, event), [handleSideEnd]);
 
   const offsetTouchEvent = useCallback((event: GestureResponderEvent, dx: number, dy: number): GestureResponderEvent => {
     const shiftList = (list: readonly TouchWithLocalPosition[] | undefined) => (list ?? []).map(t => ({
@@ -556,7 +634,7 @@ export function ControlJoystickPair({
       pointerEvents={inputDisabled ? (onBlockedPress ? 'box-none' : 'none') : reserveCenterForBackdrop ? 'box-none' : 'auto'}
       onStartShouldSetResponderCapture={reserveCenterForBackdrop ? undefined : canStart}
       onStartShouldSetResponder={canStart}
-      onMoveShouldSetResponderCapture={() => !inputDisabled && geometryCurrent() && (left.ownerRef.current !== null || right.ownerRef.current !== null)}
+      onMoveShouldSetResponderCapture={reserveCenterForBackdrop ? undefined : () => !inputDisabled && geometryCurrent() && (left.ownerRef.current !== null || right.ownerRef.current !== null)}
       onResponderGrant={claimNewTouches}
       onResponderStart={claimNewTouches}
       onResponderMove={handleMove}
@@ -607,15 +685,16 @@ export function ControlJoystickPair({
           <View
             testID={`${leftDefinition.testID}-hit`}
             pointerEvents="auto"
-            onStartShouldSetResponder={e => canStart(offsetTouchEvent(e, leftHitLeft, leftHitTop))}
-            onResponderGrant={e => claimNewTouches(offsetTouchEvent(e, leftHitLeft, leftHitTop))}
-            onResponderStart={e => claimNewTouches(offsetTouchEvent(e, leftHitLeft, leftHitTop))}
-            onResponderMove={e => handleMove(offsetTouchEvent(e, leftHitLeft, leftHitTop))}
-            onResponderEnd={e => handleEnd(offsetTouchEvent(e, leftHitLeft, leftHitTop))}
-            onResponderRelease={e => handleEnd(offsetTouchEvent(e, leftHitLeft, leftHitTop))}
+            onStartShouldSetResponder={e => canStartForHit(offsetTouchEvent(e, leftHitLeft, leftHitTop), true)}
+            onResponderGrant={e => claimTouches(offsetTouchEvent(e, leftHitLeft, leftHitTop), true)}
+            onResponderStart={e => claimTouches(offsetTouchEvent(e, leftHitLeft, leftHitTop), true)}
+            onResponderMove={e => handleSideMove('left', offsetTouchEvent(e, leftHitLeft, leftHitTop))}
+            onResponderEnd={e => handleSideEnd('left', offsetTouchEvent(e, leftHitLeft, leftHitTop))}
+            onResponderRelease={e => handleSideEnd('left', offsetTouchEvent(e, leftHitLeft, leftHitTop))}
             onResponderTerminate={cancelBoth}
-            onTouchMove={Platform.OS === 'android' ? e => handleMove(offsetTouchEvent(e, leftHitLeft, leftHitTop)) : undefined}
-            onTouchEnd={Platform.OS === 'android' ? e => handleEnd(offsetTouchEvent(e, leftHitLeft, leftHitTop)) : undefined}
+            onTouchStart={Platform.OS === 'android' ? e => claimTouches(offsetTouchEvent(e, leftHitLeft, leftHitTop), true) : undefined}
+            onTouchMove={Platform.OS === 'android' ? e => handleSideMove('left', offsetTouchEvent(e, leftHitLeft, leftHitTop)) : undefined}
+            onTouchEnd={Platform.OS === 'android' ? e => handleSideEnd('left', offsetTouchEvent(e, leftHitLeft, leftHitTop)) : undefined}
             onTouchCancel={Platform.OS === 'android' ? cancelBoth : undefined}
             onResponderTerminationRequest={() => false}
             style={{
@@ -630,15 +709,16 @@ export function ControlJoystickPair({
           <View
             testID={`${rightDefinition.testID}-hit`}
             pointerEvents="auto"
-            onStartShouldSetResponder={e => canStart(offsetTouchEvent(e, rightHitLeft, rightHitTop))}
-            onResponderGrant={e => claimNewTouches(offsetTouchEvent(e, rightHitLeft, rightHitTop))}
-            onResponderStart={e => claimNewTouches(offsetTouchEvent(e, rightHitLeft, rightHitTop))}
-            onResponderMove={e => handleMove(offsetTouchEvent(e, rightHitLeft, rightHitTop))}
-            onResponderEnd={e => handleEnd(offsetTouchEvent(e, rightHitLeft, rightHitTop))}
-            onResponderRelease={e => handleEnd(offsetTouchEvent(e, rightHitLeft, rightHitTop))}
+            onStartShouldSetResponder={e => canStartForHit(offsetTouchEvent(e, rightHitLeft, rightHitTop), true)}
+            onResponderGrant={e => claimTouches(offsetTouchEvent(e, rightHitLeft, rightHitTop), true)}
+            onResponderStart={e => claimTouches(offsetTouchEvent(e, rightHitLeft, rightHitTop), true)}
+            onResponderMove={e => handleSideMove('right', offsetTouchEvent(e, rightHitLeft, rightHitTop))}
+            onResponderEnd={e => handleSideEnd('right', offsetTouchEvent(e, rightHitLeft, rightHitTop))}
+            onResponderRelease={e => handleSideEnd('right', offsetTouchEvent(e, rightHitLeft, rightHitTop))}
             onResponderTerminate={cancelBoth}
-            onTouchMove={Platform.OS === 'android' ? e => handleMove(offsetTouchEvent(e, rightHitLeft, rightHitTop)) : undefined}
-            onTouchEnd={Platform.OS === 'android' ? e => handleEnd(offsetTouchEvent(e, rightHitLeft, rightHitTop)) : undefined}
+            onTouchStart={Platform.OS === 'android' ? e => claimTouches(offsetTouchEvent(e, rightHitLeft, rightHitTop), true) : undefined}
+            onTouchMove={Platform.OS === 'android' ? e => handleSideMove('right', offsetTouchEvent(e, rightHitLeft, rightHitTop)) : undefined}
+            onTouchEnd={Platform.OS === 'android' ? e => handleSideEnd('right', offsetTouchEvent(e, rightHitLeft, rightHitTop)) : undefined}
             onTouchCancel={Platform.OS === 'android' ? cancelBoth : undefined}
             onResponderTerminationRequest={() => false}
             style={{

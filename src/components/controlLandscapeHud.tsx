@@ -1025,6 +1025,7 @@ export function controlLandscapeHud({
                         voiceOrbHoldGesture.suppressNextTap = false;
                       }
                     }}
+                    pressRetentionOffset={{ top: 120, left: 60, right: 60, bottom: 40 }}
                     style={({ pressed }) => [
                       styles.botOrbBtn,
                       { width: orbSize, height: orbSize, borderRadius: orbSize / 2 },

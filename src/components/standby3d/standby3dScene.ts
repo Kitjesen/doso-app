@@ -1305,6 +1305,19 @@ export function mountStandby3dScene(
     wakeRender(6);
   };
 
+  const clearActivePointers = () => {
+    activePointers.clear();
+    dragging = false;
+    lastPinchDist = null;
+    canvas.style.cursor = interactive ? 'grab' : 'default';
+  };
+
+  const onVisibilityChange = () => {
+    if (typeof document !== 'undefined' && document.hidden) {
+      clearActivePointers();
+    }
+  };
+
   canvas.style.touchAction = 'none';
   canvas.style.userSelect = 'none';
   canvas.style.cursor = interactive ? 'grab' : 'default';
@@ -1312,11 +1325,16 @@ export function mountStandby3dScene(
   canvas.addEventListener('pointermove', onPointerMove);
   canvas.addEventListener('pointerup', onPointerUpOrCancel);
   canvas.addEventListener('pointercancel', onPointerUpOrCancel);
+  canvas.addEventListener('lostpointercapture', onPointerUpOrCancel);
   canvas.addEventListener('wheel', onWheel, { passive: false });
 
   const onWindowResize = () => resize();
   if (typeof window !== 'undefined') {
     window.addEventListener('resize', onWindowResize);
+    window.addEventListener('blur', clearActivePointers);
+  }
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', onVisibilityChange);
   }
 
   // Bind 16-DOF articulated leg hierarchy from exported GLB
@@ -1900,15 +1918,17 @@ export function mountStandby3dScene(
       interactive = next;
       canvas.style.cursor = next ? 'grab' : 'default';
       if (!next) {
-        activePointers.clear();
-        dragging = false;
-        lastPinchDist = null;
+        clearActivePointers();
       }
     },
     setPaused(next: boolean) {
       if (paused === next) return;
       paused = next;
       if (paused) {
+        clearActivePointers();
+        inputDriveX = 0;
+        inputDriveY = 0;
+        inputTurnX = 0;
         if (rafId) {
           cancelAnimationFrame(rafId);
           rafId = 0;
@@ -1964,9 +1984,14 @@ export function mountStandby3dScene(
       canvas.removeEventListener('pointermove', onPointerMove);
       canvas.removeEventListener('pointerup', onPointerUpOrCancel);
       canvas.removeEventListener('pointercancel', onPointerUpOrCancel);
+      canvas.removeEventListener('lostpointercapture', onPointerUpOrCancel);
       canvas.removeEventListener('wheel', onWheel);
       if (typeof window !== 'undefined') {
         window.removeEventListener('resize', onWindowResize);
+        window.removeEventListener('blur', clearActivePointers);
+      }
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibilityChange);
       }
       forestWorld?.dispose();
       if (currentSkyTex && currentSkyTex !== realForestSkyTex) currentSkyTex.dispose();
