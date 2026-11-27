@@ -763,12 +763,15 @@ export class BrainstemControlSession {
     }
   }
 
+  private isGesturePlaying(s: BrainstemGrpcStatus | null | undefined): boolean {
+    return !!s && s.fsmKind === 'transitioning' && s.transition === 'gesture';
+  }
   get canAcquire(): boolean {
     const s = this.state.status;
     return !this.retired && this.allowed() && this.fresh() && !this.busy && !this.state.leaseActive
       && !!this.currentProfile() && this.currentProfile()?.activeModeId !== 'recovery'
       && !!s && !s.grpcLeaseActive && s.owner !== 'yunzhuo' && s.motorOutputEnabled && !s.criticalMotorFault
-      && (s.fsmKind === 'standing' || s.fsmKind === 'walking');
+      && (s.fsmKind === 'standing' || s.fsmKind === 'walking' || this.isGesturePlaying(s));
   }
   get canUseManualControl(): boolean {
     const s = this.state.status;
@@ -815,15 +818,19 @@ export class BrainstemControlSession {
     const status = this.state.status;
     const base = !this.retired && this.allowed() && this.fresh()
       && (!this.busy || ownedAction !== undefined && this.pendingAction === ownedAction) && !!status;
-    const safe = base && !!this.currentProfile() && this.currentProfile()?.activeModeId !== 'recovery' && status.owner !== 'yunzhuo' && !status.criticalMotorFault && status.fsmKind !== 'transitioning';
+    const safeBase = base && !!this.currentProfile() && this.currentProfile()?.activeModeId !== 'recovery' && status.owner !== 'yunzhuo' && !status.criticalMotorFault;
+    const safe = safeBase && status.fsmKind !== 'transitioning';
+    const gestureInterruptible = !!safeBase && this.isGesturePlaying(status);
     const result = (ready: boolean, reason: string): ControlActionReadiness => ({ ready, ...(ready ? {} : { blockedReason: reason }) });
     return {
       stop: result(this.state.connected, '未连接机器狗'),
       enableMotor: result(!!safe && !status?.motorOutputEnabled, '请先连接机器狗并确认电机状态'),
       disableMotor: result(!!base && status?.motorOutputEnabled === true, '请先连接机器狗并确认电机状态'),
-      stand: result(!!safe && !!status?.motorOutputEnabled && (status.fsmKind === 'grounded' || status.fsmKind === 'zero'
-        || status.fsmKind === 'walking' && !status.grpcLeaseActive && !this.state.leaseActive), '电机须已使能，行走后请先停止并释放控制；站立或切换中不可起立'),
-      sit: result(!!safe && !!status?.motorOutputEnabled && (status.fsmKind === 'standing' || status.fsmKind === 'walking'), '电机须已使能，且机器狗当前已站立'),
+      stand: result(!!status?.motorOutputEnabled && (!!safe && (status.fsmKind === 'grounded' || status.fsmKind === 'zero'
+        || status.fsmKind === 'walking' && !status.grpcLeaseActive && !this.state.leaseActive)
+        || gestureInterruptible), '电机须已使能，行走后请先停止并释放控制；站立或切换中不可起立'),
+      sit: result(!!status?.motorOutputEnabled && (!!safe && (status.fsmKind === 'standing' || status.fsmKind === 'walking')
+        || gestureInterruptible), '电机须已使能，且机器狗当前已站立'),
       switchPolicy: result(!!safe && (status?.fsmKind === 'grounded' || status?.fsmKind === 'standing') && !status.grpcLeaseActive && !!this.currentProfile() && (profileOptions(this.currentProfile()!).length > 0 || Boolean(this.bodyHeightCapability(this.currentProfile())?.available && this.bodyHeightCapability(this.currentProfile())?.availability === 'available')), '请先站稳或趴地、释放控制并同步策略目录；行走中不可切换'),
       setZero: result(!!base && status?.owner !== 'yunzhuo' && status?.fsmKind === 'grounded' && !status.grpcLeaseActive, '请先趴地并释放控制'),
       clearMotorFault: result(!!base && status?.owner !== 'yunzhuo' && status?.fsmKind !== 'transitioning', '请先连接机器狗'),

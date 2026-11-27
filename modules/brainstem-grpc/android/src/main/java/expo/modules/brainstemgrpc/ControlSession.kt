@@ -123,8 +123,10 @@ internal class ControlSession(
     if (action == "clear-motor-fault") {
       if (before["owner"] == "yunzhuo") throw Failure("precondition")
     } else if (action != "disable") {
+      val isGesture = before["fsmKind"] == "transitioning" && before["transition"] == "gesture"
+      val allowDuringGesture = isGesture && (action == "stand-up" || action == "sit-down")
       if (before["owner"] == "yunzhuo" || before.boolean("criticalMotorFault")
-          || before["fsmKind"] == "transitioning") throw Failure("precondition")
+          || (before["fsmKind"] == "transitioning" && !allowDuringGesture)) throw Failure("precondition")
       if (action == "stand-up" || action == "sit-down") {
         if (!before.boolean("motorOutputEnabled")) throw Failure("precondition")
       }
@@ -192,8 +194,9 @@ internal class ControlSession(
     requireEpoch(epoch)
     if (armed.get() || token.isNotEmpty() || stopping.get()) throw Failure("busy")
     val before = ControlStatusParser.parse(rpc("GetControlStatus", EMPTY, epoch = epoch))
+    val isGesture = before["fsmKind"] == "transitioning" && before["transition"] == "gesture"
     if (!before.boolean("motorOutputEnabled") || before.boolean("criticalMotorFault")
-        || before["owner"] == "yunzhuo" || before["fsmKind"] !in listOf("standing", "walking")
+        || before["owner"] == "yunzhuo" || (before["fsmKind"] !in listOf("standing", "walking") && !isGesture)
         || before.boolean("grpcLeaseActive")) throw Failure("precondition")
     val leaseBytes = rpc("AcquireControl", ControlWire.stringRequest(principal), epoch = epoch)
     val lease = ControlWire.lease(leaseBytes)

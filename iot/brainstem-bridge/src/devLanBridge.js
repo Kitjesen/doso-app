@@ -782,9 +782,10 @@ export async function createDevLanBridge({
           deadlineMs: actionDeadlineMs,
           principal: session.principal,
         }));
+        const isGesture = before.status.fsmKind === 'transitioning' && before.status.transition === 'gesture';
         if (!before.status.motorOutputEnabled || before.status.criticalMotorFault
           || before.status.owner === 'yunzhuo' || before.status.grpcLeaseActive
-          || !['standing', 'walking'].includes(before.status.fsmKind)) {
+          || (!['standing', 'walking'].includes(before.status.fsmKind) && !isGesture)) {
           throw new BridgeFailure('precondition', 409);
         }
         const leaseRaw = await callGrpcUnary(session.controlClient, 'AcquireControl', { clientId: session.principal }, {
@@ -955,7 +956,10 @@ export async function createDevLanBridge({
           principal: session.principal,
         }));
         if (action !== 'disable') {
-          if (before.status.owner === 'yunzhuo' || (before.status.criticalMotorFault && action !== 'clear-motor-fault') || before.status.fsmKind === 'transitioning') {
+          const isGesture = before.status.fsmKind === 'transitioning' && before.status.transition === 'gesture';
+          const allowDuringGesture = isGesture && (action === 'stand-up' || action === 'sit-down');
+          if (before.status.owner === 'yunzhuo' || (before.status.criticalMotorFault && action !== 'clear-motor-fault')
+            || (before.status.fsmKind === 'transitioning' && !allowDuringGesture)) {
             throw new BridgeFailure('precondition', 409);
           }
           if ((action === 'stand-up' || action === 'sit-down') && !before.status.motorOutputEnabled) {
