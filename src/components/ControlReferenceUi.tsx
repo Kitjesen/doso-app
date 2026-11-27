@@ -295,9 +295,12 @@ type SettingsProps = {
   onSetZero?: () => void;
   clearFaultReady?: boolean;
   onClearMotorFault?: () => void;
+  appVersionLabel?: string;
   appUpdateBusy?: boolean;
   appUpdateStatusLabel?: string | null;
+  appUpdateActionLabel?: string | null;
   onCheckAppUpdate?: () => void;
+  onDownloadAppUpdate?: () => void;
   connectionTipsOpen?: boolean;
   onToggleConnectionTips?: () => void;
 };
@@ -1374,23 +1377,43 @@ export function renderControlSettings(p: SettingsProps) {
                 <DosoWordmark width={116} color={c.ink} />
                 <Text style={small}>四足机器人操控终端</Text>
               </View>
-              {row('应用版本', value(snapshot.appVersion ?? '0.0.1'))}
+              {row('应用版本', value(p.appVersionLabel ?? snapshot.appVersion ?? '0.0.1'))}
               {p.onCheckAppUpdate
                 ? row(
                     '版本更新',
-                    <Pressable
-                      accessibilityLabel="检查应用更新"
-                      accessibilityRole="button"
-                      disabled={Boolean(p.appUpdateBusy)}
-                      onPress={p.onCheckAppUpdate}
-                      style={({ pressed }) => [st.inlineActionBtn, p.appUpdateBusy && st.disabled, pressed && st.pressed]}
-                      testID="control-setting-check-update"
-                    >
-                      <Ionicons color={accent.ink} name="cloud-download-outline" size={14} />
-                      <Text numberOfLines={1} style={st.inlineActionText}>
-                        {p.appUpdateBusy ? '检查中…' : '检查更新'}
-                      </Text>
-                    </Pressable>,
+                    <View style={st.inlineBtnGroup}>
+                      <Pressable
+                        accessibilityLabel="检查应用更新"
+                        accessibilityRole="button"
+                        disabled={Boolean(p.appUpdateBusy)}
+                        onPress={p.onCheckAppUpdate}
+                        style={({ pressed }) => [st.inlineActionBtn, p.appUpdateBusy && st.disabled, pressed && st.pressed]}
+                        testID="control-setting-check-update"
+                      >
+                        <Ionicons color={accent.ink} name="cloud-download-outline" size={14} />
+                        <Text numberOfLines={1} style={st.inlineActionText}>
+                          {p.appUpdateBusy ? '检查中…' : '检查更新'}
+                        </Text>
+                      </Pressable>
+                      {p.onDownloadAppUpdate && p.appUpdateActionLabel ? (
+                        <Pressable
+                          accessibilityLabel="下载应用更新"
+                          accessibilityRole="button"
+                          onPress={p.onDownloadAppUpdate}
+                          style={({ pressed }) => [
+                            st.inlineActionBtn,
+                            { backgroundColor: accent.solidBg, borderColor: accent.pillBorder },
+                            pressed && st.pressed,
+                          ]}
+                          testID="control-setting-download-update"
+                        >
+                          <Ionicons color={accent.solidInk} name="download-outline" size={14} />
+                          <Text numberOfLines={1} style={[st.inlineActionText, { color: accent.solidInk, fontWeight: '600' }]}>
+                            {p.appUpdateActionLabel}
+                          </Text>
+                        </Pressable>
+                      ) : null}
+                    </View>,
                     p.appUpdateStatusLabel ?? undefined,
                   )
                 : null}

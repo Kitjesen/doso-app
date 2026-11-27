@@ -77,6 +77,7 @@ jobs:
             scripts/joint-status-screen.test.mjs \
             scripts/direct-robot-connection-wiring.test.mjs \
             scripts/android-apk-updater.test.mjs \
+            scripts/firmware-ota.test.mjs \
             scripts/g20-input-model.test.mjs \
             scripts/g20-input-invariants.test.mjs
           node --test \
