@@ -44,6 +44,7 @@ test('QA child environment includes only fixed public configuration and trusted 
   assert.equal(env.EXPO_PUBLIC_SUPABASE_URL, 'https://api-test.dosorobotics.com');
   assert.equal(env.EXPO_PUBLIC_SUPABASE_URL_ANDROID, env.EXPO_PUBLIC_SUPABASE_URL);
   assert.equal(env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY, configuration.publishableKey);
+  assert.equal(env.EXPO_PUBLIC_OTA_CHANNEL, 'qa');
   assert.equal(env.SUPABASE_SERVICE_ROLE_KEY, undefined);
   assert.equal(env.DOSO_ANDROID_KEYSTORE_PASSWORD, undefined);
   assert.equal(env.NODE_OPTIONS, undefined);
