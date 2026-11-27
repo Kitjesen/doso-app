@@ -858,3 +858,39 @@ test('reserveCenterForBackdrop supports Android split multi-touch across left/ri
   assert.deepEqual(plain(runtime.leftChanges.at(-1)), { x: 0, y: 0 });
   runtime.unmount();
 });
+
+test('glass variant omits numeric percentage label and illuminates pushed directional ticks and yaw arrows', () => {
+  const runtime = createRuntime({
+    variant: 'glass',
+    layout: configuredLayout(),
+    floating: true,
+    touchAreaWidth: 600,
+    touchAreaHeight: 300,
+  }, 'pair');
+  const pair = runtime.find('control-joystick-pair');
+  const idleTopHeight = runtime.find('drive-tick-up').props.style.at(-1).height;
+
+  // Push left drive stick up (full forward)
+  const leftStart = touch(801, 100, 150, 100, 150);
+  pair.props.onResponderGrant(event({ touches: [leftStart] }));
+  runtime.render();
+  assert.equal(runtime.find('drive-value'), undefined, 'glass thumb never renders numeric percentage');
+  runtime.find('control-joystick-pair').props.onResponderMove(event({ touches: [touch(801, 100, 90, 100, 90)] }));
+  runtime.render();
+  assert.equal(runtime.find('drive-value'), undefined, 'glass thumb still omits numeric percentage at 100%');
+  const litUpStyle = runtime.find('drive-tick-up').props.style.at(-1);
+  const dimDownStyle = runtime.find('drive-tick-down').props.style.at(-1);
+  assert.ok(litUpStyle.height > idleTopHeight, 'pushed up tick elongates');
+  assert.equal(litUpStyle.backgroundColor, 'rgba(255,255,255,1.00)');
+  assert.equal(dimDownStyle.backgroundColor, 'rgba(255,255,255,0.24)');
+
+  // Push right yaw stick right
+  const rightStart = touch(802, 460, 170, 460, 170);
+  runtime.find('control-joystick-pair').props.onResponderStart(event({ touches: [touch(801, 100, 90, 100, 90), rightStart], changedTouches: [rightStart] }));
+  runtime.find('control-joystick-pair').props.onResponderMove(event({ touches: [touch(801, 100, 90, 100, 90), touch(802, 540, 170, 540, 170)] }));
+  runtime.render();
+  assert.equal(runtime.find('turn-value'), undefined);
+  assert.equal(runtime.find('turn-yaw-right-chevron').props.style.at(-1).borderColor, 'rgba(255,255,255,1.00)');
+  assert.equal(runtime.find('turn-yaw-left-chevron').props.style.at(-1).borderColor, 'rgba(255,255,255,0.26)');
+  runtime.unmount();
+});
