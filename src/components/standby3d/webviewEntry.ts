@@ -28,8 +28,12 @@ function parseQueryParams(): {
   scene: Standby3dSceneId;
   accentTone: Standby3dAccentTone;
   interactive: boolean;
+  paused: boolean;
+  performanceTier: 'high' | 'low';
   bodyHeightM: number | null;
 } {
+  const uaAndroid = typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent || '');
+  const defaultTier: 'high' | 'low' = uaAndroid ? 'low' : 'high';
   try {
     const params = new URLSearchParams(window.location.search || '');
     const rawScene = params.get('scene');
@@ -39,16 +43,29 @@ function parseQueryParams(): {
         : 'forest';
     const accentTone: Standby3dAccentTone = params.get('accent') === 'fsdBlue' ? 'fsdBlue' : 'graphite';
     const interactive = params.get('interactive') !== '0';
+    const paused = params.get('paused') === '1';
+    const rawPerf = params.get('perf');
+    const performanceTier: 'high' | 'low' =
+      rawPerf === 'low' ? 'low' : rawPerf === 'high' ? 'high' : defaultTier;
     const rawHeight = params.get('height');
     const parsedHeight = rawHeight !== null ? Number(rawHeight) : NaN;
     return {
       scene,
       accentTone,
       interactive,
+      paused,
+      performanceTier,
       bodyHeightM: Number.isFinite(parsedHeight) ? parsedHeight : null,
     };
   } catch {
-    return { scene: 'forest', accentTone: 'graphite', interactive: true, bodyHeightM: null };
+    return {
+      scene: 'forest',
+      accentTone: 'graphite',
+      interactive: true,
+      paused: false,
+      performanceTier: defaultTier,
+      bodyHeightM: null,
+    };
   }
 }
 
@@ -59,16 +76,19 @@ function bootstrap() {
     return;
   }
   const initial = parseQueryParams();
+  const allowHeavyForestAssets = initial.performanceTier === 'high';
   try {
     const controller = mountStandby3dScene(canvas, {
       glbBase64: window.__DOSO_STANDBY_GLB_B64__,
       glbUrl: window.__DOSO_STANDBY_GLB_B64__ ? undefined : './thunder-r50-standby.glb',
-      forestKitBase64: window.__DOSO_FOREST_KIT_B64__,
-      forestSkyUrl: window.__DOSO_FOREST_SKY_URI__,
-      forestHdrBase64: window.__DOSO_FOREST_HDR_B64__,
+      forestKitBase64: allowHeavyForestAssets ? window.__DOSO_FOREST_KIT_B64__ : undefined,
+      forestSkyUrl: allowHeavyForestAssets ? window.__DOSO_FOREST_SKY_URI__ : undefined,
+      forestHdrBase64: allowHeavyForestAssets ? window.__DOSO_FOREST_HDR_B64__ : undefined,
       scene: initial.scene,
       accentTone: initial.accentTone,
       interactive: initial.interactive,
+      paused: initial.paused,
+      performanceTier: initial.performanceTier,
       bodyHeightM: initial.bodyHeightM,
       onReady: () => postToNative({ type: 'ready' }),
       onError: message => postToNative({ type: 'error', message }),

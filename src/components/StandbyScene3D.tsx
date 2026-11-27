@@ -46,12 +46,15 @@ function buildQuery(
   scene: StandbySceneId,
   accentTone: ControlAccentTone,
   interactive: boolean,
+  paused: boolean,
   bodyHeightM?: number | null,
 ): string {
   const parts = [
     `scene=${encodeURIComponent(scene)}`,
     `accent=${encodeURIComponent(accentTone)}`,
     `interactive=${interactive ? '1' : '0'}`,
+    `paused=${paused ? '1' : '0'}`,
+    `perf=${Platform?.OS === 'android' ? 'low' : 'high'}`,
   ];
   if (typeof bodyHeightM === 'number' && Number.isFinite(bodyHeightM)) {
     parts.push(`height=${bodyHeightM.toFixed(3)}`);
@@ -134,10 +137,11 @@ export function StandbyScene3D({
 
   // Freeze initial URI so scene/accent/interactive changes update smoothly via JS bridge without reload.
   const initialUri = useMemo(() => {
-    const query = buildQuery(normalized, accentTone, interactive, bodyHeightM);
+    const query = buildQuery(normalized, accentTone, interactive, paused, bodyHeightM);
     return `file:///android_asset/standby3d/index.html?${query}`;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  const lastDriveRef = useRef<string>('');
 
   useEffect(() => {
     if (!ready) return;
@@ -196,8 +200,11 @@ export function StandbyScene3D({
     const dx = Number.isFinite(driveInput?.driveX) ? Number(driveInput?.driveX) : 0;
     const dy = Number.isFinite(driveInput?.driveY) ? Number(driveInput?.driveY) : 0;
     const tx = Number.isFinite(driveInput?.turnX) ? Number(driveInput?.turnX) : 0;
+    const sig = `${dx.toFixed(3)},${dy.toFixed(3)},${tx.toFixed(3)}`;
+    if (sig === lastDriveRef.current) return;
+    lastDriveRef.current = sig;
     webViewRef.current.injectJavaScript(
-      `window.__dosoStandby3d&&window.__dosoStandby3d.setDriveInput(${dx.toFixed(3)},${dy.toFixed(3)},${tx.toFixed(3)});true;`,
+      `window.__dosoStandby3d&&window.__dosoStandby3d.setDriveInput(${sig});true;`,
     );
   }, [driveInput?.driveX, driveInput?.driveY, driveInput?.turnX, ready]);
 
@@ -249,7 +256,7 @@ export function StandbyScene3D({
 
 const styles = StyleSheet.create({
   webview: {
-    backgroundColor: 'transparent',
+    backgroundColor: '#06090d',
     flex: 1,
   },
   posterImg: {

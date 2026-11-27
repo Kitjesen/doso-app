@@ -210,6 +210,7 @@ export type ControlLandscapeHudProps = Readonly<{
   previewSafeAreaGuides?: boolean;
   standbyScene?: StandbySceneId;
   standbyDriveInput?: StandbyDriveInput | null;
+  standbyPaused?: boolean;
   accentTone?: ControlAccentTone;
 }>;
 
@@ -604,6 +605,7 @@ export function controlLandscapeHud({
   previewSafeAreaGuides,
   standbyScene = 'forest',
   standbyDriveInput = null,
+  standbyPaused = false,
   accentTone = 'graphite',
 }: ControlLandscapeHudProps) {
   const connection = connectionState ?? (connectionLabel === '已连接' ? 'connected' : connectionLabel.includes('只读') ? 'readonly' : 'disconnected');
@@ -803,7 +805,14 @@ export function controlLandscapeHud({
     && !settingsMenu
     && !statusCardOpen
     && !confirmation
+    && !voiceChatOpen
+    && !faultPanelOpen
+    && !bodyHeightPanelOpen
+    && !jointParamsOpen
+    && !jointTempOpen
+    && !speedLimitExpanded
     && leftCategory !== 'action';
+  const standby3dPaused = Boolean(standbyPaused || !standby3dInteractive);
   const standbyBodyHeightM = bodyHeightDraftM ?? bodyHeight?.currentHeightM ?? null;
 
   return (
@@ -820,6 +829,7 @@ export function controlLandscapeHud({
             bodyHeightM={standbyBodyHeightM}
             driveInput={standbyDriveInput}
             interactive={standby3dInteractive}
+            paused={standby3dPaused}
             scene={standbyScene}
           />
         </View>

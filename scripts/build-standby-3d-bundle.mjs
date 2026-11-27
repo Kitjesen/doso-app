@@ -54,7 +54,7 @@ if (existsSync(forestHdrPath)) {
 }
 writeFileSync(forestDataOutPath, `${forestChunks.join('\n')}\n`, 'utf8');
 
-// 3. Emit self-contained offline HTML stage
+// 3. Emit self-contained offline HTML stage (do NOT preload 12 MB forest-data.js on Android startup)
 const htmlOutPath = resolve(outDir, 'index.html');
 const html = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -69,7 +69,6 @@ html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#
 <body>
 <canvas id="stage"></canvas>
 <script src="./model-data.js"></script>
-<script src="./forest-data.js"></script>
 <script src="./viewer.js"></script>
 </body>
 </html>
@@ -77,10 +76,11 @@ html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#
 writeFileSync(htmlOutPath, html, 'utf8');
 
 // 4. Mirror into android/app/src/main/assets/standby3d if Android project exists locally
+// Keep Android APK lean and fast: omit unused 12 MB forest-data.js from Android assets.
 const androidMainDir = resolve(rootDir, 'android/app/src/main');
 if (existsSync(androidMainDir)) {
   mkdirSync(androidAssetDir, { recursive: true });
-  for (const name of ['index.html', 'viewer.js', 'model-data.js', 'forest-data.js']) {
+  for (const name of ['index.html', 'viewer.js', 'model-data.js']) {
     copyFileSync(resolve(outDir, name), resolve(androidAssetDir, name));
   }
 }

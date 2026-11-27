@@ -52,6 +52,8 @@ export type Standby3dMountOptions = Readonly<{
   scene?: Standby3dSceneId;
   accentTone?: Standby3dAccentTone;
   interactive?: boolean;
+  paused?: boolean;
+  performanceTier?: 'high' | 'low';
   bodyHeightM?: number | null;
   onReady?: () => void;
   onError?: (message: string) => void;
@@ -746,7 +748,8 @@ export function mountStandby3dScene(
   let sceneId: Standby3dSceneId = normalizeSceneId(options.scene);
   let accentTone: Standby3dAccentTone = options.accentTone === 'fsdBlue' ? 'fsdBlue' : 'graphite';
   let interactive = options.interactive !== false;
-  let paused = false;
+  let paused = Boolean(options.paused);
+  const lowPerf = options.performanceTier === 'low';
   let disposed = false;
   let ready = false;
   let userMoved = false;
@@ -792,15 +795,17 @@ export function mountStandby3dScene(
 
   const renderer = new THREE.WebGLRenderer({
     canvas,
-    antialias: true,
+    antialias: !lowPerf,
     alpha: false,
-    powerPreference: 'high-performance',
+    powerPreference: lowPerf ? 'low-power' : 'high-performance',
   });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.setPixelRatio(Math.min(typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1, 2));
+  renderer.shadowMap.enabled = !lowPerf;
+  if (!lowPerf) {
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  }
+  renderer.setPixelRatio(lowPerf ? 1 : Math.min(typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1, 2));
 
   const scene = new THREE.Scene();
   const initialPalette = THEME_PALETTES[sceneId];
@@ -832,7 +837,7 @@ export function mountStandby3dScene(
   });
   const floor = new THREE.Mesh(floorGeo, floorMat);
   floor.rotation.x = -Math.PI / 2;
-  floor.receiveShadow = true;
+  floor.receiveShadow = !lowPerf;
   scene.add(floor);
 
   // Iconic DOSO glowing double-ring home pad at origin (0, 0)
@@ -853,15 +858,24 @@ export function mountStandby3dScene(
   scene.add(galleryGroup);
   scene.add(hangarGroup);
 
-  // Lush interactive 3D Misty Forest world (drivable terrain, creek, cedar bridge, 84 pines, beacons, sunbeams, fireflies)
-  const forestWorld = createForestWorld();
-  scene.add(forestWorld.group);
+  // Lazy-build the 3D Misty Forest world only when actually entering the forest scene.
+  let forestWorld: ReturnType<typeof createForestWorld> | null = null;
+  const ensureForestWorld = () => {
+    if (!forestWorld) {
+      forestWorld = createForestWorld();
+      scene.add(forestWorld.group);
+    }
+    return forestWorld;
+  };
+  if (sceneId === 'forest') {
+    ensureForestWorld();
+  }
 
   const sampleActiveTerrainHeight = (wx: number, wz: number): number => (
-    sceneId === 'forest' ? forestWorld.sampleHeight(wx, wz) : sampleTerrainHeight(wx, wz)
+    sceneId === 'forest' && forestWorld ? forestWorld.sampleHeight(wx, wz) : sampleTerrainHeight(wx, wz)
   );
-  const getActiveColliders = () => (sceneId === 'forest' ? forestWorld.colliders : BOLLARDS);
-  const getActiveArenaRadius = () => (sceneId === 'forest' ? forestWorld.arenaRadius : ARENA_RADIUS_M);
+  const getActiveColliders = () => (sceneId === 'forest' && forestWorld ? forestWorld.colliders : BOLLARDS);
+  const getActiveArenaRadius = () => (sceneId === 'forest' && forestWorld ? forestWorld.arenaRadius : ARENA_RADIUS_M);
 
   // Lighting rig: dramatic overhead studio SpotLight + warm golden Forest Directional Sun + crisp rim light
   const hemiLight = new THREE.HemisphereLight(
@@ -885,13 +899,15 @@ export function mountStandby3dScene(
   );
   heroSpot.position.set(1.15, 3.55, -1.05);
   heroSpot.target = spotTarget;
-  heroSpot.castShadow = true;
-  heroSpot.shadow.mapSize.set(1024, 1024);
-  heroSpot.shadow.camera.near = 0.6;
-  heroSpot.shadow.camera.far = 10.0;
-  heroSpot.shadow.bias = -0.0004;
-  heroSpot.shadow.normalBias = 0.015;
-  heroSpot.shadow.radius = 4;
+  heroSpot.castShadow = !lowPerf;
+  if (!lowPerf) {
+    heroSpot.shadow.mapSize.set(1024, 1024);
+    heroSpot.shadow.camera.near = 0.6;
+    heroSpot.shadow.camera.far = 10.0;
+    heroSpot.shadow.bias = -0.0004;
+    heroSpot.shadow.normalBias = 0.015;
+    heroSpot.shadow.radius = 4;
+  }
   scene.add(heroSpot);
 
   const forestSunTarget = new THREE.Object3D();
@@ -901,17 +917,19 @@ export function mountStandby3dScene(
   const forestSun = new THREE.DirectionalLight(0xfff1dc, 2.45);
   forestSun.position.set(4.8, 9.2, -5.4);
   forestSun.target = forestSunTarget;
-  forestSun.castShadow = true;
-  forestSun.shadow.mapSize.set(2048, 2048);
-  forestSun.shadow.camera.left = -5.5;
-  forestSun.shadow.camera.right = 5.5;
-  forestSun.shadow.camera.top = 5.5;
-  forestSun.shadow.camera.bottom = -5.5;
-  forestSun.shadow.camera.near = 1.0;
-  forestSun.shadow.camera.far = 26.0;
-  forestSun.shadow.bias = -0.00025;
-  forestSun.shadow.normalBias = 0.014;
-  forestSun.shadow.radius = 2.5;
+  forestSun.castShadow = !lowPerf;
+  if (!lowPerf) {
+    forestSun.shadow.mapSize.set(2048, 2048);
+    forestSun.shadow.camera.left = -5.5;
+    forestSun.shadow.camera.right = 5.5;
+    forestSun.shadow.camera.top = 5.5;
+    forestSun.shadow.camera.bottom = -5.5;
+    forestSun.shadow.camera.near = 1.0;
+    forestSun.shadow.camera.far = 26.0;
+    forestSun.shadow.bias = -0.00025;
+    forestSun.shadow.normalBias = 0.014;
+    forestSun.shadow.radius = 2.5;
+  }
   scene.add(forestSun);
 
   const forestWarmFill = new THREE.DirectionalLight(0xffe1b8, 0.0);
@@ -982,7 +1000,11 @@ export function mountStandby3dScene(
     floor.visible = !isForest;
     pedestal.visible = !isForest;
     propsGroup.visible = !isForest;
-    forestWorld.group.visible = isForest;
+    if (isForest) {
+      ensureForestWorld().group.visible = true;
+    } else if (forestWorld) {
+      forestWorld.group.visible = false;
+    }
 
     floorMat.color.setHex(palette.floorHex);
     floorMat.roughness = palette.floorRoughness;
@@ -991,8 +1013,9 @@ export function mountStandby3dScene(
     heroSpot.color.setHex(palette.spotColor);
     heroSpot.intensity = palette.spotIntensity;
     heroSpot.visible = !isForest;
-    heroSpot.castShadow = !isForest;
+    heroSpot.castShadow = !lowPerf && !isForest;
     forestSun.visible = isForest;
+    forestSun.castShadow = !lowPerf && isForest;
     forestWarmFill.visible = false;
 
     rimLight.color.setHex(isFsdBlue && !isForest ? 0x52a4ff : palette.rimColor);
@@ -1093,6 +1116,20 @@ export function mountStandby3dScene(
   };
   updateCameraTransform();
 
+  let rafId = 0;
+  let lastFrameTs = performance.now();
+  let lastRenderMs = 0;
+  let idleSettleFrames = 3;
+  const LOW_PERF_FRAME_INTERVAL_MS = 33;
+  let scheduleRenderFrame: () => void = () => {};
+  const wakeRender = (frames = 4) => {
+    idleSettleFrames = Math.max(idleSettleFrames, frames);
+    if (!disposed && !paused && !rafId) {
+      lastFrameTs = performance.now();
+      scheduleRenderFrame();
+    }
+  };
+
   const resize = (explicitW?: number, explicitH?: number) => {
     if (disposed) return;
     const parent = canvas.parentElement;
@@ -1103,6 +1140,7 @@ export function mountStandby3dScene(
     const baseFov = sceneId === 'forest' ? 39 : 34;
     camera.fov = camera.aspect > 2.05 ? baseFov + 2 : camera.aspect < 1.55 ? baseFov + 4 : baseFov;
     camera.updateProjectionMatrix();
+    wakeRender(2);
   };
   resize();
 
@@ -1120,6 +1158,7 @@ export function mountStandby3dScene(
     terrainPitch = 0;
     terrainRoll = 0;
     hasDrivenAway = false;
+    wakeRender(4);
   };
 
   const resetView = () => {
@@ -1134,6 +1173,7 @@ export function mountStandby3dScene(
     velPhi = 0;
     userOrbitOverrideTimer = 0;
     setUserMoved(false);
+    wakeRender(6);
   };
 
   // Pointer & multi-touch gesture handling (single-finger 360 orbit + pinch zoom + double-tap reset)
@@ -1181,6 +1221,7 @@ export function mountStandby3dScene(
       userOrbitOverrideTimer = 3.2;
       lastPinchDist = getPinchDistance();
     }
+    wakeRender(6);
   };
 
   const onPointerMove = (e: PointerEvent) => {
@@ -1205,6 +1246,7 @@ export function mountStandby3dScene(
       velPhi = dPhi * 0.48;
       userOrbitOverrideTimer = 3.2;
       if (movedDistance > 6) setUserMoved(true);
+      wakeRender(6);
     } else if (activePointers.size === 2) {
       const nextDist = getPinchDistance();
       if (nextDist !== null && lastPinchDist !== null && lastPinchDist > 12) {
@@ -1212,6 +1254,7 @@ export function mountStandby3dScene(
         targetRadius = clamp(targetRadius * scale, MIN_RADIUS, MAX_RADIUS);
         userOrbitOverrideTimer = 3.2;
         setUserMoved(true);
+        wakeRender(6);
       }
       lastPinchDist = nextDist;
     }
@@ -1259,6 +1302,7 @@ export function mountStandby3dScene(
     targetRadius = clamp(targetRadius * factor, MIN_RADIUS, MAX_RADIUS);
     userOrbitOverrideTimer = 3.2;
     setUserMoved(true);
+    wakeRender(6);
   };
 
   canvas.style.touchAction = 'none';
@@ -1347,6 +1391,7 @@ export function mountStandby3dScene(
     ready = true;
     applyThemeVisuals();
     renderer.render(scene, camera);
+    wakeRender(2);
     options.onReady?.();
   };
 
@@ -1362,11 +1407,11 @@ export function mountStandby3dScene(
     }
   };
 
-  // 1. Load photoreal Blender forest kit GLB (scanned pines, mossy rocks, ferns, grass, stumps, logs, PBR maps)
-  if (options.forestKitBase64 || options.forestKitUrl) {
+  // 1. Load photoreal Blender forest kit GLB (skip on lowPerf Android to save ~100MB RAM & GPU stalls)
+  if (!lowPerf && (options.forestKitBase64 || options.forestKitUrl)) {
     pendingForestLoads += 1;
     const onKitOk = (gltf: { scene: THREE.Group }) => {
-      if (!disposed) forestWorld.applyPhotorealKit(gltf.scene);
+      if (!disposed) ensureForestWorld().applyPhotorealKit(gltf.scene);
       finishOptionalForestLoad();
     };
     const onKitErr = () => finishOptionalForestLoad();
@@ -1383,7 +1428,7 @@ export function mountStandby3dScene(
   }
 
   // 2. Load real 360° misty_pines equirectangular photograph for forest sky dome
-  if (options.forestSkyUrl) {
+  if (!lowPerf && options.forestSkyUrl) {
     pendingForestLoads += 1;
     const texLoader = new THREE.TextureLoader();
     texLoader.load(
@@ -1405,7 +1450,7 @@ export function mountStandby3dScene(
   }
 
   // 3. Load real floating-point 256x128 misty_pines HDRI for authentic IBL metallic reflections on R50
-  if (options.forestHdrBase64 || options.forestHdrUrl) {
+  if (!lowPerf && (options.forestHdrBase64 || options.forestHdrUrl)) {
     pendingForestLoads += 1;
     const rgbeLoader = new RGBELoader();
     const applyHdrData = (hdrTex: THREE.DataTexture) => {
@@ -1451,8 +1496,8 @@ export function mountStandby3dScene(
     model.traverse(node => {
       if ((node as THREE.Mesh).isMesh) {
         const mesh = node as THREE.Mesh;
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
+        mesh.castShadow = !lowPerf;
+        mesh.receiveShadow = !lowPerf;
         const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
         for (const m of mats) {
           if (m && 'envMapIntensity' in m) {
@@ -1534,7 +1579,7 @@ export function mountStandby3dScene(
 
     // Soft collision deflection against tree trunks, mossy boulders & bollards (smooth sliding, never hard snag)
     const robotRadius = 0.44;
-    if (sceneId === 'forest') {
+    if (sceneId === 'forest' && forestWorld) {
       const guided = forestWorld.constrainPosition(robotX, robotZ, nextX, nextZ, robotRadius);
       nextX = guided.x;
       nextZ = guided.z;
@@ -1604,7 +1649,9 @@ export function mountStandby3dScene(
     // Living idle breathing + subtle dynamic body squat at speed
     const speedMag = Math.hypot(velFwd, velLat);
     const speedCrouch = -clamp(speedMag * 0.012, 0, 0.022);
-    const idleBreath = Math.sin(now * 0.0022) * (speedMag > 0.08 ? 0.004 : 0.0026);
+    const idleBreath = lowPerf && speedMag <= 0.02
+      ? 0
+      : Math.sin(now * 0.0022) * (speedMag > 0.08 ? 0.004 : 0.0026);
     const bodyDeltaY = currentBodyHeightOffset + speedCrouch + idleBreath;
 
     // Gait phase advances during strafe / turn-in-place for lifelike omni-legged stepping!
@@ -1699,23 +1746,24 @@ export function mountStandby3dScene(
     // Track overhead spotlight & forest directional sun shadows cleanly with the moving robot!
     spotTarget.position.set(robotX, robotY + 0.25, robotZ);
     heroSpot.position.set(robotX + 1.15, robotY + 3.55, robotZ - 1.05);
-    if (sceneId === 'forest') {
+    if (sceneId === 'forest' && forestWorld) {
       forestSunTarget.position.set(robotX, robotY + 0.2, robotZ);
       forestSun.position.set(robotX + 4.8, robotY + 9.2, robotZ - 5.4);
       forestWorld.update(dt, now, robotX, robotZ);
     }
   };
 
-  // Animation loop
-  let rafId = 0;
-  let lastFrameTs = performance.now();
-
+  // Animation loop: in lowPerf (Android/G20), cap at 30fps while moving and STOP completely (0% GPU) when idle!
   const renderTick = (now: number) => {
     if (disposed || paused) {
       rafId = 0;
       return;
     }
-    rafId = requestAnimationFrame(renderTick);
+
+    if (lowPerf && lastRenderMs > 0 && (now - lastRenderMs) < LOW_PERF_FRAME_INTERVAL_MS) {
+      rafId = requestAnimationFrame(renderTick);
+      return;
+    }
 
     const dt = Math.min(0.05, Math.max(0.001, (now - lastFrameTs) / 1000));
     lastFrameTs = now;
@@ -1767,13 +1815,56 @@ export function mountStandby3dScene(
     phi += (targetPhi - phi) * lerpAlpha;
     radius += (targetRadius - radius) * lerpAlpha;
 
-    pedestalMat.opacity = 0.90 + Math.sin(now * 0.0014) * 0.06;
+    pedestalMat.opacity = lowPerf ? 0.92 : (0.90 + Math.sin(now * 0.0014) * 0.06);
 
     updateCameraTransform();
     renderer.render(scene, camera);
+    lastRenderMs = now;
+
+    if (!lowPerf) {
+      rafId = requestAnimationFrame(renderTick);
+      return;
+    }
+
+    const isStillAnimating = dragging
+      || activePointers.size > 0
+      || Math.abs(inputDriveX) > 0.001
+      || Math.abs(inputDriveY) > 0.001
+      || Math.abs(inputTurnX) > 0.001
+      || Math.abs(velFwd) > 0.004
+      || Math.abs(velLat) > 0.004
+      || Math.abs(velYaw) > 0.004
+      || Math.abs(velTheta) > 0.0001
+      || Math.abs(velPhi) > 0.0001
+      || Math.abs(targetTheta - theta) > 0.0008
+      || Math.abs(targetPhi - phi) > 0.0008
+      || Math.abs(targetRadius - radius) > 0.002
+      || Math.abs(targetBodyHeightOffset - currentBodyHeightOffset) > 0.0006
+      || Math.abs(accelPitch) > 0.001
+      || Math.abs(turnRoll) > 0.001
+      || Math.abs(robotX - camFocus.x) > 0.002
+      || Math.abs(targetFocusY - camFocus.y) > 0.002
+      || Math.abs(robotZ - camFocus.z) > 0.002;
+
+    if (isStillAnimating) {
+      rafId = requestAnimationFrame(renderTick);
+    } else if (idleSettleFrames > 0) {
+      idleSettleFrames -= 1;
+      rafId = requestAnimationFrame(renderTick);
+    } else {
+      rafId = 0;
+    }
   };
 
-  rafId = requestAnimationFrame(renderTick);
+  scheduleRenderFrame = () => {
+    if (!disposed && !paused && !rafId) {
+      rafId = requestAnimationFrame(renderTick);
+    }
+  };
+
+  if (!paused) {
+    scheduleRenderFrame();
+  }
 
   return {
     setScene(next: Standby3dSceneId) {
@@ -1796,12 +1887,14 @@ export function mountStandby3dScene(
         }
         updateCameraTransform();
       }
+      wakeRender(4);
     },
     setAccentTone(next: Standby3dAccentTone) {
       const normalized: Standby3dAccentTone = next === 'fsdBlue' ? 'fsdBlue' : 'graphite';
       if (normalized === accentTone) return;
       accentTone = normalized;
       applyThemeVisuals();
+      wakeRender(2);
     },
     setInteractive(next: boolean) {
       interactive = next;
@@ -1820,18 +1913,23 @@ export function mountStandby3dScene(
           cancelAnimationFrame(rafId);
           rafId = 0;
         }
-      } else if (!disposed && !rafId) {
-        lastFrameTs = performance.now();
-        rafId = requestAnimationFrame(renderTick);
+      } else {
+        wakeRender(2);
       }
     },
     setBodyHeight(heightM: number | null | undefined) {
       applyBodyHeight(heightM);
+      wakeRender(6);
     },
     setDriveInput(driveX: number, driveY: number, turnX: number) {
-      inputDriveX = Number.isFinite(driveX) ? clamp(driveX, -1, 1) : 0;
-      inputDriveY = Number.isFinite(driveY) ? clamp(driveY, -1, 1) : 0;
-      inputTurnX = Number.isFinite(turnX) ? clamp(turnX, -1, 1) : 0;
+      const nx = Number.isFinite(driveX) ? clamp(driveX, -1, 1) : 0;
+      const ny = Number.isFinite(driveY) ? clamp(driveY, -1, 1) : 0;
+      const nt = Number.isFinite(turnX) ? clamp(turnX, -1, 1) : 0;
+      if (nx === inputDriveX && ny === inputDriveY && nt === inputTurnX) return;
+      inputDriveX = nx;
+      inputDriveY = ny;
+      inputTurnX = nt;
+      wakeRender(6);
     },
     resetView,
     resetRobot,
@@ -1854,8 +1952,8 @@ export function mountStandby3dScene(
         wheelSpinFL: fl?.wheelAngle ?? 0,
         kneeDeltaFL: fl?.lastKneeDelta ?? 0,
         articulated16Dof: legRigs.length === 4,
-        discoveredBeacons: forestWorld.getDiscoveredBeacons(),
-        totalBeacons: forestWorld.getTotalBeacons(),
+        discoveredBeacons: forestWorld?.getDiscoveredBeacons() ?? 0,
+        totalBeacons: forestWorld?.getTotalBeacons() ?? 0,
       };
     },
     dispose() {
@@ -1870,7 +1968,7 @@ export function mountStandby3dScene(
       if (typeof window !== 'undefined') {
         window.removeEventListener('resize', onWindowResize);
       }
-      forestWorld.dispose();
+      forestWorld?.dispose();
       if (currentSkyTex && currentSkyTex !== realForestSkyTex) currentSkyTex.dispose();
       if (realForestSkyTex) realForestSkyTex.dispose();
       if (currentFloorTex) currentFloorTex.dispose();

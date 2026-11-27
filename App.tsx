@@ -1,6 +1,6 @@
 import { setStatusBarHidden, setStatusBarStyle, StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, BackHandler, Keyboard, Modal, Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
@@ -65,6 +65,8 @@ function lastSeenLabel(value?: string | null) {
   const hours = Math.floor(minutes / 60);
   return hours < 24 ? `${hours} 小时前` : `${Math.floor(hours / 24)} 天前`;
 }
+
+const MemoStatusBar = memo(StatusBar);
 
 export default function App() {
   const { colors: appColors, isDark } = useAppTheme();
@@ -609,7 +611,7 @@ export default function App() {
   return (
     <ThemePreferenceContext.Provider value={stage === 'main' ? productTheme : 'dark'}>
       <SafeAreaProvider>
-        <StatusBar hidden={hideControlStatusBar} style={stage === 'main' ? (isDark ? 'light' : 'dark') : 'light'} />
+        <MemoStatusBar hidden={hideControlStatusBar} style={stage === 'main' ? (isDark ? 'light' : 'dark') : 'light'} />
 
         {stage === 'ble-discovery' ? (
           <BleDiscoveryScreen

@@ -2878,6 +2878,7 @@ export function ControlScreen({
       safeInsets: landscapeSafeInsets,
       previewSafeAreaGuides,
       standbyScene,
+      standbyPaused: !appActive || leaving,
       accentTone,
       onStickFrameLayout: handleStickArea,
       video: videoPresentation || videoFrame ? <ControlVideoSurface presentation={videoPresentation} surface={videoFrame} active={appActive && !leaving} onInterrupted={handleCancel}
