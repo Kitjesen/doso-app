@@ -9,7 +9,7 @@ const app = await readFile(new URL('../App.tsx', import.meta.url), 'utf8');
 for (const text of [
   'useAppTheme()',
   'useWindowDimensions()',
-  "edges={__DEV__ && developmentInput ? ['left', 'right'] : ['top', 'left', 'right', 'bottom']}",
+  "edges={landscapeImmersiveStage && cameraHud ? [] : (__DEV__ && developmentInput ? ['left', 'right'] : ['top', 'left', 'right', 'bottom'])}",
   '<ControlJoystickPair',
   'floating',
   "axis: 'xy', label: '移动'",
@@ -52,7 +52,7 @@ assert.ok(app.includes('onRefreshBodyHeight={brainstemControl.onRefreshBodyHeigh
 assert.match(control, /export function ControlScreen\(\{\s+allowInteractionPreview = false, showPlanning = true, prepareWorkspaceLeaveRef, dismissWorkspaceOverlayRef,\s+developmentInput, productionInput, controlSession, onBack,/);
 assert.match(control, /if \(__DEV__ && developmentInput\?\.ready && appActive && !leaving\) developmentInput\.onDrive\(value\)/);
 assert.match(control, /if \(__DEV__ && developmentInput\?\.ready && appActive && !leaving\) developmentInput\.onTurn\(value\)/);
-assert.match(control, /const ignoreLocalInput = \(_value: JoystickVector\) => \{\};/);
+assert.match(control, /const ignoreLocalInput = \(_value: JoystickVector\) => \{\s*\};/);
 assert.match(control, /back:[^\n]*height: 48[^\n]*width: 48/);
 // "enableMotor" is now an action key. A direct transport call remains forbidden.
 assert.doesNotMatch(control, /sendCommand|acquireControl|\benableMotor\s*\(|dispatchRobot|fetch\(|\.rpc\(|\bNativeModules\b/);
