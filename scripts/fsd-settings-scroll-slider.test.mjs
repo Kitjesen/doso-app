@@ -179,6 +179,35 @@ test('FsdDetentSlider locks horizontal drags, quantizes by step, clamps bounds, 
   assert.deepEqual(completes, [60]);
 });
 
+test('FsdDetentSlider locks page origin on grant so Android locationX re-targeting outside track never jumps to max', () => {
+  const changes = [];
+  const completes = [];
+  const { tree, getPanConfig } = renderFsdMotion('FsdDetentSlider', {
+    value: 60,
+    min: 20,
+    max: 100,
+    step: 10,
+    onChange: v => changes.push(v),
+    onComplete: v => completes.push(v),
+    accessibilityLabel: '最大速度限制',
+  });
+  tree.props.onLayout({ nativeEvent: { layout: { width: 160 } } });
+  // Track children must not steal hit target / shift locationX origin.
+  const trackBase = tree.props.children[0];
+  assert.equal(trackBase.props.pointerEvents, 'none');
+  assert.equal(trackBase.props.children.props.pointerEvents, 'none');
+
+  const pan = getPanConfig();
+  // Track starts at screen pageX = 240. User presses midpoint: pageX = 320, locationX = 80.
+  pan.onPanResponderGrant({ nativeEvent: { pageX: 320, locationX: 80 } }, { x0: 320, moveX: 320, dx: 0, dy: 0 });
+  // User drags left past left edge to pageX = 210; Android Fabric jumps locationX to screen-space +210!
+  pan.onPanResponderMove({ nativeEvent: { pageX: 210, locationX: 210 } }, { moveX: 210, dx: -110, dy: 4 });
+  assert.deepEqual(changes, [20], 'dragging past left edge stays clamped to min (20) despite jumped locationX');
+  // User releases while still outside track; must commit min (20), never jump to max (100).
+  pan.onPanResponderRelease({ nativeEvent: { pageX: 210, locationX: 210 } }, { moveX: 210, dx: -110, dy: 4 });
+  assert.deepEqual(completes, [20]);
+});
+
 test('FsdDetentSlider disabled mode declines gesture capture and ignores callbacks', () => {
   const changes = [];
   const { tree, getPanConfig } = renderFsdMotion('FsdDetentSlider', {
