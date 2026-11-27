@@ -10,7 +10,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.doso.robot",
-      "buildNumber": "5",
+      "buildNumber": "1",
       "usesAppleSignIn": true,
       "associatedDomains": [
         "applinks:links.dosorobotics.com"
@@ -23,7 +23,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.doso.robot",
-      "versionCode": 56,
+      "versionCode": 1,
       "intentFilters": [
         {
           "action": "VIEW",

@@ -8,43 +8,61 @@
 
 ## 一、如何上传并发布新的 Android App 更新
 
-App 客户端会向 `https://api.dosorobotics.com/ota/v1/apps/android/latest?channel=prod&version_code=<当前versionCode>` 查询最新版本（可通过构建环境变量 `EXPO_PUBLIC_OTA_BASE_URL` / `EXPO_PUBLIC_OTA_CHANNEL` 覆盖）。
+App 客户端会向 `https://api.dosorobotics.com/ota/v1/apps/android/latest?channel=<channel>&version_code=<当前versionCode>` 查询最新版本（可通过构建环境变量 `EXPO_PUBLIC_OTA_BASE_URL` / `EXPO_PUBLIC_OTA_CHANNEL` 覆盖）：
+
+- **QA 测试包（`com.doso.robot.qa`）**：通过 `qa-build-environment.mjs` 或 `EXPO_PUBLIC_OTA_CHANNEL=qa` 构建，固定查询 **`--channel qa`**。
+- **正式生产包（`com.doso.robot`，正式签名）**：默认查询 **`--channel prod`**，避免 QA 调试签名包混入正式用户通道。
 
 ### 1. 递增版本号
 
+> 当前发布基线已重置为 `0.0.1`（`versionCode = 1`）。曾安装历史 QA `code56` 的设备因 Android 禁止低版本号覆盖高版本号，首次换装 `code1` 前需先卸载旧包一次；此后 `1 -> 2 -> 3` 可正常覆盖安装与 OTA 升级。
+
 1. 修改 [app.json](../app.json)：
    - `expo.version`（如 `"0.0.2"`）
-   - `expo.android.versionCode`（必须严格大于上一版，如 `57`）
+   - `expo.android.versionCode`（如 `2`，当前基线为 `1`，每次发布严格递增）
+   - `expo.ios.buildNumber`（按发布节奏同步递增）
 2. 同步更新 [src/features/app-update/appVersion.ts](../src/features/app-update/appVersion.ts)：
    - `INSTALLED_APP_VERSION_NAME` 与 `INSTALLED_APP_VERSION_CODE` 必须与 `app.json` 完全一致（单测会强制校验）。
+3. 若本机未重新执行 `expo prebuild` 直接运行 Gradle，请同步更新 [android/app/build.gradle](../android/app/build.gradle) 中的 `versionCode`。
 
 ### 2. 构建并签名 Release APK
 
 在 `doso-app` 根目录构建 Android Release 安装包（例如本地 Gradle `assembleRelease` 或 EAS Build），产物记为 `dist/doso-app-<versionName>.apk`。
 
-### 3. 上传 APK 到阿里云私有 OSS
+### 3. 一键上传并发布到正式 OTA（推荐）
 
-使用 `robot-cloud/tools/deploy/doso-ota-ops.py` 执行上传（仅需写入私有 OSS 凭据到当前终端环境变量）：
+使用 `robot-cloud/tools/deploy/doso-ota-ops.py` 写入阿里云私有 OSS 凭据与 OTA 发布令牌后一键完成上传、注册与校验：
 
 ```powershell
 $env:DOSO_OSS_ACCESS_KEY_ID = "<your-oss-ak>"
 $env:DOSO_OSS_ACCESS_KEY_SECRET = "<your-oss-sk>"
 $env:DOSO_RELEASE_API_TOKEN = "<your-ota-release-bearer-token>"
 
+python D:\DOSO\robot-cloud\tools\deploy\doso-ota-ops.py publish-android `
+  --apk dist\doso-app-0.0.2.apk `
+  --channel prod `
+  --version-name 0.0.2 `
+  --version-code 2 `
+  --min-supported-code 1 `
+  --object-key apps/android/prod/0.0.2/doso-0.0.2.apk `
+  --changelog "优化操控与版本更新体验"
+```
+
+### 4. 分步上传与发布（可选）
+
+如需拆开执行，也可先上传 OSS 再发布 APK 元数据：
+
+```powershell
 python D:\DOSO\robot-cloud\tools\deploy\doso-ota-ops.py oss-upload `
   --file dist\doso-app-0.0.2.apk `
   --object-key apps/android/prod/0.0.2/doso-0.0.2.apk `
   --content-type application/vnd.android.package-archive
-```
 
-### 4. 向正式 OTA 服务发布 APK 元数据
-
-```powershell
 python D:\DOSO\robot-cloud\tools\deploy\doso-ota-ops.py android-publish `
   --channel prod `
   --version-name 0.0.2 `
-  --version-code 57 `
-  --min-supported-code 56 `
+  --version-code 2 `
+  --min-supported-code 1 `
   --object-key apps/android/prod/0.0.2/doso-0.0.2.apk `
   --apk dist\doso-app-0.0.2.apk `
   --changelog "优化操控与版本更新体验"
@@ -55,7 +73,7 @@ python D:\DOSO\robot-cloud\tools\deploy\doso-ota-ops.py android-publish `
 ### 5. 验证接口与 App 端拉取
 
 ```powershell
-curl.exe -sS "https://api.dosorobotics.com/ota/v1/apps/android/latest?channel=prod&version_code=56"
+curl.exe -sS "https://api.dosorobotics.com/ota/v1/apps/android/latest?channel=prod&version_code=1"
 ```
 
 确认返回 `updateAvailable: true`、`downloadUrl` 为签名 HTTPS 地址且 `apkSha256` 一致后，在手机 App「关于与隐私 → 检查更新」或设置页点击「检查更新」，即可弹出下载提示或点击「下载更新」拉起下载安装。

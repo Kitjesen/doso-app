@@ -29,6 +29,7 @@ export function createQaBuildEnvironment(host, configuration) {
     EXPO_PUBLIC_SUPABASE_URL: SUPABASE_URL,
     EXPO_PUBLIC_SUPABASE_URL_ANDROID: SUPABASE_URL,
     EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: configuration.publishableKey,
+    EXPO_PUBLIC_OTA_CHANNEL: 'qa',
   };
 }
 

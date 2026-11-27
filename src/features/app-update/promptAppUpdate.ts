@@ -11,13 +11,11 @@ import {
 import { INSTALLED_APP_VERSION_CODE } from './appVersion';
 
 function configuredOtaBaseUrl(): string {
-  const raw = typeof process !== 'undefined' ? process.env?.EXPO_PUBLIC_OTA_BASE_URL : undefined;
-  return resolveOtaBaseUrl(raw);
+  return resolveOtaBaseUrl(process.env.EXPO_PUBLIC_OTA_BASE_URL);
 }
 
 function configuredOtaChannel(): string {
-  const raw = typeof process !== 'undefined' ? process.env?.EXPO_PUBLIC_OTA_CHANNEL : undefined;
-  return raw?.trim() || DEFAULT_OTA_CHANNEL;
+  return process.env.EXPO_PUBLIC_OTA_CHANNEL?.trim() || DEFAULT_OTA_CHANNEL;
 }
 
 export async function openApkDownload(info: AndroidApkReleaseInfo): Promise<void> {
