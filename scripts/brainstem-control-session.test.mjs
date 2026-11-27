@@ -2006,3 +2006,25 @@ test('operationReadiness.stop stays ready whenever connected without a stick lea
     f.session.dispose();
   }
 });
+
+test('running gesture allows App joystick acquire, sit-down, and stand-up interrupt while keeping playGesture blocked', async () => {
+  const f = fixture();
+  try {
+    await f.session.connect(endpoint, 'doso-g20@robot');
+    f.set({ fsmKind: 'transitioning', transition: 'gesture', motorOutputEnabled: true, readyForWalk: true });
+    await f.session.refresh();
+    assert.equal(f.session.canAcquire, true);
+    assert.equal(f.session.operationReadiness.sit.ready, true);
+    assert.equal(f.session.operationReadiness.stand.ready, true);
+    assert.equal(f.session.operationReadiness.playGesture.ready, false);
+
+    // Non-gesture transitions (stand_up / sit_down) remain strictly blocked.
+    f.set({ fsmKind: 'transitioning', transition: 'stand_up', motorOutputEnabled: true, readyForWalk: false });
+    await f.session.refresh();
+    assert.equal(f.session.canAcquire, false);
+    assert.equal(f.session.operationReadiness.sit.ready, false);
+    assert.equal(f.session.operationReadiness.stand.ready, false);
+  } finally {
+    f.session.dispose();
+  }
+});
